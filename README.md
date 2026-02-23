@@ -1,4 +1,14 @@
-﻿# EasyAgentTeam
+﻿# 碎碎念
+- 赶在春节假期内做完，可以理智气壮开源。 自己手搓的vibe coding项目，主力AI是Codex，后期大部分修复工作基于MiniMax 2.5和GLM5。
+- 一个比较简单的编排器框架。适合觉得编程类多AI工具比较麻烦的人。
+- 由于开发中经费断了，Codex的额度到了，从接MiniMax以后就没有管过Codex兼容了，可能现在有比较大问题。
+- 支持MiniMax是因为测试期间Codex额度用的太快，我发现MiniMax两大管饱就用了MiniMax。
+- 参考了MiniMax的官方设计。 没有用过openclaw和opencode。
+- 做这个项目还是挺有意思的。 估计日后不会维护了。
+- 其实设计了让Agent自己生成新的团队Agent的来加入工作的功能，并且接口也已经可以正常工作了，但是没钱试了...
+- 新年快乐。
+
+# EasyAgentTeam
 
 Task-driven multi-agent collaboration framework for software delivery.
 
@@ -119,19 +129,6 @@ Place screenshots under `docs/images/` with the exact filenames below.
 
 ### 8) Team Settings
 ![Team Settings](docs/images/ui-08-teamsetting.png)
-
-## Open Source Readiness Checklist
-
-Before public release, complete:
-
-- Add `CONTRIBUTING.md`
-- Add `CODE_OF_CONDUCT.md`
-- Add `SECURITY.md`
-- Add issue/PR templates in `.github/`
-- Add CI workflow for build + tests
-- Remove local runtime artifacts from repo (`data/`, `.minimax/`, logs if tracked)
-- Publish architecture diagram and API examples
-- Pin minimal supported versions (Node, pnpm, OS)
 
 ## Status
 
