@@ -1,0 +1,4 @@
+packages:
+  - "server"
+  - "dashboard-v2"
+  - "agent_library"

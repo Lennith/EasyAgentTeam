@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "event-record.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "projectId",
+    "eventType",
+    "source",
+    "createdAt",
+    "payload"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "eventType": { "type": "string", "minLength": 1 },
+    "source": { "type": "string", "enum": ["manager", "agent", "system", "dashboard"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "sessionId": { "type": "string" },
+    "taskId": { "type": "string" },
+    "payload": { "type": "object" }
+  }
+}

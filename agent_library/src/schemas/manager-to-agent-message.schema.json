@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "manager-to-agent-message.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["envelope", "body"],
+  "properties": {
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message_id",
+        "project_id",
+        "timestamp",
+        "sender",
+        "via",
+        "intent",
+        "priority",
+        "correlation"
+      ],
+      "properties": {
+        "message_id": { "type": "string", "minLength": 1 },
+        "project_id": { "type": "string", "minLength": 1 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "sender": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "role", "session_id"],
+          "properties": {
+            "type": { "type": "string", "enum": ["agent", "user", "system"] },
+            "role": { "type": "string", "minLength": 1 },
+            "session_id": { "type": "string", "minLength": 1 }
+          }
+        },
+        "via": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "type": "string", "const": "manager" }
+          }
+        },
+        "intent": { "type": "string", "minLength": 1 },
+        "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
+        "correlation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request_id"],
+          "properties": {
+            "request_id": { "type": "string", "minLength": 1 },
+            "parent_request_id": { "type": "string" },
+            "task_id": { "type": "string" }
+          }
+        },
+        "accountability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["owner_role", "report_to", "expect"],
+          "properties": {
+            "owner_role": { "type": "string", "minLength": 1 },
+            "report_to": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["role"],
+              "properties": {
+                "role": { "type": "string", "minLength": 1 },
+                "session_id": { "type": "string" }
+              }
+            },
+            "expect": {
+              "type": "string",
+              "enum": ["FINAL_REPORT", "DELIVERABLE_READY", "CLARIFICATION_ANSWER"]
+            },
+            "deadline": { "type": "string", "format": "date-time" }
+          }
+        },
+        "dispatch_policy": { "type": "string", "enum": ["auto_latest_session", "fixed_session", "broadcast"] }
+      }
+    },
+    "body": {
+      "type": "object"
+    }
+  }
+}

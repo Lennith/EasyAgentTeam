@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lock-record.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "lockId",
+    "projectId",
+    "lockKey",
+    "sanitizedKey",
+    "ownerSessionId",
+    "ttlSeconds",
+    "acquiredAt",
+    "expiresAt",
+    "renewCount",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "lockId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "lockKey": { "type": "string", "minLength": 1 },
+    "sanitizedKey": { "type": "string", "minLength": 1 },
+    "ownerSessionId": { "type": "string", "minLength": 1 },
+    "targetType": { "type": "string", "enum": ["file", "dir"] },
+    "purpose": { "type": "string" },
+    "ttlSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+    "acquiredAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "releasedAt": { "type": "string", "format": "date-time" },
+    "renewCount": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["active", "released", "expired"] },
+    "stealReason": { "type": "string" },
+    "stolenFromSessionId": { "type": "string" }
+  }
+}

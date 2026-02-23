@@ -1,0 +1,76 @@
+{
+  "scenario_id": "seeded_dependency_chain_v2",
+  "project_id": "e2e_dispatch_chain_v1",
+  "project_name": "E2E Dispatch Chain v1",
+  "roles": {
+    "A": "e2e_lead_a",
+    "B": "e2e_impl_b",
+    "C": "e2e_impl_c",
+    "D": "e2e_impl_d"
+  },
+  "agent_model": {
+    "tool": "minimax",
+    "model": "MiniMax-M2.5",
+    "effort": "high"
+  },
+  "route_table": {
+    "e2e_lead_a": ["e2e_impl_b", "e2e_impl_c", "e2e_impl_d"],
+    "e2e_impl_b": ["e2e_lead_a"],
+    "e2e_impl_c": ["e2e_lead_a"],
+    "e2e_impl_d": ["e2e_lead_a"]
+  },
+  "task_assign_route_table": {
+    "e2e_lead_a": ["e2e_impl_b", "e2e_impl_c", "e2e_impl_d"],
+    "e2e_impl_b": [],
+    "e2e_impl_c": [],
+    "e2e_impl_d": []
+  },
+  "route_discuss_rounds": {
+    "e2e_lead_a": {
+      "e2e_impl_b": 3,
+      "e2e_impl_c": 3,
+      "e2e_impl_d": 3
+    },
+    "e2e_impl_b": { "e2e_lead_a": 3 },
+    "e2e_impl_c": { "e2e_lead_a": 3 },
+    "e2e_impl_d": { "e2e_lead_a": 3 }
+  },
+  "seed_tasks": {
+    "task_a": {
+      "task_id": "task-e2e-A",
+      "title": "Task A owned by role A",
+      "owner_role_ref": "A",
+      "task_kind": "EXECUTION",
+      "priority": 100,
+      "dependencies": [],
+      "content": "Role A executes Task A first."
+    },
+    "task_b_placeholder": {
+      "task_id": "task-e2e-B",
+      "title": "Task B placeholder (manager-created), depends on A",
+      "owner_role_ref": "A",
+      "task_kind": "EXECUTION",
+      "priority": 90,
+      "dependencies": ["task-e2e-A"],
+      "content": "Manager-created placeholder task for dependency gate validation."
+    },
+    "task_b1_child": {
+      "task_id": "task-e2e-B1",
+      "title": "Task B1 child under B, owned by role B",
+      "owner_role_ref": "B",
+      "task_kind": "EXECUTION",
+      "priority": 80,
+      "dependencies": [],
+      "content": "Role B executes child task B1. It must be blocked until ancestor B dependency gate is open."
+    },
+    "task_c": {
+      "task_id": "task-e2e-C",
+      "title": "Task C depends on B, owned by role C",
+      "owner_role_ref": "C",
+      "task_kind": "EXECUTION",
+      "priority": 70,
+      "dependencies": ["task-e2e-B"],
+      "content": "Role C executes Task C after B is completed."
+    }
+  }
+}

@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.vite/
+*.log
+
+# runtime artifacts
+logs/
+test_report/
+
+# local model/session caches
+.minimax/
+.trae/
+dashboard-v2/.minimax/
+dashboard-v2/Agents/
+
+# runtime data (keep skeleton only)
+data/projects/**
+!data/projects/
+data/settings/runtime.json
+data/teams/**
+!data/.gitkeep
+!data/projects/.gitkeep
+
+# OS/editor noise
+nul

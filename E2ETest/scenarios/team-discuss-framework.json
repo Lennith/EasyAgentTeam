@@ -1,0 +1,101 @@
+{
+  "scenario_id": "team_discuss_framework_v1",
+  "scenario_kind": "discuss_framework",
+  "project_id": "e2e_team_discuss_v1",
+  "project_name": "E2E Team Discuss Framework v1",
+  "roles": {
+    "LEAD": "e2e_discuss_lead",
+    "B": "e2e_arch_b",
+    "C": "e2e_arch_c",
+    "D": "e2e_arch_d"
+  },
+  "agent_model": {
+    "tool": "minimax",
+    "model": "MiniMax-M2.5",
+    "effort": "high"
+  },
+  "route_table": {
+    "e2e_discuss_lead": ["e2e_arch_b", "e2e_arch_c", "e2e_arch_d"],
+    "e2e_arch_b": ["e2e_discuss_lead", "e2e_arch_c", "e2e_arch_d"],
+    "e2e_arch_c": ["e2e_discuss_lead", "e2e_arch_b", "e2e_arch_d"],
+    "e2e_arch_d": ["e2e_discuss_lead", "e2e_arch_b", "e2e_arch_c"]
+  },
+  "task_assign_route_table": {
+    "e2e_discuss_lead": ["e2e_arch_b", "e2e_arch_c", "e2e_arch_d"],
+    "e2e_arch_b": [],
+    "e2e_arch_c": [],
+    "e2e_arch_d": []
+  },
+  "route_discuss_rounds": {
+    "e2e_discuss_lead": {
+      "e2e_arch_b": 4,
+      "e2e_arch_c": 4,
+      "e2e_arch_d": 4
+    },
+    "e2e_arch_b": {
+      "e2e_discuss_lead": 4,
+      "e2e_arch_c": 2,
+      "e2e_arch_d": 2
+    },
+    "e2e_arch_c": {
+      "e2e_discuss_lead": 4,
+      "e2e_arch_b": 2,
+      "e2e_arch_d": 2
+    },
+    "e2e_arch_d": {
+      "e2e_discuss_lead": 4,
+      "e2e_arch_b": 2,
+      "e2e_arch_c": 2
+    }
+  },
+  "seed_tasks": {
+    "task_lead_plan": {
+      "task_id": "task-discuss-lead-plan",
+      "title": "Team lead defines collaboration framework scope",
+      "task_kind": "EXECUTION",
+      "priority": 100,
+      "dependencies": [],
+      "content": "Define architecture framework boundaries and decomposition criteria."
+    },
+    "task_design_b": {
+      "task_id": "task-discuss-arch-b",
+      "title": "Agent B writes architecture design draft",
+      "task_kind": "EXECUTION",
+      "priority": 90,
+      "dependencies": ["task-discuss-lead-plan"],
+      "content": "Produce B's design proposal under docs/architecture/."
+    },
+    "task_design_c": {
+      "task_id": "task-discuss-arch-c",
+      "title": "Agent C writes architecture design draft",
+      "task_kind": "EXECUTION",
+      "priority": 90,
+      "dependencies": ["task-discuss-lead-plan"],
+      "content": "Produce C's design proposal under docs/architecture/."
+    },
+    "task_design_d": {
+      "task_id": "task-discuss-arch-d",
+      "title": "Agent D writes architecture design draft",
+      "task_kind": "EXECUTION",
+      "priority": 90,
+      "dependencies": ["task-discuss-lead-plan"],
+      "content": "Produce D's design proposal under docs/architecture/."
+    },
+    "task_alignment": {
+      "task_id": "task-discuss-alignment",
+      "title": "Lead organizes cross-review and consistency alignment",
+      "task_kind": "EXECUTION",
+      "priority": 80,
+      "dependencies": ["task-discuss-arch-b", "task-discuss-arch-c", "task-discuss-arch-d"],
+      "content": "Cross-review three drafts, resolve conflicts via discuss flow."
+    },
+    "task_final": {
+      "task_id": "task-discuss-final-consensus",
+      "title": "Lead publishes final agreed framework design",
+      "task_kind": "EXECUTION",
+      "priority": 70,
+      "dependencies": ["task-discuss-alignment"],
+      "content": "Publish final consensus architecture with rationale and trade-offs."
+    }
+  }
+}

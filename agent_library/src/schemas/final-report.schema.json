@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "final-report.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reportId",
+    "projectId",
+    "sessionId",
+    "agentId",
+    "status",
+    "summary",
+    "createdAt",
+    "artifacts",
+    "correlation",
+    "problems",
+    "suggest_next_actions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "reportId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "agentId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["DONE", "HANDOFF", "BLOCKED", "NEED_CLARIFICATION", "FAILED"]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "details": { "type": "string" },
+    "alert": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "metadata": { "type": "object" },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id"],
+      "properties": {
+        "request_id": { "type": "string", "minLength": 1 },
+        "parent_request_id": { "type": "string" },
+        "task_id": { "type": "string" }
+      }
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "needed_from_manager"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "message": { "type": "string" },
+          "needed_from_manager": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "suggest_next_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["to_role", "type", "payload"],
+        "properties": {
+          "to_role": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "minLength": 1 },
+          "payload": { "type": "object" }
+        }
+      }
+    },
+    "managerRequests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "type": "string", "minLength": 1 },
+          "lockIds": { "type": "array", "items": { "type": "string" } },
+          "lockKeys": { "type": "array", "items": { "type": "string" } },
+          "relativePaths": { "type": "array", "items": { "type": "string" } },
+          "ttlSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+          "purpose": { "type": "string" },
+          "locks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["lockKey"],
+              "properties": {
+                "lockKey": { "type": "string", "minLength": 1 },
+                "ttlSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+                "purpose": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

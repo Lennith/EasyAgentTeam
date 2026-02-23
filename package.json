@@ -1,0 +1,28 @@
+{
+  "name": "auto-develop-framework",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.12.3",
+  "scripts": {
+    "server": "npm --prefix server run dev",
+    "web": "npm --prefix dashboard-v2 run dev",
+    "build": "npm --prefix agent_library run build && npm --prefix server run build && npm --prefix dashboard-v2 run build",
+    "test:smoke": "node tools/check_schemas.mjs",
+    "test:api": "node tools/verify_dev.mjs",
+    "test:step1": "node tools/verify_step1.mjs",
+    "test:step2": "node tools/verify_step2.mjs",
+    "test:step3": "node tools/verify_step3.mjs",
+    "test:step4": "node tools/verify_step4.mjs",
+    "test:step5": "node tools/verify_step5.mjs",
+    "test:step6": "node tools/verify_step6.mjs",
+    "test:unit": "npm --prefix server run test",
+    "mock:report": "node --import tsx tools/mock_report.ts",
+    "mock:lock": "node --import tsx tools/mock_lock.ts",
+    "mock:workflow": "node --import tsx tools/mock_workflow.ts",
+    "mock:session": "node --import tsx tools/mock_session.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "tsx": "^4.20.5"
+  }
+}

@@ -1,0 +1,410 @@
+import type {
+  ProjectSummary,
+  ProjectDetail,
+  SessionRecord,
+  TaskTreeResponse,
+  TaskTreeNode,
+  TaskDetail,
+  LockRecord,
+  EventRecord,
+  AgentDefinition,
+  AgentTemplateDefinition,
+  TemplateDefinition,
+  AgentIOTimelineItem,
+  OrchestratorStatus,
+  OrchestratorSettings,
+  RuntimeSettings,
+  ModelInfo,
+  SendMessageRequest,
+  CreateProjectRequest,
+  RoutingConfigRequest,
+  DispatchResult,
+  TaskActionRequest,
+  TaskPatchRequest,
+  TeamRecord,
+  TeamSummary,
+  CreateTeamRequest,
+  UpdateTeamRequest,
+} from "@/types";
+
+const API_BASE = "/api";
+
+function formatError(error: unknown): string | undefined {
+  if (error === undefined || error === null) return undefined;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const obj = error as Record<string, unknown>;
+    if (typeof obj.message === "string") return obj.message;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "[object Object]";
+    }
+  }
+  return String(error);
+}
+
+async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    ...options,
+  });
+  const text = await response.text();
+  let data: unknown = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { error: text };
+    }
+  }
+  if (!response.ok) {
+    throw new Error(formatError((data as { error?: unknown }).error) ?? `HTTP ${response.status}`);
+  }
+  return data as T;
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    let data: unknown = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+    throw new Error(formatError((data as { error?: unknown }).error) ?? `HTTP ${response.status}`);
+  }
+  return response.text();
+}
+
+function mapSessionFields(raw: Record<string, unknown>): SessionRecord {
+  return {
+    sessionId: (raw.sessionId ?? raw.session_id ?? raw.sessionKey) as string,
+    projectId: (raw.projectId ?? raw.project_id) as string,
+    role: raw.role as string,
+    status: raw.status as SessionRecord["status"],
+    createdAt: (raw.createdAt ?? raw.created_at) as string,
+    updatedAt: (raw.updatedAt ?? raw.updated_at) as string,
+    currentTaskId: (raw.currentTaskId ?? raw.current_task_id) as string | undefined,
+    lastHeartbeat: (raw.lastActiveAt ?? raw.last_heartbeat ?? raw.lastHeartbeat) as string | undefined,
+    lastActiveAt: (raw.lastActiveAt ?? raw.last_active_at) as string | undefined,
+    lastDispatchedAt: (raw.lastDispatchedAt ?? raw.last_dispatched_at) as string | undefined,
+    agentTool: raw.agentTool as string | undefined,
+    sessionKey: raw.sessionKey as string | undefined,
+    providerSessionId: raw.providerSessionId as string | null | undefined,
+    provider: raw.provider as string | undefined,
+    locksHeldCount: raw.locksHeldCount as number | undefined,
+  };
+}
+
+function mapEventFields(raw: Record<string, unknown>): EventRecord {
+  return {
+    eventId: (raw.eventId ?? raw.event_id) as string,
+    eventType: (raw.eventType ?? raw.event_type) as string,
+    source: raw.source as string,
+    createdAt: (raw.createdAt ?? raw.created_at) as string,
+    sessionId: (raw.sessionId ?? raw.session_id) as string | undefined,
+    payload: (raw.payload ?? {}) as Record<string, unknown>,
+  };
+}
+
+export const projectApi = {
+  list: () => fetchJSON<{ items: ProjectSummary[] }>(`${API_BASE}/projects`),
+  
+  get: (projectId: string) => fetchJSON<ProjectDetail>(`${API_BASE}/projects/${encodeURIComponent(projectId)}`),
+  
+  create: (data: CreateProjectRequest) => fetchJSON<{ projectId: string }>(`${API_BASE}/projects`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  }),
+  
+  delete: (projectId: string) => fetchJSON<{ success: boolean }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE",
+  }),
+  
+  getEvents: async (projectId: string, since?: string): Promise<EventRecord[]> => {
+    const url = since 
+      ? `${API_BASE}/projects/${encodeURIComponent(projectId)}/events?since=${encodeURIComponent(since)}`
+      : `${API_BASE}/projects/${encodeURIComponent(projectId)}/events`;
+    const text = await fetchText(url);
+    const lines = text.split("\n").filter(line => line.trim());
+    return lines.map(line => mapEventFields(JSON.parse(line)));
+  },
+  
+  getSessions: async (projectId: string): Promise<{ items: SessionRecord[] }> => {
+    const data = await fetchJSON<{ items: Record<string, unknown>[] }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions`);
+    return { items: (data.items ?? []).map(mapSessionFields) };
+  },
+  
+  getTaskTree: (projectId: string, options?: { 
+    focus_task_id?: string; 
+    max_descendant_depth?: number; 
+    include_external_dependencies?: boolean;
+  }) => {
+    const params = new URLSearchParams();
+    if (options?.focus_task_id) params.set("focus_task_id", options.focus_task_id);
+    if (options?.max_descendant_depth) params.set("max_descendant_depth", String(options.max_descendant_depth));
+    if (options?.include_external_dependencies !== undefined) params.set("include_external_dependencies", String(options.include_external_dependencies));
+    const query = params.toString();
+    const url = `${API_BASE}/projects/${encodeURIComponent(projectId)}/task-tree${query ? `?${query}` : ""}`;
+    return fetchJSON<TaskTreeResponse>(url);
+  },
+  
+  getTaskDetail: (projectId: string, taskId: string) => 
+    fetchJSON<TaskDetail>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/detail`),
+  
+  taskAction: (projectId: string, data: TaskActionRequest) => 
+    fetchJSON<{ taskId?: string; success: boolean }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/task-actions`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  patchTask: (projectId: string, taskId: string, data: TaskPatchRequest) => 
+    fetchJSON<{ success: boolean; task: TaskTreeNode }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  
+  getLocks: (projectId: string) => fetchJSON<{ items: LockRecord[] }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/locks`),
+  
+  acquireLock: (projectId: string, data: { session_id: string; target_type: "file" | "dir"; lock_key: string; ttl_seconds: number; purpose?: string }) => 
+    fetchJSON<{ result: string }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/locks/acquire`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  renewLock: (projectId: string, data: { session_id: string; lock_key: string }) => 
+    fetchJSON<{ result: string }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/locks/renew`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  releaseLock: (projectId: string, data: { session_id: string; lock_key: string }) => 
+    fetchJSON<{ result: string }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/locks/release`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  updateRoutingConfig: (projectId: string, data: RoutingConfigRequest) => 
+    fetchJSON<ProjectDetail>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/routing-config`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  
+  getTaskAssignRouting: (projectId: string) => 
+    fetchJSON<{ project_id: string; task_assign_route_table: Record<string, string[]>; updated_at: string }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/task-assign-routing`),
+  
+  updateTaskAssignRouting: (projectId: string, taskAssignRouteTable: Record<string, string[]>) => 
+    fetchJSON<{ project_id: string; task_assign_route_table: Record<string, string[]>; updated_at: string }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/task-assign-routing`, {
+      method: "PATCH",
+      body: JSON.stringify({ task_assign_route_table: taskAssignRouteTable }),
+    }),
+  
+  sendMessage: (projectId: string, data: SendMessageRequest) => 
+    fetchJSON<{ requestId: string; messageId: string; resolvedSessionId: string; messageType: string; buffered?: boolean }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/messages/send`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  getAgentIOTimeline: async (projectId: string, limit?: number): Promise<{ items: AgentIOTimelineItem[] }> => {
+    const url = limit 
+      ? `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-io/timeline?limit=${limit}`
+      : `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-io/timeline`;
+    try {
+      const data = await fetchJSON<{ items: Record<string, unknown>[] }>(url);
+      return { 
+        items: (data.items ?? []).map(raw => ({
+          id: (raw.itemId ?? raw.id ?? raw.ioId) as string,
+          projectId: (raw.projectId ?? raw.project_id) as string,
+          sessionId: (raw.sessionId ?? raw.session_id ?? raw.toSessionId) as string,
+          role: (raw.role ?? raw.from ?? raw.toRole) as string,
+          taskId: (raw.taskId ?? raw.task_id) as string | undefined,
+          direction: (raw.direction ?? (raw.kind?.toString().includes("report") ? "outbound" : "inbound")) as "inbound" | "outbound",
+          messageType: (raw.messageType ?? raw.kind ?? raw.message_type) as string,
+          summary: (raw.content ?? raw.summary) as string | undefined,
+          createdAt: (raw.createdAt ?? raw.created_at) as string,
+          from: raw.from as string | undefined,
+          toRole: raw.toRole as string | undefined,
+          sourceType: raw.sourceType as "user" | "agent" | "manager" | "system" | undefined,
+          originAgent: raw.originAgent as string | undefined,
+          kind: raw.kind as string | undefined,
+          status: raw.status as string | undefined,
+          runId: raw.runId as string | undefined,
+        }))
+      };
+    } catch {
+      return { items: [] };
+    }
+  },
+  
+  dispatch: (projectId: string, data: { session_id?: string; force?: boolean; only_idle?: boolean; task_id?: string }) => 
+    fetchJSON<{ results: DispatchResult[] }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/orchestrator/dispatch`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  dispatchMessage: (projectId: string, data: { message_id: string; session_id?: string; force?: boolean; only_idle?: boolean }) => 
+    fetchJSON<{ results: DispatchResult[] }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/orchestrator/dispatch-message`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  dismissSession: (projectId: string, sessionId: string, reason?: string) => 
+    fetchJSON<{ success: boolean }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason ?? "dashboard_manual_dismiss" }),
+    }),
+  
+  repairSession: (projectId: string, sessionId: string, targetStatus: "idle" | "blocked") => 
+    fetchJSON<{ success: boolean }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/repair`, {
+      method: "POST",
+      body: JSON.stringify({ target_status: targetStatus }),
+    }),
+  
+  registerSession: (projectId: string, data: { session_id: string; role: string; status?: string }) => 
+    fetchJSON<{ success: boolean }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  getOrchestratorSettings: (projectId: string) => 
+    fetchJSON<OrchestratorSettings>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/orchestrator/settings`),
+  
+  updateOrchestratorSettings: (projectId: string, data: { auto_dispatch_enabled?: boolean; auto_dispatch_remaining?: number }) => 
+    fetchJSON<{ success: boolean }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/orchestrator/settings`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+};
+
+export const agentApi = {
+  list: async () => {
+    const data = await fetchJSON<{ builtInItems?: Record<string, unknown>[]; customItems?: Record<string, unknown>[]; items?: Record<string, unknown>[] }>(`${API_BASE}/agents`);
+    const agents: AgentDefinition[] = [];
+    
+    if (data.items) {
+      agents.push(...data.items.map(raw => ({
+        agentId: (raw.agentId ?? raw.agent_id) as string,
+        displayName: (raw.displayName ?? raw.display_name) as string,
+        prompt: raw.prompt as string,
+        updatedAt: (raw.updatedAt ?? raw.updated_at) as string,
+        defaultCliTool: raw.defaultCliTool as "codex" | "trae" | "minimax" | undefined,
+        defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
+        modelSelectionEnabled: raw.modelSelectionEnabled as boolean | undefined,
+        createdAt: (raw.createdAt ?? raw.created_at) as string | undefined,
+      })));
+    }
+    
+    if (data.builtInItems) {
+      agents.push(...data.builtInItems.map(raw => ({
+        agentId: (raw.agentId ?? raw.agent_id) as string,
+        displayName: (raw.displayName ?? raw.display_name) as string,
+        prompt: raw.prompt as string,
+        updatedAt: (raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()) as string,
+        defaultCliTool: raw.defaultCliTool as "codex" | "trae" | "minimax" | undefined,
+        defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
+        modelSelectionEnabled: raw.modelSelectionEnabled as boolean | undefined,
+      })));
+    }
+    
+    if (data.customItems) {
+      agents.push(...data.customItems.map(raw => ({
+        agentId: (raw.agentId ?? raw.agent_id) as string,
+        displayName: (raw.displayName ?? raw.display_name) as string,
+        prompt: raw.prompt as string,
+        updatedAt: (raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()) as string,
+        defaultCliTool: raw.defaultCliTool as "codex" | "trae" | "minimax" | undefined,
+        defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
+        modelSelectionEnabled: raw.modelSelectionEnabled as boolean | undefined,
+      })));
+    }
+    
+    return { items: agents };
+  },
+  
+  create: (data: { agent_id: string; display_name: string; prompt: string; default_cli_tool?: "codex" | "trae" | "minimax" }) => 
+    fetchJSON<{ agentId: string }>(`${API_BASE}/agents`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  update: (agentId: string, data: { display_name?: string; prompt?: string; default_cli_tool?: "codex" | "trae" | "minimax" }) => 
+    fetchJSON<{ agentId: string }>(`${API_BASE}/agents/${encodeURIComponent(agentId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  
+  delete: (agentId: string) => 
+    fetchJSON<{ success: boolean }>(`${API_BASE}/agents/${encodeURIComponent(agentId)}`, {
+      method: "DELETE",
+    }),
+};
+
+export const templateApi = {
+  list: () => fetchJSON<{ builtInItems?: AgentTemplateDefinition[]; customItems?: AgentTemplateDefinition[] }>(`${API_BASE}/agent-templates`),
+  
+  create: (data: { template_id: string; display_name: string; prompt: string; based_on_template_id?: string | null }) => 
+    fetchJSON<{ templateId: string }>(`${API_BASE}/agent-templates`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  
+  update: (templateId: string, data: { display_name?: string; prompt?: string }) => 
+    fetchJSON<{ templateId: string }>(`${API_BASE}/agent-templates/${encodeURIComponent(templateId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  
+  delete: (templateId: string) => 
+    fetchJSON<{ success: boolean }>(`${API_BASE}/agent-templates/${encodeURIComponent(templateId)}`, {
+      method: "DELETE",
+    }),
+};
+
+export const projectTemplateApi = {
+  list: () => fetchJSON<{ items: TemplateDefinition[] }>(`${API_BASE}/project-templates`),
+};
+
+export const orchestratorApi = {
+  getStatus: () => fetchJSON<OrchestratorStatus>(`${API_BASE}/orchestrator/status`),
+};
+
+export const settingsApi = {
+  get: () => fetchJSON<RuntimeSettings>(`${API_BASE}/settings`),
+  
+  update: (data: Partial<RuntimeSettings>) => 
+    fetchJSON<{ success: boolean }>(`${API_BASE}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+};
+
+export const modelsApi = {
+  list: (projectId?: string, refresh?: boolean) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set("project_id", projectId);
+    if (refresh) params.set("refresh", "true");
+    return fetchJSON<{ models: ModelInfo[]; warnings?: string[]; source?: "cache" | "refresh" | "fallback-mixed" }>(`${API_BASE}/models?${params.toString()}`);
+  },
+};
+
+export const teamApi = {
+  list: () => fetchJSON<{ items: TeamSummary[] }>(`${API_BASE}/teams`),
+  
+  get: (teamId: string) => fetchJSON<TeamRecord>(`${API_BASE}/teams/${encodeURIComponent(teamId)}`),
+  
+  create: (data: CreateTeamRequest) => fetchJSON<TeamRecord>(`${API_BASE}/teams`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  }),
+  
+  update: (teamId: string, data: UpdateTeamRequest) => fetchJSON<TeamRecord>(`${API_BASE}/teams/${encodeURIComponent(teamId)}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  }),
+  
+  delete: (teamId: string) => fetchJSON<{ removed: boolean }>(`${API_BASE}/teams/${encodeURIComponent(teamId)}`, {
+    method: "DELETE",
+  }),
+};
