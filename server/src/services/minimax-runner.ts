@@ -21,29 +21,33 @@ import type { TeamToolExecutionContext } from "../minimax/tools/team/types.js";
 
 const activeRunners = new Map<string, MiniMaxRunner>();
 
-export type MiniMaxCompletionCallback = (result: MiniMaxRunResultInternal, sessionId: string) => Promise<void>;
+export type MiniMaxCompletionCallback = (
+  result: MiniMaxRunResultInternal,
+  sessionId: string,
+  runId: string
+) => Promise<void>;
 
 const completionCallbacks = new Map<string, MiniMaxCompletionCallback>();
 
-export function registerMiniMaxCompletionCallback(sessionId: string, callback: MiniMaxCompletionCallback): void {
-  completionCallbacks.set(sessionId, callback);
+export function registerMiniMaxCompletionCallback(runId: string, callback: MiniMaxCompletionCallback): void {
+  completionCallbacks.set(runId, callback);
 }
 
-export function unregisterMiniMaxCompletionCallback(sessionId: string): void {
-  completionCallbacks.delete(sessionId);
+export function unregisterMiniMaxCompletionCallback(runId: string): void {
+  completionCallbacks.delete(runId);
 }
 
-export type MiniMaxWakeUpCallback = (sessionId: string) => Promise<void>;
+export type MiniMaxWakeUpCallback = (sessionId: string, runId: string) => Promise<void>;
 
 const wakeUpCallbacks = new Map<string, MiniMaxWakeUpCallback>();
 
-export function registerMiniMaxWakeUpCallback(sessionId: string, callback: MiniMaxWakeUpCallback): void {
-  logger.info(`[MiniMaxRunner] registerMiniMaxWakeUpCallback: sessionId=${sessionId}`);
-  wakeUpCallbacks.set(sessionId, callback);
+export function registerMiniMaxWakeUpCallback(runId: string, callback: MiniMaxWakeUpCallback): void {
+  logger.info(`[MiniMaxRunner] registerMiniMaxWakeUpCallback: runId=${runId}`);
+  wakeUpCallbacks.set(runId, callback);
 }
 
-export function unregisterMiniMaxWakeUpCallback(sessionId: string): void {
-  wakeUpCallbacks.delete(sessionId);
+export function unregisterMiniMaxWakeUpCallback(runId: string): void {
+  wakeUpCallbacks.delete(runId);
 }
 
 export function cancelMiniMaxRunner(sessionId: string): boolean {
@@ -62,6 +66,7 @@ export function isMiniMaxRunnerActive(sessionId: string): boolean {
 export interface MiniMaxRunRequest {
   sessionId: string;
   prompt: string;
+  dispatchId?: string;
   taskId?: string;
   activeTaskTitle?: string;
   activeParentTaskId?: string;
@@ -85,6 +90,7 @@ export interface MiniMaxRunResultInternal {
   timedOut: boolean;
   logFile: string;
   sessionId?: string;
+  error?: string;
   response?: MiniMaxRunResult;
 }
 
@@ -210,15 +216,15 @@ export class MiniMaxRunner {
       return;
     }
     this.wakeUpTriggered = true;
-    logger.info(`[MiniMaxRunner] triggerWakeUp: request.sessionId=${this.request.sessionId}`);
-    const wakeUpCallback = wakeUpCallbacks.get(this.request.sessionId);
+    logger.info(`[MiniMaxRunner] triggerWakeUp: request.sessionId=${this.request.sessionId}, runId=${this.runId}`);
+    const wakeUpCallback = wakeUpCallbacks.get(this.runId);
     if (wakeUpCallback) {
-      logger.info(`[MiniMaxRunner] triggerWakeUp: found callback, calling with sessionId=${this.request.sessionId}`);
-      wakeUpCallback(this.request.sessionId).catch((error) => {
+      logger.info(`[MiniMaxRunner] triggerWakeUp: found callback, calling with sessionId=${this.request.sessionId}, runId=${this.runId}`);
+      wakeUpCallback(this.request.sessionId, this.runId).catch((error) => {
         logger.error(`[MiniMaxRunner] WakeUp callback error: ${(error as Error).message}`);
       });
     } else {
-      logger.info(`[MiniMaxRunner] triggerWakeUp: NO callback found for sessionId=${this.request.sessionId}`);
+      logger.info(`[MiniMaxRunner] triggerWakeUp: NO callback found for runId=${this.runId}`);
     }
   }
 
@@ -236,7 +242,7 @@ export class MiniMaxRunner {
       taskId: this.request.taskId,
       stream,
       content,
-      agentTool: "minimax",
+      provider: "minimax",
       ...extra
     };
     const logFile = this.getLogFile();
@@ -256,6 +262,7 @@ export class MiniMaxRunner {
     const model = this.request.model ?? this.settings.minimaxModel ?? "MiniMax-M2.5";
 
     if (!apiKey) {
+      const missingKeyError = "MiniMax API key not configured";
       await this.appendLog("system", "MiniMax API key not configured");
       return {
         runId: this.runId,
@@ -265,7 +272,8 @@ export class MiniMaxRunner {
         exitCode: 1,
         timedOut: false,
         logFile: this.getLogFile(),
-        sessionId: this.request.sessionId
+        sessionId: this.request.sessionId,
+        error: missingKeyError
       };
     }
 
@@ -278,8 +286,9 @@ export class MiniMaxRunner {
       source: "agent",
       payload: {
         runId: this.runId,
+        dispatchId: this.request.dispatchId ?? null,
         model,
-        agentTool: "minimax",
+        provider: "minimax",
         resumeSessionId: this.request.resumeSessionId ?? null,
         parentRequestId: this.request.parentRequestId ?? null
       },
@@ -349,7 +358,7 @@ export class MiniMaxRunner {
             AUTO_DEV_AGENT_ROLE: this.request.agentRole ?? "",
             AUTO_DEV_PROJECT_ROOT: this.project.workspacePath,
             AUTO_DEV_AGENT_WORKSPACE: workingDirectory,
-            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:3000",
+            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123",
             AUTO_DEV_PARENT_REQUEST_ID: this.request.parentRequestId ?? "",
             AUTO_DEV_ACTIVE_TASK_ID: this.request.taskId ?? "",
             AUTO_DEV_ACTIVE_TASK_TITLE: this.request.activeTaskTitle ?? "",
@@ -553,9 +562,10 @@ export class MiniMaxRunner {
         source: "agent",
         payload: {
           runId: this.runId,
+          dispatchId: this.request.dispatchId ?? null,
           exitCode: 0,
           timedOut: false,
-          agentTool: "minimax",
+          provider: "minimax",
           model,
           sessionId: result.sessionId,
           isNewSession: result.isNewSession
@@ -585,9 +595,10 @@ export class MiniMaxRunner {
         source: "agent",
         payload: {
           runId: this.runId,
+          dispatchId: this.request.dispatchId ?? null,
           exitCode: 1,
           timedOut: false,
-          agentTool: "minimax",
+          provider: "minimax",
           error: errorMessage
         },
         sessionId: this.request.sessionId,
@@ -602,7 +613,8 @@ export class MiniMaxRunner {
         exitCode: 1,
         timedOut: false,
         logFile: this.getLogFile(),
-        sessionId: this.request.sessionId
+        sessionId: this.request.sessionId,
+        error: errorMessage
       };
     } finally {
       if (this.agent) {
@@ -633,27 +645,40 @@ export interface MiniMaxStartResult {
   startedAt: string;
 }
 
+export interface MiniMaxStartCallbacks {
+  completionCallback?: MiniMaxCompletionCallback;
+  wakeUpCallback?: MiniMaxWakeUpCallback;
+}
+
 export function startMiniMaxForProject(
   project: ProjectRecord,
   paths: ProjectPaths,
   request: MiniMaxRunRequest,
-  settings: RuntimeSettings
+  settings: RuntimeSettings,
+  callbacks?: MiniMaxStartCallbacks
 ): MiniMaxStartResult {
   const runner = new MiniMaxRunner(project, paths, request, settings);
   activeRunners.set(request.sessionId, runner);
   
   const runId = runner.getRunId();
   const startedAt = runner.getStartedAt();
+
+  if (callbacks?.completionCallback) {
+    completionCallbacks.set(runId, callbacks.completionCallback);
+  }
+  if (callbacks?.wakeUpCallback) {
+    wakeUpCallbacks.set(runId, callbacks.wakeUpCallback);
+  }
   
   logger.info(`[startMiniMaxForProject] sessionId=${request.sessionId}, runId=${runId}, starting async run`);
   
   runner.run()
     .then(async (result) => {
       logger.info(`[startMiniMaxForProject] sessionId=${request.sessionId}, runId=${runId}, completed with exitCode=${result.exitCode}`);
-      const callback = completionCallbacks.get(request.sessionId);
+      const callback = completionCallbacks.get(runId);
       if (callback) {
         try {
-          await callback(result, request.sessionId);
+          await callback(result, request.sessionId, runId);
         } catch (cbError) {
           logger.error(`[startMiniMaxForProject] callback error for sessionId=${request.sessionId}: ${cbError}`);
         }
@@ -661,7 +686,7 @@ export function startMiniMaxForProject(
     })
     .catch(async (error) => {
       logger.error(`[startMiniMaxForProject] sessionId=${request.sessionId}, runId=${runId}, error: ${error}`);
-      const callback = completionCallbacks.get(request.sessionId);
+      const callback = completionCallbacks.get(runId);
       if (callback) {
         try {
           const errorResult: MiniMaxRunResultInternal = {
@@ -672,9 +697,10 @@ export function startMiniMaxForProject(
             exitCode: 1,
             timedOut: false,
             logFile: runner.getLogFile(),
-            sessionId: request.sessionId
+            sessionId: request.sessionId,
+            error: error instanceof Error ? error.message : String(error)
           };
-          await callback(errorResult, request.sessionId);
+          await callback(errorResult, request.sessionId, runId);
         } catch (cbError) {
           logger.error(`[startMiniMaxForProject] callback error for sessionId=${request.sessionId}: ${cbError}`);
         }
@@ -682,8 +708,8 @@ export function startMiniMaxForProject(
     })
     .finally(() => {
       activeRunners.delete(request.sessionId);
-      completionCallbacks.delete(request.sessionId);
-      wakeUpCallbacks.delete(request.sessionId);
+      completionCallbacks.delete(runId);
+      wakeUpCallbacks.delete(runId);
     });
   
   return {

@@ -1,28 +1,22 @@
-﻿# 编排器模块 PRD (Orchestrator)
+# 编排器模块 PRD (Orchestrator)
 
 ## 1. 模块目标
 
 ### 模块职责
-编排器模块负责项目级自动调度与会话执行闭环，核心职责包括：
+编排器负责项目级调度闭环：
 
 - 选择可派发任务/消息并触发执行
 - 维护会话状态（`idle/running/blocked/dismissed`）
 - 执行自动派发预算（`auto_dispatch_enabled` + `auto_dispatch_remaining`）
-- 超时与提醒机制（running 超时收敛、idle 角色提醒）
+- 处理 running 超时与 idle reminder
 
 **源码路径**: `server/src/services/orchestrator-service.ts`
 
-### 解决问题
+### 关键设计约束
 
-- 多角色并行场景下的任务分发顺序与去重
-- 会话卡死、空转、重复派发等稳定性问题
-- 自动派发预算可控、可观察
-
-### 业务价值
-
-- 保证任务驱动流程可持续推进
-- 降低手工 dispatch 频率
-- 提供事件可回放的调度审计链
+- 会话调度主键统一为 `sessionId`
+- role 是业务视角，session 是执行组件
+- `providerSessionId` 仅内部运行态信息
 
 ---
 
@@ -30,17 +24,16 @@
 
 ### 包含能力
 
-- 项目级 dispatch（手动/自动）
-- 指定 task 的 force dispatch
-- 消息派发（`dispatch-message`）
-- 会话超时收敛与 repair 配套
-- 角色 reminder（基于 open task + idle 时长）
+- 手工/自动 dispatch
+- `force + task_id` 强制投递
+- `dispatch-message` 指定消息投递
+- 超时收敛与 repair 配套
+- role reminder
 
 ### 不包含能力
 
-- Task 写入校验细节（由 `task-action-service` 负责）
-- 消息协议校验细节（由 `manager-message-service` 负责）
-- 具体模型调用实现（由 `codex-runner` / `minimax-runner` 负责）
+- task payload 校验（`task-action-service`）
+- message payload 校验（`manager-message-service`）
 
 ---
 
@@ -48,116 +41,71 @@
 
 ### 3.1 输入
 
-#### 来源
-
-- API：`POST /api/projects/:id/orchestrator/dispatch`
-- API：`POST /api/projects/:id/orchestrator/dispatch-message`
-- 内部：定时 `tickLoop`
-
-#### 关键参数
+`POST /api/projects/:id/orchestrator/dispatch`
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| session_id | string | 否 | 指定目标 session |
-| task_id | string | 否 | 指定目标 task |
-| message_id | string | 否 | 指定目标消息 |
-| force | boolean | 否 | 允许强制派发 |
-| only_idle | boolean | 否 | 仅对 idle 会话派发 |
+| role | string | 否 | 目标角色 |
+| session_id | string | 否 | 目标 sessionId |
+| task_id | string | 否 | 指定 task |
+| force | boolean | 否 | 强制派发 |
+| only_idle | boolean | 否 | 仅 idle |
+
+补充规则：
+
+- `role + session_id` 同时传入时必须一致，否则 `409 SESSION_ROLE_MISMATCH`
 
 ### 3.2 输出
 
 - `results[]`（每个 session 的派发结果）
-- 调度事件链（`ORCHESTRATOR_DISPATCH_*`）
-- 会话状态变化事件（超时、repair、提醒）
+- 事件链：`ORCHESTRATOR_DISPATCH_*`、`SESSION_HEARTBEAT_TIMEOUT`、`ORCHESTRATOR_ROLE_REMINDER_*`
 
 ---
 
 ## 4. 内部逻辑
 
-### 核心处理规则
+### 4.1 任务选择
 
-#### 4.1 任务选择优先级（`selectTaskForDispatch`）
-
-1. 优先处理与 runnable task 绑定的 `TASK_ASSIGNMENT`。
-2. 可选处理 discuss 消息（task 已启动才可跟进）。
+1. 优先处理可执行的 `TASK_ASSIGNMENT`。
+2. discuss 消息按规则插入调度。
 3. fallback 到 runnable task + message 组合。
-4. 无可执行目标则返回 `no_message`。
+4. 无目标则 `no_message`。
 
-#### 4.2 force dispatch 规则
+### 4.2 force dispatch
 
-- `force=true + task_id` 时允许从全量任务定位目标。
-- 仅允许状态：`READY | DISPATCHED | IN_PROGRESS | MAY_BE_DONE`。
-- 若 owner 无可用会话，自动 bootstrap session 后再派发。
+- `force=true + task_id` 从全量任务定位。
+- 允许状态：`READY | DISPATCHED | IN_PROGRESS | MAY_BE_DONE`。
+- owner role 无活跃会话时，自动 bootstrap 会话并更新 ownerSession。
 
-#### 4.3 依赖门禁
+### 4.3 依赖门禁
 
-- 普通派发要求 task 依赖门禁通过。
-- 门禁会检查任务自身依赖及祖先链依赖满足情况。
+- 常规派发必须通过依赖门禁（自身依赖 + 祖先链依赖）。
 
-#### 4.4 自动派发预算
+### 4.4 自动派发预算
 
-- 预算字段：`auto_dispatch_remaining`。
-- 仅“有效成功任务派发”会扣减预算。
-- 扣减归零后发 `ORCHESTRATOR_AUTO_LIMIT_REACHED`。
+- 仅“有效任务派发”扣减 `auto_dispatch_remaining`。
+- 预算归零发 `ORCHESTRATOR_AUTO_LIMIT_REACHED`。
 
-#### 4.5 超时与提醒
+### 4.5 超时与提醒
 
-- running 超时触发 `SESSION_HEARTBEAT_TIMEOUT` 并收敛状态。
-- idle 角色基于 open task 触发 reminder，并可触发 redispatch。
-- reminder 消息体包含 `open_task_ids` 与 `open_task_titles`（前若干条标题预览）。
+- running 超时：终止进程、补齐 run/dispatch 收敛事件、会话转 `dismissed`。
+- reminder 只基于 role runtime state + open tasks，不再依赖具体 session 切换。
 
 ---
 
-## 5. 依赖关系
+## 5. 异常与边界
 
-### 上游依赖
-
-- `taskboard-store`：任务读取与 runnable 状态
-- `session-store`：会话读写
-- `inbox-store`：消息读取/确认
-- `project-store`：项目配置（预算、路由、模型）
-
-### 下游影响
-
-- `codex-runner` / `minimax-runner`
-- 事件流与时间线服务
-
----
-
-## 6. 约束条件
-
-### 技术约束
-
-- 单会话并发受控，避免重复 dispatch。
-- 调度参数受环境变量控制（interval/timeout/max concurrent）。
-
-### 性能要求
-
-- 在默认 tick 间隔内完成项目扫描与派发决策。
-- 大量事件写入时仍保持可恢复与可观测。
-
----
-
-## 7. 异常与边界
-
-### 异常处理
-
-| 场景 | 处理 |
+| 场景 | 结果 |
 |---|---|
-| session busy | 返回 `session_busy` |
-| task 不可派发 | 返回 `task_not_found` 或 `task_not_force_dispatchable` |
-| runner 失败 | 记 `ORCHESTRATOR_DISPATCH_FAILED` |
-| running 超时 | 标记超时并结束本轮 |
-
-### 边界情况
-
-- 指定 task 已终态：不再派发。
-- 指定 message 不存在或已确认：返回未命中。
-- force + 无 owner 会话：自动建会话后执行。
+| session 忙 | `session_busy` |
+| task 不存在 | `task_not_found` |
+| task 状态不允许 force | `task_not_force_dispatchable` |
+| task owner 与 session role 不一致 | `task_owner_mismatch` |
+| runner 失败 | `dispatch_failed` |
 
 ---
 
-## 8. 数据定义
+## 6. 数据与事件
 
 ### DispatchOutcome
 
@@ -176,13 +124,6 @@
 - `ORCHESTRATOR_DISPATCH_STARTED`
 - `ORCHESTRATOR_DISPATCH_FINISHED`
 - `ORCHESTRATOR_DISPATCH_FAILED`
-- `ORCHESTRATOR_DISPATCH_SKIPPED`
-- `ORCHESTRATOR_ROLE_REMINDER_TRIGGERED`
 - `SESSION_HEARTBEAT_TIMEOUT`
-
----
-
-## 9. 待确认问题
-
-- 是否需要将 reminder 策略参数项目化（当前主要是环境级配置）。
-- force dispatch 的批次上限是否要单独配置。
+- `ORCHESTRATOR_ROLE_REMINDER_TRIGGERED`
+- `ORCHESTRATOR_ROLE_REMINDER_RESET`

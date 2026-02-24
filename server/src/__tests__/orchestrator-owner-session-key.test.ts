@@ -8,7 +8,7 @@ import { addSession } from "../data/session-store.js";
 import { createTask } from "../data/taskboard-store.js";
 import { OrchestratorService } from "../services/orchestrator-service.js";
 
-test("force dispatch accepts task ownerSession that matches sessionKey", async () => {
+test("force dispatch rejects task ownerSession that does not match sessionId", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-owner-session-key-"));
   const dataRoot = path.join(tempRoot, "data");
   const workspacePath = path.join(tempRoot, "workspace");
@@ -21,15 +21,12 @@ test("force dispatch accepts task ownerSession that matches sessionKey", async (
   const paths = await ensureProjectRuntime(dataRoot, project.projectId);
 
   const canonicalSessionId = "019c6cc5-f6cb-7f31-931a-52f3e368c9f7";
-  const pendingSessionKey = "pending-dev_1-3ogptalk";
   await addSession(paths, project.projectId, {
     sessionId: canonicalSessionId,
-    sessionKey: pendingSessionKey,
-    role: "dev_1",
-    status: "running",
+    role: "dev_2",
+    status: "idle",
     provider: "codex",
-    providerSessionId: canonicalSessionId,
-    agentTool: "codex"
+    providerSessionId: canonicalSessionId
   });
 
   const taskId = "task-dev1-r1";
@@ -40,7 +37,7 @@ test("force dispatch accepts task ownerSession that matches sessionKey", async (
     rootTaskId: `${project.projectId}-root`,
     title: "Rewrite CN Examples Batch dev_1",
     ownerRole: "dev_1",
-    ownerSession: pendingSessionKey,
+    ownerSession: "pending-dev_1-3ogptalk",
     state: "DISPATCHED"
   });
 
@@ -60,5 +57,5 @@ test("force dispatch accepts task ownerSession that matches sessionKey", async (
     onlyIdle: true
   });
   assert.equal(result.results.length, 1);
-  assert.notEqual(result.results[0]?.outcome, "task_owner_mismatch");
+  assert.equal(result.results[0]?.outcome, "task_owner_mismatch");
 });

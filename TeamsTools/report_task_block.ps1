@@ -43,12 +43,17 @@ $body = @{
   action_type = 'TASK_REPORT'
   from_agent = $resolvedRole
   from_session_id = $resolvedSession
-  task_id = $resolvedTaskId
   parent_request_id = if ($env:AUTO_DEV_PARENT_REQUEST_ID) { $env:AUTO_DEV_PARENT_REQUEST_ID.Trim() } else { $null }
-  report_mode = 'BLOCK'
-  report_content = $block_reason.Trim()
-  report_file = if ($resolvedProgressFile) { $resolvedProgressFile } else { $null }
-  block_reason = $block_reason.Trim()
+  summary = $block_reason.Trim()
+  results = @(
+    @{
+      task_id = $resolvedTaskId
+      outcome = 'BLOCKED_DEP'
+      summary = $block_reason.Trim()
+      blockers = @($block_reason.Trim())
+      artifacts = if ($resolvedProgressFile) { @($resolvedProgressFile) } else { @() }
+    }
+  )
 }
 
 $uri = "$resolvedManagerUrl/api/projects/$resolvedProjectId/task-actions"

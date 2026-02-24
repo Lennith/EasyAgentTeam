@@ -151,37 +151,9 @@ export async function ensureProjectAgentScripts(project: ProjectRecord): Promise
 
   await ensureDirectory(project.workspacePath);
   await cleanupLegacyScriptArtifacts(project.workspacePath);
-
-  const sourceRoot = await resolveTeamToolsTemplateSource();
-  const sourceFiles = await walkFiles(sourceRoot);
-  const targetRoot = path.join(project.workspacePath, AGENT_TOOLS_DIR);
-  await ensureDirectory(targetRoot);
-
-  for (const relativePath of sourceFiles) {
-    if (!shouldCopyTeamToolsFile(relativePath)) {
-      continue;
-    }
-    const sourceFile = path.join(sourceRoot, ...relativePath.split("/"));
-    const targetFile = path.join(targetRoot, ...relativePath.split("/"));
-    await ensureDirectory(path.dirname(targetFile));
-
-    const sourceBuffer = await fs.readFile(sourceFile);
-    try {
-      const existingBuffer = await fs.readFile(targetFile);
-      if (existingBuffer.equals(sourceBuffer)) {
-        result.skippedFiles.push(`${AGENT_TOOLS_DIR}/${relativePath}`);
-        continue;
-      }
-    } catch (error) {
-      const known = error as NodeJS.ErrnoException;
-      if (known.code && known.code !== "ENOENT") {
-        throw error;
-      }
-    }
-
-    await fs.writeFile(targetFile, sourceBuffer);
-    result.createdFiles.push(`${AGENT_TOOLS_DIR}/${relativePath}`);
-  }
+  // MiniMax ToolCall mode: do not copy TeamTools files into project workspace.
+  // Agents discover and call tools from runtime registry directly.
+  result.skippedFiles.push("TeamTools copy skipped (ToolCall direct mode)");
 
   return result;
 }

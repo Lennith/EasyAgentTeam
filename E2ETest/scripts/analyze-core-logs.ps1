@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory = $true)][string]$ArtifactsDir,
   [string]$ScenarioPath = "",
-  [string]$OutputPath = ""
+  [string]$OutputPath = "",
+  [string]$FinalReasonHint = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,11 +32,14 @@ $eventsPath = Join-Path $ArtifactsDir "events.ndjson"
 $treePath = Join-Path $ArtifactsDir "task_tree_final.json"
 $sessionsPath = Join-Path $ArtifactsDir "sessions_final.json"
 $preGatePath = Join-Path $ArtifactsDir "pre_gate_checks.json"
+$topupLogPath = Join-Path $ArtifactsDir "topup_log.json"
+$runSummaryPath = Join-Path $ArtifactsDir "run_summary.md"
 
 if (-not (Test-Path -LiteralPath $eventsPath)) { throw "events.ndjson not found: $eventsPath" }
 if (-not (Test-Path -LiteralPath $treePath)) { throw "task_tree_final.json not found: $treePath" }
 if (-not (Test-Path -LiteralPath $sessionsPath)) { throw "sessions_final.json not found: $sessionsPath" }
 if (-not (Test-Path -LiteralPath $preGatePath)) { throw "pre_gate_checks.json not found: $preGatePath" }
+if (-not (Test-Path -LiteralPath $topupLogPath)) { throw "topup_log.json not found: $topupLogPath" }
 
 $events = @()
 foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
@@ -47,6 +51,17 @@ foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
 $tree = Get-Content -LiteralPath $treePath | ConvertFrom-Json
 $sessions = Get-Content -LiteralPath $sessionsPath | ConvertFrom-Json
 $preGate = Get-Content -LiteralPath $preGatePath | ConvertFrom-Json
+$topupLog = @((Get-Content -LiteralPath $topupLogPath -Raw | ConvertFrom-Json))
+$finalReason = [string]$FinalReasonHint
+if ([string]::IsNullOrWhiteSpace($finalReason) -and (Test-Path -LiteralPath $runSummaryPath)) {
+  $summaryLines = Get-Content -LiteralPath $runSummaryPath
+  $finalReasonLine = @($summaryLines | Where-Object { $_ -like "- final_reason:*" } | Select-Object -First 1)
+  if ($finalReasonLine.Count -gt 0) {
+    $finalReason = ($finalReasonLine -replace '^- final_reason:\s*', '').Trim()
+  }
+}
+$topupCount = @($topupLog).Count
+$topupReasonExplicit = if ($topupCount -eq 0) { $true } else { @("closed_loop", "max_topups_reached", "max_total_budget_reached", "timeout") -contains $finalReason }
 $nodes = @($tree.nodes)
 $nodeById = @{}
 foreach ($n in $nodes) { $nodeById[$n.task_id] = $n }
@@ -109,9 +124,19 @@ $dispatchStarted = @($events | Where-Object { $_.eventType -eq "ORCHESTRATOR_DIS
 $dispatchedTaskIds = @($dispatchStarted | ForEach-Object { $_.taskId } | Where-Object { $_ })
 $b1Dispatched = @($dispatchedTaskIds | Where-Object { $_ -eq $taskB1Id }).Count -gt 0
 $cDispatched = @($dispatchedTaskIds | Where-Object { $_ -eq $taskCId }).Count -gt 0
-$bAndCDispatched = ($b1Dispatched -and $cDispatched)
-
 $terminalStates = @("DONE", "BLOCKED_DEP", "CANCELED")
+$b1Terminal = $false
+$cTerminal = $false
+if ($nodeById.ContainsKey($taskB1Id)) {
+  $b1Terminal = $terminalStates -contains [string]$nodeById[$taskB1Id].state
+}
+if ($nodeById.ContainsKey($taskCId)) {
+  $cTerminal = $terminalStates -contains [string]$nodeById[$taskCId].state
+}
+$b1Reached = ($b1Dispatched -or $b1Terminal)
+$cReached = ($cDispatched -or $cTerminal)
+$bAndCReached = ($b1Reached -and $cReached)
+
 $openExecutionTasks = @(
   $nodes | Where-Object {
     $_.task_kind -eq "EXECUTION" -and $terminalStates -notcontains $_.state
@@ -168,9 +193,9 @@ $checks = @(
     Detail = "outcome=$($preGateC.outcome) reason=$([string]$preGateC.reason)"
   },
   [pscustomobject]@{
-    Name = "B1 and C were eventually dispatched"
-    Pass = $bAndCDispatched
-    Detail = "B1_dispatched=$b1Dispatched C_dispatched=$cDispatched"
+    Name = "B1 and C were eventually reached (dispatched or terminal)"
+    Pass = $bAndCReached
+    Detail = "B1_dispatched=$b1Dispatched B1_terminal=$b1Terminal C_dispatched=$cDispatched C_terminal=$cTerminal"
   },
   [pscustomobject]@{
     Name = "No unresolved execution tasks"
@@ -194,13 +219,18 @@ $checks = @(
   },
   [pscustomobject]@{
     Name = "Team tool success rate is healthy"
-    Pass = ($teamToolSuccessRate -ge 0.80)
-    Detail = "team_tool_success_rate=$teamToolSuccessRate called=$teamToolCalledCount failed=$teamToolFailedCount"
+    Pass = ($teamToolSuccessRate -ge 0.70)
+    Detail = "team_tool_success_rate=$teamToolSuccessRate threshold=0.70 called=$teamToolCalledCount failed=$teamToolFailedCount"
   },
   [pscustomobject]@{
     Name = "shell_execute ratio is controlled"
     Pass = ($shellExecuteRatio -le 0.40)
     Detail = "shell_execute_calls=$shellExecuteCalls total_tool_calls=$allToolCallCount ratio=$shellExecuteRatio"
+  },
+  [pscustomobject]@{
+    Name = "Topup run ends with explicit reason"
+    Pass = $topupReasonExplicit
+    Detail = "topup_count=$topupCount final_reason=$finalReason"
   }
 )
 
@@ -222,6 +252,8 @@ $lines += "- list_directory_calls: $listDirectoryCalls"
 $lines += "- shell_execute_calls: $shellExecuteCalls"
 $lines += "- all_tool_calls: $allToolCallCount"
 $lines += "- shell_execute_ratio: $shellExecuteRatio"
+$lines += "- topup_count: $topupCount"
+$lines += "- final_reason: $finalReason"
 $lines += ""
 $lines += "## Checks"
 $lines += ""

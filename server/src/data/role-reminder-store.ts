@@ -58,7 +58,7 @@ export async function updateRoleReminderState(
     idleSince: updates.idleSince,
     reminderCount: updates.reminderCount ?? 0,
     nextReminderAt: updates.nextReminderAt,
-    lastSessionId: updates.lastSessionId
+    lastRoleState: updates.lastRoleState
   };
   state.roleReminders.push(newReminder);
   state.updatedAt = now;

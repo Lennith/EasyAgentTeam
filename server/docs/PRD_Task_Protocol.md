@@ -71,6 +71,10 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
   - `partialApplied`
   - `appliedTaskIds`
   - `rejectedResults`
+- `TASK_REPORT` 协议（硬切）：
+  - 仅接受 `results[]`
+  - `results[].outcome` 仅允许：`IN_PROGRESS | BLOCKED_DEP | DONE | CANCELED`
+  - `report_mode` 与旧值 `PARTIAL/BLOCKED/FAILED` 已退役并返回 400
 
 ---
 
@@ -156,6 +160,8 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 - `TASK_ACTION_REJECTED`
 - `TASK_REPORT_APPLIED`
 - `TASK_CREATOR_TERMINAL_REPORT_SENT`
+
+> `TASK_REPORT_APPLIED` 不再携带 `aggregateStatus`，只保留 `applied/updated/rejected` 结果明细字段。
 
 ---
 

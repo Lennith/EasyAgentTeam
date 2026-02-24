@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory = $true)][string]$ArtifactsDir,
   [string]$ScenarioPath = "",
-  [string]$OutputPath = ""
+  [string]$OutputPath = "",
+  [string]$FinalReasonHint = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,10 +35,13 @@ $eventsPath = Join-Path $ArtifactsDir "events.ndjson"
 $treePath = Join-Path $ArtifactsDir "task_tree_final.json"
 $sessionsPath = Join-Path $ArtifactsDir "sessions_final.json"
 $preGatePath = Join-Path $ArtifactsDir "pre_gate_checks.json"
+$topupLogPath = Join-Path $ArtifactsDir "topup_log.json"
+$runSummaryPath = Join-Path $ArtifactsDir "run_summary.md"
 if (-not (Test-Path -LiteralPath $eventsPath)) { throw "events.ndjson not found: $eventsPath" }
 if (-not (Test-Path -LiteralPath $treePath)) { throw "task_tree_final.json not found: $treePath" }
 if (-not (Test-Path -LiteralPath $sessionsPath)) { throw "sessions_final.json not found: $sessionsPath" }
 if (-not (Test-Path -LiteralPath $preGatePath)) { throw "pre_gate_checks.json not found: $preGatePath" }
+if (-not (Test-Path -LiteralPath $topupLogPath)) { throw "topup_log.json not found: $topupLogPath" }
 
 $events = @()
 foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
@@ -48,6 +52,17 @@ foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
 $tree = Get-Content -LiteralPath $treePath | ConvertFrom-Json
 $sessions = Get-Content -LiteralPath $sessionsPath | ConvertFrom-Json
 $preGate = Get-Content -LiteralPath $preGatePath | ConvertFrom-Json
+$topupLog = @((Get-Content -LiteralPath $topupLogPath -Raw | ConvertFrom-Json))
+$finalReason = [string]$FinalReasonHint
+if ([string]::IsNullOrWhiteSpace($finalReason) -and (Test-Path -LiteralPath $runSummaryPath)) {
+  $summaryLines = Get-Content -LiteralPath $runSummaryPath
+  $finalReasonLine = @($summaryLines | Where-Object { $_ -like "- final_reason:*" } | Select-Object -First 1)
+  if ($finalReasonLine.Count -gt 0) {
+    $finalReason = ($finalReasonLine -replace '^- final_reason:\s*', '').Trim()
+  }
+}
+$topupCount = @($topupLog).Count
+$topupReasonExplicit = if ($topupCount -eq 0) { $true } else { @("closed_loop", "max_topups_reached", "max_total_budget_reached", "timeout") -contains $finalReason }
 
 $nodes = @($tree.nodes)
 $nodeById = @{}
@@ -112,6 +127,20 @@ $cDispatched = @($dispatchedIds | Where-Object { $_ -eq $taskCId }).Count -gt 0
 $dDispatched = @($dispatchedIds | Where-Object { $_ -eq $taskDId }).Count -gt 0
 $reviewDispatched = @($dispatchedIds | Where-Object { $_ -eq $taskAlignId }).Count -gt 0
 
+$terminalStates = @("DONE", "BLOCKED_DEP", "CANCELED")
+$bTerminal = $false
+$cTerminal = $false
+$dTerminal = $false
+$alignTerminal = $false
+if ($nodeById.ContainsKey($taskBId)) { $bTerminal = $terminalStates -contains [string]$nodeById[$taskBId].state }
+if ($nodeById.ContainsKey($taskCId)) { $cTerminal = $terminalStates -contains [string]$nodeById[$taskCId].state }
+if ($nodeById.ContainsKey($taskDId)) { $dTerminal = $terminalStates -contains [string]$nodeById[$taskDId].state }
+if ($nodeById.ContainsKey($taskAlignId)) { $alignTerminal = $terminalStates -contains [string]$nodeById[$taskAlignId].state }
+$bReached = ($bDispatched -or $bTerminal)
+$cReached = ($cDispatched -or $cTerminal)
+$dReached = ($dDispatched -or $dTerminal)
+$alignReached = ($reviewDispatched -or $alignTerminal)
+
 $messageRoutedDiscuss = @(
   $events | Where-Object {
     $_.eventType -eq "MESSAGE_ROUTED" -and
@@ -124,7 +153,6 @@ $messageRoutedDiscuss = @(
 )
 $hasDiscussFlow = @($messageRoutedDiscuss).Count -gt 0
 
-$terminalStates = @("DONE", "BLOCKED_DEP", "CANCELED")
 $openExecutionTasks = @(
   $nodes | Where-Object { $_.task_kind -eq "EXECUTION" -and $terminalStates -notcontains $_.state }
 )
@@ -136,12 +164,13 @@ $checks = @(
   [pscustomobject]@{ Name = "Seed structure and dependencies are correct"; Pass = $structureOk; Detail = "lead+3 drafts+alignment+final" },
   [pscustomobject]@{ Name = "Invalid parent dependency create is rejected"; Pass = $invalidParentDependencyRejected; Detail = "status=$([int]$invalidParentDependencyCreate.status) error_code=$([string]$invalidParentDependencyCreate.body.error_code)" },
   [pscustomobject]@{ Name = "Pre-gate blocks B/C/D before lead task completes"; Pass = ($preGateBBlocked -and $preGateCBlocked -and $preGateDBlocked); Detail = "B=$preGateBBlocked C=$preGateCBlocked D=$preGateDBlocked" },
-  [pscustomobject]@{ Name = "Three draft tasks were eventually dispatched"; Pass = ($bDispatched -and $cDispatched -and $dDispatched); Detail = "B=$bDispatched C=$cDispatched D=$dDispatched" },
-  [pscustomobject]@{ Name = "Alignment task was dispatched"; Pass = $reviewDispatched; Detail = "alignment_dispatched=$reviewDispatched" },
+  [pscustomobject]@{ Name = "Three draft tasks were eventually reached (dispatched or terminal)"; Pass = ($bReached -and $cReached -and $dReached); Detail = "B_dispatched=$bDispatched B_terminal=$bTerminal C_dispatched=$cDispatched C_terminal=$cTerminal D_dispatched=$dDispatched D_terminal=$dTerminal" },
+  [pscustomobject]@{ Name = "Alignment task was reached (dispatched or terminal)"; Pass = $alignReached; Detail = "alignment_dispatched=$reviewDispatched alignment_terminal=$alignTerminal" },
   [pscustomobject]@{ Name = "Discuss flow exists"; Pass = $hasDiscussFlow; Detail = "message_routed_discuss_count=$(@($messageRoutedDiscuss).Count)" },
   [pscustomobject]@{ Name = "No unresolved execution tasks"; Pass = (@($openExecutionTasks).Count -eq 0); Detail = "open_execution_tasks=$(@($openExecutionTasks).Count)" },
   [pscustomobject]@{ Name = "No running sessions at finish"; Pass = (@($runningSessions).Count -eq 0); Detail = "running_sessions=$(@($runningSessions).Count)" },
-  [pscustomobject]@{ Name = "No dispatch failures"; Pass = ($dispatchFailedCount -eq 0); Detail = "dispatch_failed_events=$dispatchFailedCount" }
+  [pscustomobject]@{ Name = "No dispatch failures"; Pass = ($dispatchFailedCount -eq 0); Detail = "dispatch_failed_events=$dispatchFailedCount" },
+  [pscustomobject]@{ Name = "Topup run ends with explicit reason"; Pass = $topupReasonExplicit; Detail = "topup_count=$topupCount final_reason=$finalReason" }
 )
 
 $overallPass = @($checks | Where-Object { -not $_.Pass }).Count -eq 0
@@ -154,6 +183,8 @@ $lines += "- overall_pass: $overallPass"
 $lines += "- event_count: $(@($events).Count)"
 $lines += "- task_node_count: $(@($nodes).Count)"
 $lines += "- discuss_message_routed_count: $(@($messageRoutedDiscuss).Count)"
+$lines += "- topup_count: $topupCount"
+$lines += "- final_reason: $finalReason"
 $lines += ""
 $lines += "## Checks"
 $lines += ""

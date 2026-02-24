@@ -28,7 +28,6 @@ async function waitForUrl(url, timeoutMs) {
 
 async function main() {
   const projectId = `verify_step4_${Date.now()}`;
-  const session = "sess-dev-1";
   const port = Number(process.env.VERIFY_PORT ?? 3314);
   const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -76,7 +75,7 @@ async function main() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        session_id: session,
+        session_id: "sess-dev-1",
         role: "dev_backend",
         status: "idle"
       })
@@ -98,7 +97,7 @@ async function main() {
       throw new Error(`send message failed: HTTP ${sendRes.status}`);
     }
 
-    const inboxRes = await fetch(`${baseUrl}/api/projects/${projectId}/inbox/${session}?limit=5`);
+    const inboxRes = await fetch(`${baseUrl}/api/projects/${projectId}/inbox/dev_backend?limit=5`);
     if (inboxRes.status !== 200) {
       throw new Error(`inbox tail failed: HTTP ${inboxRes.status}`);
     }

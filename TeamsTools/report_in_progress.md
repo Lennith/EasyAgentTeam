@@ -19,7 +19,7 @@ Submit non-terminal progress update for one active task.
 ```
 
 ## Backend Behavior
-- Sent as `TASK_REPORT` with `report_mode=IN_PROGRESS`.
+- Sent as `TASK_REPORT` with `results[].outcome=IN_PROGRESS`.
 - Accepted with weak validation (task binding + non-empty content).
 
 ## Common Errors

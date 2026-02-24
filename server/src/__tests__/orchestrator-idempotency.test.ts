@@ -27,8 +27,7 @@ test("dispatch skips duplicate open task dispatch for same task/session", async 
     sessionId,
     role: "dev_0",
     status: "idle",
-    provider: "codex",
-    agentTool: "codex"
+    provider: "codex"
   });
   await createTask(paths, project.projectId, {
     taskId,
@@ -89,4 +88,3 @@ test("dispatch skips duplicate open task dispatch for same task/session", async 
   ).length;
   assert.equal(startedCount, 1);
 });
-

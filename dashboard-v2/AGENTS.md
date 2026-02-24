@@ -23,5 +23,5 @@ pnpm --filter @autodev/dashboard-v2 typecheck
 
 ## Notes
 
-- If backend fields are ambiguous, verify with real API responses from `localhost:3000` before coding.
+- If backend fields are ambiguous, verify with real API responses from `127.0.0.1:43123` before coding.
 - Keep timeline/task-tree rendering resilient to partial payloads.

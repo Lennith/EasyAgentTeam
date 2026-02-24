@@ -198,7 +198,6 @@ export async function flushMergedDiscussRequestsForParent(
       message: managerMessage,
       targetRole: row.key.toRole,
       targetSessionId: row.key.toSessionId,
-      sessionStatus: "idle",
       updateRoleSessionMap: Boolean(row.key.toRole)
     });
 

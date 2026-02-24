@@ -9,7 +9,10 @@ import {
   readRoleRemindersState,
   updateRoleReminderState
 } from "../data/role-reminder-store.js";
-import { calculateNextReminderTime } from "../services/orchestrator-service.js";
+import {
+  calculateNextReminderTime,
+  shouldAutoResetReminderOnRoleTransition
+} from "../services/orchestrator-service.js";
 
 test("calculateNextReminderTime: default values produce 1 minute initial wait", () => {
   const nowMs = 1000000;
@@ -88,6 +91,13 @@ test("calculateNextReminderTime: custom maxWaitMs caps correctly", () => {
   assert.equal(result, expectedDate.toISOString());
 });
 
+test("shouldAutoResetReminderOnRoleTransition: only INACTIVE->IDLE resets", () => {
+  assert.equal(shouldAutoResetReminderOnRoleTransition("INACTIVE", "IDLE"), true);
+  assert.equal(shouldAutoResetReminderOnRoleTransition("RUNNING", "IDLE"), false);
+  assert.equal(shouldAutoResetReminderOnRoleTransition("IDLE", "IDLE"), false);
+  assert.equal(shouldAutoResetReminderOnRoleTransition("IDLE", "RUNNING"), false);
+});
+
 test("getRoleReminderState: returns null for non-existent role", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-reminder-test-"));
   const dataRoot = path.join(tempRoot, "data");
@@ -115,7 +125,7 @@ test("getRoleReminderState: returns existing reminder state for role", async () 
     reminderCount: 3,
     idleSince: "2024-01-01T00:00:00.000Z",
     nextReminderAt: "2024-01-01T00:05:00.000Z",
-    lastSessionId: "session-123"
+    lastRoleState: "IDLE"
   });
 
   const result = await getRoleReminderState(created.paths, "remindertest2", "dev");
@@ -124,7 +134,7 @@ test("getRoleReminderState: returns existing reminder state for role", async () 
   assert.equal(result?.reminderCount, 3);
   assert.equal(result?.idleSince, "2024-01-01T00:00:00.000Z");
   assert.equal(result?.nextReminderAt, "2024-01-01T00:05:00.000Z");
-  assert.equal(result?.lastSessionId, "session-123");
+  assert.equal(result?.lastRoleState, "IDLE");
 });
 
 test("updateRoleReminderState: creates new reminder state for new role", async () => {
@@ -164,13 +174,15 @@ test("updateRoleReminderState: updates existing reminder state", async () => {
   // Update with new values
   const result = await updateRoleReminderState(created.paths, "remindertest4", "updater", {
     reminderCount: 5,
-    nextReminderAt: "2024-01-01T00:10:00.000Z"
+    nextReminderAt: "2024-01-01T00:10:00.000Z",
+    lastRoleState: "RUNNING"
   });
 
   assert.equal(result.role, "updater");
   assert.equal(result.reminderCount, 5);
   assert.equal(result.idleSince, "2024-01-01T00:00:00.000Z"); // Preserved from original
   assert.equal(result.nextReminderAt, "2024-01-01T00:10:00.000Z");
+  assert.equal(result.lastRoleState, "RUNNING");
 });
 
 test("readRoleRemindersState: returns default state for new project", async () => {

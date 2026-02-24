@@ -9,7 +9,7 @@ import { addSession } from "../data/session-store.js";
 import { createTask, listTasks } from "../data/taskboard-store.js";
 import { handleTaskAction } from "../services/task-action-service.js";
 
-test("TASK_REPORT accepts reporter canonical session when task ownerSession stores sessionKey", async () => {
+test("TASK_REPORT accepts owner role report even when ownerSession token is stale", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-task-report-owner-key-"));
   const dataRoot = path.join(tempRoot, "data");
   const workspacePath = path.join(tempRoot, "workspace");
@@ -24,15 +24,12 @@ test("TASK_REPORT accepts reporter canonical session when task ownerSession stor
   const paths = await ensureProjectRuntime(dataRoot, project.projectId);
 
   const canonicalSessionId = "019c6cc5-f6cb-7f31-931a-52f3e368c9f7";
-  const pendingSessionKey = "pending-dev_1-3ogptalk";
   await addSession(paths, project.projectId, {
     sessionId: canonicalSessionId,
-    sessionKey: pendingSessionKey,
     role: "dev_1",
     status: "running",
     provider: "codex",
-    providerSessionId: canonicalSessionId,
-    agentTool: "codex"
+    providerSessionId: canonicalSessionId
   });
 
   const taskId = "task-1771340915111-guw6k8-dev1-r1";
@@ -43,7 +40,7 @@ test("TASK_REPORT accepts reporter canonical session when task ownerSession stor
     rootTaskId: `${project.projectId}-root`,
     title: "CN examples",
     ownerRole: "dev_1",
-    ownerSession: pendingSessionKey,
+    ownerSession: "pending-dev_1-3ogptalk",
     state: "DISPATCHED"
   });
 

@@ -89,3 +89,36 @@ test("trimMessagesForContextWindow trims old context and keeps latest messages",
   assert.equal(typeof last.content, "string");
   assert.equal((last.content as string).includes("message-79"), true);
 });
+
+test("sanitize after trim repairs tool_result orphaned by context trimming", () => {
+  const messages: Message[] = [
+    { role: "system", content: "system" },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "tool-1",
+          type: "function",
+          function: { name: "write_file", arguments: { path: "a.txt", content: "x" } }
+        }
+      ]
+    },
+    { role: "tool", content: "ok", toolCallId: "tool-1", name: "write_file" }
+  ];
+
+  const trimmed = trimMessagesForContextWindow(messages, {
+    maxTotalChars: 200,
+    keepLatestCount: 1,
+    maxToolChars: 100,
+    maxNonToolChars: 100
+  });
+  // Simulate a worst case where trim keeps only tool_result but drops matching assistant tool_use.
+  const forcedOrphan: Message[] = trimmed.messages.filter((item) => item.role !== "assistant");
+  const repaired = sanitizeMessagesForToolProtocol(forcedOrphan);
+  const hasToolRole = repaired.messages.some((item) => item.role === "tool");
+  assert.equal(hasToolRole, false);
+  const last = repaired.messages[repaired.messages.length - 1];
+  assert.equal(last.role, "user");
+  assert.equal(String(last.content).includes("[TOOLCALL_FAILED]"), true);
+});

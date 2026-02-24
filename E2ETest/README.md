@@ -11,6 +11,7 @@ Validate the full task-driven orchestration loop, not only dependency gating:
 3. Discuss scenario includes a negative probe: create a task that depends on its parent; backend must reject with `409 TASK_DEPENDENCY_ANCESTOR_FORBIDDEN`.
 4. Auto dispatch then drives the project to closure.
 5. Core logs are exported and analyzed with fixed pass/fail rules.
+6. When auto-dispatch budget is exhausted but work is still open, scripts auto-topup budget and continue until closure (bounded by safety caps).
 
 ## Scenario
 
@@ -26,7 +27,9 @@ Default scenario file:
 - `E2ETest/scripts/run-discuss-e2e.ps1`
   Runs the discuss-heavy multi-architect convergence case.
 - `E2ETest/scripts/run-multi-e2e.ps1`
-  Runs multiple projects concurrently (default: both chain + discuss).
+  Runs multiple projects concurrently (default: both chain + discuss), then runs reminder专项回归。
+- `E2ETest/scripts/run-reminder-e2e.ps1`
+  Runs reminder-specific regression (fixed interval mode + manual reset recovery).
 - `E2ETest/scripts/export-core-logs.ps1`
   Exports events/timeline/task-tree/sessions/settings/task-details.
 - `E2ETest/scripts/analyze-core-logs.ps1`
@@ -54,6 +57,7 @@ Default workspace is:
 
 - `D:\AgentWorkSpace\TestTeam\TestRound20`
 - `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss`
+- `D:\AgentWorkSpace\TestTeam\TestReminder`
 
 Optional parameters:
 
@@ -62,6 +66,9 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1 
   -BaseUrl "http://127.0.0.1:3000" `
   -WorkspaceRoot "D:\AgentWorkSpace\TestTeam\E2ETestRun" `
   -AutoDispatchBudget 30 `
+  -AutoTopupStep 30 `
+  -MaxTopups 10 `
+  -MaxTotalBudget 330 `
   -MaxMinutes 75 `
   -PollSeconds 30
 ```
@@ -73,7 +80,12 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 `
   -Cases @("chain","discuss") `
   -ChainWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestRound20" `
   -DiscussWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss" `
+  -ReminderWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestReminder" `
+  -RunReminderAfter $true `
   -AutoDispatchBudget 30 `
+  -AutoTopupStep 30 `
+  -MaxTopups 10 `
+  -MaxTotalBudget 330 `
   -MaxMinutes 75 `
   -PollSeconds 30
 ```
@@ -92,6 +104,7 @@ Key files:
 - `sessions_final.json`
 - `orchestrator_settings_final.json`
 - `task_details.json`
+- `topup_log.json`
 - `analysis.md`
 - `run_summary.md`
 
@@ -107,3 +120,4 @@ Key files:
 8. `list_directory` tool calls are zero.
 9. Team tool success rate is at least 80%.
 10. `shell_execute` ratio is controlled (<= 40% of all tool calls).
+11. If topup occurred, final reason must be explicit (`closed_loop|max_topups_reached|max_total_budget_reached|timeout`).

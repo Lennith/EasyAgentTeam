@@ -3,7 +3,7 @@ setlocal
 
 cd /d "%~dp0"
 
-set "PORT=3000"
+set "PORT=43123"
 if not "%~1"=="" (
   set "PORT=%~1"
 )

@@ -271,7 +271,7 @@ while ($true) {
   Write-Host ("remaining={0} tasks={1} open={2} running={3}" -f $remaining, $nodes.Count, $openNodes.Count, $running.Count)
 
   foreach ($s in $running) {
-    $token = if ($s.sessionId) { $s.sessionId } elseif ($s.sessionKey) { $s.sessionKey } else { $null }
+    $token = if ($s.sessionId) { $s.sessionId } else { $null }
     if (-not $token) { continue }
     $last = [datetime]::Parse($s.lastActiveAt)
     if (((Get-Date).ToUniversalTime() - $last.ToUniversalTime()).TotalMinutes -gt 15) {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ProjectPaths, ProjectRecord, TaskActionResult, TaskReport, TaskState, ManagerToAgentMessage } from "../domain/models.js";
 import { appendEvent } from "../data/event-store.js";
 import { isProjectRouteAllowed, isTaskAssignRouteAllowed, setRoleSessionMapping } from "../data/project-store.js";
-import { addSession, getSession, resolveLatestSessionByRole, resolveSessionByIdOrKey } from "../data/session-store.js";
+import { addSession, getSession } from "../data/session-store.js";
 import {
   createTask,
   getTask,
@@ -22,6 +22,9 @@ import { deliverManagerMessage } from "./manager-routing-service.js";
 import { emitMessageRouted, emitUserMessageReceived } from "./manager-routing-event-emitter-service.js";
 import { validateAgentProgressFile, TaskProgressValidationError } from "./task-progress-validation-service.js";
 import { emitCreatorTerminalReportsIfReady } from "./task-creator-terminal-report-service.js";
+import { resolveActiveSessionForRole } from "./session-lifecycle-authority.js";
+
+type TaskReportOutcome = TaskReport["results"][number]["outcome"];
 
 export class TaskActionError extends Error {
   constructor(
@@ -76,37 +79,12 @@ function getDefaultStatusForCode(code: TaskActionError["code"]): number {
   }
 }
 
-function mapTaskReportOutcomeToState(outcome: "DONE" | "BLOCKED" | "FAILED" | "PARTIAL"): TaskState {
-  if (outcome === "DONE") {
-    return "DONE";
-  }
-  if (outcome === "PARTIAL") {
-    return "IN_PROGRESS";
-  }
-  if (outcome === "FAILED") {
-    return "CANCELED";
-  }
-  return "BLOCKED_DEP";
-}
-
 interface TaskReportRejectedResult {
   task_id: string;
   reason_code: "TASK_RESULT_INVALID_TARGET" | "TASK_STATE_STALE";
   reason: string;
   current_state?: TaskState;
   reported_target_state?: TaskState;
-}
-
-function aggregateTaskReportStatus(
-  results: Array<{ outcome: "DONE" | "BLOCKED" | "FAILED" | "PARTIAL" }>
-): "DONE" | "BLOCKED" | "FAILED" {
-  if (results.some((item) => item.outcome === "FAILED")) {
-    return "FAILED";
-  }
-  if (results.some((item) => item.outcome === "BLOCKED" || item.outcome === "PARTIAL")) {
-    return "BLOCKED";
-  }
-  return "DONE";
 }
 
 function buildTaskAssignmentMessageForTask(project: ProjectRecord, task: {
@@ -187,7 +165,7 @@ function buildTaskActionRejectedHint(code: TaskActionError["code"]): string | nu
     case "TASK_ROUTE_DENIED":
       return "Choose an allowed route target or request route-table update.";
     case "TASK_ACTION_INVALID":
-      return "Fix payload schema for the chosen action_type and retry once.";
+      return "Fix payload schema for the chosen action_type. For TASK_REPORT, send results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.";
     case "TASK_REPORT_NO_STATE_CHANGE":
       return "Do not resend identical report. Add new progress/results that change task state, then send once.";
     case "TASK_STATE_STALE":
@@ -248,30 +226,6 @@ function readNumber(value: unknown): number | undefined {
     }
   }
   return undefined;
-}
-
-function readReportMode(value: unknown): "IN_PROGRESS" | "DONE" | "BLOCK" | undefined {
-  const raw = readString(value)?.toUpperCase();
-  if (!raw) {
-    return undefined;
-  }
-  if (raw === "IN_PROGRESS" || raw === "DONE" || raw === "BLOCK") {
-    return raw;
-  }
-  return undefined;
-}
-
-function dedupeStrings(items: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const item of items) {
-    if (seen.has(item)) {
-      continue;
-    }
-    seen.add(item);
-    result.push(item);
-  }
-  return result;
 }
 
 function buildTaskActionAuditPayload(
@@ -340,7 +294,7 @@ function buildTaskActionAuditPayload(
       task_id: readString(actionInput.task_id) ?? readString(actionInput.taskId) ?? null,
       parent_task_id: readString(actionInput.parent_task_id) ?? readString(actionInput.parentTaskId) ?? null,
       summary: readString(actionInput.summary) ?? null,
-      report_mode: readReportMode(actionInput.report_mode ?? actionInput.reportMode) ?? null,
+      report_mode: readString(actionInput.report_mode ?? actionInput.reportMode) ?? null,
       report_content: readString(actionInput.report_content ?? actionInput.reportContent) ?? null,
       report_file: readString(actionInput.report_file ?? actionInput.reportFile) ?? null,
       results_count: rawResults.length,
@@ -387,25 +341,29 @@ async function resolveTargetSession(
     return validation.sessionId;
   }
 
-  const latest = await resolveLatestSessionByRole(paths, project.projectId, toRole);
+  const latest = await resolveActiveSessionForRole({
+    dataRoot,
+    project,
+    paths,
+    role: toRole,
+    reason: "task_action_resolve_target"
+  });
   if (latest) {
     return latest.sessionId;
   }
 
   const safeRole = toRole.replace(/[^a-zA-Z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "");
-  const sessionId = `pending-${safeRole || "agent"}-${randomUUID().slice(0, 8)}`;
+  const sessionId = `session-${safeRole || "agent"}-${randomUUID().slice(0, 12)}`;
   if (isReservedTargetSessionId(sessionId)) {
     throw new TaskActionError("resolved target session is reserved", "TASK_BINDING_MISMATCH");
   }
   const toRoleAgentTool = project.agentModelConfigs?.[toRole]?.tool ?? "codex";
   await addSession(paths, project.projectId, {
     sessionId,
-    sessionKey: sessionId,
     role: toRole,
     status: "idle",
-    provider: "codex",
     providerSessionId: undefined,
-    agentTool: toRoleAgentTool as "codex" | "trae" | "minimax"
+    provider: toRoleAgentTool as "codex" | "trae" | "minimax"
   });
   const mappingError = validateRoleSessionMapWrite(toRole, sessionId);
   if (!mappingError) {
@@ -421,77 +379,54 @@ function normalizeTaskReport(
   payload: Record<string, unknown>
 ): TaskReport {
   const reportId = readString(payload.report_id) ?? readString(payload.reportId) ?? randomUUID();
-  const reportMode = readReportMode(payload.report_mode) ?? readReportMode(payload.reportMode);
-  const reportContent = readString(payload.report_content) ?? readString(payload.reportContent);
-  const reportFile = readString(payload.report_file) ?? readString(payload.reportFile);
-  const blockReason = readString(payload.block_reason) ?? readString(payload.blockReason);
-  const summary = reportContent ?? readString(payload.summary) ?? "";
+  if (Object.prototype.hasOwnProperty.call(payload, "report_mode") || Object.prototype.hasOwnProperty.call(payload, "reportMode")) {
+    throw new TaskActionError(
+      "TASK_REPORT report_mode is retired. Use results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.",
+      "TASK_ACTION_INVALID",
+      400
+    );
+  }
+  const summary = readString(payload.summary) ?? "";
   const parentTaskId = readString(payload.parent_task_id) ?? readString(payload.parentTaskId);
   const resultsRaw = Array.isArray(payload.results) ? payload.results : [];
-  let results: Array<{
-    taskId: string;
-    outcome: "DONE" | "BLOCKED" | "FAILED" | "PARTIAL";
-    summary?: string;
-    artifacts?: string[];
-    blockers?: string[];
-  }> = [];
-
-  if (resultsRaw.length > 0) {
-    results = resultsRaw
-      .filter((row) => row && typeof row === "object")
-      .map((row) => {
-        const obj = row as Record<string, unknown>;
-        const taskId = readString(obj.task_id) ?? readString(obj.taskId);
-        const outcomeRaw = readString(obj.outcome)?.toUpperCase();
-        if (!taskId || !outcomeRaw) {
-          throw new TaskActionError("TASK_REPORT result requires task_id and outcome", "TASK_ACTION_INVALID", 400);
-        }
-        if (!["DONE", "BLOCKED", "FAILED", "PARTIAL"].includes(outcomeRaw)) {
-          throw new TaskActionError(`unsupported outcome: ${outcomeRaw}`, "TASK_ACTION_INVALID", 400);
-        }
-        return {
-          taskId,
-          outcome: outcomeRaw as "DONE" | "BLOCKED" | "FAILED" | "PARTIAL",
-          summary: readString(obj.summary),
-          artifacts: readStringList(obj.artifacts),
-          blockers: readStringList(obj.blockers)
-        };
-      });
-  } else if (reportMode) {
-    const taskId =
-      readString(payload.task_id) ??
-      readString(payload.taskId) ??
-      readString(payload.parent_task_id) ??
-      readString(payload.parentTaskId);
-    if (!taskId) {
-      throw new TaskActionError(
-        "TASK_REPORT with report_mode requires task_id",
-        "TASK_BINDING_REQUIRED",
-        400
-      );
-    }
-    const mappedOutcome: "DONE" | "BLOCKED" | "PARTIAL" =
-      reportMode === "DONE" ? "DONE" : reportMode === "BLOCK" ? "BLOCKED" : "PARTIAL";
-    const artifacts = dedupeStrings([
-      ...readStringList(payload.artifacts),
-      ...(reportFile ? [reportFile] : [])
-    ]);
-    const blockers = dedupeStrings([
-      ...readStringList(payload.blockers),
-      ...(reportMode === "BLOCK" && blockReason ? [blockReason] : [])
-    ]);
-    results = [
-      {
-        taskId,
-        outcome: mappedOutcome,
-        summary: summary || (reportMode === "BLOCK" ? blockReason : undefined),
-        artifacts: artifacts.length > 0 ? artifacts : undefined,
-        blockers: blockers.length > 0 ? blockers : undefined
-      }
-    ];
-  } else {
-    throw new TaskActionError("TASK_REPORT requires results[] or report_mode", "TASK_ACTION_INVALID", 400);
+  if (resultsRaw.length === 0) {
+    throw new TaskActionError(
+      "TASK_REPORT requires results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED",
+      "TASK_ACTION_INVALID",
+      400
+    );
   }
+  const results = resultsRaw
+    .filter((row) => row && typeof row === "object")
+    .map((row) => {
+      const obj = row as Record<string, unknown>;
+      const taskId = readString(obj.task_id) ?? readString(obj.taskId);
+      const outcomeRaw = readString(obj.outcome)?.toUpperCase();
+      if (!taskId || !outcomeRaw) {
+        throw new TaskActionError("TASK_REPORT result requires task_id and outcome", "TASK_ACTION_INVALID", 400);
+      }
+      if (["PARTIAL", "BLOCKED", "FAILED"].includes(outcomeRaw)) {
+        throw new TaskActionError(
+          `retired outcome '${outcomeRaw}'. Use IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.`,
+          "TASK_ACTION_INVALID",
+          400
+        );
+      }
+      if (!["IN_PROGRESS", "BLOCKED_DEP", "DONE", "CANCELED"].includes(outcomeRaw)) {
+        throw new TaskActionError(
+          `unsupported outcome: ${outcomeRaw}. Use IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.`,
+          "TASK_ACTION_INVALID",
+          400
+        );
+      }
+      return {
+        taskId,
+        outcome: outcomeRaw as TaskReportOutcome,
+        summary: readString(obj.summary),
+        artifacts: readStringList(obj.artifacts),
+        blockers: readStringList(obj.blockers)
+      };
+    });
 
   return {
     schemaVersion: "1.0",
@@ -500,7 +435,6 @@ function normalizeTaskReport(
     sessionId: fromSessionId,
     agentId: fromAgent,
     parentTaskId,
-    aggregateStatus: aggregateTaskReportStatus(results),
     summary,
     createdAt: new Date().toISOString(),
     results,
@@ -560,7 +494,7 @@ export async function handleTaskAction(
   const resolvedFromSession =
     fromSessionToken === "manager-system"
       ? null
-      : await resolveSessionByIdOrKey(paths, project.projectId, fromSessionToken).catch(() => null);
+      : await getSession(paths, project.projectId, fromSessionToken).catch(() => null);
   const fromSessionId = resolvedFromSession?.sessionId ?? fromSessionToken;
 
   const auditPayload = buildTaskActionAuditPayload(
@@ -661,7 +595,6 @@ export async function handleTaskAction(
         message: taskMessage,
         targetRole: created.ownerRole,
         targetSessionId: created.ownerSession,
-        sessionStatus: "idle",
         updateRoleSessionMap: true
       });
     }
@@ -783,7 +716,6 @@ export async function handleTaskAction(
         message: taskMessage,
         targetRole: patched.task.ownerRole,
         targetSessionId: patched.task.ownerSession,
-        sessionStatus: "idle",
         updateRoleSessionMap: true
       });
     }
@@ -804,9 +736,9 @@ export async function handleTaskAction(
       throw new TaskActionError("task discuss target is required", "TASK_BINDING_REQUIRED", 400);
     }
     const resolvedToSessionEntry = toSessionId
-      ? await resolveSessionByIdOrKey(paths, project.projectId, toSessionId)
+      ? await getSession(paths, project.projectId, toSessionId)
       : null;
-    const resolvedToRole = toRole ?? resolvedToSessionEntry?.role ?? (await getSession(paths, project.projectId, toSessionId ?? ""))?.role;
+    const resolvedToRole = toRole ?? resolvedToSessionEntry?.role;
     if (!resolvedToRole) {
       throw new TaskActionError("unable to resolve discuss target role", "TASK_BINDING_MISMATCH", 409);
     }
@@ -863,7 +795,6 @@ export async function handleTaskAction(
       message: managerMessage,
       targetRole: resolvedToRole,
       targetSessionId: resolvedToSession,
-      sessionStatus: "idle",
       currentTaskId: taskId,
       updateRoleSessionMap: true
     });
@@ -943,7 +874,7 @@ export async function handleTaskAction(
         continue;
       }
 
-      const nextState = mapTaskReportOutcomeToState(result.outcome);
+      const nextState = result.outcome;
       if (!isAllowedTaskReportTransition(target.state, nextState)) {
         rejectedResults.push({
           task_id: result.taskId,
@@ -974,7 +905,6 @@ export async function handleTaskAction(
     const acceptedTaskIds = acceptedResults.map((item) => item.taskId);
     const acceptedReport: TaskReport = {
       ...report,
-      aggregateStatus: aggregateTaskReportStatus(acceptedResults),
       results: acceptedResults
     };
 
@@ -1013,7 +943,6 @@ export async function handleTaskAction(
         fromAgent,
         toRole: "manager",
         reportId: report.reportId,
-        aggregateStatus: acceptedReport.aggregateStatus ?? null,
         parentTaskId: report.parentTaskId ?? null,
         updatedTaskIds: update.updatedTaskIds,
         appliedTaskIds: acceptedTaskIds,

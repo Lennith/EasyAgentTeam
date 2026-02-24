@@ -50,16 +50,21 @@ function buildAgentWorkspaceAgentsMd(): string {
     "   - Use PowerShell: Get-ChildItem, Get-Content, Select-String, Remove-Item, New-Item, Copy-Item, Move-Item",
     "1. Read `./role.md` for your role-specific objective and output contract.",
     "2. Read `./TEAM.md` to understand current team members.",
-    "3. Read `../../TeamTools/TeamToolsList.md` for TeamTools tool calls (task/discuss/route/lock).",
+    "3. Use built-in ToolCalls directly:",
+    "   - task_create_assign",
+    "   - task_report_in_progress / task_report_done / task_report_block",
+    "   - discuss_request / discuss_reply / discuss_close",
+    "   - route_targets_get",
+    "   - lock_manage",
     "4. All $env values are set in your runtime.",
     "",
     "## Task Progress Discipline (CRITICAL)",
-    "- If you have an assigned task (taskId in your session), you MUST report progress via TeamTools task_report_* tool calls.",
-    "- discuss_* tool calls are for clarification only; they do NOT count as task progress.",
+    "- If you have an assigned task (taskId in your session), you MUST report progress via built-in ToolCalls: task_report_in_progress, task_report_done, task_report_block.",
+    "- discuss_request/discuss_reply/discuss_close are for discuss flow only; they do NOT count as task progress.",
     "- Failure to report task progress will cause task to remain in 'granted' state indefinitely.",
     "",
     "## Error Handling (CRITICAL)",
-    "- When a TeamTools tool call fails, ALWAYS check the `error_code` field in the JSON output.",
+    "- When a ToolCall fails, ALWAYS check the `error_code` field in the JSON output.",
     "- DO NOT infer error meaning from HTTP status codes alone (e.g., 409 does NOT always mean 'task already done').",
     "- The `hint` field provides actionable guidance - follow it exactly.",
     "- Common error codes:",
@@ -70,7 +75,7 @@ function buildAgentWorkspaceAgentsMd(): string {
     "  - `TASK_BINDING_REQUIRED`: Missing required fields (task_id, owner_role, etc.).",
     "",
     "## Communication Contract",
-    "- All communication MUST goes through manager-routed TeamTools tool calls.",
+    "- All communication MUST go through manager-routed ToolCalls.",
     "- Preserve envelope correlation fields and discuss thread metadata exactly.",
     "- If a discuss request expects reply, continue on the same thread first.",
     "- Reporting is accountability-driven: always report back to envelope.accountability.report_to.",
@@ -86,7 +91,7 @@ function buildAgentWorkspaceAgentsMd(): string {
     "- Shared implementation source code: write under `../../src/`.",
     "- Personal scratch/notes: keep inside current `./` directory.",
     "- Progress journal: `./progress.md` (status, changed files, evidence, blockers, next action).",
-    "- Before editing a file in a shared team workspace, you must acquire a lock via TeamTools lock tool call.",
+    "- Before editing a file in a shared team workspace, you must acquire a lock via `lock_manage(action=acquire)`.",
     "- Edit only after obtaining the lock and release it promptly upon completion to prevent concurrent edits.",
   ].join("\n");
 }
@@ -102,7 +107,7 @@ function buildTeamIndexMd(agentIds: string[]): string {
     "",
     "## Add a New Agent",
     "To add a new team agent:",
-    "1. Request via manager-routed TeamTools task/discuss flow",
+    "1. Request via manager-routed task/discuss ToolCalls",
     "2. Wait for Manager approval",
     "3. The new agent's workspace will be created automatically"
   ].join("\n");
@@ -204,7 +209,7 @@ function buildRoleBoundaryLines(role: string): string[] {
     return [
       "## Role Boundary",
       "- You are a planning/management role; do not implement production code in ../../src/**.",
-      "- Finalize requirements/plans, then create/assign execution tasks to engineering roles via TeamTools.",
+    "- Finalize requirements/plans, then create/assign execution tasks to engineering roles via ToolCalls.",
       "- If discuss reaches route max rounds, document assumptions/risks and decide whether to continue or mark blocked."
     ];
   }
@@ -223,7 +228,7 @@ function buildRoleBoundaryLines(role: string): string[] {
     return [
       "## Role Boundary",
       "- You are an implementation role; production code should be placed under ../../src/**.",
-      "- Keep requirements/planning source-of-truth in ../../docs/** and report status through TeamTools."
+      "- Keep requirements/planning source-of-truth in ../../docs/** and report status through ToolCalls."
     ];
   }
 
@@ -259,7 +264,7 @@ function buildRoleMdTemplate(role: string, prompt: string): string {
     "",
     "## How To Operate",
     "- Read ./AGENTS.md first for runtime communication/tooling rules.",
-    "- Use ../../TeamTools tool calls for task actions, discuss, route query, and lock discipline.",
+    "- Use built-in ToolCalls for task actions, discuss, route query, and lock discipline.",
     "- Never bypass envelope/correlation metadata when replying or handing off.",
     "",
     "## Reporting Rules",
@@ -278,8 +283,8 @@ function buildRoleMdTemplate(role: string, prompt: string): string {
     "",
     ...boundaryLines,
     "",
-    "## Team Tools Reference",
-    "See ../../TeamTools/TeamToolsList.md for available backend tools.",
+    "## Tool Reference",
+    "Tool schemas are exposed directly by runtime tool registry. Use exact names from the available tools list.",
     "",
     "## Prompt Integrity",
     promptMissing

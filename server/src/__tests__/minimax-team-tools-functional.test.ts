@@ -110,7 +110,7 @@ test("TaskCreateAssignTool sends TASK_CREATE payload with defaults from context"
   assert.deepEqual(payload.dependencies, ["dep-1", "dep-2"]);
 });
 
-test("TaskReport tools send IN_PROGRESS / DONE / BLOCK report modes", async () => {
+test("TaskReport tools send TaskState outcomes via results[]", async () => {
   const context = await createToolContext("teamtools-report-1");
   const bridge = new RecordingBridge();
   const tools = createTeamTools({ context, bridge });
@@ -128,9 +128,9 @@ test("TaskReport tools send IN_PROGRESS / DONE / BLOCK report modes", async () =
   assert.equal(block.success, true);
 
   assert.equal(bridge.taskActionCalls.length, 3);
-  assert.equal(bridge.taskActionCalls[0].report_mode, "IN_PROGRESS");
-  assert.equal(bridge.taskActionCalls[1].report_mode, "DONE");
-  assert.equal(bridge.taskActionCalls[2].report_mode, "BLOCK");
+  assert.equal((bridge.taskActionCalls[0].results as Array<Record<string, unknown>>)[0].outcome, "IN_PROGRESS");
+  assert.equal((bridge.taskActionCalls[1].results as Array<Record<string, unknown>>)[0].outcome, "DONE");
+  assert.equal((bridge.taskActionCalls[2].results as Array<Record<string, unknown>>)[0].outcome, "BLOCKED_DEP");
 });
 
 test("Discuss tools send TASK_DISCUSS_* message types", async () => {

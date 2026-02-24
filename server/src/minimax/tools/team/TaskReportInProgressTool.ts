@@ -14,7 +14,7 @@ export class TaskReportInProgressTool extends TeamTool {
   }
 
   get description(): string {
-    return "Report in-progress task update (PARTIAL) with concise status.";
+    return "Report in-progress task update with concise status.";
   }
 
   get parameters(): Record<string, unknown> {
@@ -43,15 +43,20 @@ export class TaskReportInProgressTool extends TeamTool {
       from_agent: this.context.agentRole,
       from_session_id: this.context.sessionId,
       parent_request_id: this.context.parentRequestId ?? null,
-      task_id: taskId,
-      report_mode: "IN_PROGRESS",
-      report_content: content,
-      report_file: readString(args.progress_file) ?? null
+      summary: content,
+      results: [
+        {
+          task_id: taskId,
+          outcome: "IN_PROGRESS",
+          summary: content,
+          artifacts: readString(args.progress_file) ? [readString(args.progress_file)] : []
+        }
+      ]
     };
     const result = await this.bridge.taskAction(payload);
     return {
       action_type: "TASK_REPORT",
-      report_mode: "IN_PROGRESS",
+      outcome: "IN_PROGRESS",
       task_id: taskId,
       result
     };

@@ -3,8 +3,8 @@ import type { ProjectPaths, ProjectRecord, TaskRecord } from "../domain/models.j
 import { appendEvent, listEvents } from "../data/event-store.js";
 import { listTasks } from "../data/taskboard-store.js";
 import { resolveSessionByRole } from "../data/project-store.js";
-import { resolveLatestSessionByRole } from "../data/session-store.js";
 import { deliverManagerMessage } from "./manager-routing-service.js";
+import { resolveActiveSessionForRole } from "./session-lifecycle-authority.js";
 
 const TERMINAL = new Set(["DONE", "BLOCKED_DEP", "CANCELED"]);
 const SYSTEM_ROLES = new Set(["manager", "user", "system", "dashboard"]);
@@ -109,7 +109,13 @@ export async function emitCreatorTerminalReportsIfReady(
     const preferredSession = group.creatorSessionId || resolveSessionByRole(project, group.creatorRole);
     let targetSessionId = preferredSession;
     if (!targetSessionId) {
-      const latest = await resolveLatestSessionByRole(paths, project.projectId, group.creatorRole);
+      const latest = await resolveActiveSessionForRole({
+        dataRoot,
+        project,
+        paths,
+        role: group.creatorRole,
+        reason: "creator_terminal_report"
+      });
       targetSessionId = latest?.sessionId;
     }
     if (!targetSessionId) {
@@ -141,7 +147,6 @@ export async function emitCreatorTerminalReportsIfReady(
       paths,
       targetRole: group.creatorRole,
       targetSessionId,
-      sessionStatus: "idle",
       message: {
         envelope: {
           message_id: messageId,

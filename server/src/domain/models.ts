@@ -9,6 +9,8 @@ export type TaskState =
   | "CANCELED";
 
 export type TaskKind = "PROJECT_ROOT" | "USER_ROOT" | "EXECUTION";
+export type ReminderMode = "backoff" | "fixed_interval";
+export type RoleRuntimeState = "INACTIVE" | "IDLE" | "RUNNING";
 
 export interface ProjectRecord {
   schemaVersion: "1.0";
@@ -24,6 +26,7 @@ export interface ProjectRecord {
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
   autoReminderEnabled?: boolean;
+  reminderMode?: ReminderMode;
   createdAt: string;
   updatedAt: string;
   roleSessionMap?: Record<string, string>;
@@ -101,10 +104,9 @@ export interface PendingConfirmedMessage {
 export interface SessionRecord {
   schemaVersion: "1.0";
   sessionId: string;
-  sessionKey?: string;
   projectId: string;
   role: string;
-  provider: "codex";
+  provider: "codex" | "trae" | "minimax";
   providerSessionId?: string;
   status: SessionStatus;
   createdAt: string;
@@ -113,13 +115,19 @@ export interface SessionRecord {
   currentTaskId?: string;
   lastInboxMessageId?: string;
   lastDispatchedAt?: string;
-  agentTool?: "codex" | "trae" | "minimax";
   agentPid?: number;
   pendingConfirmedMessages?: PendingConfirmedMessage[];
   confirmedMessageIds?: string[];
   idleSince?: string;
   reminderCount?: number;
   nextReminderAt?: string;
+  timeoutStreak?: number;
+  errorStreak?: number;
+  lastFailureAt?: string;
+  lastFailureKind?: "timeout" | "error";
+  lastRunId?: string;
+  lastDispatchId?: string;
+  cooldownUntil?: string;
 }
 
 export interface SessionsState {
@@ -134,7 +142,7 @@ export interface RoleReminderState {
   idleSince?: string;
   reminderCount: number;
   nextReminderAt?: string;
-  lastSessionId?: string;
+  lastRoleState?: RoleRuntimeState;
 }
 
 export interface RoleRemindersState {
@@ -226,7 +234,7 @@ export interface SuggestedNextAction {
 
 export interface TaskReportResult {
   taskId: string;
-  outcome: "DONE" | "BLOCKED" | "FAILED" | "PARTIAL";
+  outcome: "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
   summary?: string;
   artifacts?: string[];
   blockers?: string[];
@@ -239,7 +247,6 @@ export interface TaskReport {
   sessionId: string;
   agentId: string;
   parentTaskId?: string;
-  aggregateStatus?: "DONE" | "BLOCKED" | "FAILED";
   summary: string;
   createdAt: string;
   results: TaskReportResult[];

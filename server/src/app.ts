@@ -39,9 +39,8 @@ import {
 } from "./data/team-store.js";
 import {
   addSession,
+  getSession,
   listSessions,
-  resolveSessionByIdOrKey,
-  resolveLatestSessionByRole,
   SessionStoreError,
   touchSession
 } from "./data/session-store.js";
@@ -59,6 +58,7 @@ import {
 import { ManagerRoutingError } from "./services/manager-routing-service.js";
 import { handleTaskAction, TaskActionError } from "./services/task-action-service.js";
 import { handleManagerMessageSend, ManagerMessageServiceError } from "./services/manager-message-service.js";
+import { resolveActiveSessionForRole } from "./services/session-lifecycle-authority.js";
 import { buildTaskTreeResponse } from "./services/task-tree-query-service.js";
 import { buildTaskDetailResponse } from "./services/task-detail-query-service.js";
 import { createMiniMaxAgent } from "./minimax/index.js";
@@ -108,10 +108,25 @@ function parseBoolean(raw: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
-function buildPendingSessionId(role: string): string {
+function sanitizeSessionForApi<T extends { providerSessionId?: string }>(session: T): Omit<T, "providerSessionId"> {
+  const { providerSessionId: _ignored, ...rest } = session;
+  return rest;
+}
+
+function parseReminderMode(raw: unknown): "backoff" | "fixed_interval" | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "backoff" || normalized === "fixed_interval") {
+    return normalized;
+  }
+  return undefined;
+}
+
+function buildSessionId(role: string): string {
   const safeRole = role.replace(/[^a-zA-Z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
-  const random = Math.random().toString(36).slice(2, 10);
-  return `pending-${safeRole}-${random}`;
+  return `session-${safeRole}-${randomUUID().slice(0, 12)}`;
 }
 
 function retiredEndpoint(res: express.Response, replacement: string): void {
@@ -158,7 +173,7 @@ function resolveTaskActionNextAction(code: string): string | null {
     case "TASK_STATE_STALE":
       return "Task state is already newer than this transition. Keep same-state report or continue with downstream tasks.";
     case "TASK_ACTION_INVALID":
-      return "Fix payload schema for selected action_type and retry once.";
+      return "Fix payload schema for selected action_type. For TASK_REPORT, send results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.";
     default:
       return null;
   }
@@ -173,7 +188,7 @@ export function createApp(options: AppOptions = {}) {
 
   const corsAllowList = (
     process.env.AUTO_DEV_CORS_ORIGINS ??
-    "http://localhost:5174,http://127.0.0.1:5174,http://localhost:5173,http://127.0.0.1:5173"
+    "http://localhost:54174,http://127.0.0.1:54174,http://localhost:54173,http://127.0.0.1:54173"
   )
     .split(",")
     .map((item) => item.trim())
@@ -529,6 +544,15 @@ export function createApp(options: AppOptions = {}) {
         | undefined ?? teamAgentModelConfigs;
       const autoDispatchEnabled = parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, true);
       const autoDispatchRemaining = parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining) ?? 5;
+      const reminderModeRaw = body.reminder_mode ?? body.reminderMode;
+      const reminderMode = parseReminderMode(reminderModeRaw) ?? "backoff";
+      if (reminderModeRaw !== undefined && !parseReminderMode(reminderModeRaw)) {
+        res.status(400).json({
+          code: "ORCHESTRATOR_SETTINGS_INVALID",
+          error: "reminder_mode must be backoff|fixed_interval"
+        });
+        return;
+      }
       const roleSessionMap = (body.role_session_map ?? body.roleSessionMap) as Record<string, string> | undefined;
 
       if (!projectId || !name || !workspacePath) {
@@ -559,6 +583,7 @@ export function createApp(options: AppOptions = {}) {
         routeDiscussRounds,
         autoDispatchEnabled,
         autoDispatchRemaining,
+        reminderMode,
         roleSessionMap
       });
       
@@ -775,6 +800,7 @@ export function createApp(options: AppOptions = {}) {
         project_id: project.projectId,
         auto_dispatch_enabled: project.autoDispatchEnabled ?? true,
         auto_dispatch_remaining: project.autoDispatchRemaining ?? 5,
+        reminder_mode: project.reminderMode ?? "backoff",
         updated_at: project.updatedAt
       });
     } catch (error) {
@@ -787,13 +813,23 @@ export function createApp(options: AppOptions = {}) {
       const body = req.body as Record<string, unknown>;
       const enabledRaw = body.auto_dispatch_enabled ?? body.autoDispatchEnabled;
       const remainingRaw = body.auto_dispatch_remaining ?? body.autoDispatchRemaining;
+      const reminderModeRaw = body.reminder_mode ?? body.reminderMode;
       const hasEnabled = typeof enabledRaw === "boolean";
       const remainingParsed = parseInteger(remainingRaw);
       const hasRemaining = remainingRaw !== undefined;
-      if (!hasEnabled && !hasRemaining) {
+      const parsedReminderMode = parseReminderMode(reminderModeRaw);
+      const hasReminderMode = reminderModeRaw !== undefined;
+      if (hasReminderMode && !parsedReminderMode) {
         res.status(400).json({
           code: "ORCHESTRATOR_SETTINGS_INVALID",
-          error: "at least one of auto_dispatch_enabled or auto_dispatch_remaining is required"
+          error: "reminder_mode must be backoff|fixed_interval"
+        });
+        return;
+      }
+      if (!hasEnabled && !hasRemaining && !hasReminderMode) {
+        res.status(400).json({
+          code: "ORCHESTRATOR_SETTINGS_INVALID",
+          error: "at least one of auto_dispatch_enabled, auto_dispatch_remaining, reminder_mode is required"
         });
         return;
       }
@@ -806,12 +842,14 @@ export function createApp(options: AppOptions = {}) {
       }
       const updated = await updateProjectOrchestratorSettings(dataRoot, req.params.id, {
         autoDispatchEnabled: hasEnabled ? Boolean(enabledRaw) : undefined,
-        autoDispatchRemaining: hasRemaining ? remainingParsed : undefined
+        autoDispatchRemaining: hasRemaining ? remainingParsed : undefined,
+        reminderMode: hasReminderMode ? parsedReminderMode : undefined
       });
       res.status(200).json({
         project_id: updated.projectId,
         auto_dispatch_enabled: updated.autoDispatchEnabled ?? true,
         auto_dispatch_remaining: updated.autoDispatchRemaining ?? 5,
+        reminder_mode: updated.reminderMode ?? "backoff",
         updated_at: updated.updatedAt
       });
     } catch (error) {
@@ -876,8 +914,8 @@ export function createApp(options: AppOptions = {}) {
       const body = req.body as Record<string, unknown>;
       const role = (body.role ?? body.to_role) as string | undefined;
       const status = body.status as string | undefined;
+      const requestedSessionId = readStringField(body, ["session_id", "sessionId"]);
       const currentTaskId = (body.current_task_id ?? body.currentTaskId) as string | undefined;
-      const requestedSessionKey = readStringField(body, ["session_id", "sessionId"]);
       if (!role) {
         res.status(400).json({ error: "role is required" });
         return;
@@ -893,37 +931,54 @@ export function createApp(options: AppOptions = {}) {
         );
         return;
       }
-      const existing = await resolveLatestSessionByRole(paths, project.projectId, role);
-      if (existing && existing.status !== "dismissed") {
+      const candidateSessionId = requestedSessionId ?? buildSessionId(role);
+      const existingById = await getSession(paths, project.projectId, candidateSessionId);
+      if (existingById && existingById.role !== role) {
+        sendApiError(
+          res,
+          409,
+          "SESSION_ROLE_MISMATCH",
+          `session '${candidateSessionId}' belongs to role '${existingById.role}', not '${role}'`,
+          "Use a role-matched session_id or omit session_id for auto generation."
+        );
+        return;
+      }
+      const active = await resolveActiveSessionForRole({
+        dataRoot,
+        project,
+        paths,
+        role,
+        reason: "api_session_create"
+      });
+      if (active && active.status !== "dismissed" && active.sessionId !== candidateSessionId) {
         sendApiError(
           res,
           409,
           "SESSION_ROLE_CONFLICT",
-          `role '${role}' already has active session '${existing.sessionId}'`,
+          `role '${role}' already has active session '${active.sessionId}'`,
           "Dismiss/repair the existing role session before creating a new one."
         );
         return;
       }
-      const pendingSessionId = buildPendingSessionId(role);
       const roleAgentTool = project.agentModelConfigs?.[role]?.tool ?? "codex";
       const created = await addSession(paths, project.projectId, {
-        sessionId: pendingSessionId,
-        sessionKey: requestedSessionKey ?? pendingSessionId,
+        sessionId: candidateSessionId,
         role,
         status,
         currentTaskId,
-        provider: "codex",
         providerSessionId: undefined,
-        agentTool: roleAgentTool as "codex" | "trae" | "minimax"
+        provider: roleAgentTool as "codex" | "trae" | "minimax"
       });
       const mappingError = validateRoleSessionMapWrite(created.session.role, created.session.sessionId);
       if (!mappingError) {
         await setRoleSessionMapping(dataRoot, project.projectId, created.session.role, created.session.sessionId);
       }
+      await orchestrator.resetRoleReminderOnManualAction(project.projectId, created.session.role, "session_created");
+      const publicSession = sanitizeSessionForApi(created.session);
       res.status(created.created ? 201 : 200).json({
-        ...created,
-        status: "pending",
-        sessionKey: created.session.sessionKey ?? created.session.sessionId
+        session: publicSession,
+        created: created.created,
+        status: created.session.status
       });
     } catch (error) {
       next(error);
@@ -935,25 +990,25 @@ export function createApp(options: AppOptions = {}) {
       const project = await getProject(dataRoot, req.params.id);
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
       const [sessions, locks] = await Promise.all([listSessions(paths, project.projectId), listActiveLocks(paths)]);
-      const roleMap = new Map<string, typeof sessions[number]>();
-      for (const session of sessions) {
-        const existing = roleMap.get(session.role);
-        if (!existing || Date.parse(session.lastActiveAt) > Date.parse(existing.lastActiveAt)) {
-          roleMap.set(session.role, session);
+      const roles = Array.from(new Set(sessions.map((session) => session.role)));
+      const activeSessions: typeof sessions = [];
+      for (const role of roles) {
+        const active = await resolveActiveSessionForRole({
+          dataRoot,
+          project,
+          paths,
+          role,
+          reason: "api_list_sessions"
+        });
+        if (active) {
+          activeSessions.push(active);
         }
       }
-      const items = Array.from(roleMap.values())
-        .map((session) => {
-          const isPending = !session.providerSessionId;
-          return {
-            ...session,
-            sessionId: isPending ? null : session.sessionId,
-            sessionKey: session.sessionKey ?? (isPending ? session.sessionId : null),
-            providerSessionId: session.providerSessionId ?? null,
-            provider: "codex",
-            locksHeldCount: locks.filter((lock) => lock.ownerSessionId === session.sessionId).length
-          };
-        })
+      const items = activeSessions
+        .map((session) => ({
+          ...sanitizeSessionForApi(session),
+          locksHeldCount: locks.filter((lock) => lock.ownerSessionId === session.sessionId).length
+        }))
         .sort((a, b) => Date.parse(b.lastActiveAt) - Date.parse(a.lastActiveAt));
       res.json({ items, total: items.length });
     } catch (error) {
@@ -965,7 +1020,7 @@ export function createApp(options: AppOptions = {}) {
       const project = await getProject(dataRoot, req.params.id);
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
       const token = req.params.session_id;
-      const session = await resolveSessionByIdOrKey(paths, project.projectId, token);
+      const session = await getSession(paths, project.projectId, token);
       if (!session) {
         res.status(404).json({ error: `session '${token}' not found` });
         return;
@@ -985,7 +1040,8 @@ export function createApp(options: AppOptions = {}) {
       if (mappingCleared) {
         await clearRoleSessionMapping(dataRoot, project.projectId, session.role);
       }
-      res.status(200).json({ session: dismissed, mappingCleared, processTermination });
+      await orchestrator.resetRoleReminderOnManualAction(project.projectId, session.role, "session_dismissed");
+      res.status(200).json({ session: sanitizeSessionForApi(dismissed), mappingCleared, processTermination });
     } catch (error) {
       next(error);
     }
@@ -1007,13 +1063,14 @@ export function createApp(options: AppOptions = {}) {
       const project = await getProject(dataRoot, req.params.id);
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
       const token = req.params.session_id;
-      const session = await resolveSessionByIdOrKey(paths, project.projectId, token);
+      const session = await getSession(paths, project.projectId, token);
       if (!session) {
         sendApiError(res, 404, "SESSION_NOT_FOUND", `session '${token}' not found`);
         return;
       }
       const repaired = await orchestrator.repairSessionStatus(req.params.id, session.sessionId, targetStatus);
-      res.status(200).json(repaired);
+      await orchestrator.resetRoleReminderOnManualAction(project.projectId, repaired.role, "session_repaired");
+      res.status(200).json(sanitizeSessionForApi(repaired));
     } catch (error) {
       next(error);
     }
@@ -1025,9 +1082,7 @@ export function createApp(options: AppOptions = {}) {
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
       const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
       const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? limitRaw : undefined;
-      const token = req.params.role;
-      const resolvedSession = await resolveSessionByIdOrKey(paths, project.projectId, token);
-      const targetRole = resolvedSession?.role ?? token;
+      const targetRole = req.params.role;
       const items = await listInboxMessages(paths, targetRole, limit);
       res.json({ items, total: items.length });
     } catch (error) {
@@ -1138,9 +1193,38 @@ export function createApp(options: AppOptions = {}) {
       const role = readStringField(body, ["role", "to_role", "toRole"]);
       const requestedSessionId = (body.session_id ?? body.sessionId) as string | undefined;
       let resolvedSessionId = requestedSessionId;
+      if (role && requestedSessionId) {
+        const requestedSession = await getSession(paths, project.projectId, requestedSessionId);
+        if (!requestedSession) {
+          sendApiError(
+            res,
+            404,
+            "SESSION_NOT_FOUND",
+            `session '${requestedSessionId}' not found`,
+            "Provide an existing session_id, or omit session_id and dispatch by role."
+          );
+          return;
+        }
+        if (requestedSession.role !== role) {
+          sendApiError(
+            res,
+            409,
+            "SESSION_ROLE_MISMATCH",
+            `session '${requestedSessionId}' does not belong to role '${role}'`,
+            "Use a role-matched session_id, or omit session_id and dispatch by role."
+          );
+          return;
+        }
+      }
       if (!resolvedSessionId && role) {
-        const latest = await resolveLatestSessionByRole(paths, project.projectId, role);
-        resolvedSessionId = latest?.sessionId;
+        const active = await resolveActiveSessionForRole({
+          dataRoot,
+          project,
+          paths,
+          role,
+          reason: "api_dispatch_by_role"
+        });
+        resolvedSessionId = active?.sessionId;
       }
       const result = await orchestrator.dispatchProject(req.params.id, {
         mode: "manual",
@@ -1150,6 +1234,19 @@ export function createApp(options: AppOptions = {}) {
         onlyIdle: body.only_idle === undefined && body.onlyIdle === undefined ? false : Boolean(body.only_idle ?? body.onlyIdle)
       });
       const dispatchedCount = result.results.filter((item) => item.outcome === "dispatched").length;
+      if (Boolean(body.force ?? false) && dispatchedCount > 0) {
+        const rolesToReset = Array.from(
+          new Set(
+            result.results
+              .filter((item) => item.outcome === "dispatched")
+              .map((item) => item.role)
+              .filter((item) => typeof item === "string" && item.trim().length > 0)
+          )
+        );
+        for (const roleToReset of rolesToReset) {
+          await orchestrator.resetRoleReminderOnManualAction(project.projectId, roleToReset, "force_dispatch_succeeded");
+        }
+      }
       res.status(200).json({ ...result, dispatchedCount });
     } catch (error) {
       next(error);
@@ -1747,7 +1844,7 @@ export function createApp(options: AppOptions = {}) {
             AUTO_DEV_AGENT_ROLE: role,
             AUTO_DEV_PROJECT_ROOT: project.workspacePath,
             AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
-            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:3000",
+            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123",
           },
         },
       });

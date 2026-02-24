@@ -25,6 +25,7 @@ interface CreateProjectInput {
   routeDiscussRounds?: Record<string, Record<string, number>>;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
+  reminderMode?: "backoff" | "fixed_interval";
   roleSessionMap?: Record<string, string>;
 }
 
@@ -40,6 +41,7 @@ interface ProjectOverview extends ProjectSummary {
   agentModelConfigs?: Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
+  reminderMode?: "backoff" | "fixed_interval";
   roleSessionMap?: Record<string, string>;
 }
 
@@ -189,6 +191,13 @@ function normalizeAutoDispatchRemaining(raw: unknown, fallback = 5): number {
     return fallback;
   }
   return Math.max(0, Math.min(1000, Math.floor(raw)));
+}
+
+function normalizeReminderMode(raw: unknown, fallback: "backoff" | "fixed_interval" = "backoff"): "backoff" | "fixed_interval" {
+  if (raw === "backoff" || raw === "fixed_interval") {
+    return raw;
+  }
+  return fallback;
 }
 
 function assertProjectId(projectId: string): void {
@@ -359,6 +368,7 @@ export async function createProject(
     ),
     autoDispatchEnabled: normalizeAutoDispatchEnabled(input.autoDispatchEnabled, true),
     autoDispatchRemaining: normalizeAutoDispatchRemaining(input.autoDispatchRemaining, 5),
+    reminderMode: normalizeReminderMode(input.reminderMode, "backoff"),
     createdAt: now,
     updatedAt: now,
     roleSessionMap: input.roleSessionMap
@@ -379,7 +389,8 @@ export async function getProject(dataRoot: string, projectId: string): Promise<P
   return {
     ...project,
     autoDispatchEnabled: normalizeAutoDispatchEnabled(project.autoDispatchEnabled, true),
-    autoDispatchRemaining: normalizeAutoDispatchRemaining(project.autoDispatchRemaining, 5)
+    autoDispatchRemaining: normalizeAutoDispatchRemaining(project.autoDispatchRemaining, 5),
+    reminderMode: normalizeReminderMode(project.reminderMode, "backoff")
   };
 }
 
@@ -456,6 +467,7 @@ export async function getProjectOverview(dataRoot: string, projectId: string): P
     agentModelConfigs: project.agentModelConfigs,
     autoDispatchEnabled: project.autoDispatchEnabled,
     autoDispatchRemaining: project.autoDispatchRemaining,
+    reminderMode: project.reminderMode,
     roleSessionMap: project.roleSessionMap
   };
 }
@@ -659,6 +671,7 @@ export async function updateProjectOrchestratorSettings(
   input: {
     autoDispatchEnabled?: boolean;
     autoDispatchRemaining?: number;
+    reminderMode?: "backoff" | "fixed_interval";
   }
 ): Promise<ProjectRecord> {
   const project = await getProject(dataRoot, projectId);
@@ -672,6 +685,10 @@ export async function updateProjectOrchestratorSettings(
       input.autoDispatchRemaining === undefined
         ? normalizeAutoDispatchRemaining(project.autoDispatchRemaining, 5)
         : normalizeAutoDispatchRemaining(input.autoDispatchRemaining, 5),
+    reminderMode:
+      input.reminderMode === undefined
+        ? normalizeReminderMode(project.reminderMode, "backoff")
+        : normalizeReminderMode(input.reminderMode, "backoff"),
     updatedAt: new Date().toISOString()
   };
   const paths = getProjectPaths(dataRoot, projectId);

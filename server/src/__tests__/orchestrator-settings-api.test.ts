@@ -27,7 +27,8 @@ test("project create and orchestrator settings API use enabled+remaining model",
         name: "Orchestrator Settings",
         workspace_path: tempRoot,
         auto_dispatch_enabled: true,
-        auto_dispatch_remaining: 7
+        auto_dispatch_remaining: 7,
+        reminder_mode: "fixed_interval"
       })
     });
     assert.equal(createRes.status, 201);
@@ -37,25 +38,39 @@ test("project create and orchestrator settings API use enabled+remaining model",
     const settings = (await getRes.json()) as {
       auto_dispatch_enabled: boolean;
       auto_dispatch_remaining: number;
+      reminder_mode: "backoff" | "fixed_interval";
     };
     assert.equal(settings.auto_dispatch_enabled, true);
     assert.equal(settings.auto_dispatch_remaining, 7);
+    assert.equal(settings.reminder_mode, "fixed_interval");
 
     const patchRes = await fetch(`${baseUrl}/api/projects/orchsettings/orchestrator/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         auto_dispatch_enabled: false,
-        auto_dispatch_remaining: 3
+        auto_dispatch_remaining: 3,
+        reminder_mode: "backoff"
       })
     });
     assert.equal(patchRes.status, 200);
     const patched = (await patchRes.json()) as {
       auto_dispatch_enabled: boolean;
       auto_dispatch_remaining: number;
+      reminder_mode: "backoff" | "fixed_interval";
     };
     assert.equal(patched.auto_dispatch_enabled, false);
     assert.equal(patched.auto_dispatch_remaining, 3);
+    assert.equal(patched.reminder_mode, "backoff");
+
+    const invalidPatch = await fetch(`${baseUrl}/api/projects/orchsettings/orchestrator/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reminder_mode: "bad_mode"
+      })
+    });
+    assert.equal(invalidPatch.status, 400);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

@@ -45,11 +45,16 @@ $body = @{
   action_type = 'TASK_REPORT'
   from_agent = $resolvedRole
   from_session_id = $resolvedSession
-  task_id = $resolvedTaskId
   parent_request_id = if ($env:AUTO_DEV_PARENT_REQUEST_ID) { $env:AUTO_DEV_PARENT_REQUEST_ID.Trim() } else { $null }
-  report_mode = 'DONE'
-  report_content = $reportContent
-  report_file = $task_report
+  summary = $reportContent
+  results = @(
+    @{
+      task_id = $resolvedTaskId
+      outcome = 'DONE'
+      summary = $reportContent
+      artifacts = @($task_report)
+    }
+  )
 }
 
 $uri = "$resolvedManagerUrl/api/projects/$resolvedProjectId/task-actions"

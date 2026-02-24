@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
 import { appendEvent } from "../data/event-store.js";
 import { clearRoleSessionMapping, isProjectRouteAllowed, setRoleSessionMapping } from "../data/project-store.js";
-import { addSession, getSession, resolveLatestSessionByRole } from "../data/session-store.js";
+import { addSession, getSession } from "../data/session-store.js";
 import {
   isReservedTargetSessionId,
   validateExplicitTargetSession,
@@ -10,6 +10,7 @@ import {
 } from "./routing-guard-service.js";
 import { deliverManagerMessage } from "./manager-routing-service.js";
 import { emitMessageRouted, emitUserMessageReceived } from "./manager-routing-event-emitter-service.js";
+import { resolveActiveSessionForRole } from "./session-lifecycle-authority.js";
 
 function readStringField(body: Record<string, unknown>, keys: string[], fallback?: string): string | undefined {
   for (const key of keys) {
@@ -41,10 +42,9 @@ function detectEncodingCorruption(content: string): string | null {
   return null;
 }
 
-function buildPendingSessionId(role: string): string {
+function buildSessionId(role: string): string {
   const safeRole = role.replace(/[^a-zA-Z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
-  const random = Math.random().toString(36).slice(2, 10);
-  return `pending-${safeRole}-${random}`;
+  return `session-${safeRole}-${randomUUID().slice(0, 12)}`;
 }
 
 async function resolveUsableSessionIdByRole(
@@ -53,22 +53,19 @@ async function resolveUsableSessionIdByRole(
   paths: ProjectPaths,
   role: string
 ): Promise<string | undefined> {
-  const latest = await resolveLatestSessionByRole(paths, project.projectId, role);
-  if (latest) {
+  const latest = await resolveActiveSessionForRole({
+    dataRoot,
+    project,
+    paths,
+    role,
+    reason: "message_send"
+  });
+  if (latest && latest.status !== "dismissed" && !isReservedTargetSessionId(latest.sessionId)) {
     return latest.sessionId;
   }
   const mapped = project.roleSessionMap?.[role];
   if (!mapped) {
     return undefined;
-  }
-  const mappedSession = await getSession(paths, project.projectId, mapped);
-  if (
-    mappedSession &&
-    mappedSession.role === role &&
-    mappedSession.status !== "dismissed" &&
-    !isReservedTargetSessionId(mappedSession.sessionId)
-  ) {
-    return mappedSession.sessionId;
   }
   await clearRoleSessionMapping(dataRoot, project.projectId, role);
   return undefined;
@@ -187,16 +184,14 @@ export async function handleManagerMessageSend(
         "Only codex, trae, and minimax providers are supported for session startup."
       );
     }
-    resolvedSessionId = buildPendingSessionId(resolvedToRole);
+    resolvedSessionId = buildSessionId(resolvedToRole);
     const resolvedAgentTool = project.agentModelConfigs?.[resolvedToRole]?.tool ?? "codex";
     await addSession(paths, project.projectId, {
       sessionId: resolvedSessionId,
-      sessionKey: resolvedSessionId,
       role: resolvedToRole,
       status: "idle",
-      provider: "codex",
       providerSessionId: undefined,
-      agentTool: resolvedAgentTool as "codex" | "trae" | "minimax"
+      provider: resolvedAgentTool as "codex" | "trae" | "minimax"
     });
     const mappingError = validateRoleSessionMapWrite(resolvedToRole, resolvedSessionId);
     if (!mappingError) {
@@ -279,7 +274,6 @@ export async function handleManagerMessageSend(
     message: managerMessage,
     targetRole: resolvedToRole,
     targetSessionId: resolvedSessionId,
-    sessionStatus: "idle",
     updateRoleSessionMap: Boolean(resolvedToRole)
   });
 

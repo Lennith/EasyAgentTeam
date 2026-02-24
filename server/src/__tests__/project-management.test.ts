@@ -57,21 +57,6 @@ test("repo_doc_flow template scaffolds role documentation files", async () => {
       assert.equal(content.startsWith("\uFEFF"), true);
     }
 
-    const taskDoneDocPath = path.join(workspacePath, "TeamTools", "report_task_done.md");
-    const taskDoneDoc = await fs.readFile(taskDoneDocPath, "utf8");
-    assert.equal(taskDoneDoc.includes("TASK_REPORT"), true);
-    const discussDocPath = path.join(workspacePath, "TeamTools", "discuss_request.md");
-    const discussDoc = await fs.readFile(discussDocPath, "utf8");
-    assert.equal(discussDoc.includes("TASK_DISCUSS_REQUEST"), true);
-    const routeTargetsDocPath = path.join(workspacePath, "TeamTools", "get_route_targets.md");
-    const routeTargetsDoc = await fs.readFile(routeTargetsDocPath, "utf8");
-    assert.equal(routeTargetsDoc.toLowerCase().includes("route"), true);
-    const lockDocPath = path.join(workspacePath, "TeamTools", "lock.md");
-    const lockDoc = await fs.readFile(lockDocPath, "utf8");
-    assert.equal(lockDoc.toLowerCase().includes("lock"), true);
-    const teamToolsIndexPath = path.join(workspacePath, "TeamTools", "TeamToolsList.md");
-    const teamToolsIndex = await fs.readFile(teamToolsIndexPath, "utf8");
-    assert.equal(teamToolsIndex.includes("ToolCall"), true);
     await assert.rejects(async () => fs.access(path.join(workspacePath, "devtools")));
     await assert.rejects(async () => fs.access(path.join(workspacePath, "DevTools")));
     await assert.rejects(async () => fs.access(path.join(workspacePath, "autodev_handoff.ps1")));
@@ -94,7 +79,7 @@ test("repo_doc_flow template scaffolds role documentation files", async () => {
   }
 });
 
-test("project bootstrap creates per-agent AGENTS.md with relative TeamTools paths", async () => {
+test("project bootstrap creates per-agent AGENTS.md with direct ToolCall guidance", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-agent-workspace-bootstrap-"));
   const dataRoot = path.join(tempRoot, "data");
   const workspacePath = path.join(tempRoot, "workspace");
@@ -135,14 +120,17 @@ test("project bootstrap creates per-agent AGENTS.md with relative TeamTools path
 
     const agentWorkspaceAgentsPath = path.join(workspacePath, "Agents", "pm_product", "AGENTS.md");
     const agentWorkspaceAgentsContent = await fs.readFile(agentWorkspaceAgentsPath, "utf8");
-    assert.equal(agentWorkspaceAgentsContent.includes("../../TeamTools/TeamToolsList.md"), true);
+    assert.equal(agentWorkspaceAgentsContent.includes("../../TeamTools/TeamToolsList.md"), false);
+    assert.equal(agentWorkspaceAgentsContent.includes("task_create_assign"), true);
+    assert.equal(agentWorkspaceAgentsContent.includes("task_report_in_progress"), true);
     assert.equal(agentWorkspaceAgentsContent.includes("Error Handling"), true);
     assert.equal(agentWorkspaceAgentsContent.includes("You are running as role"), false);
 
     const roleMdPath = path.join(workspacePath, "Agents", "pm_product", "role.md");
     const roleMdContent = await fs.readFile(roleMdPath, "utf8");
     assert.equal(roleMdContent.includes("You own product requirements."), true);
-    assert.equal(roleMdContent.includes("../../TeamTools/TeamToolsList.md"), true);
+    assert.equal(roleMdContent.includes("../../TeamTools/TeamToolsList.md"), false);
+    assert.equal(roleMdContent.includes("Tool schemas are exposed directly by runtime tool registry."), true);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
@@ -316,7 +304,7 @@ test("project creation persists auto_dispatch_enabled and auto_dispatch_remainin
   }
 });
 
-test("project bootstrap fails fast when TeamTools template source is missing", { concurrency: false }, async () => {
+test("project bootstrap ignores missing TeamTools template source in direct ToolCall mode", { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-teamtools-missing-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
@@ -340,9 +328,7 @@ test("project bootstrap fails fast when TeamTools template source is missing", {
         workspace_path: tempRoot
       })
     });
-    assert.equal(createRes.status, 500);
-    const payload = (await createRes.json()) as { error_code?: string };
-    assert.equal(payload.error_code, "TEAMTOOLS_TEMPLATE_NOT_FOUND");
+    assert.equal(createRes.status, 201);
   } finally {
     if (prev === undefined) {
       delete process.env.AUTO_DEV_TEAMTOOLS_SOURCE;

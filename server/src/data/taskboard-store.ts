@@ -655,15 +655,7 @@ export async function updateTaskboardFromTaskReport(
 ): Promise<{ updatedTaskIds: string[] }> {
   const updatedTaskIds: string[] = [];
   for (const result of report.results) {
-    const outcome = result.outcome.toUpperCase();
-    const nextState: TaskState =
-      outcome === "DONE"
-        ? "DONE"
-        : outcome === "FAILED"
-          ? "CANCELED"
-          : outcome === "PARTIAL"
-            ? "IN_PROGRESS"
-            : "BLOCKED_DEP";
+    const nextState = result.outcome;
     const isTerminal = nextState === "DONE" || nextState === "CANCELED" || nextState === "BLOCKED_DEP";
     const patched = await patchTask(paths, projectId, result.taskId, {
       state: nextState,

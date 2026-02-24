@@ -143,9 +143,14 @@ Lock is MANDATORY, not optional.
 
 ## Before Editing (MANDATORY)
 1. Identify files you need to edit from task's write_set
-2. For EACH file, acquire lock via lock.ps1:
-   \`\`\`powershell
-   powershell -ExecutionPolicy Bypass -File ..\\..\\TeamTools\\lock.ps1 -Action acquire -LockContentPath "src/path/to/file.ts" -TargetType file -Purpose "implementing feature X"
+2. For EACH file, acquire lock via TeamTools tool call \`lock_manage\`:
+   \`\`\`json
+   {
+     "action": "acquire",
+     "lock_key": "src/path/to/file.ts",
+     "target_type": "file",
+     "purpose": "implementing feature X"
+   }
    \`\`\`
 3. Verify output shows \`"result": "acquired"\` before proceeding
 4. If lock fails with LOCK_HELD, coordinate with lock owner or wait
@@ -155,18 +160,24 @@ Lock is MANDATORY, not optional.
 1. Only edit files you have successfully locked
 2. Keep write_set aligned with locked paths
 3. Renew locks if work takes longer than TTL (default 30 min):
-   \`\`\`powershell
-   powershell -ExecutionPolicy Bypass -File ..\\..\\TeamTools\\lock.ps1 -Action renew -LockContentPath "src/path/to/file.ts"
+   \`\`\`json
+   {
+     "action": "renew",
+     "lock_key": "src/path/to/file.ts"
+   }
    \`\`\`
 4. Document locked files in your progress.md
 
 ## After Work (MANDATORY)
 1. Report changed files in TASK_REPORT
 2. Release ALL locks you acquired:
-   \`\`\`powershell
-   powershell -ExecutionPolicy Bypass -File ..\\..\\TeamTools\\lock.ps1 -Action release -LockContentPath "src/path/to/file.ts"
+   \`\`\`json
+   {
+     "action": "release",
+     "lock_key": "src/path/to/file.ts"
+   }
    \`\`\`
-3. If handoff is needed, provide suggest_next_actions to target role
+3. If reassignment/discuss is needed, provide clear next actions and route through TeamTools task/discuss calls
 4. Update progress.md with lock release status
 
 ## Lock Status in progress.md

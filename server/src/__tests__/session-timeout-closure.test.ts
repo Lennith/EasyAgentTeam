@@ -56,7 +56,7 @@ test("running session timeout appends dispatch/run closure events", async () => 
     payload: {
       runId: "run-timeout-1",
       mode: "exec",
-      agentTool: "codex",
+      provider: "codex",
       pid: 999999
     }
   });
@@ -84,16 +84,20 @@ test("running session timeout appends dispatch/run closure events", async () => 
   }
   assert.ok(timeoutEvent);
 
-  const dispatchFailed = events.find(
+  const dispatchClosed = events.find(
     (item) =>
-      item.eventType === "ORCHESTRATOR_DISPATCH_FAILED" &&
+      (item.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || item.eventType === "ORCHESTRATOR_DISPATCH_FAILED") &&
       String((item.payload as Record<string, unknown>).dispatchId ?? "") === "dispatch-timeout-1"
   );
-  assert.ok(dispatchFailed);
-  assert.equal(
-    String((dispatchFailed?.payload as Record<string, unknown>).error ?? "").includes("timeout"),
-    true
+  assert.ok(dispatchClosed);
+  assert.equal((dispatchClosed?.payload as Record<string, unknown>).timedOut, true);
+
+  const timeoutSoft = events.find(
+    (item) =>
+      item.eventType === "RUNNER_TIMEOUT_SOFT" &&
+      item.sessionId === "sess-timeout"
   );
+  assert.ok(timeoutSoft);
 
   const runFinished = events.find(
     (item) =>

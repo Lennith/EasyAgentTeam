@@ -6,7 +6,7 @@ Team collaboration in MiniMax must use built-in ToolCalls, not custom `.ps1` wra
 - Always bind actions to a task (`task_id` or active task context).
 - Report progress continuously: `task_report_in_progress`.
 - End each task with exactly one terminal report: `task_report_done` or `task_report_block`.
-- Discuss unresolved points with `discuss_*` tools.
+- Discuss unresolved points with `discuss_request`, `discuss_reply`, `discuss_close`.
 - Lock before editing shared files with `lock_manage`.
 
 ## Tool Index

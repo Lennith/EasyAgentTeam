@@ -26,12 +26,10 @@ test("TASK_REPORT allows owner or creator and supports partial apply", async () 
   const devSessionId = "sess-dev-1";
   await addSession(paths, project.projectId, {
     sessionId: devSessionId,
-    sessionKey: devSessionId,
     role: "dev",
     status: "running",
     provider: "codex",
-    providerSessionId: devSessionId,
-    agentTool: "codex"
+    providerSessionId: devSessionId
   });
 
   await createTask(paths, project.projectId, {
@@ -80,7 +78,7 @@ test("TASK_REPORT allows owner or creator and supports partial apply", async () 
     summary: "batch report",
     results: [
       { task_id: "task-owner-dev", outcome: "DONE", summary: "owner done" },
-      { task_id: "task-creator-dev", outcome: "PARTIAL", summary: "creator progress" },
+      { task_id: "task-creator-dev", outcome: "IN_PROGRESS", summary: "creator progress" },
       { task_id: "task-no-access", outcome: "DONE", summary: "should reject" }
     ]
   });
@@ -119,12 +117,10 @@ test("TASK_REPORT returns 409 when all reported tasks are unauthorized", async (
   const devSessionId = "sess-dev-1";
   await addSession(paths, project.projectId, {
     sessionId: devSessionId,
-    sessionKey: devSessionId,
     role: "dev",
     status: "running",
     provider: "codex",
-    providerSessionId: devSessionId,
-    agentTool: "codex"
+    providerSessionId: devSessionId
   });
 
   await createTask(paths, project.projectId, {

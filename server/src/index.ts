@@ -1,7 +1,7 @@
 import { createApp, resolveDataRoot } from "./app.js";
 import { logger } from "./utils/logger.js";
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? 43123);
 const host = process.env.HOST ?? "127.0.0.1";
 const dataRoot = resolveDataRoot();
 const app = createApp({ dataRoot });

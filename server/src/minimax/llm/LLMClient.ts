@@ -280,9 +280,11 @@ export class LLMClient {
     tools?: ToolSchema[],
     systemPrompt?: string
   ): Promise<LLMResponse> {
-    const sanitized = sanitizeMessagesForToolProtocol(messages);
-    const trimmed = trimMessagesForContextWindow(sanitized.messages);
-    const anthropicMessages = this.convertMessages(trimmed.messages);
+    const preTrimSanitized = sanitizeMessagesForToolProtocol(messages);
+    const trimmed = trimMessagesForContextWindow(preTrimSanitized.messages);
+    // Trim may break tool_use -> tool_result adjacency; sanitize again after trim.
+    const postTrimSanitized = sanitizeMessagesForToolProtocol(trimmed.messages);
+    const anthropicMessages = this.convertMessages(postTrimSanitized.messages);
     
     const requestParams: Anthropic.Messages.MessageCreateParams = {
       model: this.model,
@@ -310,13 +312,14 @@ export class LLMClient {
         throw error;
       }
 
-      const retryTrimmed = trimMessagesForContextWindow(sanitized.messages, {
+      const retryTrimmed = trimMessagesForContextWindow(postTrimSanitized.messages, {
         maxTotalChars: Math.floor((trimmed.trimmedChars || DEFAULT_CONTEXT_MAX_CHARS) * 0.6),
         keepLatestCount: 12,
         maxToolChars: 2000,
         maxNonToolChars: 6000
       });
-      const retryMessages = this.convertMessages(retryTrimmed.messages);
+      const retrySanitized = sanitizeMessagesForToolProtocol(retryTrimmed.messages);
+      const retryMessages = this.convertMessages(retrySanitized.messages);
       const retryRequestParams: Anthropic.Messages.MessageCreateParams = {
         ...requestParams,
         messages: retryMessages
@@ -331,9 +334,11 @@ export class LLMClient {
     tools?: ToolSchema[],
     systemPrompt?: string
   ): AsyncGenerator<{ type: string; data: unknown }, LLMResponse, unknown> {
-    const sanitized = sanitizeMessagesForToolProtocol(messages);
-    const trimmed = trimMessagesForContextWindow(sanitized.messages);
-    const anthropicMessages = this.convertMessages(trimmed.messages);
+    const preTrimSanitized = sanitizeMessagesForToolProtocol(messages);
+    const trimmed = trimMessagesForContextWindow(preTrimSanitized.messages);
+    // Trim may break tool_use -> tool_result adjacency; sanitize again after trim.
+    const postTrimSanitized = sanitizeMessagesForToolProtocol(trimmed.messages);
+    const anthropicMessages = this.convertMessages(postTrimSanitized.messages);
     
     const requestParams: Anthropic.Messages.MessageCreateParams = {
       model: this.model,

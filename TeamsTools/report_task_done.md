@@ -20,12 +20,12 @@ One of:
 ```
 
 ## Backend Behavior
-- Sent as `TASK_REPORT` with `report_mode=DONE`.
+- Sent as `TASK_REPORT` with `results[].outcome=DONE`.
 - Includes report content and optional report file path as artifact.
 
 ## Strong Validation
 - `progress.md` must exist and contain concrete progress.
-- Reported task must belong to current role/session.
+- Reported task must be authorized for current role (owner role or creator role).
 
 ## Common Errors
 - `TASK_PROGRESS_REQUIRED`

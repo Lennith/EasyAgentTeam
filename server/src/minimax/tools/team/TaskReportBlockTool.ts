@@ -43,15 +43,21 @@ export class TaskReportBlockTool extends TeamTool {
       from_agent: this.context.agentRole,
       from_session_id: this.context.sessionId,
       parent_request_id: this.context.parentRequestId ?? null,
-      task_id: taskId,
-      report_mode: "BLOCK",
-      report_content: blockReason,
-      report_file: readString(args.progress_file) ?? null
+      summary: blockReason,
+      results: [
+        {
+          task_id: taskId,
+          outcome: "BLOCKED_DEP",
+          summary: blockReason,
+          blockers: [blockReason],
+          artifacts: readString(args.progress_file) ? [readString(args.progress_file)] : []
+        }
+      ]
     };
     const result = await this.bridge.taskAction(payload);
     return {
       action_type: "TASK_REPORT",
-      report_mode: "BLOCK",
+      outcome: "BLOCKED_DEP",
       task_id: taskId,
       result
     };

@@ -11,6 +11,7 @@ import { runMiniMaxForProject, type MiniMaxRunResultInternal } from "./minimax-r
 export interface ModelRunRequest {
   sessionId: string;
   prompt: string;
+  dispatchId?: string;
   taskId?: string;
   activeTaskTitle?: string;
   activeParentTaskId?: string;
@@ -55,7 +56,7 @@ export interface AgentOutputLine {
   content: string;
   cliCommand?: string;
   prompt?: string;
-  agentTool?: "codex" | "trae";
+  provider?: "codex" | "trae";
   config: {
     sandbox: "danger-full-access";
     approval: "never";
@@ -99,10 +100,11 @@ export abstract class BaseModelRunner {
 
     await this.appendEvent("CODEX_RUN_STARTED", {
       runId: this.runId,
+      dispatchId: this.request.dispatchId ?? null,
       command,
       args,
       workingDirectory,
-      agentTool: this.request.cliTool,
+      provider: this.request.cliTool,
       mode,
       resumeSessionId: this.request.resumeSessionId ?? null,
       parentRequestId: this.request.parentRequestId ?? null,
@@ -203,9 +205,10 @@ export abstract class BaseModelRunner {
 
     await this.appendEvent("CODEX_RUN_FINISHED", {
       runId: this.runId,
+      dispatchId: this.request.dispatchId ?? null,
       exitCode,
       timedOut,
-      agentTool: this.request.cliTool,
+      provider: this.request.cliTool,
       mode,
       providerSessionId: detectedSessionId || null,
     });
@@ -251,7 +254,7 @@ export abstract class BaseModelRunner {
       taskId: this.request.taskId,
       stream,
       content,
-      agentTool: this.request.cliTool,
+      provider: this.request.cliTool,
       ...extra,
       config: {
         sandbox: "danger-full-access",
@@ -286,7 +289,7 @@ export abstract class BaseModelRunner {
       AUTO_DEV_AGENT_ROLE: this.request.agentRole ?? "",
       AUTO_DEV_PROJECT_ROOT: this.project.workspacePath,
       AUTO_DEV_AGENT_WORKSPACE: workingDirectory,
-      AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:3000",
+      AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123",
       AUTO_DEV_PARENT_REQUEST_ID: this.request.parentRequestId ?? "",
       AUTO_DEV_ACTIVE_TASK_ID: this.request.taskId ?? "",
       AUTO_DEV_ACTIVE_TASK_TITLE: this.request.activeTaskTitle ?? "",
@@ -493,6 +496,7 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
   const sessionId = (data.sessionId ?? data.session_id) as string | undefined;
   const prompt = data.prompt as string | undefined;
   const taskId = (data.taskId ?? data.task_id ?? data.active_task_id ?? data.activeTaskId) as string | undefined;
+  const dispatchId = (data.dispatchId ?? data.dispatch_id) as string | undefined;
   const activeTaskTitle = (data.active_task_title ?? data.activeTaskTitle) as string | undefined;
   const activeParentTaskId = (data.active_parent_task_id ?? data.activeParentTaskId) as string | undefined;
   const activeRootTaskId = (data.active_root_task_id ?? data.activeRootTaskId) as string | undefined;
@@ -523,6 +527,7 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
     sessionId, 
     prompt, 
     taskId, 
+    dispatchId,
     activeTaskTitle,
     activeParentTaskId,
     activeRootTaskId,
@@ -553,6 +558,7 @@ export async function runModelForProject(
       sessionId: req.sessionId,
       prompt: req.prompt,
       taskId: req.taskId,
+      dispatchId: req.dispatchId,
       activeTaskTitle: req.activeTaskTitle,
       activeParentTaskId: req.activeParentTaskId,
       activeRootTaskId: req.activeRootTaskId,

@@ -92,6 +92,17 @@ async function main() {
     if (![200, 201].includes(sessionA.status)) {
       throw new Error("add session A failed");
     }
+    const sessionAId = sessionA.body?.session?.sessionId;
+    if (typeof sessionAId !== "string" || sessionAId.length === 0) {
+      throw new Error("session A id missing");
+    }
+    const dismissA = await postJson(
+      `${baseUrl}/api/projects/${projectId}/sessions/${encodeURIComponent(sessionAId)}/dismiss`,
+      {}
+    );
+    if (dismissA.status !== 200) {
+      throw new Error("dismiss session A failed");
+    }
     await delay(30);
     const sessionB = await postJson(`${baseUrl}/api/projects/${projectId}/sessions`, {
       session_id: "sess-dev-b",
@@ -99,6 +110,10 @@ async function main() {
     });
     if (![200, 201].includes(sessionB.status)) {
       throw new Error("add session B failed");
+    }
+    const sessionBId = sessionB.body?.session?.sessionId;
+    if (typeof sessionBId !== "string" || sessionBId.length === 0) {
+      throw new Error("session B id missing");
     }
 
     const routed = await postJson(`${baseUrl}/api/projects/${projectId}/messages/send`, {
@@ -109,12 +124,12 @@ async function main() {
     if (routed.status !== 201) {
       throw new Error(`message send failed: ${routed.status} ${JSON.stringify(routed.body)}`);
     }
-    if (routed.body.resolvedSessionId !== "sess-dev-b") {
-      throw new Error(`expected resolvedSessionId=sess-dev-b, got ${routed.body.resolvedSessionId}`);
+    if (routed.body.resolvedSessionId !== sessionBId) {
+      throw new Error(`expected resolvedSessionId=${sessionBId}, got ${routed.body.resolvedSessionId}`);
     }
 
     const inboxResponse = await fetch(
-      `${baseUrl}/api/projects/${projectId}/inbox/sess-dev-b?limit=1`
+      `${baseUrl}/api/projects/${projectId}/inbox/dev_backend?limit=1`
     );
     const inboxPayload = await inboxResponse.json();
     if (!inboxResponse.ok || !Array.isArray(inboxPayload.items) || inboxPayload.items.length !== 1) {

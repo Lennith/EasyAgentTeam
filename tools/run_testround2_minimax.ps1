@@ -271,7 +271,7 @@ while (-not $finished) {
   $running = @($sessionsNow.body.items | Where-Object { $_.status -eq "running" })
 
   foreach ($s in $running) {
-    $token = if ($s.sessionId) { $s.sessionId } elseif ($s.sessionKey) { $s.sessionKey } else { $null }
+    $token = if ($s.sessionId) { $s.sessionId } else { $null }
     if (-not $token) { continue }
     $last = [datetime]::Parse($s.lastActiveAt)
     if (((Get-Date).ToUniversalTime() - $last.ToUniversalTime()).TotalMinutes -gt 15) {

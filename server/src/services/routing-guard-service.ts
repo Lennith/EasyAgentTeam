@@ -1,5 +1,5 @@
 import type { ProjectPaths } from "../domain/models.js";
-import { resolveSessionByIdOrKey } from "../data/session-store.js";
+import { getSession } from "../data/session-store.js";
 
 export const RESERVED_TARGET_SESSION_IDS = new Set(["dashboard-ui", "manager-system"]);
 
@@ -73,7 +73,7 @@ export async function validateExplicitTargetSession(
     };
   }
 
-  const target = await resolveSessionByIdOrKey(paths, projectId, normalizedSessionId);
+  const target = await getSession(paths, projectId, normalizedSessionId);
   if (!target) {
     return {
       ok: false,

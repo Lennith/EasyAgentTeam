@@ -60,7 +60,7 @@ async function runFlow(): Promise<void> {
   }
   console.log("[mock_session] message routed:", send.body);
 
-  const inbox = await getJson(`/api/projects/${projectId}/inbox/sess-dev-1?limit=1`);
+  const inbox = await getJson(`/api/projects/${projectId}/inbox/dev_backend?limit=1`);
   console.log("[mock_session] inbox tail:", inbox);
 }
 

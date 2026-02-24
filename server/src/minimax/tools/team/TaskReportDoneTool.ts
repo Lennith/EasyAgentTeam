@@ -57,15 +57,20 @@ export class TaskReportDoneTool extends TeamTool {
       from_agent: this.context.agentRole,
       from_session_id: this.context.sessionId,
       parent_request_id: this.context.parentRequestId ?? null,
-      task_id: taskId,
-      report_mode: "DONE",
-      report_content: reportContent,
-      report_file: reportPath ?? null
+      summary: reportContent,
+      results: [
+        {
+          task_id: taskId,
+          outcome: "DONE",
+          summary: reportContent,
+          artifacts: reportPath ? [reportPath] : []
+        }
+      ]
     };
     const result = await this.bridge.taskAction(payload);
     return {
       action_type: "TASK_REPORT",
-      report_mode: "DONE",
+      outcome: "DONE",
       task_id: taskId,
       result
     };

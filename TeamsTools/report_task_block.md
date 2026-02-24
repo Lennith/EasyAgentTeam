@@ -20,12 +20,12 @@ Submit terminal blocked report for one task when execution cannot continue.
 ```
 
 ## Backend Behavior
-- Sent as `TASK_REPORT` with `report_mode=BLOCK`.
+- Sent as `TASK_REPORT` with `results[].outcome=BLOCKED_DEP`.
 - Task transitions to blocked state if validation passes.
 
 ## Strong Validation
 - `progress.md` evidence is required for terminal reports.
-- Task ownership must match reporter role/session.
+- Reported task must be authorized for current role (owner role or creator role).
 
 ## Common Errors
 - `TASK_PROGRESS_REQUIRED`

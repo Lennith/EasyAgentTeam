@@ -5,6 +5,9 @@ param(
   [int]$AutoDispatchBudget = 30,
   [int]$MaxMinutes = 75,
   [int]$PollSeconds = 30,
+  [int]$AutoTopupStep = 30,
+  [int]$MaxTopups = 10,
+  [int]$MaxTotalBudget = 330,
   [switch]$SetupOnly
 )
 
@@ -266,6 +269,10 @@ Write-Host "== Monitor run =="
 $start = Get-Date
 $finalReason = ""
 $pass = $false
+$topupCount = 0
+$totalBudgetGranted = $AutoDispatchBudget
+$topupLog = @()
+$noRunningStreak = 0
 
 if ($SetupOnly) {
   $pass = $true
@@ -283,9 +290,14 @@ if ($SetupOnly) {
     $openExec = @($executionNodes | Where-Object { $terminalStates -notcontains $_.state })
     $running = @($sessionsNow.body.items | Where-Object { $_.status -eq "running" })
     Write-Host ("remaining={0} exec={1} open_exec={2} running={3}" -f $remaining, $executionNodes.Count, $openExec.Count, $running.Count)
+    if ($openExec.Count -gt 0 -and $running.Count -eq 0) {
+      $noRunningStreak += 1
+    } else {
+      $noRunningStreak = 0
+    }
 
     foreach ($s in $running) {
-      $sessionToken = if ($s.sessionId) { $s.sessionId } elseif ($s.sessionKey) { $s.sessionKey } else { $null }
+      $sessionToken = if ($s.sessionId) { $s.sessionId } else { $null }
       if (-not $sessionToken -or -not $s.lastActiveAt) { continue }
       $last = [datetime]::Parse($s.lastActiveAt)
       if (((Get-Date).ToUniversalTime() - $last.ToUniversalTime()).TotalMinutes -gt 15) {
@@ -299,9 +311,43 @@ if ($SetupOnly) {
       $finalReason = "closed_loop"
       break
     }
-    if ($remaining -le 0) {
-      $finalReason = "budget_exhausted"
-      break
+    if ($remaining -le 0 -and $openExec.Count -gt 0) {
+      if ($topupCount -ge $MaxTopups) {
+        $finalReason = "max_topups_reached"
+        break
+      }
+      if (($totalBudgetGranted + $AutoTopupStep) -gt $MaxTotalBudget) {
+        $finalReason = "max_total_budget_reached"
+        break
+      }
+      $newRemaining = [Math]::Max(0, $remaining) + $AutoTopupStep
+      Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/projects/$projectId/orchestrator/settings" -Body @{
+        auto_dispatch_enabled = $true
+        auto_dispatch_remaining = $newRemaining
+      } | Out-Null
+      $topupCount += 1
+      $totalBudgetGranted += $AutoTopupStep
+      $entry = [pscustomobject]@{
+        at = (Get-Date).ToString("o")
+        previous_remaining = $remaining
+        new_remaining = $newRemaining
+        topup_count = $topupCount
+        total_budget_granted = $totalBudgetGranted
+      }
+      $topupLog += $entry
+      Write-Host ("topup applied: count={0} new_remaining={1} total_budget_granted={2}" -f $topupCount, $newRemaining, $totalBudgetGranted)
+      Start-Sleep -Seconds $PollSeconds
+      continue
+    }
+    if ($openExec.Count -gt 0 -and $noRunningStreak -ge 3) {
+      Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{
+        force = $false
+        only_idle = $false
+      } -AllowStatus @(200) | Out-Null
+      Write-Host ("dispatch nudge applied after idle streak={0}" -f $noRunningStreak)
+      $noRunningStreak = 0
+      Start-Sleep -Seconds $PollSeconds
+      continue
     }
     if (((Get-Date) - $start).TotalMinutes -gt $MaxMinutes) {
       $finalReason = "timeout"
@@ -319,13 +365,14 @@ Ensure-Dir -Path $outDir
 
 & (Join-Path $scriptDir "export-core-logs.ps1") -BaseUrl $BaseUrl -ProjectId $projectId -OutDir $outDir
 Copy-Item -LiteralPath (Join-Path $preCheckDir "pre_gate_checks.json") -Destination (Join-Path $outDir "pre_gate_checks.json") -Force
+$topupLogPath = Join-Path $outDir "topup_log.json"
+$topupJson = if (@($topupLog).Count -eq 0) { "[]" } else { ($topupLog | ConvertTo-Json -Depth 20) }
+Set-Content -LiteralPath $topupLogPath -Value $topupJson -Encoding UTF8
 $analysisExit = 0
 if (-not $SetupOnly) {
   try {
-    & (Join-Path $scriptDir "analyze-core-logs.ps1") -ArtifactsDir $outDir -ScenarioPath $ScenarioPath
-    if ($LASTEXITCODE) {
-      $analysisExit = [int]$LASTEXITCODE
-    }
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir "analyze-core-logs.ps1") -ArtifactsDir $outDir -ScenarioPath $ScenarioPath -FinalReasonHint $finalReason
+    $analysisExit = if ($LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
   } catch {
     $analysisExit = 1
   }
@@ -335,7 +382,7 @@ $finalSettings = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projec
 $finalSessions = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions"
 $finalTree = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/task-tree"
 $finalRemaining = [int]$finalSettings.body.auto_dispatch_remaining
-$consumed = $AutoDispatchBudget - $finalRemaining
+$consumed = $totalBudgetGranted - $finalRemaining
 $runningCount = @($finalSessions.body.items | Where-Object { $_.status -eq "running" }).Count
 $openExecCount = @(@($finalTree.body.nodes) | Where-Object { $_.task_kind -eq "EXECUTION" -and @("DONE","BLOCKED_DEP","CANCELED") -notcontains $_.state }).Count
 
@@ -351,8 +398,13 @@ $summary += "- final_reason: $finalReason"
 $summary += "- pass_runtime: $pass"
 $summary += "- pass_analysis: $($analysisExit -eq 0)"
 $summary += "- auto_dispatch_budget_initial: $AutoDispatchBudget"
+$summary += "- auto_dispatch_budget_granted_total: $totalBudgetGranted"
 $summary += "- auto_dispatch_budget_remaining: $finalRemaining"
 $summary += "- auto_dispatch_budget_consumed: $consumed"
+$summary += "- auto_dispatch_topup_step: $AutoTopupStep"
+$summary += "- auto_dispatch_topup_count: $topupCount"
+$summary += "- auto_dispatch_topup_max: $MaxTopups"
+$summary += "- auto_dispatch_total_budget_max: $MaxTotalBudget"
 $summary += "- running_sessions_final: $runningCount"
 $summary += "- open_execution_tasks_final: $openExecCount"
 $summary += "- artifacts_dir: $outDir"

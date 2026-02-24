@@ -1,13 +1,18 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:3000",
   [string[]]$Cases = @("chain", "discuss"),
+  [bool]$RunReminderAfter = $true,
   [string]$ChainScenarioPath = "",
   [string]$DiscussScenarioPath = "",
   [string]$ChainWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestRound20",
   [string]$DiscussWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss",
+  [string]$ReminderWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestReminder",
   [int]$AutoDispatchBudget = 30,
   [int]$MaxMinutes = 75,
   [int]$PollSeconds = 30,
+  [int]$AutoTopupStep = 30,
+  [int]$MaxTopups = 10,
+  [int]$MaxTotalBudget = 330,
   [switch]$SetupOnly
 )
 
@@ -69,6 +74,9 @@ foreach ($caseId in $selected) {
       [int]$AutoDispatchBudget,
       [int]$MaxMinutes,
       [int]$PollSeconds,
+      [int]$AutoTopupStep,
+      [int]$MaxTopups,
+      [int]$MaxTotalBudget,
       [bool]$SetupOnly
     )
     $args = @(
@@ -79,7 +87,10 @@ foreach ($caseId in $selected) {
       "-WorkspaceRoot", $WorkspaceRoot,
       "-AutoDispatchBudget", "$AutoDispatchBudget",
       "-MaxMinutes", "$MaxMinutes",
-      "-PollSeconds", "$PollSeconds"
+      "-PollSeconds", "$PollSeconds",
+      "-AutoTopupStep", "$AutoTopupStep",
+      "-MaxTopups", "$MaxTopups",
+      "-MaxTotalBudget", "$MaxTotalBudget"
     )
     if ($SetupOnly) {
       $args += "-SetupOnly"
@@ -89,7 +100,7 @@ foreach ($caseId in $selected) {
     [pscustomobject]@{
       exitCode = $code
     }
-  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $SetupOnly.IsPresent
+  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $AutoTopupStep, $MaxTopups, $MaxTotalBudget, $SetupOnly.IsPresent
 }
 
 $failed = @()
@@ -125,6 +136,23 @@ foreach ($job in $jobs) {
 if ($failed.Count -gt 0) {
   Write-Host ("== Multi E2E Failed: {0} ==" -f ($failed -join ","))
   exit 2
+}
+
+if ($RunReminderAfter) {
+  $reminderScript = Join-Path $scriptDir "run-reminder-e2e.ps1"
+  Write-Host "== Running reminder e2e after chain/discuss =="
+  $reminderArgs = @(
+    "-ExecutionPolicy", "Bypass",
+    "-File", $reminderScript,
+    "-BaseUrl", $BaseUrl,
+    "-WorkspaceRoot", $ReminderWorkspaceRoot,
+    "-AutoDispatchBudget", "$AutoDispatchBudget"
+  )
+  & powershell @reminderArgs
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host ("== Reminder E2E Failed: exitCode={0} ==" -f $LASTEXITCODE)
+    exit 3
+  }
 }
 
 Write-Host "== Multi E2E Passed =="

@@ -228,9 +228,8 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
         action_type: "TASK_REPORT",
         from_agent: "dev",
         from_session_id: devSessionId,
-        task_id: "exec-task-1",
-        report_mode: "IN_PROGRESS",
-        report_content: "implemented parser skeleton"
+        summary: "implemented parser skeleton",
+        results: [{ task_id: "exec-task-1", outcome: "IN_PROGRESS", summary: "implemented parser skeleton" }]
       })
     });
     assert.equal(inProgressAccepted.status, 201);
@@ -243,7 +242,7 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     assert.equal(inProgressNode?.state, "IN_PROGRESS");
 
     // DONE 閹躲儱鎲￠張?report_content閿涘瞼骞囬崷銊︽杹鐎逛粙鐛欑拠渚婄礉娑撳秹娓剁憰?progress.md 娑旂喕鍏橀柅姘崇箖
-    const reportRejected = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
+    const retiredModeRejected = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -255,7 +254,20 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
         report_content: "done"
       })
     });
-    assert.equal(reportRejected.status, 201);
+    assert.equal(retiredModeRejected.status, 400);
+
+    const retiredOutcomeRejected = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "dev",
+        from_session_id: devSessionId,
+        summary: "retired outcome",
+        results: [{ task_id: "exec-task-1", outcome: "PARTIAL", summary: "old format" }]
+      })
+    });
+    assert.equal(retiredOutcomeRejected.status, 400);
 
     const progressPath = path.join(workspacePath, "Agents", "dev", "progress.md");
     await fs.writeFile(
@@ -307,9 +319,8 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
         action_type: "TASK_REPORT",
         from_agent: "dev",
         from_session_id: devSessionId,
-        task_id: "exec-task-1",
-        report_mode: "IN_PROGRESS",
-        report_content: "attempt rollback from done"
+        summary: "attempt rollback from done",
+        results: [{ task_id: "exec-task-1", outcome: "IN_PROGRESS", summary: "attempt rollback from done" }]
       })
     });
     assert.equal(staleRollback.status, 409);
@@ -340,9 +351,15 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
         action_type: "TASK_REPORT",
         from_agent: "dev",
         from_session_id: devSessionId,
-        task_id: "exec-task-2",
-        report_mode: "BLOCK",
-        block_reason: "waiting dependency"
+        summary: "waiting dependency",
+        results: [
+          {
+            task_id: "exec-task-2",
+            outcome: "BLOCKED_DEP",
+            summary: "waiting dependency",
+            blockers: ["waiting dependency"]
+          }
+        ]
       })
     });
     assert.equal(blockTask2.status, 201);
@@ -354,9 +371,8 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
         action_type: "TASK_REPORT",
         from_agent: "dev",
         from_session_id: devSessionId,
-        task_id: "exec-task-2",
-        report_mode: "DONE",
-        report_content: "dependency solved"
+        summary: "dependency solved",
+        results: [{ task_id: "exec-task-2", outcome: "DONE", summary: "dependency solved" }]
       })
     });
     assert.equal(doneFromBlockedTask2.status, 201);

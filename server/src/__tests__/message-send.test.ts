@@ -39,7 +39,6 @@ test("message send resolves latest role session and writes route events", async 
     assert.equal(createSessionRes.status, 201);
     const createSessionPayload = (await createSessionRes.json()) as {
       session: { sessionId: string };
-      sessionKey?: string;
     };
     const resolvedDevSessionId = createSessionPayload.session.sessionId;
 
@@ -57,7 +56,7 @@ test("message send resolves latest role session and writes route events", async 
     assert.equal(sendPayload.resolvedSessionId, resolvedDevSessionId);
     assert.ok(sendPayload.requestId);
 
-    const inboxRes = await fetch(`${baseUrl}/api/projects/messagetest/inbox/${resolvedDevSessionId}?limit=1`);
+    const inboxRes = await fetch(`${baseUrl}/api/projects/messagetest/inbox/dev_backend?limit=1`);
     assert.equal(inboxRes.status, 200);
     const inboxPayload = (await inboxRes.json()) as {
       items: Array<{ envelope?: { correlation?: { request_id?: string } } }>;
@@ -147,7 +146,7 @@ test("message send skips dismissed sessions and auto-bootstraps when none usable
     assert.equal(secondSendRes.status, 201);
     const secondSendPayload = (await secondSendRes.json()) as { resolvedSessionId: string };
     assert.equal(secondSendPayload.resolvedSessionId, firstSendPayload.resolvedSessionId);
-    assert.equal(secondSendPayload.resolvedSessionId.startsWith("pending-dev_backend-"), true);
+    assert.equal(secondSendPayload.resolvedSessionId.startsWith("session-dev_backend-"), true);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
@@ -255,18 +254,21 @@ test("message send rejects likely encoding-corrupted content", async () => {
     });
     assert.equal(projectRes.status, 201);
 
-    await fetch(`${baseUrl}/api/projects/msgencoding/sessions`, {
+    const createDevSessionRes = await fetch(`${baseUrl}/api/projects/msgencoding/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: "sess-dev", role: "dev_backend" })
     });
+    assert.equal(createDevSessionRes.status, 201);
+    const createDevSessionPayload = (await createDevSessionRes.json()) as { session: { sessionId: string } };
+    const devSessionId = createDevSessionPayload.session.sessionId;
 
     const rejectedRes = await fetch(`${baseUrl}/api/projects/msgencoding/messages/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         from_agent: "manager",
-        to: { agent: "dev_backend", session_id: "sess-dev" },
+        to: { agent: "dev_backend", session_id: devSessionId },
         content: "?? D:/work/SensorCalibration/PxSensorCalibrationAS/app ??????????",
         mode: "CHAT"
       })
@@ -326,16 +328,20 @@ test.skip("message send supports directional discuss round limits from project r
     });
     assert.equal(projectRes.status, 201);
 
-    await fetch(`${baseUrl}/api/projects/msgclarify/sessions`, {
+    const createAgentASessionRes = await fetch(`${baseUrl}/api/projects/msgclarify/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: "sess-a", role: "agent_a" })
     });
-    await fetch(`${baseUrl}/api/projects/msgclarify/sessions`, {
+    assert.equal(createAgentASessionRes.status, 201);
+    const createAgentASessionPayload = (await createAgentASessionRes.json()) as { session: { sessionId: string } };
+    const agentASessionId = createAgentASessionPayload.session.sessionId;
+    const createAgentBSessionRes = await fetch(`${baseUrl}/api/projects/msgclarify/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: "sess-b", role: "agent_b" })
     });
+    assert.equal(createAgentBSessionRes.status, 201);
 
     const sendRes = await fetch(`${baseUrl}/api/projects/msgclarify/messages/send`, {
       method: "POST",
@@ -363,7 +369,7 @@ test.skip("message send supports directional discuss round limits from project r
     assert.equal(sendPayload.taskId, "task-001");
     assert.equal(sendPayload.buffered, true);
 
-    const inboxRes = await fetch(`${baseUrl}/api/projects/msgclarify/inbox/sess-b?limit=20`);
+    const inboxRes = await fetch(`${baseUrl}/api/projects/msgclarify/inbox/agent_b?limit=20`);
     assert.equal(inboxRes.status, 200);
     const inboxPayload = (await inboxRes.json()) as {
       items: Array<{ type: string; payload: { taskId?: string; clarification?: { threadId?: string; round?: number } } }>;
@@ -400,10 +406,10 @@ test.skip("message send supports directional discuss round limits from project r
     assert.equal(overLimitPayload.error_code, "clarification_round_limit_reached");
     assert.equal(overLimitPayload.error?.code, "clarification_round_limit_reached");
     assert.equal(overLimitPayload.noticeSent, true);
-    assert.equal(overLimitPayload.noticeSessionId, "sess-a");
+    assert.equal(overLimitPayload.noticeSessionId, agentASessionId);
     assert.equal(String(overLimitPayload.error?.message ?? "").includes("route limit"), true);
 
-    const senderInboxRes = await fetch(`${baseUrl}/api/projects/msgclarify/inbox/sess-a?limit=20`);
+    const senderInboxRes = await fetch(`${baseUrl}/api/projects/msgclarify/inbox/agent_a?limit=20`);
     assert.equal(senderInboxRes.status, 200);
     const senderInboxPayload = (await senderInboxRes.json()) as {
       items: Array<{ envelope?: { intent?: string }; body?: { messageType?: string; noticeType?: string } }>;
@@ -502,16 +508,18 @@ test.skip("discuss requests with parent_request_id are buffered before dispatch-
     });
     assert.equal(projectRes.status, 201);
 
-    await fetch(`${baseUrl}/api/projects/msgclarifybuf/sessions`, {
+    const createBufferAgentASessionRes = await fetch(`${baseUrl}/api/projects/msgclarifybuf/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: "sess-a", role: "agent_a" })
     });
-    await fetch(`${baseUrl}/api/projects/msgclarifybuf/sessions`, {
+    assert.equal(createBufferAgentASessionRes.status, 201);
+    const createBufferAgentBSessionRes = await fetch(`${baseUrl}/api/projects/msgclarifybuf/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: "sess-b", role: "agent_b" })
     });
+    assert.equal(createBufferAgentBSessionRes.status, 201);
 
     for (const idx of [1, 2]) {
       const sendRes = await fetch(`${baseUrl}/api/projects/msgclarifybuf/messages/send`, {
@@ -538,7 +546,7 @@ test.skip("discuss requests with parent_request_id are buffered before dispatch-
       assert.equal(sendPayload.buffered, true);
     }
 
-    const inboxRes = await fetch(`${baseUrl}/api/projects/msgclarifybuf/inbox/sess-b?limit=20`);
+    const inboxRes = await fetch(`${baseUrl}/api/projects/msgclarifybuf/inbox/agent_b?limit=20`);
     assert.equal(inboxRes.status, 200);
     const inboxPayload = (await inboxRes.json()) as { items: Array<{ type: string }> };
     assert.equal(inboxPayload.items.length, 0);

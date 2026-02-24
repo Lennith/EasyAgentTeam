@@ -201,6 +201,14 @@ export async function buildAgentIOTimeline(
       continue;
     }
     if (event.eventType === "TASK_REPORT_APPLIED") {
+      const applied = Array.isArray(payload.appliedTaskIds) ? payload.appliedTaskIds.map((v) => String(v)) : [];
+      const updated = Array.isArray(payload.updatedTaskIds) ? payload.updatedTaskIds.map((v) => String(v)) : [];
+      const rejectedCount = Number(payload.rejectedCount ?? 0);
+      const summaryParts = [
+        `applied: ${applied.length}`,
+        `updated: ${updated.length}`,
+        `rejected: ${Number.isFinite(rejectedCount) ? rejectedCount : 0}`
+      ];
       items.push({
         itemId: event.eventId,
         kind: "task_report",
@@ -209,7 +217,7 @@ export async function buildAgentIOTimeline(
         toRole: (payload.toRole as string | null | undefined) ?? "manager",
         requestId: (payload.requestId as string | null | undefined) ?? null,
         messageType: "TASK_REPORT",
-        content: `updated tasks: ${Array.isArray(payload.updatedTaskIds) ? payload.updatedTaskIds.join(", ") : ""}`
+        content: summaryParts.join(" | ")
       });
       continue;
     }

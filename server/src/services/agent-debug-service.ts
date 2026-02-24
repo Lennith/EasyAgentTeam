@@ -8,7 +8,7 @@ interface AgentOutputLine {
   content: string;
   cliCommand?: string;
   prompt?: string;
-  agentTool?: "codex" | "trae";
+  provider?: "codex" | "trae" | "minimax";
 }
 
 type ParseMode = "thinking" | "exec" | "agent" | "codex" | "trae" | null;
@@ -43,7 +43,6 @@ interface DebugAgentRunMeta {
   model?: string;
   provider?: string;
   providerSessionId?: string;
-  agentTool?: "codex" | "trae";
   reasoningEffort?: string;
   reasoningSummaries?: string;
   approval?: string;
@@ -84,7 +83,7 @@ export interface DebugAgentRunDetail {
   };
   summary: DebugAgentRunSummary;
   parsedLines: DebugAgentParsedLine[];
-  agentTool?: "codex" | "trae";
+  provider?: "codex" | "trae" | "minimax";
 }
 
 interface ParseRunOptions {
@@ -138,7 +137,7 @@ function parseMetaLine(summary: DebugAgentRunSummary, line: string): boolean {
     return true;
   }
   if (key === "agent tool") {
-    summary.meta.agentTool = value as "codex" | "trae";
+    summary.meta.provider = value;
     return true;
   }
   if (key === "reasoning effort") {
@@ -205,7 +204,7 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
   const projectId = rows[0]?.projectId ?? "";
   const sessionId = rows[0]?.sessionId ?? "";
   const taskId = rows.find((row) => typeof row.taskId === "string" && row.taskId.trim().length > 0)?.taskId;
-  const agentTool = rows[0]?.agentTool ?? "codex";
+  const provider = rows[0]?.provider ?? "codex";
   const streams = { stdout: 0, stderr: 0, system: 0 };
   for (const row of rows) {
     streams[row.stream] += 1;
@@ -236,7 +235,7 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
     errors: [],
     warnings: [],
     meta: {
-      agentTool
+      provider
     }
   };
   if (!summary.initialPrompt) {
@@ -357,7 +356,7 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
     streams,
     summary,
     parsedLines,
-    agentTool
+    provider
   };
 }
 
