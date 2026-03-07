@@ -18,10 +18,12 @@ dashboard-v2/Agents/
 # runtime data (keep skeleton only)
 data/projects/**
 !data/projects/
+data/workflows/**
 data/settings/runtime.json
 data/teams/**
 !data/.gitkeep
 !data/projects/.gitkeep
+.e2e-workspace/
 
 # OS/editor noise
 nul
