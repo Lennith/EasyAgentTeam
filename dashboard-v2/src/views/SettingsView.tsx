@@ -10,14 +10,45 @@ const MINIMAX_MODELS = [
   { value: "MiniMax-M2", label: "MiniMax-M2" },
   { value: "abab6.5-chat", label: "abab6.5-chat" },
   { value: "abab6.5s-chat", label: "abab6.5s-chat" },
-  { value: "abab6-chat", label: "abab6-chat" },
+  { value: "abab6-chat", label: "abab6-chat" }
 ];
 
 const THEMES: { value: Theme; label: string }[] = [
   { value: "dark", label: "Dark" },
   { value: "vibrant", label: "Vibrant Medium" },
-  { value: "lively", label: "Lively Day" },
+  { value: "lively", label: "Lively Day" }
 ];
+
+const THEME_STORAGE_KEY = "dashboard_theme";
+
+function isTheme(value: string | null | undefined): value is Theme {
+  return value === "dark" || value === "vibrant" || value === "lively";
+}
+
+function readCurrentTheme(): Theme {
+  const fromDom = document.documentElement.getAttribute("data-theme");
+  if (isTheme(fromDom)) {
+    return fromDom;
+  }
+  try {
+    const fromStorage = localStorage.getItem(THEME_STORAGE_KEY);
+    if (isTheme(fromStorage)) {
+      return fromStorage;
+    }
+  } catch {
+    // ignore local storage errors
+  }
+  return "dark";
+}
+
+function applyTheme(theme: Theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // ignore local storage errors
+  }
+}
 
 export function SettingsView() {
   const t = useTranslation();
@@ -26,19 +57,18 @@ export function SettingsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [themeSaving, setThemeSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
 
   const [codexCliCommand, setCodexCliCommand] = useState("");
   const [traeCliCommand, setTraeCliCommand] = useState("");
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>(() => readCurrentTheme());
   const [minimaxApiKey, setMiniMaxApiKey] = useState("");
   const [minimaxApiBase, setMiniMaxApiBase] = useState("");
   const [minimaxModel, setMiniMaxModel] = useState("MiniMax-M2.5");
   const [minimaxSessionDir, setMiniMaxSessionDir] = useState("");
   const [minimaxMaxSteps, setMiniMaxMaxSteps] = useState(100);
   const [minimaxTokenLimit, setMiniMaxTokenLimit] = useState(80000);
-
-
 
   useEffect(() => {
     let closed = false;
@@ -49,7 +79,8 @@ export function SettingsView() {
           setSettings(data);
           setCodexCliCommand(data.codexCliCommand ?? "");
           setTraeCliCommand(data.traeCliCommand ?? "");
-          setTheme(data.theme ?? "dark");
+          const resolvedTheme = data.theme ?? readCurrentTheme();
+          setTheme(resolvedTheme);
           setMiniMaxApiKey(data.minimaxApiKey ?? "");
           setMiniMaxApiBase(data.minimaxApiBase ?? "https://api.minimax.io");
           setMiniMaxModel(data.minimaxModel ?? "MiniMax-M2.5");
@@ -67,8 +98,24 @@ export function SettingsView() {
       }
     }
     load();
-    return () => { closed = true; };
+    return () => {
+      closed = true;
+    };
   }, []);
+
+  async function onThemeChange(nextTheme: Theme) {
+    setTheme(nextTheme);
+    applyTheme(nextTheme);
+    setThemeSaving(true);
+    setError(null);
+    try {
+      await settingsApi.update({ theme: nextTheme });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save theme");
+    } finally {
+      setThemeSaving(false);
+    }
+  }
 
   async function onSave() {
     try {
@@ -84,10 +131,9 @@ export function SettingsView() {
         minimaxModel,
         minimaxSessionDir: minimaxSessionDir || undefined,
         minimaxMaxSteps,
-        minimaxTokenLimit,
+        minimaxTokenLimit
       });
-      // Apply theme immediately
-      document.documentElement.setAttribute("data-theme", theme);
+      applyTheme(theme);
       setSuccess(t.settingsSaved);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
@@ -95,8 +141,6 @@ export function SettingsView() {
       setSaving(false);
     }
   }
-
-
 
   if (loading) {
     return (
@@ -126,15 +170,17 @@ export function SettingsView() {
           <h3>Dashboard Settings</h3>
         </div>
 
-        <div style={{ 
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "space-between",
-          padding: "16px",
-          background: "var(--bg-elevated)",
-          borderRadius: "8px",
-          marginBottom: "16px"
-        }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px",
+            background: "var(--bg-elevated)",
+            borderRadius: "8px",
+            marginBottom: "16px"
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             {dashboardSettings.useMockData ? (
               <Database size={20} style={{ color: "var(--accent-warning)" }} />
@@ -144,21 +190,21 @@ export function SettingsView() {
             <div>
               <div style={{ fontWeight: 500 }}>Data Source</div>
               <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                {dashboardSettings.useMockData 
+                {dashboardSettings.useMockData
                   ? "Using mock data for preview (no backend required)"
                   : "Using real backend API data"}
               </div>
             </div>
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
-            <button 
+            <button
               className={`btn ${!dashboardSettings.useMockData ? "btn-primary" : "btn-secondary"}`}
               onClick={() => updateSettings({ useMockData: false })}
             >
               <Wifi size={14} />
               Live API
             </button>
-            <button 
+            <button
               className={`btn ${dashboardSettings.useMockData ? "btn-primary" : "btn-secondary"}`}
               onClick={() => updateSettings({ useMockData: true })}
             >
@@ -169,44 +215,54 @@ export function SettingsView() {
         </div>
 
         {/* Theme Selector */}
-        <div style={{ 
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "space-between",
-          padding: "16px",
-          background: "var(--bg-surface)",
-          borderRadius: "8px",
-          marginBottom: "16px"
-        }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px",
+            background: "var(--bg-surface)",
+            borderRadius: "8px",
+            marginBottom: "16px"
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <Palette size={20} style={{ color: "var(--accent-primary)" }} />
             <div>
               <div style={{ fontWeight: 500 }}>Theme</div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                Choose your preferred color scheme
-              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Choose your preferred color scheme</div>
             </div>
           </div>
           <select
             value={theme}
-            onChange={(e) => setTheme(e.target.value as Theme)}
+            onChange={(e) => {
+              void onThemeChange(e.target.value as Theme);
+            }}
             style={{ width: "auto", minWidth: "150px" }}
           >
             {THEMES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
             ))}
           </select>
+          {themeSaving && (
+            <span style={{ marginLeft: "8px", fontSize: "12px", color: "var(--text-muted)" }}>Saving...</span>
+          )}
         </div>
 
         {dashboardSettings.useMockData && (
-          <div style={{ 
-            padding: "12px", 
-            background: "var(--accent-warning)20", 
-            borderRadius: "6px",
-            fontSize: "13px",
-            color: "var(--accent-warning)"
-          }}>
-            ⚠️ Mock data mode is enabled. Some features may not work correctly. Switch to "Live API" when the backend is available.
+          <div
+            style={{
+              padding: "12px",
+              background: "var(--accent-warning)20",
+              borderRadius: "6px",
+              fontSize: "13px",
+              color: "var(--accent-warning)"
+            }}
+          >
+            ⚠️ Mock data mode is enabled. Some features may not work correctly. Switch to "Live API" when the backend is
+            available.
           </div>
         )}
       </div>
@@ -218,23 +274,13 @@ export function SettingsView() {
 
         <div className="form-group">
           <label>{t.codex}</label>
-          <input 
-            value={codexCliCommand} 
-            onChange={(e) => setCodexCliCommand(e.target.value)} 
-            placeholder="codex"
-          />
+          <input value={codexCliCommand} onChange={(e) => setCodexCliCommand(e.target.value)} placeholder="codex" />
         </div>
 
         <div className="form-group">
           <label>{t.trae}</label>
-          <input 
-            value={traeCliCommand} 
-            onChange={(e) => setTraeCliCommand(e.target.value)} 
-            placeholder="trae"
-          />
+          <input value={traeCliCommand} onChange={(e) => setTraeCliCommand(e.target.value)} placeholder="trae" />
         </div>
-
-
       </div>
 
       <div className="card">
@@ -244,40 +290,39 @@ export function SettingsView() {
 
         <div className="form-group">
           <label>API Key</label>
-          <input 
+          <input
             type="password"
-            value={minimaxApiKey} 
-            onChange={(e) => setMiniMaxApiKey(e.target.value)} 
+            value={minimaxApiKey}
+            onChange={(e) => setMiniMaxApiKey(e.target.value)}
             placeholder="Enter your MiniMax API key"
           />
         </div>
 
         <div className="form-group">
           <label>API Base URL</label>
-          <input 
-            value={minimaxApiBase} 
-            onChange={(e) => setMiniMaxApiBase(e.target.value)} 
+          <input
+            value={minimaxApiBase}
+            onChange={(e) => setMiniMaxApiBase(e.target.value)}
             placeholder="https://api.minimax.io"
           />
         </div>
 
         <div className="form-group">
           <label>Model</label>
-          <select
-            value={minimaxModel}
-            onChange={(e) => setMiniMaxModel(e.target.value)}
-          >
-            {MINIMAX_MODELS.map(m => (
-              <option key={m.value} value={m.value}>{m.label}</option>
+          <select value={minimaxModel} onChange={(e) => setMiniMaxModel(e.target.value)}>
+            {MINIMAX_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
             ))}
           </select>
         </div>
 
         <div className="form-group">
           <label>Session Directory (optional)</label>
-          <input 
-            value={minimaxSessionDir} 
-            onChange={(e) => setMiniMaxSessionDir(e.target.value)} 
+          <input
+            value={minimaxSessionDir}
+            onChange={(e) => setMiniMaxSessionDir(e.target.value)}
             placeholder="Leave empty for default (.minimax/sessions)"
           />
           <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
@@ -288,10 +333,10 @@ export function SettingsView() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
           <div className="form-group">
             <label>Max Steps</label>
-            <input 
+            <input
               type="number"
-              value={minimaxMaxSteps} 
-              onChange={(e) => setMiniMaxMaxSteps(parseInt(e.target.value) || 100)} 
+              value={minimaxMaxSteps}
+              onChange={(e) => setMiniMaxMaxSteps(parseInt(e.target.value) || 100)}
               min={1}
               max={1000}
             />
@@ -299,10 +344,10 @@ export function SettingsView() {
 
           <div className="form-group">
             <label>Token Limit</label>
-            <input 
+            <input
               type="number"
-              value={minimaxTokenLimit} 
-              onChange={(e) => setMiniMaxTokenLimit(parseInt(e.target.value) || 80000)} 
+              value={minimaxTokenLimit}
+              onChange={(e) => setMiniMaxTokenLimit(parseInt(e.target.value) || 80000)}
               min={1000}
               max={200000}
             />
@@ -310,17 +355,10 @@ export function SettingsView() {
         </div>
       </div>
 
-      <button 
-        className="btn btn-primary"
-        disabled={saving}
-        onClick={onSave}
-        style={{ marginBottom: "24px" }}
-      >
+      <button className="btn btn-primary" disabled={saving} onClick={onSave} style={{ marginBottom: "24px" }}>
         {saving ? <Loader size={14} className="loading-spinner" /> : <Save size={14} />}
         {saving ? t.saving : t.save}
       </button>
-
-
     </section>
   );
 }

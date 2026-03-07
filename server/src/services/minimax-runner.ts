@@ -7,15 +7,8 @@ import { touchSession } from "../data/session-store.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
 import type { RuntimeSettings } from "../data/runtime-settings-store.js";
 import { logger } from "../utils/logger.js";
-import { 
-  MiniMaxAgent, 
-  createMiniMaxAgent,
-  type MiniMaxRunResult 
-} from "../minimax/index.js";
-import {
-  isMiniMaxContextWindowExceededError,
-  isMiniMaxToolResultIdNotFoundError
-} from "../minimax/llm/LLMClient.js";
+import { MiniMaxAgent, createMiniMaxAgent, type MiniMaxRunResult } from "../minimax/index.js";
+import { isMiniMaxContextWindowExceededError, isMiniMaxToolResultIdNotFoundError } from "../minimax/llm/LLMClient.js";
 import { createMiniMaxTeamToolBridge } from "./minimax-teamtool-bridge.js";
 import type { TeamToolExecutionContext } from "../minimax/tools/team/types.js";
 
@@ -147,12 +140,7 @@ export class MiniMaxRunner {
     return this.cancelled;
   }
 
-  constructor(
-    project: ProjectRecord,
-    paths: ProjectPaths,
-    request: MiniMaxRunRequest,
-    settings: RuntimeSettings
-  ) {
+  constructor(project: ProjectRecord, paths: ProjectPaths, request: MiniMaxRunRequest, settings: RuntimeSettings) {
     this.project = project;
     this.paths = paths;
     this.dataRoot = path.resolve(this.paths.projectRootDir, "..", "..");
@@ -175,8 +163,7 @@ export class MiniMaxRunner {
   }
 
   private getSessionDir(): string {
-    return this.settings.minimaxSessionDir 
-      ?? path.join(this.project.workspacePath, ".minimax", "sessions");
+    return this.settings.minimaxSessionDir ?? path.join(this.project.workspacePath, ".minimax", "sessions");
   }
 
   protected resolveWorkingDirectory(): string {
@@ -219,7 +206,9 @@ export class MiniMaxRunner {
     logger.info(`[MiniMaxRunner] triggerWakeUp: request.sessionId=${this.request.sessionId}, runId=${this.runId}`);
     const wakeUpCallback = wakeUpCallbacks.get(this.runId);
     if (wakeUpCallback) {
-      logger.info(`[MiniMaxRunner] triggerWakeUp: found callback, calling with sessionId=${this.request.sessionId}, runId=${this.runId}`);
+      logger.info(
+        `[MiniMaxRunner] triggerWakeUp: found callback, calling with sessionId=${this.request.sessionId}, runId=${this.runId}`
+      );
       wakeUpCallback(this.request.sessionId, this.runId).catch((error) => {
         logger.error(`[MiniMaxRunner] WakeUp callback error: ${(error as Error).message}`);
       });
@@ -299,11 +288,14 @@ export class MiniMaxRunner {
     try {
       const sessionDir = this.getSessionDir();
       const workingDirectory = this.resolveWorkingDirectory();
-      
-      await this.appendLog("system", `[MiniMaxRunner] sessionDir from settings: ${this.settings.minimaxSessionDir ?? '(not set)'}`);
+
+      await this.appendLog(
+        "system",
+        `[MiniMaxRunner] sessionDir from settings: ${this.settings.minimaxSessionDir ?? "(not set)"}`
+      );
       await this.appendLog("system", `[MiniMaxRunner] resolved sessionDir: ${sessionDir}`);
       await this.appendLog("system", `[MiniMaxRunner] workingDirectory: ${workingDirectory}`);
-      
+
       this.agent = createMiniMaxAgent({
         config: {
           apiKey,
@@ -364,7 +356,7 @@ export class MiniMaxRunner {
             AUTO_DEV_ACTIVE_TASK_TITLE: this.request.activeTaskTitle ?? "",
             AUTO_DEV_ACTIVE_PARENT_TASK_ID: this.request.activeParentTaskId ?? "",
             AUTO_DEV_ACTIVE_ROOT_TASK_ID: this.request.activeRootTaskId ?? "",
-            AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? "",
+            AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? ""
           }
         }
       });
@@ -382,7 +374,7 @@ export class MiniMaxRunner {
         },
         onToolResult: (name: string, result: { success: boolean; content: string; error?: string }) => {
           this.updateHeartbeat().catch(() => {});
-          this.appendLog("stdout", `[Tool Result] ${name}: ${result.success ? 'OK' : 'ERROR'}`).catch(() => {});
+          this.appendLog("stdout", `[Tool Result] ${name}: ${result.success ? "OK" : "ERROR"}`).catch(() => {});
         },
         onMessage: (role: string, content: string) => {
           this.triggerWakeUp();
@@ -439,7 +431,10 @@ export class MiniMaxRunner {
         const firstErrorMessage = firstError instanceof Error ? firstError.message : String(firstError);
 
         if (isMiniMaxContextWindowExceededError(firstErrorMessage)) {
-          await this.appendLog("stderr", `MiniMax context window exceeded, attempting concise recovery retry: ${firstErrorMessage}`);
+          await this.appendLog(
+            "stderr",
+            `MiniMax context window exceeded, attempting concise recovery retry: ${firstErrorMessage}`
+          );
           await appendEvent(this.paths, {
             projectId: this.project.projectId,
             eventType: "MINIMAX_CONTEXT_WINDOW_EXCEEDED",
@@ -552,8 +547,10 @@ export class MiniMaxRunner {
           }
         }
       }
-      
-      logger.info(`[MiniMaxRunner] runWithResult: request.sessionId=${this.request.sessionId}, request.resumeSessionId=${this.request.resumeSessionId}, result.sessionId=${result.sessionId}`);
+
+      logger.info(
+        `[MiniMaxRunner] runWithResult: request.sessionId=${this.request.sessionId}, request.resumeSessionId=${this.request.resumeSessionId}, result.sessionId=${result.sessionId}`
+      );
 
       await this.appendLog("stdout", result.content);
       await appendEvent(this.paths, {
@@ -585,7 +582,6 @@ export class MiniMaxRunner {
         sessionId: result.sessionId,
         response: result
       };
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       await this.appendLog("stderr", `MiniMax run failed: ${errorMessage}`);
@@ -659,7 +655,7 @@ export function startMiniMaxForProject(
 ): MiniMaxStartResult {
   const runner = new MiniMaxRunner(project, paths, request, settings);
   activeRunners.set(request.sessionId, runner);
-  
+
   const runId = runner.getRunId();
   const startedAt = runner.getStartedAt();
 
@@ -669,12 +665,15 @@ export function startMiniMaxForProject(
   if (callbacks?.wakeUpCallback) {
     wakeUpCallbacks.set(runId, callbacks.wakeUpCallback);
   }
-  
+
   logger.info(`[startMiniMaxForProject] sessionId=${request.sessionId}, runId=${runId}, starting async run`);
-  
-  runner.run()
+
+  runner
+    .run()
     .then(async (result) => {
-      logger.info(`[startMiniMaxForProject] sessionId=${request.sessionId}, runId=${runId}, completed with exitCode=${result.exitCode}`);
+      logger.info(
+        `[startMiniMaxForProject] sessionId=${request.sessionId}, runId=${runId}, completed with exitCode=${result.exitCode}`
+      );
       const callback = completionCallbacks.get(runId);
       if (callback) {
         try {
@@ -711,7 +710,7 @@ export function startMiniMaxForProject(
       completionCallbacks.delete(runId);
       wakeUpCallbacks.delete(runId);
     });
-  
+
   return {
     runId,
     sessionId: request.sessionId,

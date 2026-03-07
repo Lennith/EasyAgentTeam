@@ -41,9 +41,11 @@ export function buildProjectRoutingSnapshot(
   const enabledSet = new Set(enabledAgents);
   const fromAgentEnabled = enabledSet.has(fromAgent);
   const hasExplicitRouteTable = !!project.routeTable && Object.keys(project.routeTable).length > 0;
-  const explicitTargets = hasExplicitRouteTable ? project.routeTable?.[fromAgent] ?? [] : [];
+  const explicitTargets = hasExplicitRouteTable ? (project.routeTable?.[fromAgent] ?? []) : [];
   const allowedTargetIds = hasExplicitRouteTable
-    ? uniq(explicitTargets.map(normalizeAgentId).filter((item) => item.length > 0)).filter((item) => enabledSet.has(item))
+    ? uniq(explicitTargets.map(normalizeAgentId).filter((item) => item.length > 0)).filter((item) =>
+        enabledSet.has(item)
+      )
     : enabledAgents.filter((item) => item !== fromAgent);
 
   const allowedTargets = allowedTargetIds.map((agentId) => ({
@@ -60,4 +62,3 @@ export function buildProjectRoutingSnapshot(
     allowedTargets
   };
 }
-

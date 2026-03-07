@@ -92,7 +92,8 @@ function buildAgentWorkspaceAgentsMd(): string {
     "- Personal scratch/notes: keep inside current `./` directory.",
     "- Progress journal: `./progress.md` (status, changed files, evidence, blockers, next action).",
     "- Before editing a file in a shared team workspace, you must acquire a lock via `lock_manage(action=acquire)`.",
-    "- Edit only after obtaining the lock and release it promptly upon completion to prevent concurrent edits.",
+    "- Prefer file-level lock keys; use `target_type=dir` only when you truly need to protect a whole directory subtree.",
+    "- Edit only after obtaining the lock and release it promptly upon completion to prevent concurrent edits."
   ].join("\n");
 }
 
@@ -115,12 +116,7 @@ function buildTeamIndexMd(agentIds: string[]): string {
 
 function isPlanningRole(role: string): boolean {
   const lower = role.toLowerCase();
-  return (
-    lower === "pm" ||
-    lower.startsWith("pm_") ||
-    lower.startsWith("planner") ||
-    lower.includes("product_manager")
-  );
+  return lower === "pm" || lower.startsWith("pm_") || lower.startsWith("planner") || lower.includes("product_manager");
 }
 
 function isEngineeringManagerRole(role: string): boolean {
@@ -209,7 +205,7 @@ function buildRoleBoundaryLines(role: string): string[] {
     return [
       "## Role Boundary",
       "- You are a planning/management role; do not implement production code in ../../src/**.",
-    "- Finalize requirements/plans, then create/assign execution tasks to engineering roles via ToolCalls.",
+      "- Finalize requirements/plans, then create/assign execution tasks to engineering roles via ToolCalls.",
       "- If discuss reaches route max rounds, document assumptions/risks and decide whether to continue or mark blocked."
     ];
   }
@@ -341,7 +337,7 @@ function buildAgentWorkspaceReadme(role: string): string {
     "- Files that other agents need to access",
     "",
     "## Files",
-    "- `role.md`: Read this to understand your role in the team",
+    "- `role.md`: Read this to understand your role in the team"
   ].join("\n");
 }
 
@@ -382,9 +378,7 @@ async function upsertManagedFile(
   result.createdFiles.push(spec.relativePath);
 }
 
-export async function ensureTeamIndex(
-  project: ProjectRecord
-): Promise<AgentWorkspaceBootstrapResult> {
+export async function ensureTeamIndex(project: ProjectRecord): Promise<AgentWorkspaceBootstrapResult> {
   const result: AgentWorkspaceBootstrapResult = {
     createdFiles: [],
     skippedFiles: []
@@ -426,10 +420,7 @@ export async function ensureAgentWorkspaces(
   const agentsRoot = path.join(project.workspacePath, AGENTS_DIR);
   await ensureDirectory(agentsRoot);
 
-  const mergedAgentIds = [
-    ...(project.agentIds ?? []),
-    ...(requiredAgentIds ?? [])
-  ]
+  const mergedAgentIds = [...(project.agentIds ?? []), ...(requiredAgentIds ?? [])]
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
   const agentIds = Array.from(new Set(mergedAgentIds));
@@ -451,7 +442,7 @@ export async function ensureAgentWorkspaces(
     const promptIntegrity = promptMissing
       ? "- WARNING: role prompt seed missing in registry for this role. Fallback role template is active."
       : "- Role prompt seed loaded from agent registry.";
-    
+
     const specs: AgentFileSpec[] = [
       {
         relativePath: path.join(agentDir, "AGENTS.md"),

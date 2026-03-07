@@ -18,7 +18,27 @@ import {
   updateTaskAssignRouting
 } from "./data/project-store.js";
 import { ProjectStoreError } from "./data/project-store.js";
-import { acquireLock, listActiveLocks, LockStoreError, releaseLock, renewLock } from "./data/lock-store.js";
+import {
+  createWorkflowRun,
+  createWorkflowTemplate,
+  deleteWorkflowRun,
+  deleteWorkflowTemplate,
+  getWorkflowRun,
+  getWorkflowTemplate,
+  listWorkflowRuns,
+  listWorkflowTemplates,
+  patchWorkflowRun,
+  patchWorkflowTemplate,
+  WorkflowStoreError
+} from "./data/workflow-store.js";
+import {
+  acquireLock,
+  createProjectLockScope,
+  listActiveLocks,
+  LockStoreError,
+  releaseLock,
+  renewLock
+} from "./data/lock-store.js";
 import { listTasks, TaskboardStoreError } from "./data/taskboard-store.js";
 import { listInboxMessages } from "./data/inbox-store.js";
 import { getRuntimeSettings, patchRuntimeSettings } from "./data/runtime-settings-store.js";
@@ -30,20 +50,9 @@ import {
   listCustomAgentTemplates,
   patchCustomAgentTemplate
 } from "./data/agent-template-store.js";
-import {
-  createTeam,
-  deleteTeam,
-  getTeam,
-  listTeams,
-  updateTeam
-} from "./data/team-store.js";
-import {
-  addSession,
-  getSession,
-  listSessions,
-  SessionStoreError,
-  touchSession
-} from "./data/session-store.js";
+import { createTeam, deleteTeam, getTeam, listTeams, updateTeam } from "./data/team-store.js";
+import { addSession, getSession, listSessions, SessionStoreError, touchSession } from "./data/session-store.js";
+import { listWorkflowRunEvents, touchWorkflowSession, upsertWorkflowSession } from "./data/workflow-run-store.js";
 import { BASE_PROMPT_TEXT, BASE_PROMPT_VERSION, getBuiltInAgents } from "./services/agent-prompt-service.js";
 import { createOrchestratorService } from "./services/orchestrator-service.js";
 import { applyProjectTemplate } from "./services/project-template-service.js";
@@ -52,17 +61,22 @@ import { ensureProjectAgentScripts, TeamToolsTemplateError } from "./services/pr
 import { ensureAgentWorkspaces } from "./services/agent-workspace-service.js";
 import { buildProjectRoutingSnapshot } from "./services/project-routing-snapshot-service.js";
 import { createModelManagerService } from "./services/model-manager-service.js";
-import {
-  validateRoleSessionMapWrite
-} from "./services/routing-guard-service.js";
+import { validateRoleSessionMapWrite } from "./services/routing-guard-service.js";
 import { ManagerRoutingError } from "./services/manager-routing-service.js";
 import { handleTaskAction, TaskActionError } from "./services/task-action-service.js";
 import { handleManagerMessageSend, ManagerMessageServiceError } from "./services/manager-message-service.js";
 import { resolveActiveSessionForRole } from "./services/session-lifecycle-authority.js";
 import { buildTaskTreeResponse } from "./services/task-tree-query-service.js";
 import { buildTaskDetailResponse } from "./services/task-detail-query-service.js";
+import { buildWorkflowAgentIOTimeline } from "./services/workflow-agent-io-timeline-service.js";
+import { buildWorkflowTaskDetail, buildWorkflowTaskTreeResponse } from "./services/workflow-task-query-service.js";
 import { createMiniMaxAgent } from "./minimax/index.js";
 import { cancelMiniMaxRunner } from "./services/minimax-runner.js";
+import { createWorkflowOrchestratorService, WorkflowRuntimeError } from "./services/workflow-orchestrator-service.js";
+import {
+  buildWorkflowTeamToolContext,
+  createWorkflowMiniMaxTeamToolBridge
+} from "./services/workflow-minimax-teamtool-bridge.js";
 
 export interface AppOptions {
   dataRoot?: string;
@@ -124,9 +138,243 @@ function parseReminderMode(raw: unknown): "backoff" | "fixed_interval" | undefin
   return undefined;
 }
 
+function readStringArray(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const values = raw
+    .map((item) => (typeof item === "string" ? item.trim() : String(item).trim()))
+    .filter((item) => item.length > 0);
+  return values.length > 0 ? values : undefined;
+}
+
+function readStringMap(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const entries = Object.entries(raw as Record<string, unknown>)
+    .map(([key, value]) => [key.trim(), typeof value === "string" ? value.trim() : String(value).trim()] as const)
+    .filter(([key, value]) => key.length > 0 && value.length > 0);
+  if (entries.length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(entries);
+}
+
+function readRouteTable(raw: unknown): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const table: Record<string, string[]> = {};
+  for (const [from, targetsRaw] of Object.entries(raw as Record<string, unknown>)) {
+    const fromKey = from.trim();
+    if (!fromKey) {
+      continue;
+    }
+    table[fromKey] = readStringArray(targetsRaw) ?? [];
+  }
+  return Object.keys(table).length > 0 ? table : undefined;
+}
+
+function readRouteDiscussRounds(raw: unknown): Record<string, Record<string, number>> | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const output: Record<string, Record<string, number>> = {};
+  for (const [from, inner] of Object.entries(raw as Record<string, unknown>)) {
+    const fromKey = from.trim();
+    if (!fromKey || !inner || typeof inner !== "object") {
+      continue;
+    }
+    const values: Record<string, number> = {};
+    for (const [to, roundsRaw] of Object.entries(inner as Record<string, unknown>)) {
+      const toKey = to.trim();
+      const rounds = parseInteger(roundsRaw);
+      if (!toKey || rounds === undefined || rounds < 1) {
+        continue;
+      }
+      values[toKey] = rounds;
+    }
+    if (Object.keys(values).length > 0) {
+      output[fromKey] = values;
+    }
+  }
+  return Object.keys(output).length > 0 ? output : undefined;
+}
+
+function readWorkflowTasks(raw: unknown):
+  | Array<{
+      taskId: string;
+      title: string;
+      ownerRole: string;
+      parentTaskId?: string;
+      dependencies?: string[];
+      writeSet?: string[];
+      acceptance?: string[];
+      artifacts?: string[];
+    }>
+  | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  return raw
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const row = item as Record<string, unknown>;
+      return {
+        taskId: readStringField(row, ["task_id", "taskId"]) ?? "",
+        title: readStringField(row, ["title"]) ?? "",
+        ownerRole: readStringField(row, ["owner_role", "ownerRole"]) ?? "",
+        parentTaskId: readStringField(row, ["parent_task_id", "parentTaskId"]),
+        dependencies: readStringArray(row.dependencies),
+        writeSet: readStringArray(row.write_set ?? row.writeSet),
+        acceptance: readStringArray(row.acceptance),
+        artifacts: readStringArray(row.artifacts)
+      };
+    });
+}
+
+function readWorkflowTaskActionRequest(raw: unknown): {
+  actionType: "TASK_REPORT" | "TASK_CREATE" | "TASK_DISCUSS_REQUEST" | "TASK_DISCUSS_REPLY" | "TASK_DISCUSS_CLOSED";
+  fromAgent?: string;
+  fromSessionId?: string;
+  toRole?: string;
+  toSessionId?: string;
+  taskId?: string;
+  content?: string;
+  task?: {
+    taskId: string;
+    title: string;
+    ownerRole: string;
+    parentTaskId?: string;
+    dependencies?: string[];
+    acceptance?: string[];
+    artifacts?: string[];
+  };
+  discuss?: {
+    threadId?: string;
+    requestId?: string;
+  };
+  results?: Array<{
+    taskId: string;
+    outcome: "IN_PROGRESS" | "BLOCKED_DEP" | "MAY_BE_DONE" | "DONE" | "CANCELED";
+    summary?: string;
+    blockers?: string[];
+  }>;
+} | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const body = raw as Record<string, unknown>;
+  const actionTypeRaw = readStringField(body, ["action_type", "actionType"]);
+  if (
+    actionTypeRaw !== "TASK_REPORT" &&
+    actionTypeRaw !== "TASK_CREATE" &&
+    actionTypeRaw !== "TASK_DISCUSS_REQUEST" &&
+    actionTypeRaw !== "TASK_DISCUSS_REPLY" &&
+    actionTypeRaw !== "TASK_DISCUSS_CLOSED"
+  ) {
+    return null;
+  }
+  const fromAgent = readStringField(body, ["from_agent", "fromAgent"]);
+  const fromSessionId = readStringField(body, ["from_session_id", "fromSessionId"]);
+  const toRole = readStringField(body, ["to_role", "toRole"]);
+  const toSessionId = readStringField(body, ["to_session_id", "toSessionId"]);
+  const taskId = readStringField(body, ["task_id", "taskId"]);
+  const content = readStringField(body, ["content"]);
+  const discussRaw =
+    typeof body.discuss === "object" && body.discuss !== null ? (body.discuss as Record<string, unknown>) : null;
+  const discuss = discussRaw
+    ? {
+        threadId: readStringField(discussRaw, ["thread_id", "threadId"]),
+        requestId: readStringField(discussRaw, ["request_id", "requestId"])
+      }
+    : undefined;
+  const taskRaw = typeof body.task === "object" && body.task !== null ? (body.task as Record<string, unknown>) : null;
+  const task = taskRaw
+    ? {
+        taskId: readStringField(taskRaw, ["task_id", "taskId"]) ?? "",
+        title: readStringField(taskRaw, ["title"]) ?? "",
+        ownerRole: readStringField(taskRaw, ["owner_role", "ownerRole"]) ?? "",
+        parentTaskId: readStringField(taskRaw, ["parent_task_id", "parentTaskId"]),
+        dependencies: readStringArray(taskRaw.dependencies),
+        acceptance: readStringArray(taskRaw.acceptance),
+        artifacts: readStringArray(taskRaw.artifacts)
+      }
+    : undefined;
+  const results = Array.isArray(body.results)
+    ? body.results
+        .filter((item) => item && typeof item === "object")
+        .map((item) => {
+          const row = item as Record<string, unknown>;
+          const taskId = readStringField(row, ["task_id", "taskId"]) ?? "";
+          const outcomeRaw = readStringField(row, ["outcome"]) ?? "";
+          const outcome =
+            outcomeRaw === "IN_PROGRESS" ||
+            outcomeRaw === "BLOCKED_DEP" ||
+            outcomeRaw === "MAY_BE_DONE" ||
+            outcomeRaw === "DONE" ||
+            outcomeRaw === "CANCELED"
+              ? outcomeRaw
+              : null;
+          return {
+            taskId,
+            outcome,
+            summary: readStringField(row, ["summary"]),
+            blockers: readStringArray(row.blockers)
+          };
+        })
+        .filter((item) => item.taskId.length > 0 && item.outcome !== null)
+        .map((item) => ({
+          taskId: item.taskId,
+          outcome: item.outcome as "IN_PROGRESS" | "BLOCKED_DEP" | "MAY_BE_DONE" | "DONE" | "CANCELED",
+          summary: item.summary,
+          blockers: item.blockers
+        }))
+    : undefined;
+  if (actionTypeRaw === "TASK_REPORT" && (!results || results.length === 0)) return null;
+  if (actionTypeRaw === "TASK_CREATE" && (!task || !task.taskId || !task.title || !task.ownerRole)) return null;
+  return {
+    actionType: actionTypeRaw,
+    fromAgent,
+    fromSessionId,
+    toRole,
+    toSessionId,
+    taskId,
+    content,
+    task,
+    discuss,
+    results
+  };
+}
+
+function applyTemplateVariables(text: string, variables: Record<string, string>): string {
+  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_all, key: string) => variables[key] ?? "");
+}
+
 function buildSessionId(role: string): string {
   const safeRole = role.replace(/[^a-zA-Z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
   return `session-${safeRole}-${randomUUID().slice(0, 12)}`;
+}
+
+function isWorkflowRuntimeTerminal(run: { runtime?: { tasks?: Array<{ state?: string }> } }): boolean {
+  const tasks = run.runtime?.tasks ?? [];
+  if (tasks.length === 0) {
+    return false;
+  }
+  return tasks.every((task) => task.state === "DONE" || task.state === "CANCELED");
+}
+
+function withDerivedWorkflowRunStatus<T extends { status: string; runtime?: { tasks?: Array<{ state?: string }> } }>(
+  run: T
+): T {
+  if (run.status === "stopped" && isWorkflowRuntimeTerminal(run)) {
+    return {
+      ...run,
+      status: "finished"
+    };
+  }
+  return run;
 }
 
 function retiredEndpoint(res: express.Response, replacement: string): void {
@@ -145,9 +393,10 @@ function sendApiError(
   hint?: string,
   extra?: Record<string, unknown>
 ): void {
-  const details = extra && typeof extra.details === "object" && extra.details
-    ? (extra.details as Record<string, unknown>)
-    : undefined;
+  const details =
+    extra && typeof extra.details === "object" && extra.details
+      ? (extra.details as Record<string, unknown>)
+      : undefined;
   res.status(status).json({
     error_code: code,
     error: { code, message, ...(details ? { details } : {}) },
@@ -179,12 +428,13 @@ function resolveTaskActionNextAction(code: string): string | null {
   }
 }
 
-
 export function createApp(options: AppOptions = {}) {
   const app = express();
   const dataRoot = resolveDataRoot(options.dataRoot);
   const orchestrator = createOrchestratorService(dataRoot);
+  const workflowOrchestrator = createWorkflowOrchestratorService(dataRoot);
   orchestrator.start();
+  workflowOrchestrator.start();
 
   const corsAllowList = (
     process.env.AUTO_DEV_CORS_ORIGINS ??
@@ -238,6 +488,510 @@ export function createApp(options: AppOptions = {}) {
     });
   });
 
+  app.get("/api/workflow-orchestrator/status", async (_req, res, next) => {
+    try {
+      res.json(await workflowOrchestrator.getStatus());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-templates", async (_req, res, next) => {
+    try {
+      const items = await listWorkflowTemplates(dataRoot);
+      res.status(200).json({ items, total: items.length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-templates/:template_id", async (req, res, next) => {
+    try {
+      const template = await getWorkflowTemplate(dataRoot, req.params.template_id);
+      if (!template) {
+        sendApiError(res, 404, "WORKFLOW_TEMPLATE_NOT_FOUND", `template '${req.params.template_id}' not found`);
+        return;
+      }
+      res.status(200).json(template);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-templates", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const templateId = readStringField(body, ["template_id", "templateId"]);
+      const name = readStringField(body, ["name"]);
+      const tasks = readWorkflowTasks(body.tasks);
+      if (!templateId || !name || !tasks || tasks.length === 0) {
+        sendApiError(
+          res,
+          400,
+          "WORKFLOW_TEMPLATE_INPUT_INVALID",
+          "template_id, name, tasks[] are required",
+          "Provide at least one task with task_id/title/owner_role."
+        );
+        return;
+      }
+      const created = await createWorkflowTemplate(dataRoot, {
+        templateId,
+        name,
+        description: readStringField(body, ["description"]),
+        tasks,
+        routeTable: readRouteTable(body.route_table ?? body.routeTable),
+        taskAssignRouteTable: readRouteTable(body.task_assign_route_table ?? body.taskAssignRouteTable),
+        routeDiscussRounds: readRouteDiscussRounds(body.route_discuss_rounds ?? body.routeDiscussRounds),
+        defaultVariables: readStringMap(body.default_variables ?? body.defaultVariables)
+      });
+      res.status(201).json(created);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/workflow-templates/:template_id", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const updated = await patchWorkflowTemplate(dataRoot, req.params.template_id, {
+        name: readStringField(body, ["name"]),
+        description: Object.prototype.hasOwnProperty.call(body, "description")
+          ? ((body.description as string | null | undefined) ?? null)
+          : undefined,
+        tasks: Object.prototype.hasOwnProperty.call(body, "tasks") ? readWorkflowTasks(body.tasks) : undefined,
+        routeTable:
+          Object.prototype.hasOwnProperty.call(body, "route_table") ||
+          Object.prototype.hasOwnProperty.call(body, "routeTable")
+            ? readRouteTable(body.route_table ?? body.routeTable)
+            : undefined,
+        taskAssignRouteTable:
+          Object.prototype.hasOwnProperty.call(body, "task_assign_route_table") ||
+          Object.prototype.hasOwnProperty.call(body, "taskAssignRouteTable")
+            ? readRouteTable(body.task_assign_route_table ?? body.taskAssignRouteTable)
+            : undefined,
+        routeDiscussRounds:
+          Object.prototype.hasOwnProperty.call(body, "route_discuss_rounds") ||
+          Object.prototype.hasOwnProperty.call(body, "routeDiscussRounds")
+            ? readRouteDiscussRounds(body.route_discuss_rounds ?? body.routeDiscussRounds)
+            : undefined,
+        defaultVariables:
+          Object.prototype.hasOwnProperty.call(body, "default_variables") ||
+          Object.prototype.hasOwnProperty.call(body, "defaultVariables")
+            ? readStringMap(body.default_variables ?? body.defaultVariables)
+            : undefined
+      });
+      res.status(200).json(updated);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/workflow-templates/:template_id", async (req, res, next) => {
+    try {
+      const removed = await deleteWorkflowTemplate(dataRoot, req.params.template_id);
+      res.status(200).json(removed);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs", async (_req, res, next) => {
+    try {
+      const items = await listWorkflowRuns(dataRoot);
+      res.status(200).json({ items: items.map((item) => withDerivedWorkflowRunStatus(item)), total: items.length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const templateId = readStringField(body, ["template_id", "templateId"]);
+      if (!templateId) {
+        sendApiError(res, 400, "WORKFLOW_RUN_INPUT_INVALID", "template_id is required");
+        return;
+      }
+      const template = await getWorkflowTemplate(dataRoot, templateId);
+      if (!template) {
+        sendApiError(res, 404, "WORKFLOW_TEMPLATE_NOT_FOUND", `template '${templateId}' not found`);
+        return;
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(body, "workspace_binding_mode") ||
+        Object.prototype.hasOwnProperty.call(body, "workspaceBindingMode") ||
+        Object.prototype.hasOwnProperty.call(body, "project_id") ||
+        Object.prototype.hasOwnProperty.call(body, "projectId")
+      ) {
+        sendApiError(
+          res,
+          400,
+          "WORKFLOW_RUN_INPUT_INVALID",
+          "workspace_binding_mode/project_id is retired; use workspace_path only"
+        );
+        return;
+      }
+      const workspacePath = readStringField(body, ["workspace_path", "workspacePath"]);
+      if (!workspacePath) {
+        sendApiError(res, 400, "WORKFLOW_RUN_INPUT_INVALID", "workspace_path is required");
+        return;
+      }
+
+      const mergedVariables = {
+        ...(template.defaultVariables ?? {}),
+        ...(readStringMap(body.variables) ?? {})
+      };
+      const taskOverrides = readStringMap(body.task_overrides ?? body.taskOverrides);
+      const tasks = template.tasks.map((task) => {
+        const baseTitle = taskOverrides?.[task.taskId] ?? task.title;
+        return {
+          ...task,
+          resolvedTitle: applyTemplateVariables(baseTitle, mergedVariables)
+        };
+      });
+
+      const runId = readStringField(body, ["run_id", "runId"]) ?? `workflow-run-${randomUUID().slice(0, 12)}`;
+      const runName =
+        readStringField(body, ["name"], `${template.name}-${runId.slice(-6)}`) ?? `${template.name}-${runId.slice(-6)}`;
+      const created = await createWorkflowRun(dataRoot, {
+        runId,
+        templateId: template.templateId,
+        name: runName,
+        description: readStringField(body, ["description"], template.description),
+        workspacePath,
+        routeTable: template.routeTable,
+        taskAssignRouteTable: template.taskAssignRouteTable,
+        routeDiscussRounds: template.routeDiscussRounds,
+        variables: mergedVariables,
+        taskOverrides,
+        tasks,
+        autoDispatchEnabled: parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, true),
+        autoDispatchRemaining: parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining) ?? 5,
+        holdEnabled: parseBoolean(body.hold_enabled ?? body.holdEnabled, false),
+        reminderMode: parseReminderMode(body.reminder_mode ?? body.reminderMode) ?? "backoff"
+      });
+      const autoStart = parseBoolean(body.auto_start ?? body.autoStart, false);
+      if (!autoStart) {
+        res.status(201).json(created);
+        return;
+      }
+      const runtime = await workflowOrchestrator.startRun(runId);
+      const run = await getWorkflowRun(dataRoot, runId);
+      res.status(201).json({ runtime, run: run ? withDerivedWorkflowRunStatus(run) : null });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id", async (req, res, next) => {
+    try {
+      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      if (!run) {
+        sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", `run '${req.params.run_id}' not found`);
+        return;
+      }
+      res.status(200).json(withDerivedWorkflowRunStatus(run));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/workflow-runs/:run_id", async (req, res, next) => {
+    try {
+      const removed = await deleteWorkflowRun(dataRoot, req.params.run_id);
+      res.status(200).json(removed);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/start", async (req, res, next) => {
+    try {
+      const runtime = await workflowOrchestrator.startRun(req.params.run_id);
+      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      res.status(200).json({ runtime, run: run ? withDerivedWorkflowRunStatus(run) : null });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/stop", async (req, res, next) => {
+    try {
+      const runtime = await workflowOrchestrator.stopRun(req.params.run_id);
+      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      res.status(200).json({ runtime, run: run ? withDerivedWorkflowRunStatus(run) : null });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/status", async (req, res, next) => {
+    try {
+      const runtime = await workflowOrchestrator.getRunStatus(req.params.run_id);
+      res.status(200).json(runtime);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/step-runtime", async (_req, res) => {
+    retiredEndpoint(res, "/api/workflow-runs/:run_id/task-runtime");
+  });
+
+  app.post("/api/workflow-runs/:run_id/step-actions", async (_req, res) => {
+    retiredEndpoint(res, "/api/workflow-runs/:run_id/task-actions");
+  });
+
+  app.get("/api/workflow-runs/:run_id/task-runtime", async (req, res, next) => {
+    try {
+      const snapshot = await workflowOrchestrator.getRunTaskRuntime(req.params.run_id);
+      res.status(200).json(snapshot);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/task-actions", async (req, res, next) => {
+    try {
+      const parsed = readWorkflowTaskActionRequest(req.body);
+      if (!parsed) {
+        sendApiError(res, 400, "WORKFLOW_TASK_ACTION_INPUT_INVALID", "action_type with valid payload is required");
+        return;
+      }
+      const result = await workflowOrchestrator.applyTaskActions(req.params.run_id, parsed);
+      res.status(200).json({
+        ...result,
+        requestId: randomUUID()
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/task-tree-runtime", async (req, res, next) => {
+    try {
+      const payload = await workflowOrchestrator.getRunTaskTreeRuntime(req.params.run_id);
+      res.status(200).json(payload);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/task-tree", async (req, res, next) => {
+    try {
+      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      if (!run) {
+        sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", `run '${req.params.run_id}' not found`);
+        return;
+      }
+      const runtime = await workflowOrchestrator.getRunTaskRuntime(req.params.run_id);
+      const focusTaskId = typeof req.query.focus_task_id === "string" ? req.query.focus_task_id.trim() : undefined;
+      const maxDepthRaw =
+        typeof req.query.max_descendant_depth === "string" ? Number(req.query.max_descendant_depth) : undefined;
+      if (
+        req.query.max_descendant_depth !== undefined &&
+        (typeof maxDepthRaw !== "number" || !Number.isFinite(maxDepthRaw) || maxDepthRaw < 0)
+      ) {
+        res.status(400).json({ code: "TASK_TREE_INVALID_QUERY", error: "max_descendant_depth is invalid" });
+        return;
+      }
+      const includeExternalDependencies =
+        req.query.include_external_dependencies === undefined
+          ? true
+          : String(req.query.include_external_dependencies).toLowerCase() !== "false";
+      const payload = buildWorkflowTaskTreeResponse({
+        run,
+        runtimeTasks: runtime.tasks,
+        focusTaskId,
+        maxDescendantDepth: maxDepthRaw,
+        includeExternalDependencies
+      });
+      res.status(200).json(payload);
+    } catch (error) {
+      const typed = error as Error & { code?: string };
+      if (typed.code === "TASK_NOT_FOUND") {
+        res.status(404).json({ code: "TASK_NOT_FOUND", error: typed.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/tasks/:task_id/detail", async (req, res, next) => {
+    try {
+      const taskId = req.params.task_id?.trim();
+      if (!taskId) {
+        res.status(400).json({ code: "TASK_ID_REQUIRED", error: "task_id is required" });
+        return;
+      }
+      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      if (!run) {
+        sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", `run '${req.params.run_id}' not found`);
+        return;
+      }
+      const runtime = await workflowOrchestrator.getRunTaskRuntime(req.params.run_id);
+      const events = await listWorkflowRunEvents(dataRoot, req.params.run_id);
+      const payload = buildWorkflowTaskDetail({
+        run,
+        runtimeTasks: runtime.tasks,
+        taskId,
+        events
+      });
+      res.status(200).json(payload);
+    } catch (error) {
+      const typed = error as Error & { code?: string };
+      if (typed.code === "TASK_NOT_FOUND") {
+        res.status(404).json({ code: "TASK_NOT_FOUND", error: typed.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/sessions", async (req, res, next) => {
+    try {
+      const payload = await workflowOrchestrator.listRunSessions(req.params.run_id);
+      res.status(200).json({ run_id: payload.runId, items: payload.items });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/sessions", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const role = readStringField(body, ["role"]);
+      if (!role) {
+        sendApiError(res, 400, "WORKFLOW_SESSION_INPUT_INVALID", "role is required");
+        return;
+      }
+      const result = await workflowOrchestrator.registerRunSession(req.params.run_id, {
+        role,
+        sessionId: readStringField(body, ["session_id", "sessionId"]),
+        status: readStringField(body, ["status"]),
+        providerSessionId: readStringField(body, ["provider_session_id", "providerSessionId"]),
+        provider: readStringField(body, ["provider"]) as "codex" | "trae" | "minimax" | undefined
+      });
+      res
+        .status(result.created ? 201 : 200)
+        .json({ session: sanitizeSessionForApi(result.session), created: result.created });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/messages/send", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const to = (body.to ?? {}) as Record<string, unknown>;
+      const messageType = readStringField(body, ["message_type", "messageType"], "MANAGER_MESSAGE") as
+        | "MANAGER_MESSAGE"
+        | "TASK_DISCUSS_REQUEST"
+        | "TASK_DISCUSS_REPLY"
+        | "TASK_DISCUSS_CLOSED";
+      const content = readStringField(body, ["content"]);
+      const fromAgent = readStringField(body, ["from_agent", "fromAgent"], "manager") ?? "manager";
+      const fromSessionId =
+        readStringField(body, ["from_session_id", "fromSessionId"]) ??
+        (fromAgent === "manager" ? "manager-system" : "agent-session-unknown");
+      if (!content) {
+        sendApiError(res, 400, "WORKFLOW_MESSAGE_CONTENT_REQUIRED", "content is required");
+        return;
+      }
+      const result = await workflowOrchestrator.sendRunMessage({
+        runId: req.params.run_id,
+        fromAgent,
+        fromSessionId,
+        messageType,
+        toRole: (readStringField(to, ["agent", "role"]) ?? readStringField(body, ["to_role", "toRole"])) || undefined,
+        toSessionId:
+          (readStringField(to, ["session_id", "sessionId"]) ??
+            readStringField(body, ["to_session_id", "toSessionId"])) ||
+          undefined,
+        taskId: readStringField(body, ["task_id", "taskId"]),
+        content,
+        requestId: readStringField(body, ["request_id", "requestId"]),
+        parentRequestId: readStringField(body, ["parent_request_id", "parentRequestId"]),
+        discuss:
+          typeof body.discuss === "object" && body.discuss !== null
+            ? {
+                threadId: readStringField(body.discuss as Record<string, unknown>, ["thread_id", "threadId"]),
+                requestId: readStringField(body.discuss as Record<string, unknown>, ["request_id", "requestId"])
+              }
+            : undefined
+      });
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/agent-io/timeline", async (req, res, next) => {
+    try {
+      const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+      const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? limitRaw : undefined;
+      const timeline = await buildWorkflowAgentIOTimeline(dataRoot, req.params.run_id, { limit });
+      res.status(200).json(timeline);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/orchestrator/settings", async (req, res, next) => {
+    try {
+      const settings = await workflowOrchestrator.getRunOrchestratorSettings(req.params.run_id);
+      res.status(200).json(settings);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/workflow-runs/:run_id/orchestrator/settings", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const reminderModeRaw = body.reminder_mode ?? body.reminderMode;
+      const parsedReminderMode = parseReminderMode(reminderModeRaw);
+      if (reminderModeRaw !== undefined && !parsedReminderMode) {
+        res.status(400).json({
+          code: "ORCHESTRATOR_SETTINGS_INVALID",
+          error: "reminder_mode must be backoff|fixed_interval"
+        });
+        return;
+      }
+      const settings = await workflowOrchestrator.patchRunOrchestratorSettings(req.params.run_id, {
+        autoDispatchEnabled:
+          body.auto_dispatch_enabled === undefined && body.autoDispatchEnabled === undefined
+            ? undefined
+            : parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, false),
+        autoDispatchRemaining: parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining),
+        holdEnabled:
+          body.hold_enabled === undefined && body.holdEnabled === undefined
+            ? undefined
+            : parseBoolean(body.hold_enabled ?? body.holdEnabled, false),
+        reminderMode: parsedReminderMode
+      });
+      res.status(200).json(settings);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/orchestrator/dispatch", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const result = await workflowOrchestrator.dispatchRun(req.params.run_id, {
+        source: "manual",
+        role: readStringField(body, ["role"]),
+        taskId: readStringField(body, ["task_id", "taskId"]),
+        force: parseBoolean(body.force, false),
+        onlyIdle: parseBoolean(body.only_idle ?? body.onlyIdle, false)
+      });
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/prompts/base", (_req, res) => {
     res.json({
       version: BASE_PROMPT_VERSION,
@@ -251,6 +1005,7 @@ export function createApp(options: AppOptions = {}) {
       res.status(200).json({
         codexCliCommand: settings.codexCliCommand,
         traeCliCommand: settings.traeCliCommand,
+        theme: settings.theme,
         minimaxApiKey: settings.minimaxApiKey,
         minimaxApiBase: settings.minimaxApiBase,
         minimaxModel: settings.minimaxModel,
@@ -268,20 +1023,34 @@ export function createApp(options: AppOptions = {}) {
   app.patch("/api/settings", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
+      const themeRaw = readStringField(body, ["theme"]);
+      const theme = themeRaw === "dark" || themeRaw === "vibrant" || themeRaw === "lively" ? themeRaw : undefined;
       const updated = await patchRuntimeSettings(dataRoot, {
         codexCliCommand: readStringField(body, ["codex_cli_command", "codexCliCommand"]),
         traeCliCommand: readStringField(body, ["trae_cli_command", "traeCliCommand"]),
+        theme,
         minimaxApiKey: readStringField(body, ["minimax_api_key", "minimaxApiKey"]),
         minimaxApiBase: readStringField(body, ["minimax_api_base", "minimaxApiBase"]),
         minimaxModel: readStringField(body, ["minimax_model", "minimaxModel"]),
         minimaxSessionDir: readStringField(body, ["minimax_session_dir", "minimaxSessionDir"]),
-        minimaxMcpServers: body.minimax_mcp_servers ?? body.minimaxMcpServers as any,
-        minimaxMaxSteps: typeof body.minimax_max_steps === 'number' ? body.minimax_max_steps : typeof body.minimaxMaxSteps === 'number' ? body.minimaxMaxSteps : undefined,
-        minimaxTokenLimit: typeof body.minimax_token_limit === 'number' ? body.minimax_token_limit : typeof body.minimaxTokenLimit === 'number' ? body.minimaxTokenLimit : undefined
+        minimaxMcpServers: body.minimax_mcp_servers ?? (body.minimaxMcpServers as any),
+        minimaxMaxSteps:
+          typeof body.minimax_max_steps === "number"
+            ? body.minimax_max_steps
+            : typeof body.minimaxMaxSteps === "number"
+              ? body.minimaxMaxSteps
+              : undefined,
+        minimaxTokenLimit:
+          typeof body.minimax_token_limit === "number"
+            ? body.minimax_token_limit
+            : typeof body.minimaxTokenLimit === "number"
+              ? body.minimaxTokenLimit
+              : undefined
       });
       res.status(200).json({
         codexCliCommand: updated.codexCliCommand,
         traeCliCommand: updated.traeCliCommand,
+        theme: updated.theme,
         minimaxApiKey: updated.minimaxApiKey,
         minimaxApiBase: updated.minimaxApiBase,
         minimaxModel: updated.minimaxModel,
@@ -395,9 +1164,15 @@ export function createApp(options: AppOptions = {}) {
         description: (body.description ?? body.description) as string | undefined,
         agentIds: (body.agent_ids ?? body.agentIds) as string[] | undefined,
         routeTable: (body.route_table ?? body.routeTable) as Record<string, string[]> | undefined,
-        taskAssignRouteTable: (body.task_assign_route_table ?? body.taskAssignRouteTable) as Record<string, string[]> | undefined,
-        routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as Record<string, Record<string, number>> | undefined,
-        agentModelConfigs: (body.agent_model_configs ?? body.agentModelConfigs) as Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }> | undefined,
+        taskAssignRouteTable: (body.task_assign_route_table ?? body.taskAssignRouteTable) as
+          | Record<string, string[]>
+          | undefined,
+        routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as
+          | Record<string, Record<string, number>>
+          | undefined,
+        agentModelConfigs: (body.agent_model_configs ?? body.agentModelConfigs) as
+          | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
+          | undefined
       });
       res.status(201).json(created);
     } catch (error) {
@@ -413,9 +1188,15 @@ export function createApp(options: AppOptions = {}) {
         description: (body.description ?? body.description) as string | undefined,
         agentIds: (body.agent_ids ?? body.agentIds) as string[] | undefined,
         routeTable: (body.route_table ?? body.routeTable) as Record<string, string[]> | undefined,
-        taskAssignRouteTable: (body.task_assign_route_table ?? body.taskAssignRouteTable) as Record<string, string[]> | undefined,
-        routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as Record<string, Record<string, number>> | undefined,
-        agentModelConfigs: (body.agent_model_configs ?? body.agentModelConfigs) as Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }> | undefined,
+        taskAssignRouteTable: (body.task_assign_route_table ?? body.taskAssignRouteTable) as
+          | Record<string, string[]>
+          | undefined,
+        routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as
+          | Record<string, Record<string, number>>
+          | undefined,
+        agentModelConfigs: (body.agent_model_configs ?? body.agentModelConfigs) as
+          | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
+          | undefined
       });
       res.status(200).json(updated);
     } catch (error) {
@@ -452,7 +1233,9 @@ export function createApp(options: AppOptions = {}) {
       const displayName = (body.display_name ?? body.displayName) as string | undefined;
       const prompt = body.prompt as string | undefined;
       const defaultCliTool = (body.default_cli_tool ?? body.defaultCliTool) as string | undefined;
-      const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as Record<string, any> | undefined;
+      const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as
+        | Record<string, any>
+        | undefined;
       const modelSelectionEnabled = (body.model_selection_enabled ?? body.modelSelectionEnabled) as boolean | undefined;
       if (!agentId || !prompt) {
         res.status(400).json({ error: "agent_id and prompt are required" });
@@ -462,7 +1245,14 @@ export function createApp(options: AppOptions = {}) {
         agentId,
         displayName,
         prompt,
-        defaultCliTool: defaultCliTool === "trae" ? "trae" : defaultCliTool === "minimax" ? "minimax" : defaultCliTool === "codex" ? "codex" : undefined,
+        defaultCliTool:
+          defaultCliTool === "trae"
+            ? "trae"
+            : defaultCliTool === "minimax"
+              ? "minimax"
+              : defaultCliTool === "codex"
+                ? "codex"
+                : undefined,
         defaultModelParams,
         modelSelectionEnabled
       });
@@ -513,13 +1303,15 @@ export function createApp(options: AppOptions = {}) {
       const workspacePath = body.workspace_path as string | undefined;
       const templateId = (body.template_id ?? body.templateId) as string | undefined;
       const teamId = (body.team_id ?? body.teamId) as string | undefined;
-      
+
       let teamAgentIds: string[] | undefined;
       let teamRouteTable: Record<string, string[]> | undefined;
       let teamTaskAssignRouteTable: Record<string, string[]> | undefined;
       let teamRouteDiscussRounds: Record<string, Record<string, number>> | undefined;
-      let teamAgentModelConfigs: Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }> | undefined;
-      
+      let teamAgentModelConfigs:
+        | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
+        | undefined;
+
       if (teamId) {
         const team = await getTeam(dataRoot, teamId);
         if (team) {
@@ -530,20 +1322,26 @@ export function createApp(options: AppOptions = {}) {
           teamAgentModelConfigs = team.agentModelConfigs;
         }
       }
-      
+
       const agentIds = Array.isArray(body.agent_ids ?? body.agentIds)
         ? ((body.agent_ids ?? body.agentIds) as string[])
         : teamAgentIds;
-      const routeTable = (body.route_table ?? body.routeTable) as Record<string, string[]> | undefined ?? teamRouteTable;
-      const taskAssignRouteTable = (body.task_assign_route_table ?? body.taskAssignRouteTable) as Record<string, string[]> | undefined ?? teamTaskAssignRouteTable;
-      const routeDiscussRounds = (body.route_discuss_rounds ?? body.routeDiscussRounds) as
-        | Record<string, Record<string, number>>
-        | undefined ?? teamRouteDiscussRounds;
-      const agentModelConfigs = (body.agent_model_configs ?? body.agentModelConfigs) as
-        | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
-        | undefined ?? teamAgentModelConfigs;
+      const routeTable =
+        ((body.route_table ?? body.routeTable) as Record<string, string[]> | undefined) ?? teamRouteTable;
+      const taskAssignRouteTable =
+        ((body.task_assign_route_table ?? body.taskAssignRouteTable) as Record<string, string[]> | undefined) ??
+        teamTaskAssignRouteTable;
+      const routeDiscussRounds =
+        ((body.route_discuss_rounds ?? body.routeDiscussRounds) as
+          | Record<string, Record<string, number>>
+          | undefined) ?? teamRouteDiscussRounds;
+      const agentModelConfigs =
+        ((body.agent_model_configs ?? body.agentModelConfigs) as
+          | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
+          | undefined) ?? teamAgentModelConfigs;
       const autoDispatchEnabled = parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, true);
       const autoDispatchRemaining = parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining) ?? 5;
+      const holdEnabled = parseBoolean(body.hold_enabled ?? body.holdEnabled, false);
       const reminderModeRaw = body.reminder_mode ?? body.reminderMode;
       const reminderMode = parseReminderMode(reminderModeRaw) ?? "backoff";
       if (reminderModeRaw !== undefined && !parseReminderMode(reminderModeRaw)) {
@@ -583,14 +1381,15 @@ export function createApp(options: AppOptions = {}) {
         routeDiscussRounds,
         autoDispatchEnabled,
         autoDispatchRemaining,
+        holdEnabled,
         reminderMode,
         roleSessionMap
       });
-      
+
       if (taskAssignRouteTable && Object.keys(taskAssignRouteTable).length > 0) {
         await updateTaskAssignRouting(dataRoot, created.project.projectId, taskAssignRouteTable);
       }
-      
+
       if (agentModelConfigs && Object.keys(agentModelConfigs).length > 0) {
         await updateProjectRouting(dataRoot, created.project.projectId, {
           agentIds: created.project.agentIds ?? [],
@@ -633,7 +1432,10 @@ export function createApp(options: AppOptions = {}) {
         projectId: created.project.projectId,
         eventType: "PROJECT_AGENT_WORKSPACES_BOOTSTRAPPED",
         source: "manager",
-        payload: { createdFiles: agentWorkspaceBootstrap.createdFiles, skippedFiles: agentWorkspaceBootstrap.skippedFiles }
+        payload: {
+          createdFiles: agentWorkspaceBootstrap.createdFiles,
+          skippedFiles: agentWorkspaceBootstrap.skippedFiles
+        }
       });
 
       res.status(201).json(created.project);
@@ -681,7 +1483,7 @@ export function createApp(options: AppOptions = {}) {
     const projectId = req.params.id;
     const fromAgent = typeof req.query.from_agent === "string" ? req.query.from_agent : req.query.fromAgent;
     logger.info(`[API] GET /api/projects/${projectId}/route-targets?from_agent=${fromAgent} - request received`);
-    
+
     try {
       const fromAgentQuery = typeof req.query.from_agent === "string" ? req.query.from_agent : req.query.fromAgent;
       const fromAgentTrim = typeof fromAgentQuery === "string" ? fromAgentQuery.trim() : "";
@@ -691,7 +1493,11 @@ export function createApp(options: AppOptions = {}) {
       }
       const project = await getProject(dataRoot, req.params.id);
       const registry = await listAgents(dataRoot);
-      const snapshot = buildProjectRoutingSnapshot(project, fromAgentTrim, registry.map((item) => item.agentId));
+      const snapshot = buildProjectRoutingSnapshot(
+        project,
+        fromAgentTrim,
+        registry.map((item) => item.agentId)
+      );
       const duration = Date.now() - startTime;
       logger.info(`[API] GET /api/projects/${projectId}/route-targets - completed in ${duration}ms`);
       res.status(200).json(snapshot);
@@ -800,6 +1606,7 @@ export function createApp(options: AppOptions = {}) {
         project_id: project.projectId,
         auto_dispatch_enabled: project.autoDispatchEnabled ?? true,
         auto_dispatch_remaining: project.autoDispatchRemaining ?? 5,
+        hold_enabled: project.holdEnabled ?? false,
         reminder_mode: project.reminderMode ?? "backoff",
         updated_at: project.updatedAt
       });
@@ -813,10 +1620,12 @@ export function createApp(options: AppOptions = {}) {
       const body = req.body as Record<string, unknown>;
       const enabledRaw = body.auto_dispatch_enabled ?? body.autoDispatchEnabled;
       const remainingRaw = body.auto_dispatch_remaining ?? body.autoDispatchRemaining;
+      const holdRaw = body.hold_enabled ?? body.holdEnabled;
       const reminderModeRaw = body.reminder_mode ?? body.reminderMode;
       const hasEnabled = typeof enabledRaw === "boolean";
       const remainingParsed = parseInteger(remainingRaw);
       const hasRemaining = remainingRaw !== undefined;
+      const hasHold = typeof holdRaw === "boolean";
       const parsedReminderMode = parseReminderMode(reminderModeRaw);
       const hasReminderMode = reminderModeRaw !== undefined;
       if (hasReminderMode && !parsedReminderMode) {
@@ -826,10 +1635,11 @@ export function createApp(options: AppOptions = {}) {
         });
         return;
       }
-      if (!hasEnabled && !hasRemaining && !hasReminderMode) {
+      if (!hasEnabled && !hasRemaining && !hasHold && !hasReminderMode) {
         res.status(400).json({
           code: "ORCHESTRATOR_SETTINGS_INVALID",
-          error: "at least one of auto_dispatch_enabled, auto_dispatch_remaining, reminder_mode is required"
+          error:
+            "at least one of auto_dispatch_enabled, auto_dispatch_remaining, hold_enabled, reminder_mode is required"
         });
         return;
       }
@@ -843,12 +1653,14 @@ export function createApp(options: AppOptions = {}) {
       const updated = await updateProjectOrchestratorSettings(dataRoot, req.params.id, {
         autoDispatchEnabled: hasEnabled ? Boolean(enabledRaw) : undefined,
         autoDispatchRemaining: hasRemaining ? remainingParsed : undefined,
+        holdEnabled: hasHold ? Boolean(holdRaw) : undefined,
         reminderMode: hasReminderMode ? parsedReminderMode : undefined
       });
       res.status(200).json({
         project_id: updated.projectId,
         auto_dispatch_enabled: updated.autoDispatchEnabled ?? true,
         auto_dispatch_remaining: updated.autoDispatchRemaining ?? 5,
+        hold_enabled: updated.holdEnabled ?? false,
         reminder_mode: updated.reminderMode ?? "backoff",
         updated_at: updated.updatedAt
       });
@@ -870,7 +1682,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       const projectId = typeof req.query.project_id === "string" ? req.query.project_id.trim() : "";
       const refresh = typeof req.query.refresh === "string" && req.query.refresh === "true";
-      
+
       if (!projectId) {
         const defaultModels = [
           { vendor: "codex", model: "gpt-5.3-codex", description: "Codex recommended model" },
@@ -891,7 +1703,7 @@ export function createApp(options: AppOptions = {}) {
         });
         return;
       }
-      
+
       const paths = getProjectPaths(dataRoot, projectId);
       const modelManager = createModelManagerService(paths, dataRoot);
       const result = refresh ? await modelManager.refreshModels() : await modelManager.getAvailableModels();
@@ -989,7 +1801,8 @@ export function createApp(options: AppOptions = {}) {
     try {
       const project = await getProject(dataRoot, req.params.id);
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
-      const [sessions, locks] = await Promise.all([listSessions(paths, project.projectId), listActiveLocks(paths)]);
+      const lockScope = createProjectLockScope(dataRoot, project.projectId, project.workspacePath);
+      const [sessions, locks] = await Promise.all([listSessions(paths, project.projectId), listActiveLocks(lockScope)]);
       const roles = Array.from(new Set(sessions.map((session) => session.role)));
       const activeSessions: typeof sessions = [];
       for (const role of roles) {
@@ -1007,7 +1820,12 @@ export function createApp(options: AppOptions = {}) {
       const items = activeSessions
         .map((session) => ({
           ...sanitizeSessionForApi(session),
-          locksHeldCount: locks.filter((lock) => lock.ownerSessionId === session.sessionId).length
+          locksHeldCount: locks.filter(
+            (lock) =>
+              lock.ownerSessionId === session.sessionId &&
+              lock.ownerDomain === "project" &&
+              lock.ownerDomainId === project.projectId
+          ).length
         }))
         .sort((a, b) => Date.parse(b.lastActiveAt) - Date.parse(a.lastActiveAt));
       res.json({ items, total: items.length });
@@ -1096,8 +1914,10 @@ export function createApp(options: AppOptions = {}) {
     const body = req.body as Record<string, unknown>;
     const messageType = body.message_type || body.messageType || "MANAGER_MESSAGE";
     const fromAgent = body.from_agent || body.fromAgent || "manager";
-    logger.info(`[API] POST /api/projects/${projectId}/messages/send - message_type=${messageType}, from_agent=${fromAgent} - request received`);
-    
+    logger.info(
+      `[API] POST /api/projects/${projectId}/messages/send - message_type=${messageType}, from_agent=${fromAgent} - request received`
+    );
+
     try {
       const project = await getProject(dataRoot, req.params.id);
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
@@ -1142,18 +1962,24 @@ export function createApp(options: AppOptions = {}) {
     const startTime = Date.now();
     const projectId = req.params.id;
     const requestBody = req.body as Record<string, unknown>;
-    logger.info(`[API] POST /api/projects/${projectId}/task-actions - request received, body=${JSON.stringify(requestBody)}`);
-    
+    logger.info(
+      `[API] POST /api/projects/${projectId}/task-actions - request received, body=${JSON.stringify(requestBody)}`
+    );
+
     try {
       const project = await getProject(dataRoot, req.params.id);
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
       const result = await handleTaskAction(dataRoot, project, paths, requestBody);
       const duration = Date.now() - startTime;
-      logger.info(`[API] POST /api/projects/${projectId}/task-actions - completed in ${duration}ms, result=${JSON.stringify(result)}`);
+      logger.info(
+        `[API] POST /api/projects/${projectId}/task-actions - completed in ${duration}ms, result=${JSON.stringify(result)}`
+      );
       res.status(201).json(result);
     } catch (error) {
       const duration = Date.now() - startTime;
-      logger.error(`[API] POST /api/projects/${projectId}/task-actions - error after ${duration}ms: ${error}, body=${JSON.stringify(requestBody)}`);
+      logger.error(
+        `[API] POST /api/projects/${projectId}/task-actions - error after ${duration}ms: ${error}, body=${JSON.stringify(requestBody)}`
+      );
       if (error instanceof TaskActionError) {
         const nextAction = resolveTaskActionNextAction(error.code);
         res.status(error.status).json({
@@ -1231,7 +2057,8 @@ export function createApp(options: AppOptions = {}) {
         sessionId: resolvedSessionId,
         taskId: (body.task_id ?? body.taskId) as string | undefined,
         force: Boolean(body.force ?? false),
-        onlyIdle: body.only_idle === undefined && body.onlyIdle === undefined ? false : Boolean(body.only_idle ?? body.onlyIdle)
+        onlyIdle:
+          body.only_idle === undefined && body.onlyIdle === undefined ? false : Boolean(body.only_idle ?? body.onlyIdle)
       });
       const dispatchedCount = result.results.filter((item) => item.outcome === "dispatched").length;
       if (Boolean(body.force ?? false) && dispatchedCount > 0) {
@@ -1244,7 +2071,11 @@ export function createApp(options: AppOptions = {}) {
           )
         );
         for (const roleToReset of rolesToReset) {
-          await orchestrator.resetRoleReminderOnManualAction(project.projectId, roleToReset, "force_dispatch_succeeded");
+          await orchestrator.resetRoleReminderOnManualAction(
+            project.projectId,
+            roleToReset,
+            "force_dispatch_succeeded"
+          );
         }
       }
       res.status(200).json({ ...result, dispatchedCount });
@@ -1271,7 +2102,8 @@ export function createApp(options: AppOptions = {}) {
         messageId: messageId.trim(),
         sessionId: (body.session_id ?? body.sessionId) as string | undefined,
         force: Boolean(body.force ?? false),
-        onlyIdle: body.only_idle === undefined && body.onlyIdle === undefined ? false : Boolean(body.only_idle ?? body.onlyIdle)
+        onlyIdle:
+          body.only_idle === undefined && body.onlyIdle === undefined ? false : Boolean(body.only_idle ?? body.onlyIdle)
       });
       const dispatchedCount = result.results.filter((item) => item.outcome === "dispatched").length;
       res.status(200).json({ ...result, dispatchedCount });
@@ -1338,7 +2170,8 @@ export function createApp(options: AppOptions = {}) {
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
       const tasks = await listTasks(paths, project.projectId);
       const focusTaskId = typeof req.query.focus_task_id === "string" ? req.query.focus_task_id.trim() : undefined;
-      const maxDepthRaw = typeof req.query.max_descendant_depth === "string" ? Number(req.query.max_descendant_depth) : undefined;
+      const maxDepthRaw =
+        typeof req.query.max_descendant_depth === "string" ? Number(req.query.max_descendant_depth) : undefined;
       if (
         req.query.max_descendant_depth !== undefined &&
         (typeof maxDepthRaw !== "number" || !Number.isFinite(maxDepthRaw) || maxDepthRaw < 0)
@@ -1410,19 +2243,27 @@ export function createApp(options: AppOptions = {}) {
         patch.title = typeof body.title === "string" ? body.title.trim() || undefined : undefined;
       }
       if (Object.prototype.hasOwnProperty.call(body, "state")) {
-        patch.state = typeof body.state === "string" ? body.state as import("./domain/models.js").TaskState : undefined;
+        patch.state =
+          typeof body.state === "string" ? (body.state as import("./domain/models.js").TaskState) : undefined;
       }
-      if (Object.prototype.hasOwnProperty.call(body, "owner_role") || Object.prototype.hasOwnProperty.call(body, "ownerRole")) {
-        patch.ownerRole = typeof (body.owner_role ?? body.ownerRole) === "string" 
-          ? (body.owner_role ?? body.ownerRole) as string 
-          : undefined;
+      if (
+        Object.prototype.hasOwnProperty.call(body, "owner_role") ||
+        Object.prototype.hasOwnProperty.call(body, "ownerRole")
+      ) {
+        patch.ownerRole =
+          typeof (body.owner_role ?? body.ownerRole) === "string"
+            ? ((body.owner_role ?? body.ownerRole) as string)
+            : undefined;
       }
       if (Object.prototype.hasOwnProperty.call(body, "dependencies")) {
         patch.dependencies = Array.isArray(body.dependencies)
           ? body.dependencies.map((d) => String(d).trim()).filter((d) => d)
           : undefined;
       }
-      if (Object.prototype.hasOwnProperty.call(body, "write_set") || Object.prototype.hasOwnProperty.call(body, "writeSet")) {
+      if (
+        Object.prototype.hasOwnProperty.call(body, "write_set") ||
+        Object.prototype.hasOwnProperty.call(body, "writeSet")
+      ) {
         const ws = body.write_set ?? body.writeSet;
         patch.writeSet = Array.isArray(ws) ? ws.map((w) => String(w).trim()).filter((w) => w) : undefined;
       }
@@ -1473,11 +2314,12 @@ export function createApp(options: AppOptions = {}) {
     const body = req.body as Record<string, unknown>;
     const sessionId = body.session_id;
     const lockKey = body.lock_key;
-    logger.info(`[API] POST /api/projects/${projectId}/locks/acquire - session_id=${sessionId}, lock_key=${lockKey} - request received`);
-    
+    logger.info(
+      `[API] POST /api/projects/${projectId}/locks/acquire - session_id=${sessionId}, lock_key=${lockKey} - request received`
+    );
+
     try {
       const project = await getProject(dataRoot, req.params.id);
-      const paths = await ensureProjectRuntime(dataRoot, project.projectId);
       const body = req.body as Record<string, unknown>;
       const sessionId = body.session_id as string | undefined;
       const lockKey = body.lock_key as string | undefined;
@@ -1495,10 +2337,13 @@ export function createApp(options: AppOptions = {}) {
         );
         return;
       }
-      const acquired = await acquireLock(paths, { projectId: project.projectId, sessionId, lockKey, targetType, ttlSeconds, purpose });
+      const lockScope = createProjectLockScope(dataRoot, project.projectId, project.workspacePath);
+      const acquired = await acquireLock(lockScope, { sessionId, lockKey, targetType, ttlSeconds, purpose });
       if (acquired.kind === "acquired") {
         const duration = Date.now() - startTime;
-        logger.info(`[API] POST /api/projects/${projectId}/locks/acquire - completed in ${duration}ms, result=acquired`);
+        logger.info(
+          `[API] POST /api/projects/${projectId}/locks/acquire - completed in ${duration}ms, result=acquired`
+        );
         res.status(201).json({ result: "acquired", lock: acquired.lock });
         return;
       }
@@ -1524,8 +2369,10 @@ export function createApp(options: AppOptions = {}) {
     const body = req.body as Record<string, unknown>;
     const sessionId = body.session_id;
     const lockKey = body.lock_key;
-    logger.info(`[API] POST /api/projects/${projectId}/locks/renew - session_id=${sessionId}, lock_key=${lockKey} - request received`);
-    
+    logger.info(
+      `[API] POST /api/projects/${projectId}/locks/renew - session_id=${sessionId}, lock_key=${lockKey} - request received`
+    );
+
     try {
       const project = await getProject(dataRoot, req.params.id);
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
@@ -1542,7 +2389,8 @@ export function createApp(options: AppOptions = {}) {
         );
         return;
       }
-      const renewed = await renewLock(paths, { sessionId, lockKey });
+      const lockScope = createProjectLockScope(dataRoot, project.projectId, project.workspacePath);
+      const renewed = await renewLock(lockScope, { sessionId, lockKey });
       if (renewed.kind === "renewed") {
         const duration = Date.now() - startTime;
         logger.info(`[API] POST /api/projects/${projectId}/locks/renew - completed in ${duration}ms, result=renewed`);
@@ -1584,8 +2432,10 @@ export function createApp(options: AppOptions = {}) {
     const body = req.body as Record<string, unknown>;
     const sessionId = body.session_id;
     const lockKey = body.lock_key;
-    logger.info(`[API] POST /api/projects/${projectId}/locks/release - session_id=${sessionId}, lock_key=${lockKey} - request received`);
-    
+    logger.info(
+      `[API] POST /api/projects/${projectId}/locks/release - session_id=${sessionId}, lock_key=${lockKey} - request received`
+    );
+
     try {
       const project = await getProject(dataRoot, req.params.id);
       const paths = await ensureProjectRuntime(dataRoot, project.projectId);
@@ -1602,16 +2452,21 @@ export function createApp(options: AppOptions = {}) {
         );
         return;
       }
-      const released = await releaseLock(paths, { sessionId, lockKey });
+      const lockScope = createProjectLockScope(dataRoot, project.projectId, project.workspacePath);
+      const released = await releaseLock(lockScope, { sessionId, lockKey });
       if (released.kind === "released") {
         const duration = Date.now() - startTime;
-        logger.info(`[API] POST /api/projects/${projectId}/locks/release - completed in ${duration}ms, result=released`);
+        logger.info(
+          `[API] POST /api/projects/${projectId}/locks/release - completed in ${duration}ms, result=released`
+        );
         res.status(200).json({ result: "released", lock: released.lock });
         return;
       }
       if (released.kind === "not_found") {
         const duration = Date.now() - startTime;
-        logger.info(`[API] POST /api/projects/${projectId}/locks/release - completed in ${duration}ms, result=not_found`);
+        logger.info(
+          `[API] POST /api/projects/${projectId}/locks/release - completed in ${duration}ms, result=not_found`
+        );
         sendApiError(res, 404, "LOCK_NOT_FOUND", "lock not found", "Lock may already be released.");
         return;
       }
@@ -1636,11 +2491,11 @@ export function createApp(options: AppOptions = {}) {
     const startTime = Date.now();
     const projectId = req.params.id;
     logger.info(`[API] GET /api/projects/${projectId}/locks - request received`);
-    
+
     try {
       const project = await getProject(dataRoot, req.params.id);
-      const paths = await ensureProjectRuntime(dataRoot, project.projectId);
-      const items = await listActiveLocks(paths);
+      const lockScope = createProjectLockScope(dataRoot, project.projectId, project.workspacePath);
+      const items = await listActiveLocks(lockScope);
       const duration = Date.now() - startTime;
       logger.info(`[API] GET /api/projects/${projectId}/locks - completed in ${duration}ms`);
       res.json({ items, total: items.length });
@@ -1692,6 +2547,34 @@ export function createApp(options: AppOptions = {}) {
         sendApiError(res, 400, "INVALID_ROUTE_TABLE", error.message);
         return;
       }
+    }
+    if (error instanceof WorkflowStoreError) {
+      if (error.code === "TEMPLATE_EXISTS") {
+        sendApiError(res, 409, "WORKFLOW_TEMPLATE_EXISTS", error.message);
+        return;
+      }
+      if (error.code === "RUN_EXISTS") {
+        sendApiError(res, 409, "WORKFLOW_RUN_EXISTS", error.message);
+        return;
+      }
+      if (error.code === "TEMPLATE_NOT_FOUND") {
+        sendApiError(res, 404, "WORKFLOW_TEMPLATE_NOT_FOUND", error.message);
+        return;
+      }
+      if (error.code === "RUN_NOT_FOUND") {
+        sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", error.message);
+        return;
+      }
+      if (error.code === "INVALID_TEMPLATE_ID" || error.code === "INVALID_RUN_ID") {
+        sendApiError(res, 400, error.code, error.message);
+        return;
+      }
+      sendApiError(res, 400, "WORKFLOW_STORE_ERROR", error.message);
+      return;
+    }
+    if (error instanceof WorkflowRuntimeError) {
+      sendApiError(res, error.status, error.code, error.message);
+      return;
     }
     if (error instanceof LockStoreError) {
       sendApiError(res, 400, "LOCK_STORE_ERROR", error.message);
@@ -1764,6 +2647,152 @@ export function createApp(options: AppOptions = {}) {
   });
 
   // ========================================
+  // Workflow Agent Chat API - run-scoped SSE
+  // ========================================
+
+  app.post("/api/workflow-runs/:run_id/agent-chat", async (req, res, next) => {
+    const runId = req.params.run_id;
+    const body = req.body as Record<string, unknown>;
+    const role = (body.role as string)?.trim();
+    const prompt = (body.prompt as string)?.trim();
+    const sessionId = (body.sessionId as string)?.trim();
+    const providerSessionId = (body.providerSessionId as string)?.trim();
+
+    if (!role) {
+      sendApiError(res, 400, "ROLE_REQUIRED", "role is required", "Provide the agent role to chat with.");
+      return;
+    }
+    if (!prompt) {
+      sendApiError(res, 400, "PROMPT_REQUIRED", "prompt is required", "Provide the message to send to the agent.");
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    function sendEvent(event: string, data: unknown) {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
+
+    try {
+      const run = await getWorkflowRun(dataRoot, runId);
+      if (!run) {
+        sendEvent("error", { message: `workflow run '${runId}' not found` });
+        res.end();
+        return;
+      }
+      const settings = await getRuntimeSettings(dataRoot);
+      if (!settings.minimaxApiKey) {
+        sendEvent("error", { message: "MiniMax API key is not configured. Please configure it in Settings." });
+        res.end();
+        return;
+      }
+
+      const chatSessionId = sessionId || `wf-agent-chat-${Date.now()}-${randomUUID().slice(0, 8)}`;
+      await upsertWorkflowSession(dataRoot, runId, {
+        sessionId: chatSessionId,
+        role,
+        status: "running",
+        providerSessionId
+      });
+      const agentWorkspaceDir = path.join(run.workspacePath, "Agents", role);
+      const teamToolContext = buildWorkflowTeamToolContext({
+        dataRoot,
+        run,
+        agentRole: role,
+        sessionId: chatSessionId,
+        applyTaskAction: async (request) =>
+          (await workflowOrchestrator.applyTaskActions(runId, request)) as unknown as Record<string, unknown>,
+        sendRunMessage: async (request) =>
+          (await workflowOrchestrator.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
+      });
+      const teamToolBridge = createWorkflowMiniMaxTeamToolBridge({
+        dataRoot,
+        run,
+        agentRole: role,
+        sessionId: chatSessionId,
+        applyTaskAction: async (request) =>
+          (await workflowOrchestrator.applyTaskActions(runId, request)) as unknown as Record<string, unknown>,
+        sendRunMessage: async (request) =>
+          (await workflowOrchestrator.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
+      });
+      sendEvent("session", { sessionId: chatSessionId, providerSessionId });
+
+      const agent = createMiniMaxAgent({
+        config: {
+          apiKey: settings.minimaxApiKey ?? "",
+          apiBase: settings.minimaxApiBase ?? "https://api.minimax.io/v1",
+          model: settings.minimaxModel ?? "MiniMax-Text-01",
+          workspaceDir: agentWorkspaceDir,
+          sessionDir: settings.minimaxSessionDir ?? path.join(run.workspacePath, ".minimax", "sessions"),
+          maxSteps: settings.minimaxMaxSteps ?? 200,
+          tokenLimit: settings.minimaxTokenLimit ?? 180000,
+          enableFileTools: true,
+          enableShell: true,
+          enableNote: true,
+          shellType: "powershell",
+          shellTimeout: settings.minimaxShellTimeout ?? 30000,
+          shellOutputIdleTimeout: settings.minimaxShellOutputIdleTimeout ?? 60000,
+          shellMaxRunTime: settings.minimaxShellMaxRunTime ?? 600000,
+          shellMaxOutputSize: settings.minimaxShellMaxOutputSize ?? 52428800,
+          mcpEnabled: (settings.minimaxMcpServers?.length ?? 0) > 0,
+          mcpServers: settings.minimaxMcpServers ?? [],
+          mcpConnectTimeout: 30000,
+          mcpExecuteTimeout: 60000,
+          additionalWritableDirs: [run.workspacePath],
+          teamToolContext,
+          teamToolBridge,
+          env: {
+            AUTO_DEV_WORKFLOW_RUN_ID: runId,
+            AUTO_DEV_SESSION_ID: chatSessionId,
+            AUTO_DEV_AGENT_ROLE: role,
+            AUTO_DEV_WORKFLOW_ROOT: run.workspacePath,
+            AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
+            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123"
+          }
+        }
+      });
+
+      await agent.runWithResult({
+        prompt,
+        sessionId: providerSessionId || chatSessionId,
+        callback: {
+          onThinking: (thinking: string) => sendEvent("thinking", { thinking }),
+          onToolCall: (name: string, args: Record<string, unknown>) => sendEvent("tool_call", { name, args }),
+          onToolResult: (name: string, result: { success: boolean; content: string; error?: string }) =>
+            sendEvent("tool_result", { name, result }),
+          onStep: (step: number, maxSteps: number) => sendEvent("step", { step, maxSteps }),
+          onMessage: (agentRole: string, content: string) => sendEvent("message", { role: agentRole, content }),
+          onError: (error: Error) => sendEvent("error", { message: error.message }),
+          onComplete: (result: string, finishReason?: string) => sendEvent("complete", { result, finishReason })
+        }
+      });
+
+      await touchWorkflowSession(dataRoot, runId, chatSessionId, { status: "idle" }).catch(() => {});
+      res.end();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      sendEvent("error", { message });
+      res.end();
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt", async (req, res, next) => {
+    const runId = req.params.run_id;
+    const sessionId = req.params.sessionId;
+    try {
+      const cancelled = cancelMiniMaxRunner(sessionId);
+      await touchWorkflowSession(dataRoot, runId, sessionId, { status: "idle" }).catch(() => {});
+      res.json({ success: true, cancelled });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ========================================
   // Agent Chat API - Direct agent communication (SSE Streaming)
   // ========================================
 
@@ -1776,7 +2805,9 @@ export function createApp(options: AppOptions = {}) {
     const sessionId = (body.sessionId as string)?.trim();
     const providerSessionId = (body.providerSessionId as string)?.trim();
 
-    logger.info(`[API] POST /api/projects/${projectId}/agent-chat - role=${role}, sessionId=${sessionId}, providerSessionId=${providerSessionId} - request received`);
+    logger.info(
+      `[API] POST /api/projects/${projectId}/agent-chat - role=${role}, sessionId=${sessionId}, providerSessionId=${providerSessionId} - request received`
+    );
 
     if (!role) {
       sendApiError(res, 400, "ROLE_REQUIRED", "role is required", "Provide the agent role to chat with.");
@@ -1844,9 +2875,9 @@ export function createApp(options: AppOptions = {}) {
             AUTO_DEV_AGENT_ROLE: role,
             AUTO_DEV_PROJECT_ROOT: project.workspacePath,
             AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
-            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123",
-          },
-        },
+            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123"
+          }
+        }
       });
 
       // Run with streaming callbacks - pass providerSessionId as sessionId to use existing context
@@ -1874,8 +2905,8 @@ export function createApp(options: AppOptions = {}) {
           },
           onComplete: (result: string, finishReason?: string) => {
             sendEvent("complete", { result, finishReason });
-          },
-        },
+          }
+        }
       });
 
       res.end();
@@ -1897,12 +2928,16 @@ export function createApp(options: AppOptions = {}) {
     try {
       const cancelled = cancelMiniMaxRunner(sessionId);
       const duration = Date.now() - startTime;
-      logger.info(`[API] POST /api/projects/${req.params.id}/agent-chat/${sessionId}/interrupt - completed in ${duration}ms, cancelled=${cancelled}`);
+      logger.info(
+        `[API] POST /api/projects/${req.params.id}/agent-chat/${sessionId}/interrupt - completed in ${duration}ms, cancelled=${cancelled}`
+      );
 
       res.json({ success: true, cancelled });
     } catch (error) {
       const duration = Date.now() - startTime;
-      logger.error(`[API] POST /api/projects/${req.params.id}/agent-chat/${sessionId}/interrupt - error after ${duration}ms: ${error}`);
+      logger.error(
+        `[API] POST /api/projects/${req.params.id}/agent-chat/${sessionId}/interrupt - error after ${duration}ms: ${error}`
+      );
       next(error);
     }
   });

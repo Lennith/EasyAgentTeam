@@ -1,15 +1,19 @@
 import { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import type { ProjectDetail, SessionRecord, TaskState, TaskKind, LockRecord, EventRecord, AgentIOTimelineItem, TaskTreeNode, TaskDetail, TaskLifecycleEvent } from "@/types";
+import type {
+  ProjectDetail,
+  SessionRecord,
+  TaskState,
+  TaskKind,
+  LockRecord,
+  EventRecord,
+  AgentIOTimelineItem,
+  TaskTreeNode,
+  TaskDetail,
+  TaskLifecycleEvent
+} from "@/types";
 import { projectApi } from "@/services/api";
-import { 
-  ChevronRight, 
-  ChevronDown, 
-  Circle,
-  X,
-  Loader,
-  Play
-} from "lucide-react";
+import { ChevronRight, ChevronDown, Circle, X, Loader, Play } from "lucide-react";
 import { TaskDetailsModal } from "./TaskDetailsModal";
 
 interface TaskTreeViewProps {
@@ -21,11 +25,26 @@ interface TaskTreeViewProps {
   events: EventRecord[];
   timeline: AgentIOTimelineItem[];
   reload: () => void;
+  taskApi?: {
+    getTaskDetail: (taskId: string) => Promise<TaskDetail>;
+    forceDispatch: (args: { taskId: string; ownerRole: string; sessionId?: string }) => Promise<{
+      outcome: "dispatched" | "no_task" | "session_busy" | "run_not_running" | "invalid_target";
+      reason?: string;
+    }>;
+  };
 }
 
-export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, error, reload }: TaskTreeViewProps & { loading?: boolean; error?: string | null }) {
+export function TaskTreeView({
+  projectId,
+  sessions,
+  tasks: propTasks,
+  loading,
+  error,
+  reload,
+  taskApi
+}: TaskTreeViewProps & { loading?: boolean; error?: string | null }) {
   const t = useTranslation();
-  
+
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
@@ -38,20 +57,20 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
 
   const tasks = useMemo((): TaskTreeNode[] => {
     if (!propTasks || propTasks.length === 0) return [];
-    return propTasks.map(task => {
+    return propTasks.map((task) => {
       const raw = task as unknown as Record<string, unknown>;
       return {
         ...task,
         task_kind: (task.task_kind ?? raw.kind ?? "EXECUTION") as TaskKind,
         state: (task.state ?? raw.task_state ?? "PLANNED") as TaskState,
         title: task.title ?? "Untitled Task",
-        owner_role: task.owner_role ?? raw.ownerRole ?? "unknown",
+        owner_role: task.owner_role ?? raw.ownerRole ?? "unknown"
       };
     });
   }, [propTasks]);
 
   const visibleTasks = useMemo(() => {
-    return tasks.filter(task => task.task_kind !== "PROJECT_ROOT" && task.task_kind !== "USER_ROOT");
+    return tasks.filter((task) => task.task_kind !== "PROJECT_ROOT" && task.task_kind !== "USER_ROOT");
   }, [tasks]);
 
   const hiddenTaskIds = useMemo(() => {
@@ -69,46 +88,67 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
       setTaskDetail(null);
       return;
     }
-    
+
     let closed = false;
-    setLoadingDetail(true);
-    projectApi.getTaskDetail(projectId, selectedTaskId)
-      .then(detail => {
+    const selectedChanged = taskDetail?.task.task_id !== selectedTaskId;
+    if (selectedChanged || !taskDetail) {
+      setLoadingDetail(true);
+    }
+    const request = taskApi?.getTaskDetail
+      ? taskApi.getTaskDetail(selectedTaskId)
+      : projectApi.getTaskDetail(projectId, selectedTaskId);
+    request
+      .then((detail) => {
         if (!closed) setTaskDetail(detail);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error("Failed to load task detail:", err);
         if (!closed) setTaskDetail(null);
       })
       .finally(() => {
         if (!closed) setLoadingDetail(false);
       });
-    
-    return () => { closed = true; };
-  }, [projectId, selectedTaskId]);
+
+    return () => {
+      closed = true;
+    };
+  }, [projectId, selectedTaskId, taskApi?.getTaskDetail]);
 
   async function handleForceDispatch(task: TaskTreeNode) {
-    const session = sessions.find(s => s.role === task.owner_role && s.status !== "dismissed");
-    
+    const session = sessions.find((s) => s.role === task.owner_role && s.status !== "dismissed");
+
     setDispatching(true);
     setDispatchError(null);
     setDispatchSuccess(null);
-    
+
     try {
-      const result = await projectApi.dispatch(projectId, {
-        session_id: session?.sessionId,
-        task_id: task.task_id,
-        force: true,
-        only_idle: false,
-      });
-      
-      if (result.results && result.results.length > 0) {
-        const r = result.results[0];
+      if (taskApi) {
+        const r = await taskApi.forceDispatch({
+          taskId: task.task_id,
+          ownerRole: task.owner_role,
+          sessionId: session?.sessionId
+        });
         if (r.outcome === "dispatched") {
-          setDispatchSuccess(`Task dispatched successfully`);
+          setDispatchSuccess("Task dispatched successfully");
           reload();
         } else {
           setDispatchError(`Dispatch outcome: ${r.outcome}${r.reason ? ` - ${r.reason}` : ""}`);
+        }
+      } else {
+        const result = await projectApi.dispatch(projectId, {
+          session_id: session?.sessionId,
+          task_id: task.task_id,
+          force: true,
+          only_idle: false
+        });
+        if (result.results && result.results.length > 0) {
+          const r = result.results[0];
+          if (r.outcome === "dispatched") {
+            setDispatchSuccess("Task dispatched successfully");
+            reload();
+          } else {
+            setDispatchError(`Dispatch outcome: ${r.outcome}${r.reason ? ` - ${r.reason}` : ""}`);
+          }
         }
       }
     } catch (err) {
@@ -119,25 +159,25 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
   }
 
   const stateLabels: Record<TaskState, string> = {
-    "PLANNED": t.taskPlanned,
-    "READY": t.taskReady,
-    "DISPATCHED": t.taskDispatched,
-    "IN_PROGRESS": t.taskInProgress,
-    "BLOCKED_DEP": t.taskBlockedDep,
-    "MAY_BE_DONE": t.taskMayBeDone ?? "May Be Done",
-    "DONE": t.taskDone,
-    "CANCELED": t.taskCanceled,
+    PLANNED: t.taskPlanned,
+    READY: t.taskReady,
+    DISPATCHED: t.taskDispatched,
+    IN_PROGRESS: t.taskInProgress,
+    BLOCKED_DEP: t.taskBlockedDep,
+    MAY_BE_DONE: t.taskMayBeDone ?? "May Be Done",
+    DONE: t.taskDone,
+    CANCELED: t.taskCanceled
   };
 
   const stateColors: Record<TaskState, string> = {
-    "PLANNED": "var(--text-muted)",
-    "READY": "var(--accent-primary)",
-    "DISPATCHED": "var(--accent-secondary)",
-    "IN_PROGRESS": "var(--accent-warning)",
-    "BLOCKED_DEP": "var(--accent-danger)",
-    "MAY_BE_DONE": "var(--accent-success)",
-    "DONE": "var(--accent-success)",
-    "CANCELED": "var(--text-muted)",
+    PLANNED: "var(--text-muted)",
+    READY: "var(--accent-primary)",
+    DISPATCHED: "var(--accent-secondary)",
+    IN_PROGRESS: "var(--accent-warning)",
+    BLOCKED_DEP: "var(--accent-danger)",
+    MAY_BE_DONE: "var(--accent-success)",
+    DONE: "var(--accent-success)",
+    CANCELED: "var(--text-muted)"
   };
 
   const taskTree = useMemo(() => {
@@ -170,7 +210,7 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
   };
 
   const expandAll = () => {
-    setExpandedTasks(new Set(visibleTasks.map(t => t.task_id)));
+    setExpandedTasks(new Set(visibleTasks.map((t) => t.task_id)));
   };
 
   const collapseAll = () => {
@@ -209,10 +249,7 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
       <div className="page-header" style={{ flexShrink: 0 }}>
         <h1>{t.taskTree}</h1>
         <div style={{ display: "flex", gap: "8px" }}>
-          <button 
-            className="btn btn-secondary btn-sm" 
-            onClick={allExpanded ? collapseAll : expandAll}
-          >
+          <button className="btn btn-secondary btn-sm" onClick={allExpanded ? collapseAll : expandAll}>
             {allExpanded ? "Collapse All" : "Expand All"}
           </button>
         </div>
@@ -224,13 +261,22 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
             <h3>{t.taskTree}</h3>
             <span className="badge badge-neutral">{visibleTasks.length}</span>
           </div>
-          
+
           {visibleTasks.length === 0 ? (
             <div className="empty-state" style={{ padding: "24px" }}>
               <p>{t.noData}</p>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, overflowY: "auto", paddingRight: "4px" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+                flex: 1,
+                overflowY: "auto",
+                paddingRight: "4px"
+              }}
+            >
               {taskTree.roots.map((task) => (
                 <TaskNode
                   key={task.task_id}
@@ -250,7 +296,7 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
         </div>
 
         <div className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {loadingDetail ? (
+          {loadingDetail && !taskDetail ? (
             <div className="empty-state" style={{ padding: "32px" }}>
               <Loader size={24} className="loading-spinner" />
               <p>{t.loading}</p>
@@ -259,15 +305,38 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
             <>
               <div className="card-header" style={{ flexShrink: 0 }}>
                 <h3>{t.taskDetails}</h3>
-                <button className="btn btn-secondary btn-sm" onClick={() => { setSelectedTaskId(null); setTaskDetail(null); }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setSelectedTaskId(null);
+                    setTaskDetail(null);
+                  }}
+                >
                   <X size={14} />
                 </button>
               </div>
-              
-              {dispatchError && <div className="error-message" style={{ margin: "0 0 12px 0", flexShrink: 0 }}>{dispatchError}</div>}
-              {dispatchSuccess && <div className="success-message" style={{ margin: "0 0 12px 0", flexShrink: 0 }}>{dispatchSuccess}</div>}
-              
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1, overflowY: "auto", paddingRight: "4px" }}>
+
+              {dispatchError && (
+                <div className="error-message" style={{ margin: "0 0 12px 0", flexShrink: 0 }}>
+                  {dispatchError}
+                </div>
+              )}
+              {dispatchSuccess && (
+                <div className="success-message" style={{ margin: "0 0 12px 0", flexShrink: 0 }}>
+                  {dispatchSuccess}
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  flex: 1,
+                  overflowY: "auto",
+                  paddingRight: "4px"
+                }}
+              >
                 <div>
                   <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{t.taskTitle}</div>
                   <div style={{ fontWeight: 600, fontSize: "15px" }}>{taskDetail.task.title}</div>
@@ -293,7 +362,7 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
                       <button
                         className="btn btn-primary btn-sm"
                         onClick={() => {
-                          const task = tasks.find(t => t.task_id === taskDetail.task.task_id);
+                          const task = tasks.find((t) => t.task_id === taskDetail.task.task_id);
                           if (task) handleForceDispatch(task);
                         }}
                         disabled={dispatching}
@@ -304,11 +373,18 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
                     </div>
                   )}
                 </div>
-                
+
                 {taskDetail.task.last_summary && (
                   <div>
                     <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{t.taskSummary}</div>
-                    <div style={{ padding: "8px", background: "var(--bg-elevated)", borderRadius: "6px", fontSize: "13px" }}>
+                    <div
+                      style={{
+                        padding: "8px",
+                        background: "var(--bg-elevated)",
+                        borderRadius: "6px",
+                        fontSize: "13px"
+                      }}
+                    >
                       {taskDetail.task.last_summary}
                     </div>
                   </div>
@@ -317,15 +393,15 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
                 {taskDetail.create_parameters && Object.keys(taskDetail.create_parameters).length > 0 && (
                   <div>
                     <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "4px" }}>Content</div>
-                    <div 
-                      style={{ 
-                        padding: "10px 14px", 
-                        background: "var(--bg-elevated)", 
-                        borderRadius: "6px", 
+                    <div
+                      style={{
+                        padding: "10px 14px",
+                        background: "var(--bg-elevated)",
+                        borderRadius: "6px",
                         cursor: "pointer",
-                        borderLeft: "3px solid var(--accent-primary)",
+                        borderLeft: "3px solid var(--accent-primary)"
                       }}
-                      onClick={() => setSelectedCreateParams(taskDetail.create_parameters)}
+                      onClick={() => setSelectedCreateParams(taskDetail.create_parameters ?? null)}
                     >
                       <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500 }}>
                         {(taskDetail.create_parameters.content as string) || "No content"}
@@ -339,7 +415,10 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
                     Lifecycle ({taskDetail.stats.lifecycle_event_count} events)
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                    <LifecycleEventList events={taskDetail.lifecycle} onMinimaxLogClick={(events) => setSelectedMinimaxLogs(events)} />
+                    <LifecycleEventList
+                      events={taskDetail.lifecycle}
+                      onMinimaxLogClick={(events) => setSelectedMinimaxLogs(events)}
+                    />
                   </div>
                 </div>
 
@@ -348,7 +427,9 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
                     <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{t.dependencies}</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
                       {taskDetail.task.dependencies.map((dep) => (
-                        <span key={dep} className="badge badge-neutral">{dep.slice(0, 16)}...</span>
+                        <span key={dep} className="badge badge-neutral">
+                          {dep.slice(0, 16)}...
+                        </span>
                       ))}
                     </div>
                   </div>
@@ -358,7 +439,9 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
                     <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{t.writeSet}</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                       {taskDetail.task.write_set.map((path) => (
-                        <code key={path} style={{ fontSize: "11px" }}>{path}</code>
+                        <code key={path} style={{ fontSize: "11px" }}>
+                          {path}
+                        </code>
                       ))}
                     </div>
                   </div>
@@ -374,18 +457,27 @@ export function TaskTreeView({ projectId, sessions, tasks: propTasks, loading, e
       </div>
       <TaskDetailsModal
         isOpen={!!selectedMinimaxLogs || !!selectedCreateParams}
-        onClose={() => { setSelectedMinimaxLogs(null); setSelectedCreateParams(null); }}
-        minimaxLogEvents={selectedMinimaxLogs}
+        onClose={() => {
+          setSelectedMinimaxLogs(null);
+          setSelectedCreateParams(null);
+        }}
+        minimaxLogEvents={selectedMinimaxLogs ?? undefined}
         createParams={selectedCreateParams ?? undefined}
       />
     </section>
   );
 }
 
-function LifecycleEventList({ events, onMinimaxLogClick }: { events: TaskLifecycleEvent[]; onMinimaxLogClick?: (events: TaskLifecycleEvent[]) => void }) {
+function LifecycleEventList({
+  events,
+  onMinimaxLogClick
+}: {
+  events: TaskLifecycleEvent[];
+  onMinimaxLogClick?: (events: TaskLifecycleEvent[]) => void;
+}) {
   // 合并逻辑：把所有连续的 MINIMAX_LOG 事件合并成一条，不按时间分割
   // 过滤掉 SYSTEM 类型的事件
-  const filteredEvents = events.filter(e => e.event_type !== "SYSTEM");
+  const filteredEvents = events.filter((e) => e.event_type !== "SYSTEM");
 
   const groupedEvents: (TaskLifecycleEvent | TaskLifecycleEvent[])[] = [];
   let currentMinimaxGroup: TaskLifecycleEvent[] = [];
@@ -415,7 +507,13 @@ function LifecycleEventList({ events, onMinimaxLogClick }: { events: TaskLifecyc
     <>
       {groupedEvents.map((item, idx) => {
         if (Array.isArray(item)) {
-          return <MinimaxLogGroup key={`minimax-${idx}`} events={item} onClick={onMinimaxLogClick ? () => onMinimaxLogClick(item) : undefined} />;
+          return (
+            <MinimaxLogGroup
+              key={`minimax-${idx}`}
+              events={item}
+              onClick={onMinimaxLogClick ? () => onMinimaxLogClick(item) : undefined}
+            />
+          );
         }
         return <LifecycleEventItem key={idx} event={item} />;
       })}
@@ -436,25 +534,33 @@ function LifecycleEventItem({ event }: { event: TaskLifecycleEvent }) {
     TASK_FAILED: "var(--accent-danger)",
     TASK_CANCELED: "var(--text-muted)",
     STATE_CHANGED: "var(--accent-secondary)",
-    MINIMAX_LOG: "var(--accent-success)",
+    MINIMAX_LOG: "var(--accent-success)"
   };
 
   return (
-    <div 
-      style={{ 
-        padding: "8px 12px", 
-        background: "var(--bg-elevated)", 
+    <div
+      style={{
+        padding: "8px 12px",
+        background: "var(--bg-elevated)",
         borderRadius: "6px",
         borderLeft: `3px solid ${eventTypeColors[event.event_type] || "var(--text-muted)"}`
       }}
     >
-      <div 
-        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: hasPayload ? "pointer" : "default" }}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          cursor: hasPayload ? "pointer" : "default"
+        }}
         onClick={() => hasPayload && setExpanded(!expanded)}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           {hasPayload && (expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
-          <span className="badge" style={{ background: eventTypeColors[event.event_type] || "var(--text-muted)", fontSize: "10px" }}>
+          <span
+            className="badge"
+            style={{ background: eventTypeColors[event.event_type] || "var(--text-muted)", fontSize: "10px" }}
+          >
             {event.event_type}
           </span>
           <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{event.source}</span>
@@ -464,7 +570,17 @@ function LifecycleEventItem({ event }: { event: TaskLifecycleEvent }) {
         </span>
       </div>
       {expanded && hasPayload && (
-        <pre style={{ margin: "8px 0 0", padding: "8px", background: "var(--bg-surface)", borderRadius: "4px", fontSize: "10px", overflow: "auto", maxHeight: "200px" }}>
+        <pre
+          style={{
+            margin: "8px 0 0",
+            padding: "8px",
+            background: "var(--bg-surface)",
+            borderRadius: "4px",
+            fontSize: "10px",
+            overflow: "auto",
+            maxHeight: "200px"
+          }}
+        >
           {JSON.stringify(event.payload, null, 2)}
         </pre>
       )}
@@ -473,30 +589,31 @@ function LifecycleEventItem({ event }: { event: TaskLifecycleEvent }) {
 }
 
 function MinimaxLogGroup({ events, onClick }: { events: TaskLifecycleEvent[]; onClick?: () => void }) {
-  
   if (events.length === 0) return null;
-  
+
   const contentByStream: Record<string, string[]> = {};
-  events.forEach(e => {
+  events.forEach((e) => {
     const stream = (e.payload?.stream as string) || "other";
     const content = (e.payload?.content as string) || "";
     if (!contentByStream[stream]) contentByStream[stream] = [];
     contentByStream[stream].push(content);
   });
-  
+
   const firstTime = events[0]?.created_at ? new Date(events[0].created_at).toLocaleString() : "";
-  const lastTime = events[events.length - 1]?.created_at ? new Date(events[events.length - 1].created_at).toLocaleString() : "";
-  
+  const lastTime = events[events.length - 1]?.created_at
+    ? new Date(events[events.length - 1].created_at).toLocaleString()
+    : "";
+
   return (
-    <div 
-      style={{ 
-        padding: "8px 12px", 
-        background: "var(--bg-elevated)", 
+    <div
+      style={{
+        padding: "8px 12px",
+        background: "var(--bg-elevated)",
         borderRadius: "6px",
         borderLeft: "3px solid var(--accent-success)"
       }}
     >
-      <div 
+      <div
         style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
         onClick={() => onClick?.()}
       >
@@ -505,9 +622,7 @@ function MinimaxLogGroup({ events, onClick }: { events: TaskLifecycleEvent[]; on
           <span className="badge" style={{ background: "var(--accent-success)", fontSize: "10px" }}>
             MINIMAX_LOG
           </span>
-          <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-            {events.length} logs
-          </span>
+          <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{events.length} logs</span>
         </div>
         <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
           {firstTime} - {lastTime}
@@ -520,7 +635,15 @@ function MinimaxLogGroup({ events, onClick }: { events: TaskLifecycleEvent[]; on
               <div style={{ fontSize: "10px", color: "var(--text-muted)", marginBottom: "4px" }}>
                 {stream.toUpperCase()} ({contents.length} lines)
               </div>
-              <pre style={{ fontSize: "10px", maxHeight: "150px", overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+              <pre
+                style={{
+                  fontSize: "10px",
+                  maxHeight: "150px",
+                  overflow: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all"
+                }}
+              >
                 {contents.join("\n")}
               </pre>
             </div>
@@ -540,7 +663,7 @@ function TaskNode({
   onSelect,
   stateLabels,
   stateColors,
-  depth,
+  depth
 }: {
   task: TaskTreeNode;
   children: Map<string | null, TaskTreeNode[]>;
@@ -569,13 +692,22 @@ function TaskNode({
           borderRadius: "6px",
           marginLeft: depth * 16,
           cursor: "pointer",
-          border: isSelected ? "1px solid var(--accent-primary)" : "1px solid transparent",
+          border: isSelected ? "1px solid var(--accent-primary)" : "1px solid transparent"
         }}
         onClick={() => onSelect(task.task_id)}
       >
-        <div onClick={(e) => { e.stopPropagation(); hasChildren && toggleExpand(task.task_id); }}>
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            hasChildren && toggleExpand(task.task_id);
+          }}
+        >
           {hasChildren ? (
-            isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />
+            isExpanded ? (
+              <ChevronDown size={14} />
+            ) : (
+              <ChevronRight size={14} />
+            )
           ) : (
             <Circle size={6} style={{ marginLeft: "4px", marginRight: "4px" }} />
           )}
@@ -586,20 +718,21 @@ function TaskNode({
           {stateLabels[task.state]}
         </span>
       </div>
-      {isExpanded && taskChildren.map((child) => (
-        <TaskNode
-          key={child.task_id}
-          task={child}
-          children={children}
-          expanded={expanded}
-          toggleExpand={toggleExpand}
-          selectedTaskId={selectedTaskId}
-          onSelect={onSelect}
-          stateLabels={stateLabels}
-          stateColors={stateColors}
-          depth={depth + 1}
-        />
-      ))}
+      {isExpanded &&
+        taskChildren.map((child) => (
+          <TaskNode
+            key={child.task_id}
+            task={child}
+            children={children}
+            expanded={expanded}
+            toggleExpand={toggleExpand}
+            selectedTaskId={selectedTaskId}
+            onSelect={onSelect}
+            stateLabels={stateLabels}
+            stateColors={stateColors}
+            depth={depth + 1}
+          />
+        ))}
     </div>
   );
 }

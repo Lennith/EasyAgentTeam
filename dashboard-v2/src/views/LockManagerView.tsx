@@ -38,7 +38,7 @@ export function LockManagerView({ projectId, locks, reload }: LockManagerViewPro
       setError(null);
       await projectApi.releaseLock(projectId, {
         session_id: lock.ownerSessionId,
-        lock_key: lock.lockKey,
+        lock_key: lock.lockKey
       });
       reload();
     } catch (err) {
@@ -51,7 +51,7 @@ export function LockManagerView({ projectId, locks, reload }: LockManagerViewPro
   const statusColors: Record<string, string> = {
     active: "var(--accent-success)",
     released: "var(--text-muted)",
-    expired: "var(--accent-warning)",
+    expired: "var(--accent-warning)"
   };
 
   return (
@@ -60,9 +60,16 @@ export function LockManagerView({ projectId, locks, reload }: LockManagerViewPro
         <h1>{t.lockManager}</h1>
       </div>
 
-      {error && <div className="error-message" style={{ flexShrink: 0 }}>{error}</div>}
+      {error && (
+        <div className="error-message" style={{ flexShrink: 0 }}>
+          {error}
+        </div>
+      )}
 
-      <div className="card" style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div
+        className="card"
+        style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
+      >
         <div className="card-header" style={{ flexShrink: 0 }}>
           <h3>{t.lockManager}</h3>
           <span className="badge badge-neutral">{filteredLocks.length}</span>
@@ -104,23 +111,27 @@ export function LockManagerView({ projectId, locks, reload }: LockManagerViewPro
                       {lock.status}
                     </span>
                   </td>
-                  <td><code style={{ fontSize: "11px" }}>{lock.lockKey}</code></td>
+                  <td>
+                    <code style={{ fontSize: "11px" }}>{lock.lockKey}</code>
+                  </td>
                   <td>
                     <span className="badge badge-neutral">{lock.ownerSessionId.slice(0, 16)}...</span>
                   </td>
                   <td>{lock.targetType ?? "unknown"}</td>
                   <td>{lock.purpose ?? "-"}</td>
-                  <td style={{ fontSize: "12px" }}>
-                    {new Date(lock.expiresAt).toLocaleString()}
-                  </td>
+                  <td style={{ fontSize: "12px" }}>{new Date(lock.expiresAt).toLocaleString()}</td>
                   <td>
                     {lock.status === "active" && (
-                      <button 
+                      <button
                         className="btn btn-danger btn-sm"
                         onClick={() => handleRelease(lock)}
                         disabled={busyAction === lock.lockId}
                       >
-                        {busyAction === lock.lockId ? <Loader size={12} className="loading-spinner" /> : <Unlock size={12} />}
+                        {busyAction === lock.lockId ? (
+                          <Loader size={12} className="loading-spinner" />
+                        ) : (
+                          <Unlock size={12} />
+                        )}
                       </button>
                     )}
                   </td>

@@ -3,6 +3,7 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 调试与时间线模块负责把后端运行事件转换为可分析输出，覆盖：
 
 - 事件流到时间线的结构化映射
@@ -35,6 +36,8 @@
 - `GET /api/projects/:id/agent-io/timeline`
 - `GET /api/projects/:id/events`
 - `GET /api/projects/:id/tasks/:task_id/detail`
+- `POST /api/projects/:id/agent-chat`
+- `POST /api/projects/:id/agent-chat/:sessionId/interrupt`
 - 内部 run log 解析（`buildAgentRunDetails`）
 
 ### 不包含能力
@@ -50,15 +53,24 @@
 
 #### timeline 查询
 
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| limit | number | 否 | 限制返回条数，默认全量 |
+| 参数  | 类型   | 必填 | 说明                   |
+| ----- | ------ | ---- | ---------------------- |
+| limit | number | 否   | 限制返回条数，默认全量 |
+
+#### agent chat
+
+| 参数              | 类型   | 必填 | 说明                |
+| ----------------- | ------ | ---- | ------------------- |
+| role              | string | 是   | 目标角色            |
+| prompt            | string | 是   | 用户输入            |
+| sessionId         | string | 否   | 指定会话            |
+| providerSessionId | string | 否   | provider 侧会话引用 |
 
 #### task detail 查询
 
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| task_id | string | 是 | 目标任务 |
+| 参数    | 类型   | 必填 | 说明     |
+| ------- | ------ | ---- | -------- |
+| task_id | string | 是   | 目标任务 |
 
 ### 3.2 输出
 
@@ -68,6 +80,11 @@
 - `from` / `toRole` / `toSessionId`
 - `requestId` / `messageId`
 - `discussThreadId`
+
+#### Agent chat stream（核心）
+
+- SSE `event:data` 流式返回
+- 支持 `thinking/tool_call/tool_result/message/complete/error/step` 事件类型
 
 #### Task detail（核心）
 
@@ -118,11 +135,11 @@
 
 ## 7. 异常与边界
 
-| 场景 | 处理 |
-|---|---|
-| event 文件不存在 | 返回空列表 |
-| task 不存在 | `404 TASK_NOT_FOUND` |
-| limit 非法 | 按接口层校验返回 400 |
+| 场景             | 处理                 |
+| ---------------- | -------------------- |
+| event 文件不存在 | 返回空列表           |
+| task 不存在      | `404 TASK_NOT_FOUND` |
+| limit 非法       | 按接口层校验返回 400 |
 
 ---
 

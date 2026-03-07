@@ -3,6 +3,7 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“能力族去重 + 权限管理 + 服务直连桥接”保证稳定协作。
 
 **源码路径**:
@@ -146,12 +147,12 @@ MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“
 
 ## 7. 异常与边界
 
-| 场景 | 处理 |
-|---|---|
-| task 上报目标非法 | `TASK_RESULT_INVALID_TARGET` + next_action |
-| progress 校验失败 | `TASK_PROGRESS_REQUIRED` + next_action |
-| lock 非 owner 操作 | `LOCK_NOT_OWNER` |
-| capability 冲突 | 跳过低优先级工具 |
+| 场景               | 处理                                       |
+| ------------------ | ------------------------------------------ |
+| task 上报目标非法  | `TASK_RESULT_INVALID_TARGET` + next_action |
+| progress 校验失败  | `TASK_PROGRESS_REQUIRED` + next_action     |
+| lock 非 owner 操作 | `LOCK_NOT_OWNER`                           |
+| capability 冲突    | 跳过低优先级工具                           |
 
 ---
 

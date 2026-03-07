@@ -74,17 +74,13 @@ test("dispatch skips duplicate open task dispatch for same task/session", async 
   const events = await listEvents(paths);
   const skipped = events.find(
     (item) =>
-      item.eventType === "ORCHESTRATOR_DISPATCH_SKIPPED" &&
-      item.sessionId === sessionId &&
-      item.taskId === taskId
+      item.eventType === "ORCHESTRATOR_DISPATCH_SKIPPED" && item.sessionId === sessionId && item.taskId === taskId
   );
   assert.ok(skipped);
   assert.equal((skipped?.payload as Record<string, unknown>).dispatchSkipReason, "duplicate_open_dispatch");
   const startedCount = events.filter(
     (item) =>
-      item.eventType === "ORCHESTRATOR_DISPATCH_STARTED" &&
-      item.sessionId === sessionId &&
-      item.taskId === taskId
+      item.eventType === "ORCHESTRATOR_DISPATCH_STARTED" && item.sessionId === sessionId && item.taskId === taskId
   ).length;
   assert.equal(startedCount, 1);
 });

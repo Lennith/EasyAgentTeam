@@ -2,7 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 function parseJsonFile(filePath, fallback) {
-  return fs.readFile(filePath, "utf8")
+  return fs
+    .readFile(filePath, "utf8")
     .then((raw) => JSON.parse(raw))
     .catch(() => fallback);
 }
@@ -175,4 +176,3 @@ main().catch((error) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 });
-

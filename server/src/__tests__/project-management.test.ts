@@ -296,48 +296,54 @@ test("project creation persists auto_dispatch_enabled and auto_dispatch_remainin
     const project = (await projectRes.json()) as {
       autoDispatchEnabled?: boolean;
       autoDispatchRemaining?: number;
+      holdEnabled?: boolean;
     };
     assert.equal(project.autoDispatchEnabled, true);
     assert.equal(project.autoDispatchRemaining, 5);
+    assert.equal(project.holdEnabled, false);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
 
-test("project bootstrap ignores missing TeamTools template source in direct ToolCall mode", { concurrency: false }, async () => {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-teamtools-missing-"));
-  const dataRoot = path.join(tempRoot, "data");
-  const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-  const prev = process.env.AUTO_DEV_TEAMTOOLS_SOURCE;
-  process.env.AUTO_DEV_TEAMTOOLS_SOURCE = path.join(tempRoot, "not-found-teamtools");
-
-  try {
-    const createRes = await fetch(`${baseUrl}/api/projects`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_id: "teamtoolsmissing",
-        name: "TeamTools Missing",
-        workspace_path: tempRoot
-      })
-    });
-    assert.equal(createRes.status, 201);
-  } finally {
-    if (prev === undefined) {
-      delete process.env.AUTO_DEV_TEAMTOOLS_SOURCE;
-    } else {
-      process.env.AUTO_DEV_TEAMTOOLS_SOURCE = prev;
+test(
+  "project bootstrap ignores missing TeamTools template source in direct ToolCall mode",
+  { concurrency: false },
+  async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-teamtools-missing-"));
+    const dataRoot = path.join(tempRoot, "data");
+    const app = createApp({ dataRoot });
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("failed to start test server");
     }
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const prev = process.env.AUTO_DEV_TEAMTOOLS_SOURCE;
+    process.env.AUTO_DEV_TEAMTOOLS_SOURCE = path.join(tempRoot, "not-found-teamtools");
+
+    try {
+      const createRes = await fetch(`${baseUrl}/api/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: "teamtoolsmissing",
+          name: "TeamTools Missing",
+          workspace_path: tempRoot
+        })
+      });
+      assert.equal(createRes.status, 201);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.AUTO_DEV_TEAMTOOLS_SOURCE;
+      } else {
+        process.env.AUTO_DEV_TEAMTOOLS_SOURCE = prev;
+      }
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
   }
-});
+);
 
 test("project bootstrap applies workspace role template override", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-role-template-override-"));

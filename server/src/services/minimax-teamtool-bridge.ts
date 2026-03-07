@@ -1,4 +1,4 @@
-import { acquireLock, listActiveLocks, releaseLock, renewLock } from "../data/lock-store.js";
+import { acquireLock, createProjectLockScope, listActiveLocks, releaseLock, renewLock } from "../data/lock-store.js";
 import { listAgents } from "../data/agent-store.js";
 import { buildProjectRoutingSnapshot } from "./project-routing-snapshot-service.js";
 import { handleTaskAction, TaskActionError } from "./task-action-service.js";
@@ -60,6 +60,7 @@ export class TeamToolBridgeError extends Error {
 }
 
 export function createMiniMaxTeamToolBridge(context: TeamToolExecutionContext): TeamToolBridge {
+  const lockScope = createProjectLockScope(context.dataRoot, context.project.projectId, context.project.workspacePath);
   return {
     async taskAction(requestBody: Record<string, unknown>): Promise<Record<string, unknown>> {
       try {
@@ -89,7 +90,13 @@ export function createMiniMaxTeamToolBridge(context: TeamToolExecutionContext): 
         return result as unknown as Record<string, unknown>;
       } catch (error) {
         if (error instanceof ManagerMessageServiceError) {
-          throw new TeamToolBridgeError(error.status, error.code, error.message, error.hint ?? null, error.details ?? error.replacement);
+          throw new TeamToolBridgeError(
+            error.status,
+            error.code,
+            error.message,
+            error.hint ?? null,
+            error.details ?? error.replacement
+          );
         }
         throw new TeamToolBridgeError(
           500,
@@ -117,10 +124,14 @@ export function createMiniMaxTeamToolBridge(context: TeamToolExecutionContext): 
       const targetType = targetTypeRaw === "file" || targetTypeRaw === "dir" ? targetTypeRaw : undefined;
       const purpose = readString(input.purpose);
       if (!lockKey) {
-        throw new TeamToolBridgeError(400, "LOCK_KEY_REQUIRED", "lock_key is required", "Set lock_key to a project-relative path.");
+        throw new TeamToolBridgeError(
+          400,
+          "LOCK_KEY_REQUIRED",
+          "lock_key is required",
+          "Set lock_key to a workspace-relative path."
+        );
       }
-      const acquired = await acquireLock(context.paths, {
-        projectId: context.project.projectId,
+      const acquired = await acquireLock(lockScope, {
         sessionId,
         lockKey,
         targetType,
@@ -146,9 +157,14 @@ export function createMiniMaxTeamToolBridge(context: TeamToolExecutionContext): 
       const sessionId = readString(input.session_id ?? input.sessionId) ?? context.sessionId;
       const lockKey = readString(input.lock_key ?? input.lockKey);
       if (!lockKey) {
-        throw new TeamToolBridgeError(400, "LOCK_KEY_REQUIRED", "lock_key is required", "Set lock_key to renew.");
+        throw new TeamToolBridgeError(
+          400,
+          "LOCK_KEY_REQUIRED",
+          "lock_key is required",
+          "Set lock_key to renew (workspace-relative path)."
+        );
       }
-      const renewed = await renewLock(context.paths, { sessionId, lockKey });
+      const renewed = await renewLock(lockScope, { sessionId, lockKey });
       if (renewed.kind === "renewed") {
         return { result: "renewed", lock: renewed.lock };
       }
@@ -156,29 +172,52 @@ export function createMiniMaxTeamToolBridge(context: TeamToolExecutionContext): 
         throw new TeamToolBridgeError(404, "LOCK_NOT_FOUND", "lock not found", "Acquire lock first.");
       }
       if (renewed.kind === "not_owner") {
-        throw new TeamToolBridgeError(403, "LOCK_NOT_OWNER", "lock owned by another session", "Use owner session or reacquire after expiry.", renewed.existingLock);
+        throw new TeamToolBridgeError(
+          403,
+          "LOCK_NOT_OWNER",
+          "lock owned by another session",
+          "Use owner session or reacquire after expiry.",
+          renewed.existingLock
+        );
       }
-      throw new TeamToolBridgeError(409, "LOCK_EXPIRED", "lock expired", "Reacquire lock before editing.", renewed.existingLock);
+      throw new TeamToolBridgeError(
+        409,
+        "LOCK_EXPIRED",
+        "lock expired",
+        "Reacquire lock before editing.",
+        renewed.existingLock
+      );
     },
 
     async lockRelease(input: Record<string, unknown>): Promise<Record<string, unknown>> {
       const sessionId = readString(input.session_id ?? input.sessionId) ?? context.sessionId;
       const lockKey = readString(input.lock_key ?? input.lockKey);
       if (!lockKey) {
-        throw new TeamToolBridgeError(400, "LOCK_KEY_REQUIRED", "lock_key is required", "Set lock_key to release.");
+        throw new TeamToolBridgeError(
+          400,
+          "LOCK_KEY_REQUIRED",
+          "lock_key is required",
+          "Set lock_key to release (workspace-relative path)."
+        );
       }
-      const released = await releaseLock(context.paths, { sessionId, lockKey });
+      const released = await releaseLock(lockScope, { sessionId, lockKey });
       if (released.kind === "released") {
         return { result: "released", lock: released.lock };
       }
       if (released.kind === "not_found") {
         throw new TeamToolBridgeError(404, "LOCK_NOT_FOUND", "lock not found", "Lock may already be released.");
       }
-      throw new TeamToolBridgeError(403, "LOCK_NOT_OWNER", "lock owned by another session", "Only lock owner can release.", released.existingLock);
+      throw new TeamToolBridgeError(
+        403,
+        "LOCK_NOT_OWNER",
+        "lock owned by another session",
+        "Only lock owner can release.",
+        released.existingLock
+      );
     },
 
     async lockList(): Promise<Record<string, unknown>> {
-      const items = await listActiveLocks(context.paths);
+      const items = await listActiveLocks(lockScope);
       return { items, total: items.length };
     }
   };

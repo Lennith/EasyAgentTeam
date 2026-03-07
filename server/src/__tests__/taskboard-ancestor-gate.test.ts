@@ -91,4 +91,3 @@ test("leaf task is blocked when any ancestor dependency is unfinished", async ()
   const devRunnableAfter = runnableAfter.find((row) => row.role === "dev");
   assert.equal(Boolean(devRunnableAfter?.tasks.some((task) => task.taskId === "task-a")), true);
 });
-

@@ -28,7 +28,7 @@ export function NewProjectView() {
         const [templateRes, agentRes, teamRes] = await Promise.all([
           projectTemplateApi.list(),
           agentApi.list(),
-          teamApi.list(),
+          teamApi.list()
         ]);
         if (!closed) {
           setTemplates(templateRes.items ?? []);
@@ -44,7 +44,9 @@ export function NewProjectView() {
       }
     }
     load();
-    return () => { closed = true; };
+    return () => {
+      closed = true;
+    };
   }, []);
 
   async function onCreate() {
@@ -59,7 +61,7 @@ export function NewProjectView() {
         workspace_path: workspacePath,
         template_id: selectedTemplate || undefined,
         team_id: selectedTeam || undefined,
-        agent_ids: selectedAgents.length > 0 ? selectedAgents : undefined,
+        agent_ids: selectedAgents.length > 0 ? selectedAgents : undefined
       });
 
       setSuccess(`Project "${name}" created!`);
@@ -72,9 +74,7 @@ export function NewProjectView() {
   }
 
   function toggleAgent(agentId: string) {
-    setSelectedAgents((prev) =>
-      prev.includes(agentId) ? prev.filter((a) => a !== agentId) : [...prev, agentId]
-    );
+    setSelectedAgents((prev) => (prev.includes(agentId) ? prev.filter((a) => a !== agentId) : [...prev, agentId]));
   }
 
   if (loading) {
@@ -116,7 +116,11 @@ export function NewProjectView() {
 
         <div className="form-group">
           <label>{t.workspacePath} *</label>
-          <input value={workspacePath} onChange={(e) => setWorkspacePath(e.target.value)} placeholder="/path/to/workspace" />
+          <input
+            value={workspacePath}
+            onChange={(e) => setWorkspacePath(e.target.value)}
+            placeholder="/path/to/workspace"
+          />
         </div>
 
         <div className="form-group">

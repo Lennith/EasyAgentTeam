@@ -30,7 +30,7 @@ export function AgentSessionsView() {
         }
         return;
       }
-      
+
       try {
         const data = await projectApi.list();
         if (!closed) {
@@ -49,7 +49,9 @@ export function AgentSessionsView() {
       }
     }
     loadProjects();
-    return () => { closed = true; };
+    return () => {
+      closed = true;
+    };
   }, [settings.useMockData]);
 
   useEffect(() => {
@@ -57,11 +59,11 @@ export function AgentSessionsView() {
       setSessions([]);
       return;
     }
-    
+
     let closed = false;
     async function loadSessions() {
       setLoadingSessions(true);
-      
+
       if (settings.useMockData) {
         if (!closed) {
           setSessions(mockData.mockSessions);
@@ -69,7 +71,7 @@ export function AgentSessionsView() {
         }
         return;
       }
-      
+
       try {
         const data = await projectApi.getSessions(selectedProjectId);
         if (!closed) {
@@ -85,13 +87,15 @@ export function AgentSessionsView() {
       }
     }
     loadSessions();
-    return () => { closed = true; };
+    return () => {
+      closed = true;
+    };
   }, [selectedProjectId, settings.useMockData]);
 
   const allSessions = useMemo(() => {
-    return sessions.map(s => ({
+    return sessions.map((s) => ({
       ...s,
-      projectName: projects.find(p => p.projectId === s.projectId)?.name ?? s.projectId,
+      projectName: projects.find((p) => p.projectId === s.projectId)?.name ?? s.projectId
     }));
   }, [sessions, projects]);
 
@@ -126,12 +130,15 @@ export function AgentSessionsView() {
         <h1>{t.agentSessions}</h1>
       </div>
 
-      <div className="card" style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div
+        className="card"
+        style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
+      >
         <div className="form-group" style={{ marginBottom: "16px", flexShrink: 0, padding: "16px 16px 0" }}>
           <label>Select Project</label>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <select 
-              value={selectedProjectId} 
+            <select
+              value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
               style={{ flex: 1 }}
             >
@@ -167,10 +174,16 @@ export function AgentSessionsView() {
               <tbody>
                 {allSessions.map((session) => (
                   <tr key={session.sessionId}>
-                    <td><code>{session.sessionId.slice(0, 24)}...</code></td>
-                    <td><span className="badge badge-neutral">{session.role}</span></td>
                     <td>
-                      <span className={`badge ${session.status === "running" ? "badge-success" : session.status === "idle" ? "badge-neutral" : "badge-warning"}`}>
+                      <code>{session.sessionId.slice(0, 24)}...</code>
+                    </td>
+                    <td>
+                      <span className="badge badge-neutral">{session.role}</span>
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${session.status === "running" ? "badge-success" : session.status === "idle" ? "badge-neutral" : "badge-warning"}`}
+                      >
                         {session.status}
                       </span>
                     </td>

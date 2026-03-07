@@ -1,5 +1,5 @@
 param(
-  [string]$BaseUrl = "http://127.0.0.1:3000",
+  [string]$BaseUrl = "http://127.0.0.1:43123",
   [string]$ScenarioPath = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestRound20",
   [int]$AutoDispatchBudget = 30,
@@ -8,7 +8,8 @@ param(
   [int]$AutoTopupStep = 30,
   [int]$MaxTopups = 10,
   [int]$MaxTotalBudget = 330,
-  [switch]$SetupOnly
+  [switch]$SetupOnly,
+  [switch]$StrictObserve
 )
 
 $ErrorActionPreference = "Stop"
@@ -273,6 +274,7 @@ $topupCount = 0
 $totalBudgetGranted = $AutoDispatchBudget
 $topupLog = @()
 $noRunningStreak = 0
+$strictMode = $StrictObserve.IsPresent
 
 if ($SetupOnly) {
   $pass = $true
@@ -296,13 +298,15 @@ if ($SetupOnly) {
       $noRunningStreak = 0
     }
 
-    foreach ($s in $running) {
-      $sessionToken = if ($s.sessionId) { $s.sessionId } else { $null }
-      if (-not $sessionToken -or -not $s.lastActiveAt) { continue }
-      $last = [datetime]::Parse($s.lastActiveAt)
-      if (((Get-Date).ToUniversalTime() - $last.ToUniversalTime()).TotalMinutes -gt 15) {
-        Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/sessions/$sessionToken/repair" -Body @{ target_status = "idle" } -AllowStatus @(200, 404, 409) | Out-Null
-        Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $s.role; force = $false; only_idle = $false } -AllowStatus @(200) | Out-Null
+    if (-not $strictMode) {
+      foreach ($s in $running) {
+        $sessionToken = if ($s.sessionId) { $s.sessionId } else { $null }
+        if (-not $sessionToken -or -not $s.lastActiveAt) { continue }
+        $last = [datetime]::Parse($s.lastActiveAt)
+        if (((Get-Date).ToUniversalTime() - $last.ToUniversalTime()).TotalMinutes -gt 15) {
+          Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/sessions/$sessionToken/repair" -Body @{ target_status = "idle" } -AllowStatus @(200, 404, 409) | Out-Null
+          Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $s.role; force = $false; only_idle = $false } -AllowStatus @(200) | Out-Null
+        }
       }
     }
 
@@ -311,7 +315,7 @@ if ($SetupOnly) {
       $finalReason = "closed_loop"
       break
     }
-    if ($remaining -le 0 -and $openExec.Count -gt 0) {
+    if ((-not $strictMode) -and $remaining -le 0 -and $openExec.Count -gt 0) {
       if ($topupCount -ge $MaxTopups) {
         $finalReason = "max_topups_reached"
         break
@@ -339,7 +343,7 @@ if ($SetupOnly) {
       Start-Sleep -Seconds $PollSeconds
       continue
     }
-    if ($openExec.Count -gt 0 -and $noRunningStreak -ge 3) {
+    if ((-not $strictMode) -and $openExec.Count -gt 0 -and $noRunningStreak -ge 3) {
       Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{
         force = $false
         only_idle = $false
@@ -370,11 +374,15 @@ $topupJson = if (@($topupLog).Count -eq 0) { "[]" } else { ($topupLog | ConvertT
 Set-Content -LiteralPath $topupLogPath -Value $topupJson -Encoding UTF8
 $analysisExit = 0
 if (-not $SetupOnly) {
-  try {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir "analyze-core-logs.ps1") -ArtifactsDir $outDir -ScenarioPath $ScenarioPath -FinalReasonHint $finalReason
-    $analysisExit = if ($LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
-  } catch {
-    $analysisExit = 1
+  if ($strictMode) {
+    $analysisExit = 0
+  } else {
+    try {
+      & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir "analyze-core-logs.ps1") -ArtifactsDir $outDir -ScenarioPath $ScenarioPath -FinalReasonHint $finalReason
+      $analysisExit = if ($LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+    } catch {
+      $analysisExit = 1
+    }
   }
 }
 
@@ -397,6 +405,7 @@ $summary += "- ended_at: $((Get-Date).ToString("o"))"
 $summary += "- final_reason: $finalReason"
 $summary += "- pass_runtime: $pass"
 $summary += "- pass_analysis: $($analysisExit -eq 0)"
+$summary += "- strict_observe: $strictMode"
 $summary += "- auto_dispatch_budget_initial: $AutoDispatchBudget"
 $summary += "- auto_dispatch_budget_granted_total: $totalBudgetGranted"
 $summary += "- auto_dispatch_budget_remaining: $finalRemaining"

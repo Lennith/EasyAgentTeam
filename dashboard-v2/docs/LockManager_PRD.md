@@ -51,13 +51,13 @@
 
 #### 参数
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| session_id | string | 是 | 持有锁的会话ID |
-| lock_key | string | 是 | 锁定的资源路径，如 `src/app/service.ts` |
-| target_type | string | 是 | 目标类型：`file` 或 `dir` |
-| ttl_seconds | number | 否 | 锁存活时间（默认1800秒，即30分钟） |
-| purpose | string | 否 | 锁定目的说明 |
+| 参数        | 类型   | 必填 | 说明                                    |
+| ----------- | ------ | ---- | --------------------------------------- |
+| session_id  | string | 是   | 持有锁的会话ID                          |
+| lock_key    | string | 是   | 锁定的资源路径，如 `src/app/service.ts` |
+| target_type | string | 是   | 目标类型：`file` 或 `dir`               |
+| ttl_seconds | number | 否   | 锁存活时间（默认1800秒，即30分钟）      |
+| purpose     | string | 否   | 锁定目的说明                            |
 
 #### 约束
 
@@ -161,14 +161,14 @@
 
 ### 异常类型
 
-| 异常 | 返回状态码 |
-|------|----------|
-| 锁已被占用 | 返回 409 Conflict，表示当前资源被占用 |
-| session 无效 | 返回 400 Bad Request |
-| lock_key 不在项目范围内 | 返回 400 Bad Request |
-| TTL 超过最大值 | 返回 400 Bad Request |
-| 释放非本会话的锁 | 返回 403 Forbidden |
-| 续期非本会话的锁 | 返回 403 Forbidden |
+| 异常                    | 返回状态码                            |
+| ----------------------- | ------------------------------------- |
+| 锁已被占用              | 返回 409 Conflict，表示当前资源被占用 |
+| session 无效            | 返回 400 Bad Request                  |
+| lock_key 不在项目范围内 | 返回 400 Bad Request                  |
+| TTL 超过最大值          | 返回 400 Bad Request                  |
+| 释放非本会话的锁        | 返回 403 Forbidden                    |
+| 续期非本会话的锁        | 返回 403 Forbidden                    |
 
 ### 边界处理
 
@@ -182,20 +182,20 @@
 
 ### 关键数据（LockRecord）
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| lockId | string | 锁唯一标识 |
-| lockKey | string | 锁定的资源路径 |
-| ownerSessionId | string | 持有锁的会话ID |
-| targetType | string | 目标类型：`file` \| `dir` \| `unknown` |
-| purpose | string | 锁定目的说明 |
-| ttlSeconds | number | TTL 设置 |
-| renewCount | number | 续期次数 |
-| acquiredAt | string | 获取时间（ISO8601） |
-| expiresAt | string | 过期时间（ISO8601） |
-| status | string | 状态：`active` \| `released` \| `expired` |
-| stealReason | string | 抢占原因（TODO：待确认） |
-| stolenFromSessionId | string | 被抢占的会话ID（TODO：待确认） |
+| 字段                | 类型   | 说明                                      |
+| ------------------- | ------ | ----------------------------------------- |
+| lockId              | string | 锁唯一标识                                |
+| lockKey             | string | 锁定的资源路径                            |
+| ownerSessionId      | string | 持有锁的会话ID                            |
+| targetType          | string | 目标类型：`file` \| `dir` \| `unknown`    |
+| purpose             | string | 锁定目的说明                              |
+| ttlSeconds          | number | TTL 设置                                  |
+| renewCount          | number | 续期次数                                  |
+| acquiredAt          | string | 获取时间（ISO8601）                       |
+| expiresAt           | string | 过期时间（ISO8601）                       |
+| status              | string | 状态：`active` \| `released` \| `expired` |
+| stealReason         | string | 抢占原因（TODO：待确认）                  |
+| stolenFromSessionId | string | 被抢占的会话ID（TODO：待确认）            |
 
 ### 生命周期
 

@@ -35,7 +35,7 @@ export function ProjectWorkspace({ projectId, view }: ProjectWorkspaceProps) {
     "task-update": t.updateTask,
     "lock-manager": t.lockManager,
     "team-config": t.teamConfig,
-    "project-settings": t.projectSettings,
+    "project-settings": t.projectSettings
   };
 
   if (workspace.loading) {
@@ -71,7 +71,7 @@ export function ProjectWorkspace({ projectId, view }: ProjectWorkspaceProps) {
     locks: workspace.locks,
     events: workspace.events,
     timeline: workspace.timeline,
-    reload: workspace.reload,
+    reload: workspace.reload
   };
 
   switch (view) {

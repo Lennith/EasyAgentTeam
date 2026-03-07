@@ -7,7 +7,7 @@ export interface DashboardSettings {
 }
 
 const DEFAULT_SETTINGS: DashboardSettings = {
-  useMockData: false,
+  useMockData: false
 };
 
 export function useSettings() {

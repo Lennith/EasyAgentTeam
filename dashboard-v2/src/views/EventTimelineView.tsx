@@ -28,31 +28,34 @@ export function EventTimelineView({ events }: EventTimelineViewProps) {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {events.slice(-100).reverse().map((event) => (
-              <div 
-                key={event.eventId} 
-                style={{ 
-                  padding: "12px", 
-                  background: "var(--bg-elevated)", 
-                  borderRadius: "6px",
-                  fontSize: "12px"
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span className="badge badge-primary">{event.eventType}</span>
-                  <span style={{ color: "var(--text-muted)" }}>{new Date(event.createdAt).toLocaleString()}</span>
+            {events
+              .slice(-100)
+              .reverse()
+              .map((event) => (
+                <div
+                  key={event.eventId}
+                  style={{
+                    padding: "12px",
+                    background: "var(--bg-elevated)",
+                    borderRadius: "6px",
+                    fontSize: "12px"
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <span className="badge badge-primary">{event.eventType}</span>
+                    <span style={{ color: "var(--text-muted)" }}>{new Date(event.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div style={{ color: "var(--text-secondary)" }}>
+                    Source: {event.source}
+                    {event.sessionId && <span> | Session: {event.sessionId.slice(0, 20)}...</span>}
+                  </div>
+                  {event.payload && Object.keys(event.payload).length > 0 && (
+                    <pre style={{ margin: "8px 0 0", fontSize: "11px", color: "var(--text-muted)" }}>
+                      {JSON.stringify(event.payload, null, 2)}
+                    </pre>
+                  )}
                 </div>
-                <div style={{ color: "var(--text-secondary)" }}>
-                  Source: {event.source}
-                  {event.sessionId && <span> | Session: {event.sessionId.slice(0, 20)}...</span>}
-                </div>
-                {event.payload && Object.keys(event.payload).length > 0 && (
-                  <pre style={{ margin: "8px 0 0", fontSize: "11px", color: "var(--text-muted)" }}>
-                    {JSON.stringify(event.payload, null, 2)}
-                  </pre>
-                )}
-              </div>
-            ))}
+              ))}
           </div>
         )}
       </div>

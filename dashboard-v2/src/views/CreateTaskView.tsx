@@ -33,16 +33,16 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
   const [success, setSuccess] = useState<string | null>(null);
 
   const agentRoles = project?.agentIds ?? [];
-  const sessionRoles = sessions.map(s => s.role).filter((v, i, a) => a.indexOf(v) === i);
+  const sessionRoles = sessions.map((s) => s.role).filter((v, i, a) => a.indexOf(v) === i);
   const availableRoles = agentRoles.length > 0 ? agentRoles : sessionRoles;
-  
+
   const rootTasks = tasks.filter((tsk) => tsk.task_kind === "PROJECT_ROOT" || tsk.task_kind === "USER_ROOT");
   const allTasks = tasks;
-  
+
   const selectableDependencies = tasks.filter((tsk) => tsk.state !== "DONE" && tsk.state !== "CANCELED");
-  
+
   function removeDependency(taskId: string) {
-    setDependencies(prev => prev.filter(id => id !== taskId));
+    setDependencies((prev) => prev.filter((id) => id !== taskId));
   }
 
   async function onCreate() {
@@ -50,9 +50,9 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
       setCreating(true);
       setError(null);
       setSuccess(null);
-      
+
       const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      
+
       const result = await projectApi.taskAction(projectId, {
         action_type: "TASK_CREATE",
         from_agent: fromAgent || "manager",
@@ -62,12 +62,18 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
           title,
           parent_task_id: parentTaskId,
           owner_role: ownerRole,
-          write_set: writeSet.split("\n").map((s) => s.trim()).filter(Boolean),
+          write_set: writeSet
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean),
           dependencies: dependencies,
-          acceptance: acceptance.split("\n").map((s) => s.trim()).filter(Boolean),
-        },
+          acceptance: acceptance
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        }
       });
-      
+
       setSuccess(`Task created: ${title} (ID: ${result.taskId ?? "auto-generated"})`);
       setTitle("");
       setWriteSet("");
@@ -99,18 +105,22 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
             <select value={parentTaskId} onChange={(e) => setParentTaskId(e.target.value)}>
               <option value="">Select parent task...</option>
               {rootTasks.length === 0 && allTasks.length === 0 && (
-                <option value="_loading" disabled>Loading tasks...</option>
+                <option value="_loading" disabled>
+                  Loading tasks...
+                </option>
               )}
               {rootTasks.map((tsk) => (
                 <option key={tsk.task_id} value={tsk.task_id}>
                   {tsk.title} ({tsk.task_kind})
                 </option>
               ))}
-              {allTasks.filter((tsk) => tsk.task_kind === "EXECUTION").map((tsk) => (
-                <option key={tsk.task_id} value={tsk.task_id}>
-                  {tsk.title}
-                </option>
-              ))}
+              {allTasks
+                .filter((tsk) => tsk.task_kind === "EXECUTION")
+                .map((tsk) => (
+                  <option key={tsk.task_id} value={tsk.task_id}>
+                    {tsk.title}
+                  </option>
+                ))}
             </select>
           </div>
 
@@ -119,7 +129,9 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
             <select value={ownerRole} onChange={(e) => setOwnerRole(e.target.value)}>
               <option value="">Select role...</option>
               {availableRoles.map((role) => (
-                <option key={role} value={role}>{role}</option>
+                <option key={role} value={role}>
+                  {role}
+                </option>
               ))}
             </select>
           </div>
@@ -131,7 +143,9 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
             <select value={fromAgent} onChange={(e) => setFromAgent(e.target.value)}>
               <option value="manager">manager</option>
               {availableRoles.map((role) => (
-                <option key={role} value={role}>{role}</option>
+                <option key={role} value={role}>
+                  {role}
+                </option>
               ))}
             </select>
           </div>
@@ -139,9 +153,9 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
 
         <div className="form-group">
           <label>{t.writeSet}</label>
-          <textarea 
-            value={writeSet} 
-            onChange={(e) => setWriteSet(e.target.value)} 
+          <textarea
+            value={writeSet}
+            onChange={(e) => setWriteSet(e.target.value)}
             placeholder="One path per line..."
             style={{ minHeight: "60px" }}
           />
@@ -151,16 +165,24 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
           <label>{t.dependencies}</label>
           {dependencies.length > 0 && (
             <div style={{ marginBottom: "8px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
-              {dependencies.map(depId => {
-                const depTask = tasks.find(t => t.task_id === depId);
+              {dependencies.map((depId) => {
+                const depTask = tasks.find((t) => t.task_id === depId);
                 return (
-                  <span 
-                    key={depId} 
+                  <span
+                    key={depId}
                     className="badge"
-                    style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 8px", background: "var(--color-primary-light)", borderRadius: "4px", fontSize: "12px" }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      padding: "4px 8px",
+                      background: "var(--color-primary-light)",
+                      borderRadius: "4px",
+                      fontSize: "12px"
+                    }}
                   >
                     {depTask?.title ?? depId}
-                    <button 
+                    <button
                       type="button"
                       onClick={() => removeDependency(depId)}
                       style={{ background: "none", border: "none", cursor: "pointer", padding: "0", display: "flex" }}
@@ -172,17 +194,19 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
               })}
             </div>
           )}
-          <select 
-            value="" 
+          <select
+            value=""
             onChange={(e) => {
               if (e.target.value && !dependencies.includes(e.target.value)) {
-                setDependencies(prev => [...prev, e.target.value]);
+                setDependencies((prev) => [...prev, e.target.value]);
               }
             }}
           >
             <option value="">Select dependency to add...</option>
             {selectableDependencies.length === 0 && (
-              <option value="" disabled>No available tasks</option>
+              <option value="" disabled>
+                No available tasks
+              </option>
             )}
             {selectableDependencies.map((tsk) => (
               <option key={tsk.task_id} value={tsk.task_id}>
@@ -194,16 +218,16 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
 
         <div className="form-group">
           <label>{t.acceptance}</label>
-          <textarea 
-            value={acceptance} 
-            onChange={(e) => setAcceptance(e.target.value)} 
+          <textarea
+            value={acceptance}
+            onChange={(e) => setAcceptance(e.target.value)}
             placeholder="One acceptance criteria per line..."
             style={{ minHeight: "60px" }}
           />
         </div>
 
         <div style={{ marginTop: "20px" }}>
-          <button 
+          <button
             className="btn btn-primary btn-lg"
             disabled={creating || !title.trim() || !ownerRole.trim() || !parentTaskId}
             onClick={onCreate}
@@ -213,8 +237,16 @@ export function CreateTaskView({ projectId, project, sessions, tasks, reload }: 
           </button>
         </div>
 
-        {error && <div className="error-message" style={{ marginTop: "16px" }}>{error}</div>}
-        {success && <div className="success-message" style={{ marginTop: "16px" }}>{success}</div>}
+        {error && (
+          <div className="error-message" style={{ marginTop: "16px" }}>
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="success-message" style={{ marginTop: "16px" }}>
+            {success}
+          </div>
+        )}
       </div>
     </section>
   );

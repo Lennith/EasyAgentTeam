@@ -10,7 +10,7 @@ import type {
   OrchestratorStatus,
   AgentDefinition,
   AgentTemplateDefinition,
-  TemplateDefinition,
+  TemplateDefinition
 } from "@/types";
 
 const now = new Date().toISOString();
@@ -20,7 +20,7 @@ const twoHoursAgo = new Date(Date.now() - 7200000).toISOString();
 export const mockProjects: ProjectSummary[] = [
   { projectId: "demo_project", name: "Demo Project", workspacePath: "/workspace/demo" },
   { projectId: "web_app", name: "Web Application", workspacePath: "/workspace/web-app" },
-  { projectId: "api_service", name: "API Service", workspacePath: "/workspace/api" },
+  { projectId: "api_service", name: "API Service", workspacePath: "/workspace/api" }
 ];
 
 export const mockProjectDetail: ProjectDetail = {
@@ -32,24 +32,24 @@ export const mockProjectDetail: ProjectDetail = {
   templateId: "default",
   agentIds: ["pm", "backend_dev", "frontend_dev", "qa"],
   routeTable: {
-    "pm": ["backend_dev", "frontend_dev", "qa"],
-    "backend_dev": ["pm", "qa"],
-    "frontend_dev": ["pm", "qa"],
-    "qa": ["pm"],
+    pm: ["backend_dev", "frontend_dev", "qa"],
+    backend_dev: ["pm", "qa"],
+    frontend_dev: ["pm", "qa"],
+    qa: ["pm"]
   },
   taskAssignRouteTable: {
-    "pm": ["backend_dev", "frontend_dev", "qa"],
-    "backend_dev": ["qa"],
-    "frontend_dev": ["qa"],
+    pm: ["backend_dev", "frontend_dev", "qa"],
+    backend_dev: ["qa"],
+    frontend_dev: ["qa"]
   },
-  routeDiscussRounds: { "pm": { "backend_dev": 2 } },
+  routeDiscussRounds: { pm: { backend_dev: 2 } },
   agentModelConfigs: {
-    "backend_dev": { tool: "codex", model: "gpt-4", effort: "high" },
-    "frontend_dev": { tool: "trae", model: "claude-3", effort: "medium" },
+    backend_dev: { tool: "codex", model: "gpt-4", effort: "high" },
+    frontend_dev: { tool: "trae", model: "claude-3", effort: "medium" }
   },
   autoDispatchEnabled: true,
   autoDispatchRemaining: 5,
-  roleSessionMap: { "pm": "session-pm-001" },
+  roleSessionMap: { pm: "session-pm-001" }
 };
 
 export const mockSessions: SessionRecord[] = [
@@ -61,7 +61,7 @@ export const mockSessions: SessionRecord[] = [
     createdAt: twoHoursAgo,
     updatedAt: now,
     currentTaskId: "task_001",
-    lastHeartbeat: now,
+    lastHeartbeat: now
   },
   {
     sessionId: "session-backend-001",
@@ -71,7 +71,7 @@ export const mockSessions: SessionRecord[] = [
     createdAt: hourAgo,
     updatedAt: now,
     currentTaskId: "task_002",
-    lastHeartbeat: now,
+    lastHeartbeat: now
   },
   {
     sessionId: "session-frontend-001",
@@ -80,7 +80,7 @@ export const mockSessions: SessionRecord[] = [
     status: "idle",
     createdAt: hourAgo,
     updatedAt: hourAgo,
-    lastHeartbeat: hourAgo,
+    lastHeartbeat: hourAgo
   },
   {
     sessionId: "session-qa-001",
@@ -89,8 +89,8 @@ export const mockSessions: SessionRecord[] = [
     status: "blocked",
     createdAt: twoHoursAgo,
     updatedAt: hourAgo,
-    lastHeartbeat: hourAgo,
-  },
+    lastHeartbeat: hourAgo
+  }
 ];
 
 export const mockTaskTree: TaskTreeResponse = {
@@ -121,7 +121,7 @@ export const mockTaskTree: TaskTreeResponse = {
       closed_at: null,
       last_summary: "Project is progressing well",
       created_at: twoHoursAgo,
-      updated_at: now,
+      updated_at: now
     },
     {
       task_id: "task_001",
@@ -144,7 +144,7 @@ export const mockTaskTree: TaskTreeResponse = {
       closed_at: hourAgo,
       last_summary: "Authentication system completed",
       created_at: twoHoursAgo,
-      updated_at: hourAgo,
+      updated_at: hourAgo
     },
     {
       task_id: "task_002",
@@ -167,7 +167,7 @@ export const mockTaskTree: TaskTreeResponse = {
       closed_at: null,
       last_summary: "Working on the main dashboard layout",
       created_at: hourAgo,
-      updated_at: now,
+      updated_at: now
     },
     {
       task_id: "task_003",
@@ -190,7 +190,7 @@ export const mockTaskTree: TaskTreeResponse = {
       closed_at: null,
       last_summary: "Blocked waiting for dashboard UI",
       created_at: hourAgo,
-      updated_at: now,
+      updated_at: now
     },
     {
       task_id: "task_004",
@@ -213,7 +213,7 @@ export const mockTaskTree: TaskTreeResponse = {
       closed_at: null,
       last_summary: null,
       created_at: now,
-      updated_at: now,
+      updated_at: now
     },
     {
       task_id: "task_005",
@@ -236,14 +236,14 @@ export const mockTaskTree: TaskTreeResponse = {
       closed_at: null,
       last_summary: "Investigating Safari-specific issue",
       created_at: hourAgo,
-      updated_at: now,
-    },
+      updated_at: now
+    }
   ],
   edges: [
     { from_task_id: "task_002", to_task_id: "task_001", relation: "DEPENDS_ON" },
-    { from_task_id: "task_003", to_task_id: "task_002", relation: "DEPENDS_ON" },
+    { from_task_id: "task_003", to_task_id: "task_002", relation: "DEPENDS_ON" }
   ],
-  stats: { node_count: 6, edge_count: 2, external_dependency_edge_count: 0 },
+  stats: { node_count: 6, edge_count: 2, external_dependency_edge_count: 0 }
 };
 
 export const mockTasks: TaskTreeNode[] = mockTaskTree.nodes;
@@ -259,7 +259,7 @@ export const mockLocks: LockRecord[] = [
     renewCount: 3,
     acquiredAt: hourAgo,
     expiresAt: new Date(Date.now() + 300000).toISOString(),
-    status: "active",
+    status: "active"
   },
   {
     lockId: "lock_002",
@@ -271,7 +271,7 @@ export const mockLocks: LockRecord[] = [
     renewCount: 1,
     acquiredAt: hourAgo,
     expiresAt: new Date(Date.now() + 600000).toISOString(),
-    status: "active",
+    status: "active"
   },
   {
     lockId: "lock_003",
@@ -283,8 +283,8 @@ export const mockLocks: LockRecord[] = [
     renewCount: 0,
     acquiredAt: twoHoursAgo,
     expiresAt: hourAgo,
-    status: "expired",
-  },
+    status: "expired"
+  }
 ];
 
 export const mockEvents: EventRecord[] = [
@@ -294,7 +294,7 @@ export const mockEvents: EventRecord[] = [
     source: "pm",
     createdAt: twoHoursAgo,
     sessionId: "session-pm-001",
-    payload: { taskId: "task_001", title: "Implement User Authentication" },
+    payload: { taskId: "task_001", title: "Implement User Authentication" }
   },
   {
     eventId: "evt_002",
@@ -302,7 +302,7 @@ export const mockEvents: EventRecord[] = [
     source: "orchestrator",
     createdAt: twoHoursAgo,
     sessionId: "session-backend-001",
-    payload: { taskId: "task_001" },
+    payload: { taskId: "task_001" }
   },
   {
     eventId: "evt_003",
@@ -310,7 +310,7 @@ export const mockEvents: EventRecord[] = [
     source: "backend_dev",
     createdAt: hourAgo,
     sessionId: "session-backend-001",
-    payload: { taskId: "task_001", summary: "Authentication system completed" },
+    payload: { taskId: "task_001", summary: "Authentication system completed" }
   },
   {
     eventId: "evt_004",
@@ -318,7 +318,7 @@ export const mockEvents: EventRecord[] = [
     source: "pm",
     createdAt: hourAgo,
     sessionId: "session-pm-001",
-    payload: { taskId: "task_002", title: "Build Dashboard UI" },
+    payload: { taskId: "task_002", title: "Build Dashboard UI" }
   },
   {
     eventId: "evt_005",
@@ -326,7 +326,7 @@ export const mockEvents: EventRecord[] = [
     source: "backend_dev",
     createdAt: hourAgo,
     sessionId: "session-backend-001",
-    payload: { lockKey: "/src/auth/login.ts" },
+    payload: { lockKey: "/src/auth/login.ts" }
   },
   {
     eventId: "evt_006",
@@ -334,8 +334,8 @@ export const mockEvents: EventRecord[] = [
     source: "backend_dev",
     createdAt: now,
     sessionId: "session-backend-001",
-    payload: { taskId: "task_005", error: "Safari compatibility issue" },
-  },
+    payload: { taskId: "task_005", error: "Safari compatibility issue" }
+  }
 ];
 
 export const mockTimeline: AgentIOTimelineItem[] = [
@@ -348,7 +348,7 @@ export const mockTimeline: AgentIOTimelineItem[] = [
     direction: "outbound",
     messageType: "TASK_ASSIGN",
     summary: "Assign 'Implement User Authentication' to backend_dev",
-    createdAt: twoHoursAgo,
+    createdAt: twoHoursAgo
   },
   {
     id: "io_002",
@@ -359,7 +359,7 @@ export const mockTimeline: AgentIOTimelineItem[] = [
     direction: "inbound",
     messageType: "TASK_ASSIGN",
     summary: "Received task: Implement User Authentication",
-    createdAt: twoHoursAgo,
+    createdAt: twoHoursAgo
   },
   {
     id: "io_003",
@@ -370,7 +370,7 @@ export const mockTimeline: AgentIOTimelineItem[] = [
     direction: "outbound",
     messageType: "TASK_REPORT",
     summary: "Completed: Authentication system with JWT tokens",
-    createdAt: hourAgo,
+    createdAt: hourAgo
   },
   {
     id: "io_004",
@@ -381,7 +381,7 @@ export const mockTimeline: AgentIOTimelineItem[] = [
     direction: "outbound",
     messageType: "TASK_ASSIGN",
     summary: "Assign 'Build Dashboard UI' to frontend_dev",
-    createdAt: hourAgo,
+    createdAt: hourAgo
   },
   {
     id: "io_005",
@@ -392,7 +392,7 @@ export const mockTimeline: AgentIOTimelineItem[] = [
     direction: "inbound",
     messageType: "TASK_ASSIGN",
     summary: "Received task: Build Dashboard UI",
-    createdAt: hourAgo,
+    createdAt: hourAgo
   },
   {
     id: "io_006",
@@ -402,7 +402,7 @@ export const mockTimeline: AgentIOTimelineItem[] = [
     direction: "outbound",
     messageType: "CHAT",
     summary: "How's the progress on authentication?",
-    createdAt: hourAgo,
+    createdAt: hourAgo
   },
   {
     id: "io_007",
@@ -412,8 +412,8 @@ export const mockTimeline: AgentIOTimelineItem[] = [
     direction: "outbound",
     messageType: "CHAT",
     summary: "Auth is done, moving to rate limiting next",
-    createdAt: now,
-  },
+    createdAt: now
+  }
 ];
 
 export const mockOrchestratorStatus: OrchestratorStatus = {
@@ -424,7 +424,7 @@ export const mockOrchestratorStatus: OrchestratorStatus = {
   pendingMessages: 3,
   dispatchedMessages: 42,
   failedDispatches: 2,
-  lastTick: now,
+  lastTick: now
 };
 
 export const mockAgents: AgentDefinition[] = [
@@ -434,7 +434,7 @@ export const mockAgents: AgentDefinition[] = [
     prompt: "You are a project manager agent responsible for coordinating tasks and communicating with team members.",
     updatedAt: twoHoursAgo,
     defaultCliTool: "codex",
-    modelSelectionEnabled: true,
+    modelSelectionEnabled: true
   },
   {
     agentId: "backend_dev",
@@ -442,7 +442,7 @@ export const mockAgents: AgentDefinition[] = [
     prompt: "You are a backend developer agent specializing in Node.js, TypeScript, and database design.",
     updatedAt: hourAgo,
     defaultCliTool: "codex",
-    defaultModelParams: { model: "gpt-4" },
+    defaultModelParams: { model: "gpt-4" }
   },
   {
     agentId: "frontend_dev",
@@ -450,15 +450,15 @@ export const mockAgents: AgentDefinition[] = [
     prompt: "You are a frontend developer agent specializing in React, TypeScript, and modern CSS.",
     updatedAt: hourAgo,
     defaultCliTool: "trae",
-    defaultModelParams: { model: "claude-3" },
+    defaultModelParams: { model: "claude-3" }
   },
   {
     agentId: "qa",
     displayName: "QA Engineer",
     prompt: "You are a QA engineer agent responsible for testing and quality assurance.",
     updatedAt: twoHoursAgo,
-    defaultCliTool: "codex",
-  },
+    defaultCliTool: "codex"
+  }
 ];
 
 export const mockAgentTemplates: { builtInItems: AgentTemplateDefinition[]; customItems: AgentTemplateDefinition[] } = {
@@ -467,20 +467,20 @@ export const mockAgentTemplates: { builtInItems: AgentTemplateDefinition[]; cust
       templateId: "developer",
       displayName: "Developer",
       prompt: "You are a software developer agent. Write clean, maintainable code following best practices.",
-      source: "built-in",
+      source: "built-in"
     },
     {
       templateId: "reviewer",
       displayName: "Code Reviewer",
       prompt: "You are a code reviewer agent. Review code for bugs, security issues, and style violations.",
-      source: "built-in",
+      source: "built-in"
     },
     {
       templateId: "architect",
       displayName: "Software Architect",
       prompt: "You are a software architect agent. Design system architecture and make technical decisions.",
-      source: "built-in",
-    },
+      source: "built-in"
+    }
   ],
   customItems: [
     {
@@ -488,20 +488,22 @@ export const mockAgentTemplates: { builtInItems: AgentTemplateDefinition[]; cust
       displayName: "Senior Backend Dev",
       prompt: "You are a senior backend developer with 10+ years of experience. Focus on scalability and performance.",
       source: "custom",
-      basedOnTemplateId: "developer",
-    },
-  ],
+      basedOnTemplateId: "developer"
+    }
+  ]
 };
 
 export const mockProjectTemplates: TemplateDefinition[] = [
   { templateId: "default", name: "Default Project", description: "Standard project with PM, Dev, and QA agents" },
   { templateId: "solo", name: "Solo Developer", description: "Single developer project" },
-  { templateId: "fullstack", name: "Full Stack Team", description: "Frontend, backend, and QA agents" },
+  { templateId: "fullstack", name: "Full Stack Team", description: "Frontend, backend, and QA agents" }
 ];
 
 export const mockOrchestratorSettings = {
   project_id: "demo_project",
   auto_dispatch_enabled: true,
   auto_dispatch_remaining: 53,
-  updated_at: hourAgo,
+  hold_enabled: false,
+  reminder_mode: "backoff" as const,
+  updated_at: hourAgo
 };

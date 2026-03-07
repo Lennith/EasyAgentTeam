@@ -104,7 +104,14 @@ export async function handleManagerMessageSend(
 ): Promise<ManagerMessageSendResult> {
   const modeRaw = (body.mode as string | undefined)?.toUpperCase();
   if (modeRaw === "TASK_ASSIGN") {
-    throw new ManagerMessageServiceError(410, "ENDPOINT_RETIRED", "mode=TASK_ASSIGN is retired", undefined, undefined, "/api/projects/:id/task-actions");
+    throw new ManagerMessageServiceError(
+      410,
+      "ENDPOINT_RETIRED",
+      "mode=TASK_ASSIGN is retired",
+      undefined,
+      undefined,
+      "/api/projects/:id/task-actions"
+    );
   }
   if (body.clarification !== undefined) {
     throw new ManagerMessageServiceError(
@@ -147,7 +154,12 @@ export async function handleManagerMessageSend(
     );
   }
   if (!content || !content.trim()) {
-    throw new ManagerMessageServiceError(400, "MESSAGE_CONTENT_REQUIRED", "content is required", "Provide non-empty content.");
+    throw new ManagerMessageServiceError(
+      400,
+      "MESSAGE_CONTENT_REQUIRED",
+      "content is required",
+      "Provide non-empty content."
+    );
   }
   const encodingIssue = detectEncodingCorruption(content.trim());
   if (encodingIssue) {
@@ -162,9 +174,20 @@ export async function handleManagerMessageSend(
   let resolvedSessionId = explicitSessionId?.trim();
   let resolvedToRole = toRole?.trim() || undefined;
   if (resolvedSessionId) {
-    const explicitValidation = await validateExplicitTargetSession(paths, project.projectId, resolvedSessionId, resolvedToRole);
+    const explicitValidation = await validateExplicitTargetSession(
+      paths,
+      project.projectId,
+      resolvedSessionId,
+      resolvedToRole
+    );
     if (!explicitValidation.ok) {
-      throw new ManagerMessageServiceError(409, explicitValidation.error.code, explicitValidation.error.message, undefined, explicitValidation.error.details);
+      throw new ManagerMessageServiceError(
+        409,
+        explicitValidation.error.code,
+        explicitValidation.error.message,
+        undefined,
+        explicitValidation.error.details
+      );
     }
     resolvedSessionId = explicitValidation.sessionId;
     if (!resolvedToRole) {

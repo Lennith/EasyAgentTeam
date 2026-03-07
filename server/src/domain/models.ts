@@ -22,10 +22,14 @@ export interface ProjectRecord {
   routeTable?: Record<string, string[]>;
   taskAssignRouteTable?: Record<string, string[]>;
   routeDiscussRounds?: Record<string, Record<string, number>>;
-  agentModelConfigs?: Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>;
+  agentModelConfigs?: Record<
+    string,
+    { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }
+  >;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
   autoReminderEnabled?: boolean;
+  holdEnabled?: boolean;
   reminderMode?: ReminderMode;
   createdAt: string;
   updatedAt: string;
@@ -323,6 +327,11 @@ export interface LockRecord {
   projectId: string;
   lockKey: string;
   sanitizedKey: string;
+  workspaceRootAbs: string;
+  resourceAbsPath: string;
+  resourceType: "file" | "dir";
+  ownerDomain: "project" | "workflow_run";
+  ownerDomainId: string;
   ownerSessionId: string;
   targetType?: "file" | "dir";
   purpose?: string;
@@ -491,4 +500,289 @@ export interface RoutePreview {
   fromAgent: string;
   toAgents: string[];
   source: "requested" | "current";
+}
+
+export interface WorkflowTemplateTaskRecord {
+  taskId: string;
+  title: string;
+  ownerRole: string;
+  parentTaskId?: string;
+  dependencies?: string[];
+  writeSet?: string[];
+  acceptance?: string[];
+  artifacts?: string[];
+}
+
+export interface WorkflowTemplateRecord {
+  schemaVersion: "1.0";
+  templateId: string;
+  name: string;
+  description?: string;
+  tasks: WorkflowTemplateTaskRecord[];
+  routeTable?: Record<string, string[]>;
+  taskAssignRouteTable?: Record<string, string[]>;
+  routeDiscussRounds?: Record<string, Record<string, number>>;
+  defaultVariables?: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowTemplateRegistryState {
+  schemaVersion: "1.0";
+  updatedAt: string;
+  templates: WorkflowTemplateRecord[];
+}
+
+export type WorkflowRunState = "created" | "running" | "stopped" | "finished" | "failed";
+
+export interface WorkflowRunTaskRecord extends WorkflowTemplateTaskRecord {
+  resolvedTitle: string;
+  creatorRole?: string;
+  creatorSessionId?: string;
+}
+
+export type WorkflowTaskState = TaskState;
+
+export type WorkflowTaskOutcome = "IN_PROGRESS" | "BLOCKED_DEP" | "MAY_BE_DONE" | "DONE" | "CANCELED";
+
+export type WorkflowBlockReasonCode =
+  | "DEP_UNSATISFIED"
+  | "RUN_NOT_RUNNING"
+  | "INVALID_TRANSITION"
+  | "TASK_NOT_FOUND"
+  | "TASK_ALREADY_TERMINAL";
+
+export interface WorkflowTaskBlockReason {
+  code: WorkflowBlockReasonCode;
+  dependencyTaskIds?: string[];
+  message?: string;
+}
+
+export interface WorkflowTaskTransitionRecord {
+  seq: number;
+  at: string;
+  fromState: WorkflowTaskState | null;
+  toState: WorkflowTaskState;
+  reasonCode?: WorkflowBlockReasonCode;
+  summary?: string;
+}
+
+export interface WorkflowTaskRuntimeRecord {
+  taskId: string;
+  state: WorkflowTaskState;
+  blockedBy: string[];
+  blockedReasons: WorkflowTaskBlockReason[];
+  lastSummary?: string;
+  blockers?: string[];
+  lastTransitionAt: string;
+  transitionCount: number;
+  transitions: WorkflowTaskTransitionRecord[];
+}
+
+export interface WorkflowRunRuntimeState {
+  initializedAt: string;
+  updatedAt: string;
+  transitionSeq: number;
+  tasks: WorkflowTaskRuntimeRecord[];
+}
+
+export interface WorkflowRunRecord {
+  schemaVersion: "2.0";
+  runId: string;
+  templateId: string;
+  name: string;
+  description?: string;
+  workspacePath: string;
+  routeTable?: Record<string, string[]>;
+  taskAssignRouteTable?: Record<string, string[]>;
+  routeDiscussRounds?: Record<string, Record<string, number>>;
+  variables?: Record<string, string>;
+  taskOverrides?: Record<string, string>;
+  tasks: WorkflowRunTaskRecord[];
+  status: WorkflowRunState;
+  autoDispatchEnabled?: boolean;
+  autoDispatchRemaining?: number;
+  holdEnabled?: boolean;
+  reminderMode?: ReminderMode;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  stoppedAt?: string;
+  lastHeartbeatAt?: string;
+  runtime?: WorkflowRunRuntimeState;
+}
+
+export interface WorkflowRunRuntimeCounters {
+  total: number;
+  planned: number;
+  ready: number;
+  dispatched: number;
+  mayBeDone: number;
+  blocked: number;
+  inProgress: number;
+  done: number;
+  canceled: number;
+}
+
+export interface WorkflowRunRuntimeSnapshot {
+  runId: string;
+  status: WorkflowRunState;
+  active: boolean;
+  updatedAt: string;
+  counters: WorkflowRunRuntimeCounters;
+  tasks: WorkflowTaskRuntimeRecord[];
+}
+
+export type WorkflowTaskActionType =
+  | "TASK_CREATE"
+  | "TASK_DISCUSS_REQUEST"
+  | "TASK_DISCUSS_REPLY"
+  | "TASK_DISCUSS_CLOSED"
+  | "TASK_REPORT";
+
+export interface WorkflowTaskActionRequest {
+  actionType: WorkflowTaskActionType;
+  fromAgent?: string;
+  fromSessionId?: string;
+  toRole?: string;
+  toSessionId?: string;
+  taskId?: string;
+  content?: string;
+  task?: {
+    taskId: string;
+    title: string;
+    ownerRole: string;
+    parentTaskId?: string;
+    dependencies?: string[];
+    acceptance?: string[];
+    artifacts?: string[];
+  };
+  discuss?: {
+    threadId?: string;
+    requestId?: string;
+  };
+  results?: Array<{
+    taskId: string;
+    outcome: WorkflowTaskOutcome;
+    summary?: string;
+    blockers?: string[];
+  }>;
+}
+
+export interface WorkflowTaskActionResult {
+  success: boolean;
+  requestId: string;
+  actionType: WorkflowTaskActionType;
+  createdTaskId?: string;
+  messageId?: string;
+  partialApplied: boolean;
+  appliedTaskIds: string[];
+  rejectedResults: Array<{
+    taskId: string;
+    reasonCode: WorkflowBlockReasonCode;
+    reason: string;
+  }>;
+  snapshot: WorkflowRunRuntimeSnapshot;
+}
+
+export interface WorkflowRunRegistryState {
+  schemaVersion: "2.0";
+  updatedAt: string;
+  runs: WorkflowRunRecord[];
+}
+
+export type WorkflowSessionStatus = "running" | "idle" | "blocked" | "dismissed";
+
+export interface WorkflowSessionRecord {
+  schemaVersion: "1.0";
+  sessionId: string;
+  runId: string;
+  role: string;
+  provider: "codex" | "trae" | "minimax";
+  providerSessionId?: string;
+  status: WorkflowSessionStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastActiveAt: string;
+  currentTaskId?: string;
+  lastInboxMessageId?: string;
+  lastDispatchedAt?: string;
+  lastDispatchId?: string;
+  lastDispatchedMessageId?: string;
+  timeoutStreak?: number;
+  errorStreak?: number;
+  lastFailureAt?: string;
+  lastFailureKind?: "timeout" | "error";
+  cooldownUntil?: string;
+  lastRunId?: string;
+  agentPid?: number;
+}
+
+export interface WorkflowSessionsState {
+  schemaVersion: "1.0";
+  runId: string;
+  updatedAt: string;
+  sessions: WorkflowSessionRecord[];
+}
+
+export type WorkflowEventSource = "manager" | "agent" | "system" | "dashboard";
+
+export interface WorkflowRunEventRecord {
+  schemaVersion: "1.0";
+  eventId: string;
+  runId: string;
+  eventType: string;
+  source: WorkflowEventSource;
+  createdAt: string;
+  sessionId?: string;
+  taskId?: string;
+  payload: Record<string, unknown>;
+}
+
+export interface WorkflowTimelineItem {
+  itemId: string;
+  kind:
+    | "user_message"
+    | "message_routed"
+    | "task_action"
+    | "task_discuss"
+    | "task_report"
+    | "dispatch_started"
+    | "dispatch_finished"
+    | "dispatch_failed";
+  createdAt: string;
+  from?: string;
+  toRole?: string | null;
+  toSessionId?: string | null;
+  requestId?: string | null;
+  messageId?: string | null;
+  runId?: string | null;
+  status?: string | null;
+  content?: string;
+  messageType?: string | null;
+  discussThreadId?: string | null;
+  sourceType?: "user" | "agent" | "manager" | "system" | null;
+  originAgent?: string | null;
+  relaySource?: string | null;
+  mergedFromBuffered?: boolean;
+  mergedCount?: number | null;
+  sourceRequestIds?: string[] | null;
+}
+
+export interface WorkflowEnvelope {
+  message_id: string;
+  run_id: string;
+  timestamp: string;
+  sender: SenderInfo;
+  via: ViaInfo;
+  intent: "TASK_ASSIGNMENT" | "TASK_DISCUSS" | "TASK_REPORT" | "SYSTEM_NOTICE" | "DELIVERABLE_REQUEST" | string;
+  priority: "low" | "normal" | "high" | "urgent";
+  correlation: CorrelationInfo;
+  accountability?: AccountabilityInfo;
+  dispatch_policy?: "auto_latest_session" | "fixed_session" | "broadcast";
+}
+
+export interface WorkflowManagerToAgentMessage {
+  envelope: WorkflowEnvelope;
+  body: Record<string, unknown>;
 }

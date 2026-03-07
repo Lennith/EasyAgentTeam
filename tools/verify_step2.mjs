@@ -82,7 +82,10 @@ async function main() {
     if (!types.has("LOCK_ACQUIRED") || !types.has("LOCK_ACQUIRE_FAILED") || !types.has("LOCK_STOLEN")) {
       throw new Error("expected lock events were not found");
     }
-    console.log("[verify_step2] lock events validated:", [...types].filter((t) => String(t).startsWith("LOCK_")));
+    console.log(
+      "[verify_step2] lock events validated:",
+      [...types].filter((t) => String(t).startsWith("LOCK_"))
+    );
   } finally {
     killTree(proc.pid);
     await delay(400);
@@ -98,4 +101,3 @@ main().catch((error) => {
   console.error("[verify_step2] failed:", error.message);
   process.exitCode = 1;
 });
-

@@ -4,12 +4,7 @@ import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
 import { createProject } from "../data/project-store.js";
-import {
-  TaskboardStoreError,
-  createTask,
-  ensureUserRootTask,
-  patchTask
-} from "../data/taskboard-store.js";
+import { TaskboardStoreError, createTask, ensureUserRootTask, patchTask } from "../data/taskboard-store.js";
 
 test("createTask rejects dependency pointing to direct parent", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-task-parent-dep-"));
@@ -89,4 +84,3 @@ test("patchTask rejects dependency pointing to ancestor", async () => {
     }
   );
 });
-

@@ -4,11 +4,7 @@ import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
 import { createProject } from "../data/project-store.js";
-import {
-  getRoleReminderState,
-  readRoleRemindersState,
-  updateRoleReminderState
-} from "../data/role-reminder-store.js";
+import { getRoleReminderState, readRoleRemindersState, updateRoleReminderState } from "../data/role-reminder-store.js";
 import {
   calculateNextReminderTime,
   shouldAutoResetReminderOnRoleTransition
@@ -218,7 +214,7 @@ test("readRoleRemindersState: returns existing state with reminders", async () =
   const result = await readRoleRemindersState(created.paths, "remindertest6");
 
   assert.equal(result.roleReminders.length, 2);
-  const roles = result.roleReminders.map(r => r.role);
+  const roles = result.roleReminders.map((r) => r.role);
   assert.ok(roles.includes("dev"));
   assert.ok(roles.includes("reviewer"));
 });

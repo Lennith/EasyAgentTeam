@@ -39,9 +39,12 @@ test("dismiss returns processTermination result", async () => {
     const sessionPayload = (await sessionRes.json()) as { session: { sessionId: string } };
     const sessionId = sessionPayload.session.sessionId;
 
-    const dismissRes = await fetch(`${baseUrl}/api/projects/dismiss-process/sessions/${encodeURIComponent(sessionId)}/dismiss`, {
-      method: "POST"
-    });
+    const dismissRes = await fetch(
+      `${baseUrl}/api/projects/dismiss-process/sessions/${encodeURIComponent(sessionId)}/dismiss`,
+      {
+        method: "POST"
+      }
+    );
     assert.equal(dismissRes.status, 200);
     const payload = (await dismissRes.json()) as {
       processTermination?: {

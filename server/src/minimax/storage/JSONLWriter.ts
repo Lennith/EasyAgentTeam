@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as crypto from 'crypto';
-import type { PersistedMessage } from '../types.js';
+import * as fs from "fs";
+import * as crypto from "crypto";
+import type { PersistedMessage } from "../types.js";
 
 export class JSONLWriter {
   private filePath: string;
@@ -10,13 +10,13 @@ export class JSONLWriter {
   }
 
   append(message: PersistedMessage): void {
-    const line = JSON.stringify(message) + '\n';
-    fs.appendFileSync(this.filePath, line, 'utf-8');
+    const line = JSON.stringify(message) + "\n";
+    fs.appendFileSync(this.filePath, line, "utf-8");
   }
 
   appendAll(messages: PersistedMessage[]): void {
-    const lines = messages.map(m => JSON.stringify(m)).join('\n') + '\n';
-    fs.appendFileSync(this.filePath, lines, 'utf-8');
+    const lines = messages.map((m) => JSON.stringify(m)).join("\n") + "\n";
+    fs.appendFileSync(this.filePath, lines, "utf-8");
   }
 
   readAll(): PersistedMessage[] {
@@ -24,16 +24,21 @@ export class JSONLWriter {
       return [];
     }
 
-    const content = fs.readFileSync(this.filePath, 'utf-8');
-    const lines = content.trim().split('\n').filter(line => line.trim());
-    
-    return lines.map(line => {
-      try {
-        return JSON.parse(line) as PersistedMessage;
-      } catch {
-        return null;
-      }
-    }).filter((m): m is PersistedMessage => m !== null);
+    const content = fs.readFileSync(this.filePath, "utf-8");
+    const lines = content
+      .trim()
+      .split("\n")
+      .filter((line) => line.trim());
+
+    return lines
+      .map((line) => {
+        try {
+          return JSON.parse(line) as PersistedMessage;
+        } catch {
+          return null;
+        }
+      })
+      .filter((m): m is PersistedMessage => m !== null);
   }
 
   readLast(count: number): PersistedMessage[] {
@@ -42,8 +47,8 @@ export class JSONLWriter {
   }
 
   overwrite(messages: PersistedMessage[]): void {
-    const lines = messages.map(m => JSON.stringify(m)).join('\n');
-    fs.writeFileSync(this.filePath, lines, 'utf-8');
+    const lines = messages.map((m) => JSON.stringify(m)).join("\n");
+    fs.writeFileSync(this.filePath, lines, "utf-8");
   }
 
   exists(): boolean {
@@ -76,19 +81,19 @@ export class JSONLWriter {
 
 export function generateMessageId(): string {
   const timestamp = Date.now();
-  const random = crypto.randomBytes(4).toString('hex');
+  const random = crypto.randomBytes(4).toString("hex");
   return `msg-${timestamp}-${random}`;
 }
 
 export function createPersistedMessage(
-  role: PersistedMessage['role'],
+  role: PersistedMessage["role"],
   content: string,
   options?: {
     thinking?: string;
-    toolCalls?: PersistedMessage['toolCalls'];
+    toolCalls?: PersistedMessage["toolCalls"];
     toolCallId?: string;
     name?: string;
-    metadata?: PersistedMessage['metadata'];
+    metadata?: PersistedMessage["metadata"];
   }
 ): PersistedMessage {
   return {
@@ -96,6 +101,6 @@ export function createPersistedMessage(
     role,
     content,
     timestamp: new Date().toISOString(),
-    ...options,
+    ...options
   };
 }

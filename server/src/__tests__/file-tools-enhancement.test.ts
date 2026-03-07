@@ -107,11 +107,7 @@ test("GlobTool finds matching files under nested directories", async () => {
 test("GrepTool respects max_results limit", async () => {
   const workspaceDir = await mkdtemp(path.join(os.tmpdir(), "autodev-grep-limit-tool-"));
   const filePath = path.join(workspaceDir, "sample.ts");
-  await writeFile(
-    filePath,
-    ["target one", "target two", "target three", "target four"].join("\n"),
-    "utf-8"
-  );
+  await writeFile(filePath, ["target one", "target two", "target three", "target four"].join("\n"), "utf-8");
   const tool = new GrepTool({ workspaceDir });
   const result = await tool.execute({
     pattern: "target",

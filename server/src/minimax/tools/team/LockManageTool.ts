@@ -27,7 +27,7 @@ export class LockManageTool extends TeamTool {
   }
 
   get description(): string {
-    return "Acquire/renew/release/list file locks in project workspace.";
+    return "Acquire/renew/release/list workspace file locks. Use target_type=dir only when a directory lock is truly required.";
   }
 
   get parameters(): Record<string, unknown> {
@@ -35,8 +35,12 @@ export class LockManageTool extends TeamTool {
       type: "object",
       properties: {
         action: { type: "string", enum: ["acquire", "renew", "release", "list"] },
-        lock_key: { type: "string", description: "Project relative file/dir key." },
-        target_type: { type: "string", enum: ["file", "dir"] },
+        lock_key: { type: "string", description: "Workspace-relative file/dir path key." },
+        target_type: {
+          type: "string",
+          enum: ["file", "dir"],
+          description: "Optional. Defaults to file; set dir explicitly for directory lock."
+        },
         ttl_seconds: { type: "number", description: "Lock ttl seconds (acquire)." },
         purpose: { type: "string", description: "Optional lock purpose note." },
         session_id: { type: "string", description: "Optional explicit session id." }

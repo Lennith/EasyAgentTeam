@@ -88,14 +88,14 @@ export abstract class BaseModelRunner {
 
     await this.appendLog("system", `Starting ${this.request.cliTool} run (${mode}): ${command} ${args.join(" ")}`, {
       cliCommand,
-      prompt: this.request.prompt,
+      prompt: this.request.prompt
     });
 
     const child = spawn(command, args, {
       cwd: workingDirectory,
       env: this.withModelEnv(workingDirectory),
       shell: process.platform === "win32",
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"]
     });
 
     await this.appendEvent("CODEX_RUN_STARTED", {
@@ -108,7 +108,7 @@ export abstract class BaseModelRunner {
       mode,
       resumeSessionId: this.request.resumeSessionId ?? null,
       parentRequestId: this.request.parentRequestId ?? null,
-      pid: child.pid ?? null,
+      pid: child.pid ?? null
     });
 
     let stdoutBuffer = "";
@@ -122,10 +122,13 @@ export abstract class BaseModelRunner {
     child.stdin.write(this.request.prompt);
     child.stdin.end();
 
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-    }, this.request.timeoutMs || 10 * 60 * 1000);
+    const timeout = setTimeout(
+      () => {
+        timedOut = true;
+        child.kill();
+      },
+      this.request.timeoutMs || 10 * 60 * 1000
+    );
 
     child.stdout.on("data", async (chunk: Buffer) => {
       stdoutBuffer += chunk.toString("utf8");
@@ -210,7 +213,7 @@ export abstract class BaseModelRunner {
       timedOut,
       provider: this.request.cliTool,
       mode,
-      providerSessionId: detectedSessionId || null,
+      providerSessionId: detectedSessionId || null
     });
 
     return {
@@ -228,8 +231,8 @@ export abstract class BaseModelRunner {
       debug: {
         sessionIdDetectionAttempts,
         sessionIdDetectedAt,
-        sessionEndDetected,
-      },
+        sessionEndDetected
+      }
     };
   }
 
@@ -240,11 +243,15 @@ export abstract class BaseModelRunner {
       source: "manager",
       sessionId: this.request.sessionId,
       taskId: this.request.taskId,
-      payload,
+      payload
     });
   }
 
-  protected async appendLog(stream: "stdout" | "stderr" | "system", content: string, extra?: Partial<AgentOutputLine>): Promise<void> {
+  protected async appendLog(
+    stream: "stdout" | "stderr" | "system",
+    content: string,
+    extra?: Partial<AgentOutputLine>
+  ): Promise<void> {
     await appendJsonlLine(this.paths.agentOutputFile, {
       schemaVersion: "1.0",
       timestamp: new Date().toISOString(),
@@ -258,8 +265,8 @@ export abstract class BaseModelRunner {
       ...extra,
       config: {
         sandbox: "danger-full-access",
-        approval: "never",
-      },
+        approval: "never"
+      }
     });
   }
 
@@ -295,7 +302,7 @@ export abstract class BaseModelRunner {
       AUTO_DEV_ACTIVE_TASK_TITLE: this.request.activeTaskTitle ?? "",
       AUTO_DEV_ACTIVE_PARENT_TASK_ID: this.request.activeParentTaskId ?? "",
       AUTO_DEV_ACTIVE_ROOT_TASK_ID: this.request.activeRootTaskId ?? "",
-      AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? "",
+      AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? ""
     };
 
     if (process.platform !== "win32") {
@@ -304,11 +311,7 @@ export abstract class BaseModelRunner {
 
     const currentPath = env.PATH ?? env.Path ?? "";
     const systemRoot =
-      env.SystemRoot?.trim() ||
-      env.SYSTEMROOT?.trim() ||
-      env.windir?.trim() ||
-      env.WINDIR?.trim() ||
-      "C:\\Windows";
+      env.SystemRoot?.trim() || env.SYSTEMROOT?.trim() || env.windir?.trim() || env.WINDIR?.trim() || "C:\\Windows";
     const comSpec = env.ComSpec?.trim() || path.join(systemRoot, "System32", "cmd.exe");
     const programFiles = env["ProgramFiles"]?.trim();
     const programFilesX86 = env["ProgramFiles(x86)"]?.trim();
@@ -354,7 +357,7 @@ export abstract class BaseModelRunner {
       WINDIR: systemRoot,
       ComSpec: comSpec,
       PATH: segments.join(";"),
-      Path: segments.join(";"),
+      Path: segments.join(";")
     };
   }
 
@@ -386,10 +389,10 @@ export abstract class BaseModelRunner {
       /conversation\s+(ended|finished|completed)/i,
       /turn\s+(ended|finished|completed)/i,
       /session\s+end/i,
-      /conversation\s+end/i,
+      /conversation\s+end/i
     ];
 
-    return endPatterns.some(pattern => pattern.test(clean));
+    return endPatterns.some((pattern) => pattern.test(clean));
   }
 }
 
@@ -397,7 +400,12 @@ export class CodexModelRunner extends BaseModelRunner {
   buildCommand(): { command: string; args: string[]; mode: "exec" | "resume" } {
     const command = this.request.modelCommand?.trim() || process.env.CODEX_CLI_COMMAND?.trim() || "codex";
     if (this.request.resumeSessionId && this.request.resumeSessionId.trim().length > 0) {
-      const resume = ["exec", "resume", this.request.resumeSessionId.trim(), "--dangerously-bypass-approvals-and-sandbox"];
+      const resume = [
+        "exec",
+        "resume",
+        this.request.resumeSessionId.trim(),
+        "--dangerously-bypass-approvals-and-sandbox"
+      ];
       if (this.request.modelParams) {
         Object.entries(this.request.modelParams).forEach(([key, value]) => {
           if (value !== undefined && value !== null) {
@@ -408,7 +416,7 @@ export class CodexModelRunner extends BaseModelRunner {
       return {
         command,
         args: [...resume, "-"],
-        mode: "resume",
+        mode: "resume"
       };
     }
 
@@ -430,7 +438,7 @@ export class CodexModelRunner extends BaseModelRunner {
     const patterns = [
       /session\s*id\s*[:=]\s*([0-9a-f-]{8,})/i,
       /session\s*[:=]\s*([0-9a-f-]{8,})/i,
-      /session_id\s*[:=]\s*([0-9a-f-]{8,})/i,
+      /session_id\s*[:=]\s*([0-9a-f-]{8,})/i
     ];
 
     for (const pattern of patterns) {
@@ -448,7 +456,7 @@ export class TraeModelRunner extends BaseModelRunner {
   buildCommand(): { command: string; args: string[]; mode: "exec" | "resume" } {
     const command = this.request.modelCommand?.trim() || process.env.TRAE_CLI_COMMAND?.trim() || "trae";
     const base = ["run", "--no-sandbox", "--yes"];
-    
+
     if (this.request.modelParams) {
       Object.entries(this.request.modelParams).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -456,25 +464,22 @@ export class TraeModelRunner extends BaseModelRunner {
         }
       });
     }
-    
+
     if (this.request.resumeSessionId && this.request.resumeSessionId.trim().length > 0) {
       return {
         command,
         args: [...base, "--resume", this.request.resumeSessionId.trim(), "-"],
-        mode: "resume",
+        mode: "resume"
       };
     }
-    
+
     return { command, args: base, mode: "exec" };
   }
 
   extractSessionId(line: string): string | undefined {
     const clean = this.stripAnsi(line);
 
-    const patterns = [
-      /session\s*[:=]\s*([0-9a-f-]{8,})/i,
-      /session\s*id\s*[:=]\s*([0-9a-f-]{8,})/i,
-    ];
+    const patterns = [/session\s*[:=]\s*([0-9a-f-]{8,})/i, /session\s*id\s*[:=]\s*([0-9a-f-]{8,})/i];
 
     for (const pattern of patterns) {
       const match = clean.match(pattern);
@@ -491,7 +496,7 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
   if (!body || typeof body !== "object") {
     throw new Error("model run request must be an object");
   }
-  
+
   const data = body as Record<string, unknown>;
   const sessionId = (data.sessionId ?? data.session_id) as string | undefined;
   const prompt = data.prompt as string | undefined;
@@ -507,7 +512,7 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
   const parentRequestId = (data.parentRequestId ?? data.parent_request_id) as string | undefined;
   const cliToolRaw = (data.cliTool ?? data.cli_tool) as string | undefined;
   const modelCommand = (data.modelCommand ?? data.model_command) as string | undefined;
-  const modelParams = data.modelParams ?? data.model_params as Record<string, any> | undefined;
+  const modelParams = data.modelParams ?? (data.model_params as Record<string, any> | undefined);
 
   if (!sessionId || typeof sessionId !== "string") {
     throw new Error("session_id is required");
@@ -521,24 +526,24 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
       ? timeoutMsRaw
       : 10 * 60 * 1000;
 
-  const cliTool = (cliToolRaw === "trae") ? "trae" : (cliToolRaw === "minimax") ? "minimax" : "codex";
+  const cliTool = cliToolRaw === "trae" ? "trae" : cliToolRaw === "minimax" ? "minimax" : "codex";
 
-  return { 
-    sessionId, 
-    prompt, 
-    taskId, 
+  return {
+    sessionId,
+    prompt,
+    taskId,
     dispatchId,
     activeTaskTitle,
     activeParentTaskId,
     activeRootTaskId,
     activeRequestId,
-    agentRole, 
-    timeoutMs, 
-    resumeSessionId, 
-    parentRequestId, 
+    agentRole,
+    timeoutMs,
+    resumeSessionId,
+    parentRequestId,
     cliTool,
     modelCommand,
-    modelParams,
+    modelParams
   };
 }
 
@@ -554,23 +559,28 @@ export async function runModelForProject(
     if (!runtimeSettings) {
       throw new Error("Runtime settings required for MiniMax");
     }
-    return await runMiniMaxForProject(project, paths, {
-      sessionId: req.sessionId,
-      prompt: req.prompt,
-      taskId: req.taskId,
-      dispatchId: req.dispatchId,
-      activeTaskTitle: req.activeTaskTitle,
-      activeParentTaskId: req.activeParentTaskId,
-      activeRootTaskId: req.activeRootTaskId,
-      activeRequestId: req.activeRequestId,
-      agentRole: req.agentRole,
-      timeoutMs: req.timeoutMs,
-      resumeSessionId: req.resumeSessionId,
-      parentRequestId: req.parentRequestId,
-      cliTool: "minimax",
-      model: req.modelParams?.model as string | undefined,
-      modelParams: req.modelParams
-    }, runtimeSettings);
+    return await runMiniMaxForProject(
+      project,
+      paths,
+      {
+        sessionId: req.sessionId,
+        prompt: req.prompt,
+        taskId: req.taskId,
+        dispatchId: req.dispatchId,
+        activeTaskTitle: req.activeTaskTitle,
+        activeParentTaskId: req.activeParentTaskId,
+        activeRootTaskId: req.activeRootTaskId,
+        activeRequestId: req.activeRequestId,
+        agentRole: req.agentRole,
+        timeoutMs: req.timeoutMs,
+        resumeSessionId: req.resumeSessionId,
+        parentRequestId: req.parentRequestId,
+        cliTool: "minimax",
+        model: req.modelParams?.model as string | undefined,
+        modelParams: req.modelParams
+      },
+      runtimeSettings
+    );
   }
 
   let runner: BaseModelRunner;
@@ -582,4 +592,3 @@ export async function runModelForProject(
 
   return await runner.run();
 }
-

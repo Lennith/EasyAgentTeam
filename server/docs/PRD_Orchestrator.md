@@ -3,6 +3,7 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 编排器负责项目级调度闭环：
 
 - 选择可派发任务/消息并触发执行
@@ -43,13 +44,13 @@
 
 `POST /api/projects/:id/orchestrator/dispatch`
 
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| role | string | 否 | 目标角色 |
-| session_id | string | 否 | 目标 sessionId |
-| task_id | string | 否 | 指定 task |
-| force | boolean | 否 | 强制派发 |
-| only_idle | boolean | 否 | 仅 idle |
+| 参数       | 类型    | 必填 | 说明           |
+| ---------- | ------- | ---- | -------------- |
+| role       | string  | 否   | 目标角色       |
+| session_id | string  | 否   | 目标 sessionId |
+| task_id    | string  | 否   | 指定 task      |
+| force      | boolean | 否   | 强制派发       |
+| only_idle  | boolean | 否   | 仅 idle        |
 
 补充规则：
 
@@ -95,13 +96,13 @@
 
 ## 5. 异常与边界
 
-| 场景 | 结果 |
-|---|---|
-| session 忙 | `session_busy` |
-| task 不存在 | `task_not_found` |
-| task 状态不允许 force | `task_not_force_dispatchable` |
-| task owner 与 session role 不一致 | `task_owner_mismatch` |
-| runner 失败 | `dispatch_failed` |
+| 场景                              | 结果                          |
+| --------------------------------- | ----------------------------- |
+| session 忙                        | `session_busy`                |
+| task 不存在                       | `task_not_found`              |
+| task 状态不允许 force             | `task_not_force_dispatchable` |
+| task owner 与 session role 不一致 | `task_owner_mismatch`         |
+| runner 失败                       | `dispatch_failed`             |
 
 ---
 
@@ -127,3 +128,10 @@
 - `SESSION_HEARTBEAT_TIMEOUT`
 - `ORCHESTRATOR_ROLE_REMINDER_TRIGGERED`
 - `ORCHESTRATOR_ROLE_REMINDER_RESET`
+
+## API Path Registry (docs:check)
+
+Orchestrator settings endpoints (exact path contract):
+
+- `GET /api/projects/:id/orchestrator/settings`
+- `PATCH /api/projects/:id/orchestrator/settings`

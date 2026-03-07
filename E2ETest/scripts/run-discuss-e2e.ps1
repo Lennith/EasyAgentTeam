@@ -1,5 +1,5 @@
 param(
-  [string]$BaseUrl = "http://127.0.0.1:3000",
+  [string]$BaseUrl = "http://127.0.0.1:43123",
   [string]$ScenarioPath = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss",
   [int]$AutoDispatchBudget = 30,

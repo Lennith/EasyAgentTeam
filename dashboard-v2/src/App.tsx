@@ -15,18 +15,24 @@ import { SettingsView } from "@/views/SettingsView";
 import { TeamsHome } from "@/views/TeamsHome";
 import { TeamEditorView } from "@/views/TeamEditorView";
 import { NewTeamView } from "@/views/NewTeamView";
+import { WorkflowTemplatesView } from "@/views/WorkflowTemplatesView";
+import { WorkflowTemplateEditorView } from "@/views/WorkflowTemplateEditorView";
+import { WorkflowRunsView } from "@/views/WorkflowRunsView";
+import { WorkflowRunWizardView } from "@/views/WorkflowRunWizardView";
+import { WorkflowRunWorkspaceView } from "@/views/WorkflowRunWorkspaceView";
 import { projectApi, settingsApi } from "@/services/api";
-import { 
+import {
   Home,
-  FolderKanban, 
-  Users, 
-  Bug, 
-  Settings, 
+  FolderKanban,
+  Users,
+  Bug,
+  Settings,
   ChevronRight,
   Activity,
   Cpu,
   Zap,
-  UserCircle
+  UserCircle,
+  GitBranch
 } from "lucide-react";
 
 export default function App() {
@@ -35,13 +41,27 @@ export default function App() {
   const { projects, loading: projectsLoading, error: projectsError, reload: reloadProjects } = useProjects();
   const { status: orchestratorStatus } = useOrchestratorStatus();
 
-  // Apply theme on app load
+  // Apply theme on app load (local fallback + server persisted value)
   useEffect(() => {
     async function applyTheme() {
+      try {
+        const localTheme = localStorage.getItem("dashboard_theme");
+        if (localTheme === "dark" || localTheme === "vibrant" || localTheme === "lively") {
+          document.documentElement.setAttribute("data-theme", localTheme);
+        }
+      } catch {
+        // ignore local storage errors
+      }
+
       try {
         const settings = await settingsApi.get();
         if (settings.theme) {
           document.documentElement.setAttribute("data-theme", settings.theme);
+          try {
+            localStorage.setItem("dashboard_theme", settings.theme);
+          } catch {
+            // ignore local storage errors
+          }
         }
       } catch (e) {
         console.error("Failed to load theme:", e);
@@ -62,22 +82,38 @@ export default function App() {
   const l1NavItems = [
     { id: "home", icon: <Home size={18} />, label: t.home },
     { id: "projects", icon: <FolderKanban size={18} />, label: t.projects },
+    { id: "workflow", icon: <GitBranch size={18} />, label: t.workflow },
     { id: "teams", icon: <UserCircle size={18} />, label: t.teams },
     { id: "agents", icon: <Users size={18} />, label: t.agents },
     { id: "debug", icon: <Bug size={18} />, label: t.debug },
-    { id: "settings", icon: <Settings size={18} />, label: t.settings },
+    { id: "settings", icon: <Settings size={18} />, label: t.settings }
   ];
 
   const agentViews = [
     { id: "sessions", label: t.sessions },
     { id: "agents", label: t.agentRegistry },
-    { id: "templates", label: t.agentTemplates },
+    { id: "templates", label: t.agentTemplates }
   ];
 
   const debugViews = [
     { id: "agent-sessions", label: t.debugSessions },
-    { id: "codex-output", label: t.codexOutput },
+    { id: "codex-output", label: t.codexOutput }
   ];
+
+  const workflowViews = [
+    { id: "new-run", label: `+ ${t.newWorkflowRun}`, href: "#/workflow/runs/new" },
+    { id: "new-template", label: `+ ${t.newWorkflowTemplate}`, href: "#/workflow/templates/new" },
+    { id: "runs", label: t.workflowRuns, href: "#/workflow" },
+    { id: "templates", label: t.workflowTemplates, href: "#/workflow/templates" }
+  ];
+
+  const workflowWorkspaceViews = [
+    { id: "overview", label: "Run Overview" },
+    { id: "task-tree", label: t.taskTree },
+    { id: "chat", label: t.chatTimeline },
+    { id: "agent-chat", label: t.agentChat },
+    { id: "team-config", label: t.teamConfig }
+  ] as const;
 
   const projectViews: { id: string; icon: React.ReactNode; label: string }[] = [
     { id: "timeline", icon: <Activity size={16} />, label: t.eventTimeline },
@@ -91,7 +127,7 @@ export default function App() {
     { id: "task-update", icon: <ChevronRight size={16} />, label: t.updateTask },
     { id: "lock-manager", icon: <Settings size={16} />, label: t.lockManager },
     { id: "team-config", icon: <Users size={16} />, label: t.teamConfig },
-    { id: "project-settings", icon: <Settings size={16} />, label: t.projectSettings },
+    { id: "project-settings", icon: <Settings size={16} />, label: t.projectSettings }
   ];
 
   function renderMain() {
@@ -106,16 +142,28 @@ export default function App() {
               <h3>{t.orchestratorHealth}</h3>
             </div>
             {orchestratorStatus ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px" }}>
+              <div
+                style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px" }}
+              >
                 <div style={{ padding: "12px", background: "var(--bg-elevated)", borderRadius: "8px" }}>
                   <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{t.orchestratorEnabled}</div>
-                  <div style={{ fontWeight: 600, color: orchestratorStatus.enabled ? "var(--accent-success)" : "var(--text-muted)" }}>
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      color: orchestratorStatus.enabled ? "var(--accent-success)" : "var(--text-muted)"
+                    }}
+                  >
                     {orchestratorStatus.enabled ? "Yes" : "No"}
                   </div>
                 </div>
                 <div style={{ padding: "12px", background: "var(--bg-elevated)", borderRadius: "8px" }}>
                   <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{t.orchestratorRunning}</div>
-                  <div style={{ fontWeight: 600, color: orchestratorStatus.running ? "var(--accent-success)" : "var(--accent-danger)" }}>
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      color: orchestratorStatus.running ? "var(--accent-success)" : "var(--accent-danger)"
+                    }}
+                  >
                     {orchestratorStatus.running ? "Yes" : "No"}
                   </div>
                 </div>
@@ -129,7 +177,12 @@ export default function App() {
                 </div>
                 <div style={{ padding: "12px", background: "var(--bg-elevated)", borderRadius: "8px" }}>
                   <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{t.failedDispatches}</div>
-                  <div style={{ fontWeight: 600, color: orchestratorStatus.failedDispatches > 0 ? "var(--accent-danger)" : "inherit" }}>
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      color: orchestratorStatus.failedDispatches > 0 ? "var(--accent-danger)" : "inherit"
+                    }}
+                  >
                     {orchestratorStatus.failedDispatches}
                   </div>
                 </div>
@@ -149,7 +202,14 @@ export default function App() {
     }
 
     if (route.l1 === "projects") {
-      return <ProjectsHome projects={projects} loading={projectsLoading} error={projectsError} onDelete={handleDeleteProject} />;
+      return (
+        <ProjectsHome
+          projects={projects}
+          loading={projectsLoading}
+          error={projectsError}
+          onDelete={handleDeleteProject}
+        />
+      );
     }
 
     if (route.l1 === "project") {
@@ -170,6 +230,20 @@ export default function App() {
       if (view === "edit" && route.teamId) return <TeamEditorView teamId={route.teamId} />;
     }
 
+    if (route.l1 === "workflow") {
+      const view = route.view ?? "runs";
+      if (view === "runs") return <WorkflowRunsView />;
+      if (view === "new-run") return <WorkflowRunWizardView />;
+      if (view === "templates") return <WorkflowTemplatesView />;
+      if (view === "new-template") return <WorkflowTemplateEditorView />;
+      if (view === "edit-template" && route.templateId)
+        return <WorkflowTemplateEditorView templateId={route.templateId} />;
+      if (view === "run-workspace" && route.runId) {
+        return <WorkflowRunWorkspaceView runId={route.runId} view={route.runView ?? "overview"} />;
+      }
+      return <WorkflowRunsView />;
+    }
+
     if (route.l1 === "debug") {
       const debugView = route.debugView ?? "agent-sessions";
       if (debugView === "agent-sessions") return <DebugAgentSessionsView />;
@@ -187,16 +261,10 @@ export default function App() {
     if (route.l1 === "teams") {
       return (
         <div className="l2-nav">
-          <a
-            href="#/teams"
-            className={`l2-nav-item ${route.view === "list" || !route.view ? "active" : ""}`}
-          >
+          <a href="#/teams" className={`l2-nav-item ${route.view === "list" || !route.view ? "active" : ""}`}>
             {t.teamList}
           </a>
-          <a
-            href="#/teams/new"
-            className={`l2-nav-item ${route.view === "new" ? "active" : ""}`}
-          >
+          <a href="#/teams/new" className={`l2-nav-item ${route.view === "new" ? "active" : ""}`}>
             + {t.newTeam}
           </a>
         </div>
@@ -207,14 +275,48 @@ export default function App() {
       return (
         <div className="l2-nav">
           {agentViews.map((v) => (
-            <a
-              key={v.id}
-              href={`#/agents/${v.id}`}
-              className={`l2-nav-item ${route.view === v.id ? "active" : ""}`}
-            >
+            <a key={v.id} href={`#/agents/${v.id}`} className={`l2-nav-item ${route.view === v.id ? "active" : ""}`}>
               {v.label}
             </a>
           ))}
+        </div>
+      );
+    }
+
+    if (route.l1 === "workflow") {
+      if (route.view === "run-workspace" && route.runId) {
+        return (
+          <div className="l2-nav">
+            <div style={{ padding: "8px 12px", fontSize: "12px", color: "var(--text-muted)", fontWeight: 600 }}>
+              {route.runId}
+            </div>
+            {workflowWorkspaceViews.map((v) => (
+              <a
+                key={v.id}
+                href={`#/workflow/runs/${route.runId}/${v.id}`}
+                className={`l2-nav-item ${route.runView === v.id ? "active" : ""}`}
+              >
+                {v.label}
+              </a>
+            ))}
+            <a className="l2-nav-item" href="#/workflow">
+              Back to List
+            </a>
+          </div>
+        );
+      }
+      return (
+        <div className="l2-nav">
+          {workflowViews.map((v) => {
+            const active =
+              route.view === v.id ||
+              (v.id === "templates" && (route.view === "edit-template" || route.view === "templates"));
+            return (
+              <a key={v.id} href={v.href} className={`l2-nav-item ${active ? "active" : ""}`}>
+                {v.label}
+              </a>
+            );
+          })}
         </div>
       );
     }
@@ -279,9 +381,7 @@ export default function App() {
 
       {renderL2Nav()}
 
-      <main className="main-content">
-        {renderMain()}
-      </main>
+      <main className="main-content">{renderMain()}</main>
     </div>
   );
 }

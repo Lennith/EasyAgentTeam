@@ -1,4 +1,10 @@
-import type { EventRecord, TaskDetailResponse, TaskLifecycleEvent, TaskRecord, TaskTreeNode } from "../domain/models.js";
+import type {
+  EventRecord,
+  TaskDetailResponse,
+  TaskLifecycleEvent,
+  TaskRecord,
+  TaskTreeNode
+} from "../domain/models.js";
 
 function toTaskNode(task: TaskRecord): TaskTreeNode {
   return {

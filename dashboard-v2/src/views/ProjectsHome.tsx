@@ -70,7 +70,7 @@ export function ProjectsHome({ projects, loading, error, onDelete }: ProjectsHom
                   {t.projectOverview}
                   <ArrowRight size={14} />
                 </a>
-                <button 
+                <button
                   className="btn btn-danger"
                   onClick={() => {
                     if (window.confirm(`${t.confirmDeleteProject}: ${project.name}?`)) {

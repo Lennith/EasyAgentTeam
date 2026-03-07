@@ -1,9 +1,4 @@
-export type FinalReportStatus =
-  | "DONE"
-  | "HANDOFF"
-  | "BLOCKED"
-  | "NEED_CLARIFICATION"
-  | "FAILED";
+export type FinalReportStatus = "DONE" | "HANDOFF" | "BLOCKED" | "NEED_CLARIFICATION" | "FAILED";
 
 export interface Artifact {
   kind: "image" | "doc" | "code" | "link" | string;
@@ -59,11 +54,7 @@ export interface FinalReport {
   }>;
 }
 
-export type ManagerMessageType =
-  | "ASSIGN_TASK"
-  | "CANCEL_TASK"
-  | "REQUEST_UPDATE"
-  | "SYSTEM_NOTICE";
+export type ManagerMessageType = "ASSIGN_TASK" | "CANCEL_TASK" | "REQUEST_UPDATE" | "SYSTEM_NOTICE";
 
 export interface SenderInfo {
   type: "agent" | "user" | "system";

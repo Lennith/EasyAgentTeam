@@ -3,15 +3,18 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 任务管理模块是 dashboard-v2 系统中负责项目任务全生命周期管理的核心模块，提供任务创建、更新、状态流转、可视化查看和任务派发等功能，支持团队协作式任务执行。
 
 ### 解决问题
+
 - 任务创建和分配缺乏统一入口
 - 任务状态变更缺乏可视化追踪
 - 任务依赖关系管理不清晰
 - 任务执行进度无法直观展示
 
 ### 业务价值
+
 - 为项目经理提供任务规划与跟踪界面
 - 为团队成员提供清晰的任务接收和状态更新能力
 - 支持任务层级结构（父子任务）管理
@@ -20,6 +23,7 @@
 ## 2. 功能范围
 
 ### 包含能力
+
 1. **任务创建 (CreateTaskView)**
    - 支持设置任务标题
    - 支持选择父级任务（支持 PROJECT_ROOT、USER_ROOT、EXECUTION 类型）
@@ -56,6 +60,7 @@
    - 支持查看 Agent IO 时间线
 
 ### 不包含能力
+
 - 任务自动调度逻辑（由后端 Orchestrator 处理）
 - 任务评论/讨论功能
 - 任务时间追踪/工时统计
@@ -66,6 +71,7 @@
 ### 3.1 输入
 
 #### 来源
+
 - 用户通过前端 UI 操作触发
 - 后端 API 响应返回任务数据
 
@@ -93,6 +99,7 @@
 | acceptance | string[] | 否 | 验收标准列表 |
 
 #### 约束
+
 - task_id 格式：task-{timestamp}-{random}
 - 任务状态流转必须符合状态机规则
 - 依赖任务不能形成循环引用
@@ -101,12 +108,14 @@
 ### 3.2 输出
 
 #### 结果
+
 - 任务创建：返回包含 task_id 的创建结果
 - 任务更新：返回更新成功状态
 - 任务列表：返回 TaskTreeNode[] 数组
 - 任务详情：返回 TaskDetail 对象
 
 #### 触发条件
+
 - 用户进入任务管理相关视图时加载任务列表
 - 用户提交任务创建/更新表单时触发 API 调用
 - 用户点击任务项时加载任务详情
@@ -140,6 +149,7 @@
 ### 状态变化
 
 **TaskState 状态机：**
+
 - PLANNED -> READY -> DISPATCHED -> IN_PROGRESS -> MAY_BE_DONE -> DONE
 - 任何非终态 -> CANCELED
 - 任何非终态 -> BLOCKED_DEP（依赖未满足）
@@ -147,15 +157,18 @@
 ## 5. 依赖关系
 
 ### 上游依赖
+
 - **ProjectService** (src/services/api.ts): 提供 projectApi.taskAction、projectApi.patchTask、projectApi.dispatch 等方法
 - **i18n Hook** (src/hooks/i18n): 提供多语言翻译功能
 
 ### 下游影响
+
 - TaskTreeView: 为其他模块提供任务树展示能力
 - TaskboardView: 为其他模块提供任务看板展示能力
 - SessionManagerView: 任务派发依赖会话管理
 
 ### 数据依赖
+
 - TaskTreeNode: 任务树节点数据结构
 - TaskDetail: 任务详情数据结构
 - TaskLifecycleEvent: 生命周期事件结构
@@ -163,16 +176,19 @@
 ## 6. 约束条件
 
 ### 技术约束
+
 - 前端框架：React + TypeScript
 - UI 组件库：自定义样式组件
 - 状态管理：React Hooks (useState, useMemo, useEffect)
 - 国际化：i18n hook
 
 ### 性能要求
+
 - 任务列表加载应支持分页或虚拟滚动（当前限制显示前 50 条）
 - 任务树展开/折叠应保持响应性
 
 ### 数据约束
+
 - task_id 全局唯一
 - parent_task_id 必须指向已存在的任务
 - owner_role 必须是项目中已注册的角色
@@ -180,12 +196,14 @@
 ## 7. 异常与边界
 
 ### 异常处理
+
 1. **任务创建失败** - 显示错误消息，保留表单数据
 2. **任务更新失败** - 显示错误消息，保留表单数据
 3. **任务派发失败** - 显示派发结果和原因
 4. **任务详情加载失败** - 显示空状态提示
 
 ### 边界情况
+
 1. **空任务列表** - 显示 No data / No tasks
 2. **无父任务时** - 默认选择 PROJECT_ROOT 类型根任务
 3. **任务状态为 DONE/CANCELED** - 禁用派发按钮
@@ -196,6 +214,7 @@
 ### 关键数据结构
 
 **TaskTreeNode:**
+
 - task_id: string - 任务唯一标识
 - task_kind: PROJECT_ROOT | USER_ROOT | EXECUTION - 任务类型
 - parent_task_id: string | null - 父任务 ID
@@ -219,6 +238,7 @@
 - updated_at: string - 更新时间
 
 **TaskDetail:**
+
 - project_id: string - 项目 ID
 - task_id: string - 任务 ID
 - task: TaskTreeNode - 任务节点
@@ -228,6 +248,7 @@
 - stats: { lifecycle_event_count: number } - 统计信息
 
 **TaskState:**
+
 - PLANNED - 计划中
 - READY - 已就绪
 - DISPATCHED - 已派发

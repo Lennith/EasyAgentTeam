@@ -184,7 +184,14 @@ function extractPromptFromStderrUserBlock(rows: AgentOutputLine[]): string | und
       continue;
     }
 
-    if (lower === "thinking" || lower === "exec" || lower === "agent" || lower === "codex" || lower === "trae" || lower.startsWith("reconnecting")) {
+    if (
+      lower === "thinking" ||
+      lower === "exec" ||
+      lower === "agent" ||
+      lower === "codex" ||
+      lower === "trae" ||
+      lower.startsWith("reconnecting")
+    ) {
       break;
     }
     if (lower.startsWith("mcp startup:")) {
@@ -221,7 +228,8 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
           (row) =>
             row.stream === "system" &&
             typeof row.content === "string" &&
-            (normalizeText(row.content).toLowerCase().startsWith("starting codex run") || normalizeText(row.content).toLowerCase().startsWith("starting trae run"))
+            (normalizeText(row.content).toLowerCase().startsWith("starting codex run") ||
+              normalizeText(row.content).toLowerCase().startsWith("starting trae run"))
         )
         ?.content.replace(/^(Starting codex run|Starting trae run)(?:\s+\([^)]+\))?:\s*/i, ""),
     initialPrompt: rows.find((row) => typeof row.prompt === "string" && row.prompt.trim().length > 0)?.prompt,

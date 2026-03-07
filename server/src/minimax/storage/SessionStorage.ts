@@ -1,19 +1,14 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { JSONLWriter, generateMessageId, createPersistedMessage } from './JSONLWriter.js';
-import type { 
-  PersistedMessage, 
-  SessionMeta, 
-  SessionStorageConfig,
-  Message,
-} from '../types.js';
+import * as fs from "fs";
+import * as path from "path";
+import { JSONLWriter, generateMessageId, createPersistedMessage } from "./JSONLWriter.js";
+import type { PersistedMessage, SessionMeta, SessionStorageConfig, Message } from "../types.js";
 
 const DEFAULT_CONFIG: Required<SessionStorageConfig> = {
-  persistDir: 'minimax-session',
+  persistDir: "minimax-session",
   maxContentSize: 200 * 1024,
   compressionThreshold: 200 * 1024,
   targetCompressionRatio: 0.3,
-  autoCompress: true,
+  autoCompress: true
 };
 
 export class SessionStorage {
@@ -40,7 +35,7 @@ export class SessionStorage {
   }
 
   private getMetaFilePath(sessionId: string): string {
-    return path.join(this.getSessionPath(sessionId), 'session_meta.json');
+    return path.join(this.getSessionPath(sessionId), "session_meta.json");
   }
 
   sessionExists(sessionId: string): boolean {
@@ -49,7 +44,7 @@ export class SessionStorage {
 
   createSession(sessionId: string): SessionMeta {
     const sessionPath = this.getSessionPath(sessionId);
-    
+
     if (!fs.existsSync(sessionPath)) {
       fs.mkdirSync(sessionPath, { recursive: true });
     }
@@ -61,7 +56,7 @@ export class SessionStorage {
       workspaceDir: this.workspaceDir,
       currentIndex: 0,
       totalSize: 0,
-      compressedCount: 0,
+      compressedCount: 0
     };
 
     this.saveMeta(sessionId, meta);
@@ -70,13 +65,13 @@ export class SessionStorage {
 
   loadMeta(sessionId: string): SessionMeta | undefined {
     const metaPath = this.getMetaFilePath(sessionId);
-    
+
     if (!fs.existsSync(metaPath)) {
       return undefined;
     }
 
     try {
-      const content = fs.readFileSync(metaPath, 'utf-8');
+      const content = fs.readFileSync(metaPath, "utf-8");
       return JSON.parse(content) as SessionMeta;
     } catch {
       return undefined;
@@ -86,12 +81,12 @@ export class SessionStorage {
   saveMeta(sessionId: string, meta: SessionMeta): void {
     meta.updatedAt = new Date().toISOString();
     const metaPath = this.getMetaFilePath(sessionId);
-    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf-8");
   }
 
   appendMessage(sessionId: string, message: PersistedMessage): SessionMeta {
     let meta = this.loadMeta(sessionId);
-    
+
     if (!meta) {
       meta = this.createSession(sessionId);
     }
@@ -107,7 +102,7 @@ export class SessionStorage {
 
   appendMessages(sessionId: string, messages: PersistedMessage[]): SessionMeta {
     let meta = this.loadMeta(sessionId);
-    
+
     if (!meta) {
       meta = this.createSession(sessionId);
     }
@@ -174,7 +169,7 @@ export class SessionStorage {
 
   startNewHistoryFile(sessionId: string): SessionMeta {
     let meta = this.loadMeta(sessionId);
-    
+
     if (!meta) {
       meta = this.createSession(sessionId);
     }
@@ -186,24 +181,20 @@ export class SessionStorage {
     return meta;
   }
 
-  saveCompressedHistory(
-    sessionId: string, 
-    compressedContent: string,
-    originalSize: number
-  ): SessionMeta {
+  saveCompressedHistory(sessionId: string, compressedContent: string, originalSize: number): SessionMeta {
     let meta = this.loadMeta(sessionId);
-    
+
     if (!meta) {
       meta = this.createSession(sessionId);
     }
 
     const newIndex = meta.currentIndex + 1;
-    const compressedMessage = createPersistedMessage('user', compressedContent, {
+    const compressedMessage = createPersistedMessage("user", compressedContent, {
       metadata: {
         compressed: true,
         originalSize,
-        compressedSize: compressedContent.length,
-      },
+        compressedSize: compressedContent.length
+      }
     });
 
     const writer = new JSONLWriter(this.getHistoryFilePath(sessionId, newIndex));
@@ -219,12 +210,12 @@ export class SessionStorage {
 
   deleteSession(sessionId: string): boolean {
     const sessionPath = this.getSessionPath(sessionId);
-    
+
     if (fs.existsSync(sessionPath)) {
       fs.rmSync(sessionPath, { recursive: true, force: true });
       return true;
     }
-    
+
     return false;
   }
 
@@ -233,9 +224,10 @@ export class SessionStorage {
       return [];
     }
 
-    return fs.readdirSync(this.sessionDir, { withFileTypes: true })
-      .filter(dirent => dirent.isDirectory())
-      .map(dirent => dirent.name);
+    return fs
+      .readdirSync(this.sessionDir, { withFileTypes: true })
+      .filter((dirent) => dirent.isDirectory())
+      .map((dirent) => dirent.name);
   }
 
   getConfig(): Required<SessionStorageConfig> {
@@ -243,15 +235,13 @@ export class SessionStorage {
   }
 
   messageToPersisted(msg: Message): PersistedMessage {
-    const content = typeof msg.content === 'string' 
-      ? msg.content 
-      : msg.content.map(b => b.text || '').join('\n');
+    const content = typeof msg.content === "string" ? msg.content : msg.content.map((b) => b.text || "").join("\n");
 
     return createPersistedMessage(msg.role, content, {
       thinking: msg.thinking,
       toolCalls: msg.toolCalls,
       toolCallId: msg.toolCallId,
-      name: msg.name,
+      name: msg.name
     });
   }
 
@@ -262,7 +252,7 @@ export class SessionStorage {
       thinking: pmsg.thinking,
       toolCalls: pmsg.toolCalls,
       toolCallId: pmsg.toolCallId,
-      name: pmsg.name,
+      name: pmsg.name
     };
   }
 }

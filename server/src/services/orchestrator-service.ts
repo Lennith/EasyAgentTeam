@@ -23,18 +23,8 @@ import {
   setRoleSessionMapping,
   updateProjectOrchestratorSettings
 } from "../data/project-store.js";
-import {
-  addSession,
-  getSession,
-  listSessions,
-  touchSession
-} from "../data/session-store.js";
-import {
-  getTaskDependencyGateStatus,
-  listRunnableTasksByRole,
-  listTasks,
-  patchTask
-} from "../data/taskboard-store.js";
+import { addSession, getSession, listSessions, touchSession } from "../data/session-store.js";
+import { getTaskDependencyGateStatus, listRunnableTasksByRole, listTasks, patchTask } from "../data/taskboard-store.js";
 import { runModelForProject } from "./codex-runner.js";
 import {
   cancelMiniMaxRunner,
@@ -60,6 +50,19 @@ import {
   markRunnerTimeout,
   resolveActiveSessionForRole
 } from "./session-lifecycle-authority.js";
+import {
+  extractTaskIdFromMessage,
+  isRemindableTaskState,
+  isDiscussMessage,
+  readMessageTypeUpper,
+  selectTaskForDispatch,
+  sortMessagesByTime
+} from "./orchestrator-dispatch-core.js";
+import {
+  buildOrchestratorContextSessionKey,
+  OrchestratorLoopCore,
+  runOrchestratorAdapterTick
+} from "./orchestrator-core.js";
 
 type DispatchMode = "manual" | "loop";
 
@@ -220,7 +223,10 @@ function isTerminalTaskState(state: string): boolean {
 /**
  * Check task dependency gate (self dependencies + ancestor-chain dependencies).
  */
-function areTaskDependenciesSatisfied(task: TaskRecord, allTasks: TaskRecord[]): {
+function areTaskDependenciesSatisfied(
+  task: TaskRecord,
+  allTasks: TaskRecord[]
+): {
   satisfied: boolean;
   unsatisfiedDeps: string[];
   blockingTaskIds: string[];
@@ -248,43 +254,8 @@ export interface SessionProcessTerminationResult {
   message: string;
 }
 
-function extractTaskIdFromMessage(message: ManagerToAgentMessage): string | undefined {
-  const payload = message.body ?? {};
-  const fromPayload = payload.taskId;
-  if (typeof fromPayload === "string" && fromPayload.trim().length > 0) {
-    return fromPayload.trim();
-  }
-  return message.envelope.correlation.task_id;
-}
-
-function readMessageTypeUpper(message: ManagerToAgentMessage): string {
-  const bodyType = (message.body as Record<string, unknown>).messageType;
-  if (typeof bodyType === "string" && bodyType.trim().length > 0) {
-    return bodyType.trim().toUpperCase();
-  }
-  const intent = message.envelope.intent;
-  return typeof intent === "string" ? intent.toUpperCase() : "";
-}
-
-function isDiscussMessage(message: ManagerToAgentMessage): boolean {
-  const type = readMessageTypeUpper(message);
-  return type.startsWith("TASK_DISCUSS");
-}
-
-function isTaskAssignMessage(message: ManagerToAgentMessage): boolean {
-  const type = readMessageTypeUpper(message);
-  return type === "TASK_ASSIGNMENT";
-}
-
-function findCorrectTask(
-  wrongTask: TaskRecord,
-  targetRole: string,
-  allTasks: TaskRecord[]
-): TaskRecord | null {
-  const childTasks = allTasks.filter(t =>
-    t.parentTaskId === wrongTask.taskId &&
-    t.state !== "CANCELED"
-  );
+function findCorrectTask(wrongTask: TaskRecord, targetRole: string, allTasks: TaskRecord[]): TaskRecord | null {
+  const childTasks = allTasks.filter((t) => t.parentTaskId === wrongTask.taskId && t.state !== "CANCELED");
 
   const wrongOwner = wrongTask.ownerRole;
   const wrongCreator = wrongTask.creatorRole;
@@ -320,7 +291,7 @@ export function resolveTaskDiscuss(
     return message;
   }
 
-  const wrongTask = allTasks.find(t => t.taskId === wrongTaskId);
+  const wrongTask = allTasks.find((t) => t.taskId === wrongTaskId);
   if (!wrongTask) {
     return message;
   }
@@ -334,7 +305,9 @@ export function resolveTaskDiscuss(
     return message;
   }
 
-  logger.info(`[resolveTaskDiscuss] Mapping discuss taskId from '${wrongTaskId}' to '${correctTask.taskId}' for targetRole='${targetRole}'`);
+  logger.info(
+    `[resolveTaskDiscuss] Mapping discuss taskId from '${wrongTaskId}' to '${correctTask.taskId}' for targetRole='${targetRole}'`
+  );
 
   const body = message.body as Record<string, unknown>;
   return {
@@ -353,116 +326,6 @@ export function resolveTaskDiscuss(
   };
 }
 
-function sortMessagesByTime(messages: ManagerToAgentMessage[]): ManagerToAgentMessage[] {
-  return [...messages].sort((a, b) => {
-    const aTime = a.envelope.timestamp ? new Date(a.envelope.timestamp).getTime() : 0;
-    const bTime = b.envelope.timestamp ? new Date(b.envelope.timestamp).getTime() : 0;
-    return aTime - bTime;
-  });
-}
-
-interface TaskDispatchSelection {
-  taskId: string;
-  messages: ManagerToAgentMessage[];
-  dispatchKind: "task" | "message";
-}
-
-function selectTaskForDispatch(
-  undeliveredMessages: ManagerToAgentMessage[],
-  runnableTasks: TaskRecord[],
-  allTasks: TaskRecord[]
-): TaskDispatchSelection | null {
-  const activeTaskStates = new Set(["DISPATCHED", "IN_PROGRESS"]);
-  const runnableTaskIds = new Set(runnableTasks.map((task) => task.taskId));
-
-  logger.info(
-    `[selectTaskForDispatch] input: undeliveredMessages=${undeliveredMessages.length}, runnableTasks=${runnableTasks.length}, allTasks=${allTasks.length}`
-  );
-
-  const messagesByTask = new Map<string, ManagerToAgentMessage[]>();
-  const messagesWithoutTask: ManagerToAgentMessage[] = [];
-
-  for (const msg of undeliveredMessages) {
-    const taskId = extractTaskIdFromMessage(msg);
-    if (taskId) {
-      if (!messagesByTask.has(taskId)) {
-        messagesByTask.set(taskId, []);
-      }
-      messagesByTask.get(taskId)!.push(msg);
-      continue;
-    }
-    messagesWithoutTask.push(msg);
-  }
-
-  logger.info(
-    `[selectTaskForDispatch] messagesByTask keys: [${Array.from(messagesByTask.keys()).join(", ")}], messagesWithoutTask: ${messagesWithoutTask.length}`
-  );
-
-  for (const [taskId, messages] of messagesByTask) {
-    const hasAssignTask = messages.some((m) => isTaskAssignMessage(m));
-    const hasDiscuss = messages.some((m) => isDiscussMessage(m));
-
-    if (hasAssignTask) {
-      if (runnableTaskIds.has(taskId)) {
-        logger.info(
-          `[selectTaskForDispatch] selected: taskId=${taskId}, dispatchKind=task, reason=has_assign_task_and_runnable`
-        );
-        return { taskId, messages: sortMessagesByTime(messages), dispatchKind: "task" };
-      }
-      const referencedTask = allTasks.find((item) => item.taskId === taskId);
-      if (referencedTask) {
-        const depCheck = areTaskDependenciesSatisfied(referencedTask, allTasks);
-        logger.info(
-          `[selectTaskForDispatch] skipped assign: taskId=${taskId}, reason=task_not_runnable, blockingTaskIds=[${depCheck.blockingTaskIds.join(",")}], unsatisfiedDeps=[${depCheck.unsatisfiedDeps.join(",")}]`
-        );
-      } else {
-        logger.info(`[selectTaskForDispatch] skipped assign: taskId=${taskId}, reason=task_not_found`);
-      }
-      continue;
-    }
-
-    if (hasDiscuss) {
-      const task = allTasks.find((item) => item.taskId === taskId);
-      if (task && activeTaskStates.has(task.state)) {
-        logger.info(
-          `[selectTaskForDispatch] selected: taskId=${taskId}, dispatchKind=message, reason=has_discuss_message_for_active_task`
-        );
-        return { taskId, messages: sortMessagesByTime(messages), dispatchKind: "message" };
-      }
-      logger.info(
-        `[selectTaskForDispatch] skipped discuss: taskId=${taskId}, taskState=${task?.state ?? "not_found"}, reason=task_not_started`
-      );
-    }
-  }
-
-  const sortedTasks = [...runnableTasks].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-  logger.info(
-    `[selectTaskForDispatch] sortedTasks by createdAt: [${sortedTasks.map((task) => `${task.taskId}:${task.state}`).join(", ")}]`
-  );
-
-  for (const task of sortedTasks) {
-    const messages = messagesByTask.get(task.taskId);
-    if (messages && messages.length > 0) {
-      const hasTaskAssign = messages.some((m) => isTaskAssignMessage(m));
-      const dispatchKind: "task" | "message" = hasTaskAssign ? "task" : "message";
-      logger.info(
-        `[selectTaskForDispatch] selected: taskId=${task.taskId}, dispatchKind=${dispatchKind}, reason=has_${hasTaskAssign ? "task_assign" : "message"}_for_runnable_task`
-      );
-      return { taskId: task.taskId, messages: sortMessagesByTime(messages), dispatchKind };
-    }
-  }
-
-  if (messagesWithoutTask.length > 0) {
-    logger.info(
-      `[selectTaskForDispatch] selected: taskId=(empty), dispatchKind=message, reason=messages_without_task`
-    );
-    return { taskId: "", messages: sortMessagesByTime(messagesWithoutTask), dispatchKind: "message" };
-  }
-
-  logger.info(`[selectTaskForDispatch] no selection: no messages and no runnable tasks with messages`);
-  return null;
-}
-
 function buildPromptFromMessages(
   project: ProjectRecord,
   session: SessionRecord,
@@ -474,12 +337,9 @@ function buildPromptFromMessages(
     routingSnapshot.allowedTargets.length > 0
       ? routingSnapshot.allowedTargets.map((item) => `${item.agentId}(max_rounds=${item.maxDiscussRounds})`).join(", ")
       : "(none)";
-  const enabledAgents =
-    routingSnapshot.enabledAgents.length > 0 ? routingSnapshot.enabledAgents.join(", ") : "(none)";
+  const enabledAgents = routingSnapshot.enabledAgents.length > 0 ? routingSnapshot.enabledAgents.join(", ") : "(none)";
 
-  const agentWorkspace = session.role
-    ? `${project.workspacePath}/Agents/${session.role}`
-    : project.workspacePath;
+  const agentWorkspace = session.role ? `${project.workspacePath}/Agents/${session.role}` : project.workspacePath;
 
   const lines: string[] = [
     `You are role=${session.role}, session=${session.sessionId}.`,
@@ -546,7 +406,9 @@ function buildPromptFromMessages(
         const discussContext = extractDiscussContext(msg);
         const reportTo = msg.envelope.accountability?.report_to;
         if (discussContext) {
-          lines.push(`- thread_id: ${discussContext.threadId}, round: ${discussContext.round}/${discussContext.maxRounds}, reply_to: ${reportTo?.role ?? "unknown"}`);
+          lines.push(
+            `- thread_id: ${discussContext.threadId}, round: ${discussContext.round}/${discussContext.maxRounds}, reply_to: ${reportTo?.role ?? "unknown"}`
+          );
         }
       }
     }
@@ -564,9 +426,15 @@ function buildPromptFromMessages(
   lines.push("When starting a new discussion with another agent:");
   lines.push("- thread_id: Generate as `${taskId}-${timestamp}` or use existing thread");
   lines.push(`- max_rounds per target: ${JSON.stringify(discussMaxRoundsMap)}`);
-  lines.push("- if discuss is about task, read <YourWorkSpace>/progress.md and then use task_report_* ToolCalls when you make progress.");
-  lines.push("- discuss tool calls are `discuss_request`, `discuss_reply`, `discuss_close` (discussion only, not progress).");
-  lines.push("- task report tool calls are `task_report_in_progress`, `task_report_done`, `task_report_block` (use these for progress/completion).");
+  lines.push(
+    "- if discuss is about task, read <YourWorkSpace>/progress.md and then use task_report_* ToolCalls when you make progress."
+  );
+  lines.push(
+    "- discuss tool calls are `discuss_request`, `discuss_reply`, `discuss_close` (discussion only, not progress)."
+  );
+  lines.push(
+    "- task report tool calls are `task_report_in_progress`, `task_report_done`, `task_report_block` (use these for progress/completion)."
+  );
 
   return lines.join("\n");
 }
@@ -578,7 +446,7 @@ function extractDiscussContext(message: ManagerToAgentMessage): {
 } | null {
   const body = message.body as Record<string, unknown>;
   const discuss = body.discuss as Record<string, unknown> | undefined;
-  
+
   if (!discuss) {
     const threadId = body.thread_id ?? body.threadId;
     if (threadId && typeof threadId === "string") {
@@ -590,10 +458,10 @@ function extractDiscussContext(message: ManagerToAgentMessage): {
     }
     return null;
   }
-  
+
   const threadId = discuss.thread_id ?? discuss.threadId;
   if (!threadId || typeof threadId !== "string") return null;
-  
+
   return {
     threadId,
     round: (discuss.round as number) ?? 1,
@@ -660,9 +528,7 @@ function readPayloadString(payload: Record<string, unknown>, key: string): strin
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function findLatestOpenDispatch(
-  sessionEvents: EventRecord[]
-): { event: EventRecord; dispatchId: string } | null {
+function findLatestOpenDispatch(sessionEvents: EventRecord[]): { event: EventRecord; dispatchId: string } | null {
   const started = new Map<string, EventRecord>();
   for (const event of sessionEvents) {
     const payload = event.payload as Record<string, unknown>;
@@ -783,11 +649,7 @@ interface MiniMaxLauncherContext {
   runId?: string;
 }
 
-async function handleMinMaxWakeUp(
-  sessionId: string,
-  runId: string,
-  context: MiniMaxLauncherContext
-): Promise<void> {
+async function handleMinMaxWakeUp(sessionId: string, runId: string, context: MiniMaxLauncherContext): Promise<void> {
   const { dataRoot, project, paths, session, taskId, dispatchId, dispatchKind, firstMessage } = context;
   if (context.runId && context.runId !== runId) {
     logger.warn(
@@ -826,15 +688,25 @@ async function handleMinMaxWakeUp(
   });
 }
 
-
-
 async function handleMiniMaxCompletion(
   result: MiniMaxRunResultInternal,
   sessionId: string,
   runId: string,
   context: MiniMaxLauncherContext
 ): Promise<void> {
-  const { dataRoot, project, paths, session, taskId, dispatchId, dispatchKind, selectedMessageIds, firstMessage, startedAt, input } = context;
+  const {
+    dataRoot,
+    project,
+    paths,
+    session,
+    taskId,
+    dispatchId,
+    dispatchKind,
+    selectedMessageIds,
+    firstMessage,
+    startedAt,
+    input
+  } = context;
   if (context.runId && context.runId !== runId) {
     logger.warn(
       `[handleMiniMaxCompletion] ignored mismatched callback runId=${runId}, expected=${context.runId}, sessionId=${sessionId}`
@@ -936,29 +808,27 @@ async function handleMiniMaxCompletion(
 
 const TERMINAL_TASK_STATES = new Set(["DONE", "CANCELED"]);
 
-async function cleanupCompletedTaskMessages(
-  paths: ProjectPaths,
-  projectId: string,
-  role: string
-): Promise<number> {
+async function cleanupCompletedTaskMessages(paths: ProjectPaths, projectId: string, role: string): Promise<number> {
   const allTasks = await listTasks(paths, projectId);
   const inboxMessages = await listInboxMessages(paths, role);
-  
+
   const messagesToRemove: string[] = [];
-  
+
   for (const msg of inboxMessages) {
     const taskId = extractTaskIdFromMessage(msg);
     if (taskId) {
-      const task = allTasks.find(t => t.taskId === taskId);
+      const task = allTasks.find((t) => t.taskId === taskId);
       if (task && TERMINAL_TASK_STATES.has(task.state)) {
         messagesToRemove.push(msg.envelope.message_id);
       }
     }
   }
-  
+
   if (messagesToRemove.length > 0) {
     const removed = await removeInboxMessages(paths, role, messagesToRemove);
-    logger.info(`[cleanupCompletedTaskMessages] projectId=${projectId}, role=${role}, removed ${removed} messages for completed/canceled tasks`);
+    logger.info(
+      `[cleanupCompletedTaskMessages] projectId=${projectId}, role=${role}, removed ${removed} messages for completed/canceled tasks`
+    );
     return removed;
   }
   return 0;
@@ -974,12 +844,12 @@ async function dispatchSessionOnce(
   registeredAgentIds: string[]
 ): Promise<SessionDispatchResult> {
   await cleanupCompletedTaskMessages(paths, project.projectId, session.role);
-  
+
   const inboxMessages = await listInboxMessages(paths, session.role);
   const explicitMessageCandidate = input.messageId
     ? inboxMessages.find((item) => item.envelope.message_id === input.messageId)
     : null;
-  
+
   const roleStatus = getRoleMessageStatus(project, session.role);
   const confirmedIds = new Set(roleStatus.confirmedMessageIds);
   const pendingIds = new Set(roleStatus.pendingConfirmedMessages.map((p) => p.messageId));
@@ -992,27 +862,36 @@ async function dispatchSessionOnce(
           const bTime = b.envelope.timestamp ? new Date(b.envelope.timestamp).getTime() : 0;
           return aTime - bTime;
         });
-  
+
   if (inboxMessages.length > 0) {
-    const sampleFiltered = inboxMessages.slice(0, 3).map(item => ({
+    const sampleFiltered = inboxMessages.slice(0, 3).map((item) => ({
       id: item.envelope.message_id,
       confirmed: confirmedIds.has(item.envelope.message_id),
       pending: pendingIds.has(item.envelope.message_id)
     }));
-    logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, role=${session.role}, inbox sample (first 3): ${JSON.stringify(sampleFiltered)}`);
+    logger.info(
+      `[dispatchSessionOnce] sessionId=${session.sessionId}, role=${session.role}, inbox sample (first 3): ${JSON.stringify(sampleFiltered)}`
+    );
   }
-  
-  logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, role=${session.role}, inboxCount=${inboxMessages.length}, confirmedCount=${confirmedIds.size}, pendingCount=${pendingIds.size}, undeliveredCount=${undeliveredMessages.length}`);
+
+  logger.info(
+    `[dispatchSessionOnce] sessionId=${session.sessionId}, role=${session.role}, inboxCount=${inboxMessages.length}, confirmedCount=${confirmedIds.size}, pendingCount=${pendingIds.size}, undeliveredCount=${undeliveredMessages.length}`
+  );
 
   const runnableByRole = await listRunnableTasksByRole(paths, project.projectId);
   const runnableTasks = runnableByRole.find((item) => item.role === session.role)?.tasks ?? [];
   // [DEBUG] Keep verbose state logs to diagnose why runnableTasks can be empty.
   const allTasks = await listTasks(paths, project.projectId);
-  const tasksByState = allTasks.reduce((acc, task) => {
-    acc[task.state] = (acc[task.state] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, role=${session.role}, tasksByState=${JSON.stringify(tasksByState)}, runnableByRole=${JSON.stringify(runnableByRole.map(r => ({ role: r.role, taskCount: r.tasks.length, taskIds: r.tasks.map(t => t.taskId) })))}, runnableTasks=${runnableTasks.length}`);
+  const tasksByState = allTasks.reduce(
+    (acc, task) => {
+      acc[task.state] = (acc[task.state] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+  logger.info(
+    `[dispatchSessionOnce] sessionId=${session.sessionId}, role=${session.role}, tasksByState=${JSON.stringify(tasksByState)}, runnableByRole=${JSON.stringify(runnableByRole.map((r) => ({ role: r.role, taskCount: r.tasks.length, taskIds: r.tasks.map((t) => t.taskId) })))}, runnableTasks=${runnableTasks.length}`
+  );
 
   let selectedMessages: ManagerToAgentMessage[] = [];
   let selectedTaskId = "";
@@ -1140,7 +1019,9 @@ async function dispatchSessionOnce(
     }
   }
 
-  logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, role=${session.role}, session.status=${session.status}, dispatchKind=${dispatchKind}, selectedTaskId=${selectedTaskId}, messageCount=${selectedMessages.length}, onlyIdle=${input.onlyIdle}`);
+  logger.info(
+    `[dispatchSessionOnce] sessionId=${session.sessionId}, role=${session.role}, session.status=${session.status}, dispatchKind=${dispatchKind}, selectedTaskId=${selectedTaskId}, messageCount=${selectedMessages.length}, onlyIdle=${input.onlyIdle}`
+  );
   if (selectedMessages.length === 0) {
     return {
       sessionId: session.sessionId,
@@ -1164,8 +1045,10 @@ async function dispatchSessionOnce(
 
   const firstMessage = selectedMessages[0];
   const selectedMessageIds = selectedMessages.map((m) => m.envelope.message_id);
-  logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, selectedMessageIds=${JSON.stringify(selectedMessageIds)}, lastInboxMessageId=${session.lastInboxMessageId ?? "null"}, force=${input.force}`);
-  
+  logger.info(
+    `[dispatchSessionOnce] sessionId=${session.sessionId}, selectedMessageIds=${JSON.stringify(selectedMessageIds)}, lastInboxMessageId=${session.lastInboxMessageId ?? "null"}, force=${input.force}`
+  );
+
   if (!input.force && dispatchKind === "message" && session.lastInboxMessageId === firstMessage.envelope.message_id) {
     return {
       sessionId: session.sessionId,
@@ -1209,7 +1092,9 @@ async function dispatchSessionOnce(
   }
   const startedAt = new Date().toISOString();
   const dispatchId = randomUUID();
-  logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, starting dispatch: dispatchId=${dispatchId}, dispatchKind=${dispatchKind}, messageIds=${JSON.stringify(selectedMessageIds)}`);
+  logger.info(
+    `[dispatchSessionOnce] sessionId=${session.sessionId}, starting dispatch: dispatchId=${dispatchId}, dispatchKind=${dispatchKind}, messageIds=${JSON.stringify(selectedMessageIds)}`
+  );
 
   logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=ensureProjectAgentScripts`);
   await ensureProjectAgentScripts(project);
@@ -1244,9 +1129,12 @@ async function dispatchSessionOnce(
     if (cliTool !== "codex" && cliTool !== "trae" && cliTool !== "minimax") {
       throw new Error(`SESSION_PROVIDER_NOT_SUPPORTED: role '${session.role}' configured tool '${cliTool}'`);
     }
-    const modelCommand = cliTool === "minimax" 
-      ? undefined 
-      : (cliTool === "trae" ? runtimeSettings.traeCliCommand : runtimeSettings.codexCliCommand);
+    const modelCommand =
+      cliTool === "minimax"
+        ? undefined
+        : cliTool === "trae"
+          ? runtimeSettings.traeCliCommand
+          : runtimeSettings.codexCliCommand;
     const modelParams: Record<string, string> = {};
     if (modelConfig?.model) {
       modelParams.model = modelConfig.model;
@@ -1273,7 +1161,7 @@ async function dispatchSessionOnce(
     }
 
     const prompt = buildPromptFromMessages(project, session, selectedMessages, routingSnapshot, taskId);
-    
+
     const promptFileName = `${startedAt.replace(/[:.]/g, "-")}_${session.sessionId}_${dispatchId}.md`;
     const promptFilePath = path.join(paths.promptsDir, promptFileName);
     await fs.writeFile(promptFilePath, prompt, "utf-8");
@@ -1287,7 +1175,8 @@ async function dispatchSessionOnce(
       active_parent_task_id: activeParentTaskId,
       active_root_task_id: activeRootTaskId,
       active_request_id: firstMessage.envelope.correlation.request_id,
-      parent_request_id: firstMessage.envelope.correlation.parent_request_id ?? firstMessage.envelope.correlation.request_id,
+      parent_request_id:
+        firstMessage.envelope.correlation.parent_request_id ?? firstMessage.envelope.correlation.request_id,
       dispatch_id: dispatchId,
       cli_tool: cliTool,
       model_command: modelCommand,
@@ -1295,8 +1184,7 @@ async function dispatchSessionOnce(
       prompt
     };
     const resumeCandidate =
-      session.providerSessionId?.trim() ||
-      (!isPendingSessionId(session.sessionId) ? session.sessionId : "");
+      session.providerSessionId?.trim() || (!isPendingSessionId(session.sessionId) ? session.sessionId : "");
     const canAttemptResume = cliTool === "codex" && Boolean(resumeCandidate);
 
     let run: Awaited<ReturnType<typeof runModelForProject>> | null = null;
@@ -1305,7 +1193,7 @@ async function dispatchSessionOnce(
 
     if (cliTool === "minimax") {
       logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=startMiniMaxForProject ASYNC`);
-      
+
       const launchContext: MiniMaxLauncherContext = {
         dataRoot,
         project,
@@ -1319,72 +1207,82 @@ async function dispatchSessionOnce(
         startedAt,
         input
       };
-      
+
       const pendingMessages = selectedMessageIds.map((messageId) => ({
         messageId,
         dispatchedAt: new Date().toISOString()
       }));
       await addPendingMessagesForRole(paths, project.projectId, session.role, pendingMessages);
-      
-      const startResult = startMiniMaxForProject(project, paths, {
-        sessionId: session.sessionId,
-        prompt,
-        dispatchId,
-        taskId,
-        activeTaskTitle,
-        activeParentTaskId,
-        activeRootTaskId,
-        activeRequestId: firstMessage.envelope.correlation.request_id,
-        agentRole: session.role,
-        cliTool: "minimax",
-        model: modelConfig?.model,
-        modelParams
-      }, runtimeSettings, {
-        wakeUpCallback: async (wakeSessionId, wakeRunId) => {
-          logger.info(`[dispatchSessionOnce] WakeUp callback triggered for sessionId=${wakeSessionId}, runId=${wakeRunId}`);
-          await handleMinMaxWakeUp(wakeSessionId, wakeRunId, launchContext);
+
+      const startResult = startMiniMaxForProject(
+        project,
+        paths,
+        {
+          sessionId: session.sessionId,
+          prompt,
+          dispatchId,
+          taskId,
+          activeTaskTitle,
+          activeParentTaskId,
+          activeRootTaskId,
+          activeRequestId: firstMessage.envelope.correlation.request_id,
+          agentRole: session.role,
+          cliTool: "minimax",
+          model: modelConfig?.model,
+          modelParams
         },
-        completionCallback: async (result, completionSessionId, completionRunId) => {
-          try {
-            await handleMiniMaxCompletion(result, completionSessionId, completionRunId, launchContext);
-          } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            logger.error(`[dispatchSessionOnce] MiniMax completion callback error: ${reason}`);
-            await markRunnerFatalError({
-              dataRoot,
-              project,
-              paths,
-              sessionId: completionSessionId,
-              taskId,
-              messageId: dispatchKind === "message" ? firstMessage.envelope.message_id : undefined,
-              runId: completionRunId,
-              dispatchId,
-              provider: "minimax",
-              error: `minimax completion callback failed: ${reason}`
-            });
-            await appendEvent(paths, {
-              projectId: project.projectId,
-              eventType: "ORCHESTRATOR_DISPATCH_FAILED",
-              source: "manager",
-              sessionId: completionSessionId,
-              taskId,
-              payload: {
-                dispatchId,
-                mode: input.mode,
-                dispatchKind,
-                messageIds: selectedMessageIds,
-                requestId: firstMessage.envelope.correlation.request_id,
+        runtimeSettings,
+        {
+          wakeUpCallback: async (wakeSessionId, wakeRunId) => {
+            logger.info(
+              `[dispatchSessionOnce] WakeUp callback triggered for sessionId=${wakeSessionId}, runId=${wakeRunId}`
+            );
+            await handleMinMaxWakeUp(wakeSessionId, wakeRunId, launchContext);
+          },
+          completionCallback: async (result, completionSessionId, completionRunId) => {
+            try {
+              await handleMiniMaxCompletion(result, completionSessionId, completionRunId, launchContext);
+            } catch (error) {
+              const reason = error instanceof Error ? error.message : String(error);
+              logger.error(`[dispatchSessionOnce] MiniMax completion callback error: ${reason}`);
+              await markRunnerFatalError({
+                dataRoot,
+                project,
+                paths,
+                sessionId: completionSessionId,
+                taskId,
+                messageId: dispatchKind === "message" ? firstMessage.envelope.message_id : undefined,
                 runId: completionRunId,
+                dispatchId,
+                provider: "minimax",
                 error: `minimax completion callback failed: ${reason}`
-              }
-            });
+              });
+              await appendEvent(paths, {
+                projectId: project.projectId,
+                eventType: "ORCHESTRATOR_DISPATCH_FAILED",
+                source: "manager",
+                sessionId: completionSessionId,
+                taskId,
+                payload: {
+                  dispatchId,
+                  mode: input.mode,
+                  dispatchKind,
+                  messageIds: selectedMessageIds,
+                  requestId: firstMessage.envelope.correlation.request_id,
+                  runId: completionRunId,
+                  error: `minimax completion callback failed: ${reason}`
+                }
+              });
+            }
           }
         }
-      });
+      );
       launchContext.runId = startResult.runId;
-      
-      logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, MiniMax started async, runId=${startResult.runId}`);
-      
+
+      logger.info(
+        `[dispatchSessionOnce] sessionId=${session.sessionId}, MiniMax started async, runId=${startResult.runId}`
+      );
+
       return {
         sessionId: session.sessionId,
         role: session.role,
@@ -1410,15 +1308,26 @@ async function dispatchSessionOnce(
       provider: cliTool
     });
 
-    logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject START, cliTool=${cliTool}`);
+    logger.info(
+      `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject START, cliTool=${cliTool}`
+    );
     try {
-      run = await runModelForProject(project, paths, {
-        ...runBaseInput,
-        resume_session_id: resumeCandidate
-      }, runtimeSettings);
-      logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject END, runId=${run?.runId}, exitCode=${run?.exitCode}`);
+      run = await runModelForProject(
+        project,
+        paths,
+        {
+          ...runBaseInput,
+          resume_session_id: resumeCandidate
+        },
+        runtimeSettings
+      );
+      logger.info(
+        `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject END, runId=${run?.runId}, exitCode=${run?.exitCode}`
+      );
     } catch (error) {
-      logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject ERROR: ${error instanceof Error ? error.message : String(error)}`);
+      logger.info(
+        `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject ERROR: ${error instanceof Error ? error.message : String(error)}`
+      );
       runError = error;
     }
 
@@ -1437,7 +1346,7 @@ async function dispatchSessionOnce(
           runId: run?.runId ?? null,
           exitCode: run?.exitCode ?? null,
           timedOut: run?.timedOut ?? null,
-          error: runError instanceof Error ? runError.message : (runError ? String(runError) : null)
+          error: runError instanceof Error ? runError.message : runError ? String(runError) : null
         }
       });
 
@@ -1475,11 +1384,13 @@ async function dispatchSessionOnce(
       throw runError instanceof Error ? runError : new Error(runError ? String(runError) : "model run failed");
     }
 
-    logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, run completed: timedOut=${run.timedOut}, exitCode=${run.exitCode}`);
+    logger.info(
+      `[dispatchSessionOnce] sessionId=${session.sessionId}, run completed: timedOut=${run.timedOut}, exitCode=${run.exitCode}`
+    );
     const fallbackSessionIdBase = resumedFailedAndReset ? undefined : resumeCandidate || undefined;
     const nextProviderSessionId = run.sessionId ?? fallbackSessionIdBase;
     const targetSessionIdForUpdate = session.sessionId;
-    
+
     if (dispatchKind === "message") {
       const pendingMessages = selectedMessages.map((msg) => ({
         messageId: msg.envelope.message_id,
@@ -1487,12 +1398,12 @@ async function dispatchSessionOnce(
       }));
       await addPendingMessagesForRole(paths, project.projectId, session.role, pendingMessages);
     }
-    
+
     await confirmPendingMessagesForRole(paths, project.projectId, session.role);
 
     if (dispatchKind === "task" && taskId) {
       const allTasks = await listTasks(paths, project.projectId);
-      const currentTask = allTasks.find(t => t.taskId === taskId);
+      const currentTask = allTasks.find((t) => t.taskId === taskId);
       if (currentTask) {
         const ACTIVE_STATES = new Set(["DISPATCHED", "IN_PROGRESS"]);
         const TERMINAL_STATES = new Set(["DONE", "CANCELED"]);
@@ -1537,9 +1448,7 @@ async function dispatchSessionOnce(
       });
     } else {
       const runErrorMessage =
-        typeof (run as { error?: unknown }).error === "string"
-          ? (run as { error?: string }).error
-          : undefined;
+        typeof (run as { error?: unknown }).error === "string" ? (run as { error?: string }).error : undefined;
       dispatchFailedReason = runErrorMessage ?? `runner exited with code ${run.exitCode}`;
       await markRunnerFatalError({
         dataRoot,
@@ -1661,43 +1570,62 @@ async function dispatchSessionOnce(
 }
 
 export class OrchestratorService {
-  private timer: NodeJS.Timeout | null = null;
-  private tickRunning = false;
-  private lastTickAt?: string;
+  private readonly options: OrchestratorOptions;
+  private readonly loopCore: OrchestratorLoopCore;
   private readonly inFlightDispatchSessionKeys = new Set<string>();
+  private readonly projectHoldState = new Map<string, boolean>();
   private readonly limitEventSent = new Set<string>();
   private readonly lastObservabilityEventAt = new Map<string, number>();
 
-  constructor(private readonly options: OrchestratorOptions) {}
+  constructor(options: OrchestratorOptions) {
+    this.options = options;
+    this.loopCore = new OrchestratorLoopCore({
+      enabled: this.options.enabled,
+      intervalMs: this.options.intervalMs,
+      onTick: async () => {
+        await this.tickLoop();
+      },
+      onError: (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[orchestrator] tickLoop failed: ${message}`);
+      }
+    });
+  }
 
   async getStatus() {
+    const loop = this.loopCore.getSnapshot();
     const projects = await listProjects(this.options.dataRoot);
     const perProject: Array<{
       projectId: string;
       autoDispatchEnabled: boolean;
       autoDispatchRemaining: number;
+      holdEnabled: boolean;
+      reminderMode: "backoff" | "fixed_interval";
     }> = [];
     for (const item of projects) {
       const project = await getProject(this.options.dataRoot, item.projectId);
       perProject.push({
         projectId: project.projectId,
         autoDispatchEnabled: Boolean(project.autoDispatchEnabled ?? true),
-        autoDispatchRemaining: Number(project.autoDispatchRemaining ?? 5)
+        autoDispatchRemaining: Number(project.autoDispatchRemaining ?? 5),
+        holdEnabled: Boolean(project.holdEnabled ?? false),
+        reminderMode: project.reminderMode ?? "backoff"
       });
     }
     return {
-      enabled: this.options.enabled,
-      running: this.timer !== null,
-      intervalMs: this.options.intervalMs,
+      enabled: loop.enabled,
+      running: loop.running,
+      started: loop.started,
+      intervalMs: loop.intervalMs,
       maxConcurrentDispatches: this.options.maxConcurrentDispatches,
       inFlightDispatchSessions: this.inFlightDispatchSessionKeys.size,
-      lastTickAt: this.lastTickAt ?? null,
+      lastTickAt: loop.lastTickAt,
       projects: perProject
     };
   }
 
   private buildSessionDispatchKey(projectId: string, sessionId: string): string {
-    return `${projectId}::${sessionId}`;
+    return buildOrchestratorContextSessionKey(projectId, sessionId);
   }
 
   private resolveTerminationPid(session: SessionRecord, sessionEvents: EventRecord[]): number | null {
@@ -1721,8 +1649,12 @@ export class OrchestratorService {
         });
         let stdout = "";
         let stderr = "";
-        proc.stdout?.on("data", (data) => { stdout += data.toString(); });
-        proc.stderr?.on("data", (data) => { stderr += data.toString(); });
+        proc.stdout?.on("data", (data) => {
+          stdout += data.toString();
+        });
+        proc.stderr?.on("data", (data) => {
+          stderr += data.toString();
+        });
         proc.on("error", (err) => {
           resolve({
             attempted: true,
@@ -1952,7 +1884,9 @@ export class OrchestratorService {
       };
     }
     this.inFlightDispatchSessionKeys.add(key);
-    logger.info(`[dispatchSessionWithSingleFlight] added to inFlight: key=${key}, current inFlight=[${Array.from(this.inFlightDispatchSessionKeys).join(", ")}]`);
+    logger.info(
+      `[dispatchSessionWithSingleFlight] added to inFlight: key=${key}, current inFlight=[${Array.from(this.inFlightDispatchSessionKeys).join(", ")}]`
+    );
     try {
       return await dispatchSessionOnce(
         this.options.dataRoot,
@@ -1965,30 +1899,19 @@ export class OrchestratorService {
       );
     } finally {
       this.inFlightDispatchSessionKeys.delete(key);
-      logger.info(`[dispatchSessionWithSingleFlight] removed from inFlight: key=${key}, remaining inFlight=[${Array.from(this.inFlightDispatchSessionKeys).join(", ")}]`);
+      logger.info(
+        `[dispatchSessionWithSingleFlight] removed from inFlight: key=${key}, remaining inFlight=[${Array.from(this.inFlightDispatchSessionKeys).join(", ")}]`
+      );
     }
   }
 
   start(): void {
-    if (!this.options.enabled || this.timer) {
-      return;
-    }
-    this.timer = setInterval(() => {
-      void this.tickLoop().catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[orchestrator] tickLoop failed: ${message}`);
-        this.lastTickAt = new Date().toISOString();
-      });
-    }, this.options.intervalMs);
-    this.timer.unref?.();
+    this.loopCore.start();
   }
 
   stop(): void {
-    if (!this.timer) {
-      return;
-    }
-    clearInterval(this.timer);
-    this.timer = null;
+    this.loopCore.stop();
+    this.projectHoldState.clear();
   }
 
   async repairSessionStatus(
@@ -2023,11 +1946,7 @@ export class OrchestratorService {
   async resetRoleReminderOnManualAction(
     projectId: string,
     role: string,
-    reason:
-      | "session_created"
-      | "session_dismissed"
-      | "session_repaired"
-      | "force_dispatch_succeeded"
+    reason: "session_created" | "session_dismissed" | "session_repaired" | "force_dispatch_succeeded"
   ): Promise<void> {
     const normalizedRole = role.trim();
     if (!normalizedRole) {
@@ -2153,7 +2072,12 @@ export class OrchestratorService {
           await patchTask(paths, project.projectId, targetTask.taskId, {
             ownerSession: created.session.sessionId
           });
-          await setRoleSessionMapping(this.options.dataRoot, project.projectId, targetTask.ownerRole, created.session.sessionId);
+          await setRoleSessionMapping(
+            this.options.dataRoot,
+            project.projectId,
+            targetTask.ownerRole,
+            created.session.sessionId
+          );
           await appendEvent(paths, {
             projectId: project.projectId,
             eventType: "SESSION_AUTO_BOOTSTRAPPED_FOR_FORCE_DISPATCH",
@@ -2264,7 +2188,7 @@ export class OrchestratorService {
     }
 
     logger.info(
-      `[dispatchProject] projectId=${projectId}, mode=${mode}, orderedSessions=${orderedSessions.length}, sessions=[${orderedSessions.map(s => `${s.sessionId}:${s.role}:${s.status}`).join(", ")}]`
+      `[dispatchProject] projectId=${projectId}, mode=${mode}, orderedSessions=${orderedSessions.length}, sessions=[${orderedSessions.map((s) => `${s.sessionId}:${s.role}:${s.status}`).join(", ")}]`
     );
     logger.info(`[dispatchProject] inFlightSessionKeys: [${Array.from(this.inFlightDispatchSessionKeys).join(", ")}]`);
 
@@ -2283,7 +2207,9 @@ export class OrchestratorService {
         break;
       }
       const session = orderedSessions[i];
-      logger.info(`[dispatchProject] processing session[${i}]: ${session.sessionId}, role=${session.role}, status=${session.status}`);
+      logger.info(
+        `[dispatchProject] processing session[${i}]: ${session.sessionId}, role=${session.role}, status=${session.status}`
+      );
       const freshSession = await getSession(paths, project.projectId, session.sessionId);
       if (!freshSession) {
         logger.info(`[dispatchProject] skip: session ${session.sessionId} not found`);
@@ -2340,7 +2266,9 @@ export class OrchestratorService {
         registeredAgentIds
       );
       results.push(row);
-      logger.info(`[dispatchProject] dispatch result: sessionId=${freshSession.sessionId}, outcome=${row.outcome}, dispatchKind=${row.dispatchKind}, reason=${row.reason ?? "none"}`);
+      logger.info(
+        `[dispatchProject] dispatch result: sessionId=${freshSession.sessionId}, outcome=${row.outcome}, dispatchKind=${row.dispatchKind}, reason=${row.reason ?? "none"}`
+      );
       if (row.outcome === "dispatched") {
         dispatchedCount += 1;
         dispatchedRoles.add(freshSession.role);
@@ -2478,22 +2406,36 @@ export class OrchestratorService {
   }
 
   private async tickLoop(): Promise<void> {
-    logger.info(`[Orchestrator] tickLoop start: enabled=${this.options.enabled}, tickRunning=${this.tickRunning}, inFlightCount=${this.inFlightDispatchSessionKeys.size}`);
-    if (!this.options.enabled || this.tickRunning) {
-      logger.info(`[Orchestrator] tickLoop skip: enabled=${this.options.enabled}, tickRunning=${this.tickRunning}`);
-      return;
-    }
-    this.tickRunning = true;
-    try {
-      const projects = await listProjects(this.options.dataRoot);
-      logger.info(`[Orchestrator] tickLoop: found ${projects.length} projects`);
-      for (const item of projects) {
+    const projectIndex = await listProjects(this.options.dataRoot);
+    logger.info(`[Orchestrator] tickLoop: found ${projectIndex.length} projects`);
+    await runOrchestratorAdapterTick({
+      listContexts: async () => projectIndex,
+      tickContext: async (item) => {
         const project = await getProject(this.options.dataRoot, item.projectId);
         const paths = await ensureProjectRuntime(this.options.dataRoot, project.projectId);
-        
-        logger.info(`[Orchestrator] tickLoop: processing projectId=${project.projectId}, autoDispatchEnabled=${project.autoDispatchEnabled}, autoDispatchRemaining=${project.autoDispatchRemaining}`);
-        
+
+        logger.info(
+          `[Orchestrator] tickLoop: processing projectId=${project.projectId}, autoDispatchEnabled=${project.autoDispatchEnabled}, autoDispatchRemaining=${project.autoDispatchRemaining}`
+        );
+
+        const holdEnabled = Boolean(project.holdEnabled ?? false);
+        const previousHold = this.projectHoldState.get(project.projectId);
+        if (previousHold === undefined || previousHold !== holdEnabled) {
+          await appendEvent(paths, {
+            projectId: project.projectId,
+            eventType: holdEnabled ? "ORCHESTRATOR_PROJECT_HOLD_ENABLED" : "ORCHESTRATOR_PROJECT_HOLD_DISABLED",
+            source: "manager",
+            payload: { holdEnabled }
+          });
+          this.projectHoldState.set(project.projectId, holdEnabled);
+        }
+
         await this.markTimedOutSessions(project, paths);
+
+        if (holdEnabled) {
+          await this.emitDispatchObservabilitySnapshot(project, paths);
+          return;
+        }
 
         await this.checkIdleRoles(project, paths);
 
@@ -2505,7 +2447,7 @@ export class OrchestratorService {
         const remaining = Number(project.autoDispatchRemaining ?? 5);
         if (!enabled) {
           logger.info(`[Orchestrator] tickLoop: projectId=${project.projectId} autoDispatch disabled, skipping`);
-          continue;
+          return;
         }
         if (remaining <= 0) {
           if (!this.limitEventSent.has(project.projectId)) {
@@ -2520,7 +2462,7 @@ export class OrchestratorService {
             });
             this.limitEventSent.add(project.projectId);
           }
-          continue;
+          return;
         }
         this.limitEventSent.delete(project.projectId);
 
@@ -2533,7 +2475,9 @@ export class OrchestratorService {
         const consumed = result.results.filter(
           (row) => row.outcome === "dispatched" && row.dispatchKind === "task"
         ).length;
-        logger.info(`[Orchestrator] tickLoop: projectId=${project.projectId}, remaining=${remaining}, results=${result.results.length}, consumed=${consumed}, outcomes=[${result.results.map(r => `${r.sessionId}:${r.outcome}:${r.dispatchKind}`).join(", ")}]`);
+        logger.info(
+          `[Orchestrator] tickLoop: projectId=${project.projectId}, remaining=${remaining}, results=${result.results.length}, consumed=${consumed}, outcomes=[${result.results.map((r) => `${r.sessionId}:${r.outcome}:${r.dispatchKind}`).join(", ")}]`
+        );
         if (consumed > 0) {
           const newRemaining = Math.max(0, remaining - consumed);
           logger.info(`[Orchestrator] tickLoop: updating autoDispatchRemaining from ${remaining} to ${newRemaining}`);
@@ -2542,10 +2486,7 @@ export class OrchestratorService {
           });
         }
       }
-      this.lastTickAt = new Date().toISOString();
-    } finally {
-      this.tickRunning = false;
-    }
+    });
   }
 
   /**
@@ -2594,7 +2535,7 @@ export class OrchestratorService {
       const currentRoleState = resolveRoleRuntimeState(roleSessions);
       const idleSession = resolveLatestIdleSession(roleSessions);
       const roleOpenTasks = allTasks
-        .filter((task) => task.ownerRole === role && !isTerminalTaskState(task.state))
+        .filter((task) => task.ownerRole === role && isRemindableTaskState(task.state))
         .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
       const hasOpenTask = roleOpenTasks.length > 0;
       const sessionIdleSince = idleSession
@@ -2812,7 +2753,6 @@ export class OrchestratorService {
     }
   }
 
-
   private async checkAndMarkMayBeDone(project: ProjectRecord, paths: ProjectPaths): Promise<void> {
     const mayBeDoneEnabled = String(process.env.MAY_BE_DONE_ENABLED ?? "1").trim() !== "0";
     if (!mayBeDoneEnabled) {
@@ -2820,7 +2760,8 @@ export class OrchestratorService {
     }
 
     const thresholdRaw = Number(process.env.MAY_BE_DONE_DISPATCH_THRESHOLD ?? MAY_BE_DONE_DISPATCH_THRESHOLD);
-    const threshold = Number.isFinite(thresholdRaw) && thresholdRaw > 0 ? Math.floor(thresholdRaw) : MAY_BE_DONE_DISPATCH_THRESHOLD;
+    const threshold =
+      Number.isFinite(thresholdRaw) && thresholdRaw > 0 ? Math.floor(thresholdRaw) : MAY_BE_DONE_DISPATCH_THRESHOLD;
     const windowRaw = Number(process.env.MAY_BE_DONE_CHECK_WINDOW_MS ?? MAY_BE_DONE_CHECK_WINDOW_MS);
     const windowMs = Number.isFinite(windowRaw) && windowRaw > 0 ? Math.floor(windowRaw) : MAY_BE_DONE_CHECK_WINDOW_MS;
 
@@ -2841,16 +2782,14 @@ export class OrchestratorService {
         continue;
       }
 
-      const taskDispatchEvents = recentEvents.filter(
-        (e) => {
-          if (e.taskId !== task.taskId || e.eventType !== "ORCHESTRATOR_DISPATCH_STARTED") {
-            return false;
-          }
-          const payload = e.payload as Record<string, unknown>;
-          const dispatchKind = payload.dispatchKind;
-          return dispatchKind === "task";
+      const taskDispatchEvents = recentEvents.filter((e) => {
+        if (e.taskId !== task.taskId || e.eventType !== "ORCHESTRATOR_DISPATCH_STARTED") {
+          return false;
         }
-      );
+        const payload = e.payload as Record<string, unknown>;
+        const dispatchKind = payload.dispatchKind;
+        return dispatchKind === "task";
+      });
       const dispatchCount = taskDispatchEvents.length;
 
       if (dispatchCount < threshold) {
@@ -2875,7 +2814,9 @@ export class OrchestratorService {
           reason: "dispatch_threshold_exceeded_with_valid_output"
         }
       });
-      logger.info(`[Orchestrator] checkAndMarkMayBeDone: taskId=${task.taskId} marked as MAY_BE_DONE (dispatchCount=${dispatchCount})`);
+      logger.info(
+        `[Orchestrator] checkAndMarkMayBeDone: taskId=${task.taskId} marked as MAY_BE_DONE (dispatchCount=${dispatchCount})`
+      );
     }
   }
 
@@ -2891,8 +2832,7 @@ export class OrchestratorService {
 
     const runFinishedEvents = recentEvents.filter(
       (e) =>
-        e.taskId === task.taskId &&
-        (e.eventType === "CODEX_RUN_FINISHED" || e.eventType === "MINIMAX_RUN_FINISHED")
+        e.taskId === task.taskId && (e.eventType === "CODEX_RUN_FINISHED" || e.eventType === "MINIMAX_RUN_FINISHED")
     );
     for (const event of runFinishedEvents) {
       const payload = event.payload as Record<string, unknown>;
@@ -2960,8 +2900,7 @@ export function createOrchestratorService(dataRoot: string): OrchestratorService
       ? Math.floor(maxConcurrentDispatchRaw)
       : 2;
   const timeoutRaw = Number(process.env.SESSION_RUNNING_TIMEOUT_MS ?? 60000);
-  const sessionRunningTimeoutMs =
-    Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.floor(timeoutRaw) : 60000;
+  const sessionRunningTimeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.floor(timeoutRaw) : 60000;
   const idleTimeoutRaw = Number(process.env.ORCHESTRATOR_IDLE_TIMEOUT_MS ?? 60000);
   const idleTimeoutMs = Number.isFinite(idleTimeoutRaw) && idleTimeoutRaw > 0 ? Math.floor(idleTimeoutRaw) : 60000;
   const reminderBackoffRaw = Number(process.env.ORCHESTRATOR_REMINDER_BACKOFF_MULTIPLIER ?? 2);
@@ -2989,4 +2928,3 @@ export function createOrchestratorService(dataRoot: string): OrchestratorService
     autoReminderEnabled
   });
 }
-

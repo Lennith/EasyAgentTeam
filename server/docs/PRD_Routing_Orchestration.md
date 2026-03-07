@@ -3,6 +3,7 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 路由与消息编排模块负责管理 agent 间通信目标解析、路由授权、会话映射与消息投递。
 
 **源码路径**:
@@ -107,13 +108,13 @@
 
 ## 7. 异常与边界
 
-| 场景 | 错误码 |
-|---|---|
-| message_type 非法 | `MESSAGE_TYPE_INVALID` |
-| 目标缺失 | `MESSAGE_TARGET_REQUIRED` |
-| 内容编码疑似损坏 | `MESSAGE_ENCODING_INVALID` |
-| 路由不允许 | `MESSAGE_ROUTE_DENIED` |
-| 旧语义调用 | `ENDPOINT_RETIRED` |
+| 场景              | 错误码                     |
+| ----------------- | -------------------------- |
+| message_type 非法 | `MESSAGE_TYPE_INVALID`     |
+| 目标缺失          | `MESSAGE_TARGET_REQUIRED`  |
+| 内容编码疑似损坏  | `MESSAGE_ENCODING_INVALID` |
+| 路由不允许        | `MESSAGE_ROUTE_DENIED`     |
+| 旧语义调用        | `ENDPOINT_RETIRED`         |
 
 ---
 

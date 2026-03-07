@@ -82,6 +82,7 @@ Objective:
 Lock Discipline (MANDATORY):
 - BEFORE editing any file in write_set, acquire lock via lock_manage(action=acquire)
 - Lock key = exact file path relative to project root
+- Prefer file-level locks; use target_type=dir only when you must lock a whole subtree to avoid conflict
 - Release lock after completing edits or when aborting via lock_manage(action=release)
 - Never edit a file without acquiring lock first
 - Document locked files in progress.md

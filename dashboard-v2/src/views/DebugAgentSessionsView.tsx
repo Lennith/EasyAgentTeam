@@ -31,7 +31,7 @@ export function DebugAgentSessionsView() {
         }
         return;
       }
-      
+
       try {
         const data = await projectApi.list();
         if (!closed) {
@@ -50,7 +50,9 @@ export function DebugAgentSessionsView() {
       }
     }
     loadProjects();
-    return () => { closed = true; };
+    return () => {
+      closed = true;
+    };
   }, [settings.useMockData]);
 
   useEffect(() => {
@@ -59,11 +61,11 @@ export function DebugAgentSessionsView() {
       setTimeline([]);
       return;
     }
-    
+
     let closed = false;
     async function loadData() {
       setLoadingData(true);
-      
+
       if (settings.useMockData) {
         if (!closed) {
           setSessions(mockData.mockSessions);
@@ -72,11 +74,11 @@ export function DebugAgentSessionsView() {
         }
         return;
       }
-      
+
       try {
         const [sessionRes, timelineRes] = await Promise.all([
           projectApi.getSessions(selectedProjectId),
-          projectApi.getAgentIOTimeline(selectedProjectId, 100),
+          projectApi.getAgentIOTimeline(selectedProjectId, 100)
         ]);
         if (!closed) {
           setSessions(sessionRes.items ?? []);
@@ -91,7 +93,9 @@ export function DebugAgentSessionsView() {
       }
     }
     loadData();
-    return () => { closed = true; };
+    return () => {
+      closed = true;
+    };
   }, [selectedProjectId, settings.useMockData]);
 
   if (loading) {
@@ -129,8 +133,8 @@ export function DebugAgentSessionsView() {
         <div className="form-group" style={{ marginBottom: "16px" }}>
           <label>{t.projectId}</label>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <select 
-              value={selectedProjectId} 
+            <select
+              value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
               style={{ flex: 1 }}
             >
@@ -169,10 +173,16 @@ export function DebugAgentSessionsView() {
                 <tbody>
                   {sessions.map((session) => (
                     <tr key={session.sessionId}>
-                      <td><code>{session.sessionId.slice(0, 24)}...</code></td>
-                      <td><span className="badge badge-neutral">{session.role}</span></td>
                       <td>
-                        <span className={`badge ${session.status === "running" ? "badge-success" : session.status === "idle" ? "badge-neutral" : "badge-warning"}`}>
+                        <code>{session.sessionId.slice(0, 24)}...</code>
+                      </td>
+                      <td>
+                        <span className="badge badge-neutral">{session.role}</span>
+                      </td>
+                      <td>
+                        <span
+                          className={`badge ${session.status === "running" ? "badge-success" : session.status === "idle" ? "badge-neutral" : "badge-warning"}`}
+                        >
                           {session.status}
                         </span>
                       </td>
@@ -209,11 +219,11 @@ export function DebugAgentSessionsView() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "400px", overflow: "auto" }}>
               {timeline.slice(0, 50).map((item) => (
-                <div 
-                  key={item.id} 
-                  style={{ 
-                    padding: "12px", 
-                    background: "var(--bg-elevated)", 
+                <div
+                  key={item.id}
+                  style={{
+                    padding: "12px",
+                    background: "var(--bg-elevated)",
                     borderRadius: "6px",
                     borderLeft: `3px solid ${item.direction === "inbound" ? "var(--accent-primary)" : "var(--accent-success)"}`
                   }}
@@ -230,9 +240,7 @@ export function DebugAgentSessionsView() {
                       {new Date(item.createdAt).toLocaleString()}
                     </span>
                   </div>
-                  {item.summary && (
-                    <div style={{ fontSize: "13px", marginTop: "4px" }}>{item.summary}</div>
-                  )}
+                  {item.summary && <div style={{ fontSize: "13px", marginTop: "4px" }}>{item.summary}</div>}
                 </div>
               ))}
             </div>

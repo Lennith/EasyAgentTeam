@@ -57,11 +57,7 @@ function resolveOrchestratorServicePath(): string {
 
 test("agent-visible prompts/doc index use registered TeamTools names consistently", async () => {
   for (const toolName of TEAM_TOOL_NAMES) {
-    assert.equal(
-      BASE_PROMPT_TEXT.includes(toolName),
-      true,
-      `BASE_PROMPT_TEXT should include ${toolName}`
-    );
+    assert.equal(BASE_PROMPT_TEXT.includes(toolName), true, `BASE_PROMPT_TEXT should include ${toolName}`);
   }
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-toolprompt-"));
@@ -80,18 +76,9 @@ test("agent-visible prompts/doc index use registered TeamTools names consistentl
     ["dev_impl"]
   );
 
-  const generatedAgentsMd = await fs.readFile(
-    path.join(workspacePath, "Agents", "dev_impl", "AGENTS.md"),
-    "utf8"
-  );
-  assert.equal(
-    generatedAgentsMd.includes("task_report_in_progress, task_report_done, task_report_block"),
-    true
-  );
-  assert.equal(
-    generatedAgentsMd.includes("discuss_request/discuss_reply/discuss_close"),
-    true
-  );
+  const generatedAgentsMd = await fs.readFile(path.join(workspacePath, "Agents", "dev_impl", "AGENTS.md"), "utf8");
+  assert.equal(generatedAgentsMd.includes("task_report_in_progress, task_report_done, task_report_block"), true);
+  assert.equal(generatedAgentsMd.includes("discuss_request/discuss_reply/discuss_close"), true);
   assert.equal(generatedAgentsMd.includes("discuss_*.ps1"), false);
   assert.equal(generatedAgentsMd.includes("report_task_*"), false);
 
@@ -100,18 +87,9 @@ test("agent-visible prompts/doc index use registered TeamTools names consistentl
     assert.equal(teamToolsList.includes(`\`${toolName}\``), true, `TeamToolsList should include ${toolName}`);
   }
 
-  const orchestratorSource = await fs.readFile(
-    resolveOrchestratorServicePath(),
-    "utf8"
-  );
+  const orchestratorSource = await fs.readFile(resolveOrchestratorServicePath(), "utf8");
   assert.equal(orchestratorSource.includes("discuss_*.ps1"), false);
   assert.equal(orchestratorSource.includes("report_task_* TeamTools"), false);
-  assert.equal(
-    orchestratorSource.includes("`discuss_request`, `discuss_reply`, `discuss_close`"),
-    true
-  );
-  assert.equal(
-    orchestratorSource.includes("`task_report_in_progress`, `task_report_done`, `task_report_block`"),
-    true
-  );
+  assert.equal(orchestratorSource.includes("`discuss_request`, `discuss_reply`, `discuss_close`"), true);
+  assert.equal(orchestratorSource.includes("`task_report_in_progress`, `task_report_done`, `task_report_block`"), true);
 });

@@ -1,0 +1,183 @@
+﻿import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import { test } from "node:test";
+import { createServer } from "node:http";
+import { createApp } from "../app.js";
+
+test("workflow task-actions support create/discuss/report with partial apply and cross-role restrictions", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-task-actions-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  await mkdir(workspaceRoot, { recursive: true });
+
+  const app = createApp({ dataRoot });
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to start test server");
+  }
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "task_action_tpl",
+        name: "Task Action Template",
+        route_table: {
+          lead: ["architect"],
+          architect: ["lead"]
+        },
+        tasks: [
+          { task_id: "task_a", title: "Task A", owner_role: "lead" },
+          { task_id: "task_b", title: "Task B", owner_role: "architect", dependencies: ["task_a"] }
+        ]
+      })
+    });
+    assert.equal(createTemplate.status, 201);
+
+    const createRun = await fetch(`${baseUrl}/api/workflow-runs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "task_action_tpl",
+        run_id: "task_action_run_01",
+        workspace_path: workspaceRoot
+      })
+    });
+    assert.equal(createRun.status, 201);
+
+    const startRun = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/start`, { method: "POST" });
+    assert.equal(startRun.status, 200);
+
+    const registerArchitect = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "architect", session_id: "session-architect-01" })
+    });
+    assert.equal(registerArchitect.status, 201);
+
+    const createTask = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "architect",
+        from_session_id: "session-architect-01",
+        task: {
+          task_id: "task_c",
+          title: "Task C",
+          owner_role: "architect",
+          dependencies: ["task_a"]
+        }
+      })
+    });
+    assert.equal(createTask.status, 200);
+    const createTaskPayload = (await createTask.json()) as {
+      success: boolean;
+      createdTaskId?: string;
+    };
+    assert.equal(createTaskPayload.success, true);
+    assert.equal(createTaskPayload.createdTaskId, "task_c");
+
+    const discussRequest = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_DISCUSS_REQUEST",
+        from_agent: "lead",
+        from_session_id: "session-lead-01",
+        to_role: "architect",
+        task_id: "task_b",
+        content: "Please justify the architecture trade-offs.",
+        discuss: {
+          thread_id: "thread-01",
+          request_id: "req-discuss-01"
+        }
+      })
+    });
+    assert.equal(discussRequest.status, 200);
+    const discussPayload = (await discussRequest.json()) as { success: boolean; messageId?: string };
+    assert.equal(discussPayload.success, true);
+    assert.equal(typeof discussPayload.messageId, "string");
+
+    const timeline = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/agent-io/timeline?limit=200`);
+    assert.equal(timeline.status, 200);
+    const timelinePayload = (await timeline.json()) as {
+      items: Array<{ kind?: string; messageType?: string }>;
+    };
+    assert.equal(
+      timelinePayload.items.some((item) => item.kind === "task_discuss" || item.messageType === "TASK_DISCUSS_REQUEST"),
+      true
+    );
+
+    const partialReport = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "lead",
+        from_session_id: "session-lead-01",
+        results: [
+          { task_id: "task_a", outcome: "DONE", summary: "done" },
+          { task_id: "task_missing", outcome: "DONE", summary: "missing" }
+        ]
+      })
+    });
+    assert.equal(partialReport.status, 200);
+    const partialPayload = (await partialReport.json()) as {
+      partialApplied: boolean;
+      appliedTaskIds: string[];
+      rejectedResults: Array<{ taskId: string; reasonCode: string }>;
+    };
+    assert.equal(partialPayload.partialApplied, true);
+    assert.deepEqual(partialPayload.appliedTaskIds, ["task_a"]);
+    assert.equal(partialPayload.rejectedResults.length, 1);
+    assert.equal(partialPayload.rejectedResults[0].taskId, "task_missing");
+    assert.equal(partialPayload.rejectedResults[0].reasonCode, "TASK_NOT_FOUND");
+
+    const crossRoleReport = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "architect",
+        from_session_id: "session-architect-01",
+        results: [{ task_id: "task_a", outcome: "DONE", summary: "cross role" }]
+      })
+    });
+    assert.equal(crossRoleReport.status, 200);
+    const crossRolePayload = (await crossRoleReport.json()) as {
+      partialApplied: boolean;
+      appliedTaskIds: string[];
+      rejectedResults: Array<{ taskId: string; reasonCode: string }>;
+    };
+    assert.equal(crossRolePayload.partialApplied, true);
+    assert.deepEqual(crossRolePayload.appliedTaskIds, []);
+    assert.equal(crossRolePayload.rejectedResults.length, 1);
+    assert.equal(crossRolePayload.rejectedResults[0].taskId, "task_a");
+    assert.equal(crossRolePayload.rejectedResults[0].reasonCode, "INVALID_TRANSITION");
+
+    const stopRun = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/stop`, { method: "POST" });
+    assert.equal(stopRun.status, 200);
+
+    const reportAfterStop = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "lead",
+        results: [{ task_id: "task_b", outcome: "DONE" }]
+      })
+    });
+    assert.equal(reportAfterStop.status, 409);
+    const stoppedPayload = (await reportAfterStop.json()) as { error_code?: string };
+    assert.equal(stoppedPayload.error_code, "RUN_NOT_RUNNING");
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});

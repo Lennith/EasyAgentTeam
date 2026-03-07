@@ -128,9 +128,7 @@ async function main() {
       throw new Error(`expected resolvedSessionId=${sessionBId}, got ${routed.body.resolvedSessionId}`);
     }
 
-    const inboxResponse = await fetch(
-      `${baseUrl}/api/projects/${projectId}/inbox/dev_backend?limit=1`
-    );
+    const inboxResponse = await fetch(`${baseUrl}/api/projects/${projectId}/inbox/dev_backend?limit=1`);
     const inboxPayload = await inboxResponse.json();
     if (!inboxResponse.ok || !Array.isArray(inboxPayload.items) || inboxPayload.items.length !== 1) {
       throw new Error("inbox tail verification failed");

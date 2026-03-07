@@ -45,4 +45,3 @@ test("settings API returns and updates codex cli command", async () => {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
-

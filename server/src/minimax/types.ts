@@ -1,7 +1,7 @@
 import type { TeamToolBridge, TeamToolExecutionContext } from "./tools/team/types.js";
 
 export interface LLMProvider {
-  type: 'anthropic' | 'openai';
+  type: "anthropic" | "openai";
 }
 
 export interface FunctionCall {
@@ -11,12 +11,12 @@ export interface FunctionCall {
 
 export interface ToolCall {
   id: string;
-  type: 'function';
+  type: "function";
   function: FunctionCall;
 }
 
 export interface Message {
-  role: 'system' | 'user' | 'assistant' | 'tool';
+  role: "system" | "user" | "assistant" | "tool";
   content: string | ContentBlock[];
   thinking?: string;
   toolCalls?: ToolCall[];
@@ -25,10 +25,10 @@ export interface Message {
 }
 
 export interface ContentBlock {
-  type: 'text' | 'image' | 'tool_use' | 'tool_result';
+  type: "text" | "image" | "tool_use" | "tool_result";
   text?: string;
   source?: {
-    type: 'base64';
+    type: "base64";
     media_type: string;
     data: string;
   };
@@ -119,7 +119,7 @@ export interface Session {
 
 export interface MCPServerConfig {
   name: string;
-  type: 'stdio' | 'sse' | 'http';
+  type: "stdio" | "sse" | "http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -150,7 +150,7 @@ export interface MiniMaxAgentConfig {
   enableFileTools: boolean;
   enableShell: boolean;
   enableNote: boolean;
-  shellType: 'powershell' | 'cmd';
+  shellType: "powershell" | "cmd";
   shellTimeout: number;
   shellOutputIdleTimeout?: number;
   shellMaxRunTime?: number;
@@ -166,7 +166,7 @@ export interface MiniMaxAgentConfig {
   teamToolBridge?: TeamToolBridge;
 }
 
-export type ShellType = 'powershell' | 'cmd';
+export type ShellType = "powershell" | "cmd";
 
 export interface ShellExecuteOptions {
   command: string;
@@ -187,7 +187,7 @@ export interface DirectoryPermissions {
 
 export interface PersistedMessage {
   id: string;
-  role: 'system' | 'user' | 'assistant' | 'tool';
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
   timestamp: string;
   thinking?: string;
@@ -221,9 +221,9 @@ export interface SessionStorageConfig {
 }
 
 export const DEFAULT_STORAGE_CONFIG: Required<SessionStorageConfig> = {
-  persistDir: 'minimax-session',
+  persistDir: "minimax-session",
   maxContentSize: 200 * 1024,
   compressionThreshold: 200 * 1024,
   targetCompressionRatio: 0.3,
-  autoCompress: true,
+  autoCompress: true
 };

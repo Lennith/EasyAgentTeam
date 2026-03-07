@@ -89,11 +89,46 @@ function Write-Utf8NoBom {
   [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Resolve-WorkspaceRootSafePath {
+  param([Parameter(Mandatory = $true)][string]$WorkspaceRoot)
+
+  $trimmed = $WorkspaceRoot.Trim()
+  if (-not $trimmed) {
+    throw "WorkspaceRoot must not be empty."
+  }
+
+  $fullPath = [System.IO.Path]::GetFullPath($trimmed)
+  $rootPath = [System.IO.Path]::GetPathRoot($fullPath)
+  if (-not $rootPath) {
+    throw "WorkspaceRoot must be an absolute path: '$WorkspaceRoot'"
+  }
+
+  $normalizedRoot = $rootPath.TrimEnd('\').ToLowerInvariant()
+  $normalizedFull = $fullPath.TrimEnd('\').ToLowerInvariant()
+
+  if ($normalizedFull -eq $normalizedRoot) {
+    throw "Refuse to clean drive/share root path: '$fullPath'"
+  }
+
+  $relativePart = $fullPath.Substring($rootPath.Length).TrimStart('\')
+  $segments = @($relativePart -split '[\\/]' | Where-Object { $_.Trim().Length -gt 0 })
+  if ($segments.Count -lt 3) {
+    throw "Refuse to clean high-risk path '$fullPath'. Workspace path must include at least 3 segments under root."
+  }
+
+  if (Test-Path -LiteralPath (Join-Path $fullPath ".git")) {
+    throw "Refuse to clean git repository root '$fullPath'."
+  }
+
+  return $fullPath
+}
+
 function Remove-WorkspaceRuntimeArtifacts {
   param(
     [Parameter(Mandatory = $true)][string]$WorkspaceRoot
   )
-  Ensure-Dir -Path $WorkspaceRoot
+  $safeRoot = Resolve-WorkspaceRootSafePath -WorkspaceRoot $WorkspaceRoot
+  Ensure-Dir -Path $safeRoot
   $targets = @(
     ".minimax",
     "Agents",
@@ -101,7 +136,7 @@ function Remove-WorkspaceRuntimeArtifacts {
     "TeamsTools"
   )
   foreach ($name in $targets) {
-    $targetPath = Join-Path $WorkspaceRoot $name
+    $targetPath = Join-Path $safeRoot $name
     if (Test-Path -LiteralPath $targetPath) {
       Remove-Item -LiteralPath $targetPath -Recurse -Force
     }
@@ -112,12 +147,13 @@ function Reset-WorkspaceDirectory {
   param(
     [Parameter(Mandatory = $true)][string]$WorkspaceRoot
   )
+  $safeRoot = Resolve-WorkspaceRootSafePath -WorkspaceRoot $WorkspaceRoot
 
-  if (Test-Path -LiteralPath $WorkspaceRoot) {
-    Get-ChildItem -LiteralPath $WorkspaceRoot -Force | ForEach-Object {
+  if (Test-Path -LiteralPath $safeRoot) {
+    Get-ChildItem -LiteralPath $safeRoot -Force | ForEach-Object {
       Remove-Item -LiteralPath $_.FullName -Recurse -Force
     }
   } else {
-    New-Item -ItemType Directory -Path $WorkspaceRoot | Out-Null
+    New-Item -ItemType Directory -Path $safeRoot | Out-Null
   }
 }

@@ -40,14 +40,18 @@ export const COMPRESSION_PROMPT = `你是一个上下文压缩助手。你的任
 ## 原始对话历史
 {conversation_history}`;
 
-export function formatConversationHistory(messages: Array<{ role: string; content: string; timestamp?: string }>): string {
-  return messages.map(msg => {
-    const timestamp = msg.timestamp ? `[${msg.timestamp}] ` : '';
-    return `${timestamp}[${msg.role.toUpperCase()}]: ${msg.content}`;
-  }).join('\n\n');
+export function formatConversationHistory(
+  messages: Array<{ role: string; content: string; timestamp?: string }>
+): string {
+  return messages
+    .map((msg) => {
+      const timestamp = msg.timestamp ? `[${msg.timestamp}] ` : "";
+      return `${timestamp}[${msg.role.toUpperCase()}]: ${msg.content}`;
+    })
+    .join("\n\n");
 }
 
 export function buildCompressionPrompt(messages: Array<{ role: string; content: string; timestamp?: string }>): string {
   const history = formatConversationHistory(messages);
-  return COMPRESSION_PROMPT.replace('{conversation_history}', history);
+  return COMPRESSION_PROMPT.replace("{conversation_history}", history);
 }

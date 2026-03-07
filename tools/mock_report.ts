@@ -112,4 +112,3 @@ main().catch((error) => {
   console.error("[mock_report] failed:", error.message);
   process.exitCode = 1;
 });
-

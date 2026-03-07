@@ -76,9 +76,7 @@ async function runFlow() {
 
   const eventsResponse = await fetch(`${baseUrl}/api/projects/${projectId}/events`);
   const eventsRaw = await eventsResponse.text();
-  const events = parseNdjson(eventsRaw).filter((event) =>
-    String(event.eventType ?? "").startsWith("LOCK_")
-  );
+  const events = parseNdjson(eventsRaw).filter((event) => String(event.eventType ?? "").startsWith("LOCK_"));
   console.log("[mock_lock] lock events (latest 5):", events.slice(-5));
 }
 
@@ -91,4 +89,3 @@ main().catch((error) => {
   console.error("[mock_lock] failed:", error.message);
   process.exitCode = 1;
 });
-

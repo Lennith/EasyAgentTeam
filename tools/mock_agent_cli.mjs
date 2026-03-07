@@ -23,10 +23,7 @@ function pickFirstMatch(text, patterns) {
 }
 
 function buildTaskId(stdinText, parentRequestId) {
-  const fromPayload = pickFirstMatch(stdinText, [
-    /"taskId"\s*:\s*"([^"]+)"/,
-    /"task_id"\s*:\s*"([^"]+)"/
-  ]);
+  const fromPayload = pickFirstMatch(stdinText, [/"taskId"\s*:\s*"([^"]+)"/, /"task_id"\s*:\s*"([^"]+)"/]);
   if (fromPayload) {
     return fromPayload;
   }
@@ -37,9 +34,7 @@ function buildTaskId(stdinText, parentRequestId) {
 }
 
 function buildTitle(stdinText, role, nextRole) {
-  const fromPayload = pickFirstMatch(stdinText, [
-    /"title"\s*:\s*"([^"]+)"/
-  ]);
+  const fromPayload = pickFirstMatch(stdinText, [/"title"\s*:\s*"([^"]+)"/]);
   if (fromPayload) {
     return fromPayload;
   }
@@ -78,9 +73,8 @@ async function postJson(url, body) {
     // ignore response parse failure
   }
   if (!response.ok) {
-    const reason = payload && typeof payload === "object" && "error" in payload
-      ? String(payload.error)
-      : `HTTP ${response.status}`;
+    const reason =
+      payload && typeof payload === "object" && "error" in payload ? String(payload.error) : `HTTP ${response.status}`;
     throw new Error(reason);
   }
   return payload;

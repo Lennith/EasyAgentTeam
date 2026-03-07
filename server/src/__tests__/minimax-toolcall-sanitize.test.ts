@@ -43,7 +43,7 @@ test("sanitizeMessagesForToolProtocol converts orphan tool_result into TOOLCALL_
 
 test("MiniMax 2013 detection and recovery prompt formatting", () => {
   const errorMessage =
-    "MiniMax run failed: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, tool call result does not follow tool call (2013)\"}}";
+    'MiniMax run failed: 400 {"type":"error","error":{"type":"invalid_request_error","message":"invalid params, tool call result does not follow tool call (2013)"}}';
   assert.equal(isMiniMaxToolCallProtocolError(errorMessage), true);
   assert.equal(isMiniMaxToolCallProtocolError("network timeout"), false);
 
@@ -58,13 +58,13 @@ test("MiniMax 2013 detection and recovery prompt formatting", () => {
 
 test("tool result id-not-found detection and extraction", () => {
   const msg =
-    "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, tool result's tool id(call_function_c26x1fiiik9u_1) not found (2013)\"}}";
+    '400 {"type":"error","error":{"type":"invalid_request_error","message":"invalid params, tool result\'s tool id(call_function_c26x1fiiik9u_1) not found (2013)"}}';
   assert.equal(isMiniMaxToolResultIdNotFoundError(msg), true);
   assert.equal(extractMissingToolCallId(msg), "call_function_c26x1fiiik9u_1");
 });
 
 test("context window error detection works for 2013 context overflow", () => {
-  const msg = "400 {\"type\":\"error\",\"error\":{\"message\":\"invalid params, context window exceeds limit (2013)\"}}";
+  const msg = '400 {"type":"error","error":{"message":"invalid params, context window exceeds limit (2013)"}}';
   assert.equal(isMiniMaxContextWindowExceededError(msg), true);
   assert.equal(isMiniMaxContextWindowExceededError("tool call result does not follow tool call (2013)"), false);
 });

@@ -28,6 +28,7 @@ test("project create and orchestrator settings API use enabled+remaining model",
         workspace_path: tempRoot,
         auto_dispatch_enabled: true,
         auto_dispatch_remaining: 7,
+        hold_enabled: true,
         reminder_mode: "fixed_interval"
       })
     });
@@ -38,10 +39,12 @@ test("project create and orchestrator settings API use enabled+remaining model",
     const settings = (await getRes.json()) as {
       auto_dispatch_enabled: boolean;
       auto_dispatch_remaining: number;
+      hold_enabled: boolean;
       reminder_mode: "backoff" | "fixed_interval";
     };
     assert.equal(settings.auto_dispatch_enabled, true);
     assert.equal(settings.auto_dispatch_remaining, 7);
+    assert.equal(settings.hold_enabled, true);
     assert.equal(settings.reminder_mode, "fixed_interval");
 
     const patchRes = await fetch(`${baseUrl}/api/projects/orchsettings/orchestrator/settings`, {
@@ -50,6 +53,7 @@ test("project create and orchestrator settings API use enabled+remaining model",
       body: JSON.stringify({
         auto_dispatch_enabled: false,
         auto_dispatch_remaining: 3,
+        hold_enabled: false,
         reminder_mode: "backoff"
       })
     });
@@ -57,10 +61,12 @@ test("project create and orchestrator settings API use enabled+remaining model",
     const patched = (await patchRes.json()) as {
       auto_dispatch_enabled: boolean;
       auto_dispatch_remaining: number;
+      hold_enabled: boolean;
       reminder_mode: "backoff" | "fixed_interval";
     };
     assert.equal(patched.auto_dispatch_enabled, false);
     assert.equal(patched.auto_dispatch_remaining, 3);
+    assert.equal(patched.hold_enabled, false);
     assert.equal(patched.reminder_mode, "backoff");
 
     const invalidPatch = await fetch(`${baseUrl}/api/projects/orchsettings/orchestrator/settings`, {
@@ -126,4 +132,3 @@ test("retired auto_dispatch_limit is rejected on create and routing-config patch
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
-

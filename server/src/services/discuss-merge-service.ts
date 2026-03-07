@@ -75,7 +75,7 @@ function mergeDiscussEntries(entries: BufferedDiscussMessage[]): MergedDiscussOu
       : `${taskId.replace(/[^a-zA-Z0-9._-]+/g, "-")}-merged-r${round}-${randomUUID().slice(0, 8)}`;
   const chosenDiscussId = `${chosenThreadId}-r${round}-q-merged-${randomUUID().slice(0, 6)}`;
   const title =
-    entries.length > 1 ? `Merged discuss request (${entries.length} items)` : discuss?.title ?? "Discuss request";
+    entries.length > 1 ? `Merged discuss request (${entries.length} items)` : (discuss?.title ?? "Discuss request");
 
   const mergedContent =
     entries.length === 1

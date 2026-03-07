@@ -187,6 +187,11 @@ interface Translations {
   confirmDeleteTeam: string;
   noTeams: string;
   loadingTeams: string;
+  workflow: string;
+  workflowTemplates: string;
+  workflowRuns: string;
+  newWorkflowTemplate: string;
+  newWorkflowRun: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -307,7 +312,8 @@ const translations: Record<Language, Translations> = {
     autoDispatchEnabledDesc: "Automatic dispatch is enabled. Tasks will be dispatched automatically.",
     autoDispatchDisabledDesc: "Automatic dispatch is disabled. Manual dispatch required.",
     autoDispatchRemaining: "Remaining Dispatches",
-    autoDispatchRemainingDesc: "Number of automatic dispatches remaining. Only successful task dispatches consume this quota.",
+    autoDispatchRemainingDesc:
+      "Number of automatic dispatches remaining. Only successful task dispatches consume this quota.",
     enabled: "Enabled",
     disabled: "Disabled",
     projectInfo: "Project Info",
@@ -375,6 +381,11 @@ const translations: Record<Language, Translations> = {
     confirmDeleteTeam: "Delete team",
     noTeams: "No teams found",
     loadingTeams: "Loading teams...",
+    workflow: "Workflow",
+    workflowTemplates: "Workflow Templates",
+    workflowRuns: "Workflow Runs",
+    newWorkflowTemplate: "New Template",
+    newWorkflowRun: "New Run"
   },
   zh: {
     home: "首页",
@@ -561,7 +572,12 @@ const translations: Record<Language, Translations> = {
     confirmDeleteTeam: "删除团队",
     noTeams: "暂无团队",
     loadingTeams: "加载团队...",
-  },
+    workflow: "任务流",
+    workflowTemplates: "任务流模板",
+    workflowRuns: "任务流运行",
+    newWorkflowTemplate: "新建模板",
+    newWorkflowRun: "新建运行"
+  }
 };
 
 export function useTranslation(): Translations {

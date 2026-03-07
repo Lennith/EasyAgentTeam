@@ -28,19 +28,19 @@ interface TaskDetailsModalProps {
 function combineMiniMaxLogs(timeline: AgentIOTimelineItem[]): MiniMaxLogItem[] {
   // 合并逻辑：按时间顺序遍历，把所有非 dispatch 事件连续出现的事件合并成一条
   // A (dispatch_started) -> B (其他事件，合并) -> C (其他事件) -> D (dispatch_finished)
-  
+
   const logs: MiniMaxLogItem[] = [];
   let currentLog: MiniMaxLogItem | null = null;
-  
+
   // 按时间排序 timeline
   const sortedTimeline = [...timeline].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
-  
+
   for (const item of sortedTimeline) {
     const raw = item as unknown as Record<string, unknown>;
     const kind = (raw.kind as string) || "";
-    
+
     // A 或 D 事件 - dispatch 开始/结束
     if (kind === "dispatch_started") {
       // 如果有之前的日志，先保存
@@ -57,11 +57,11 @@ function combineMiniMaxLogs(timeline: AgentIOTimelineItem[]): MiniMaxLogItem[] {
         from: item.from,
         toRole: item.toRole,
         runId: raw.runId as string | undefined,
-        taskId: item.taskId,
+        taskId: item.taskId
       };
     } else if (kind === "dispatch_finished") {
       // 找到对应的 dispatch started 日志并更新
-      const existingLog = logs.find(l => l.kind === "dispatch_started" && l.runId === raw.runId);
+      const existingLog = logs.find((l) => l.kind === "dispatch_started" && l.runId === raw.runId);
       if (existingLog) {
         existingLog.endTime = item.createdAt;
         existingLog.status = item.status === "failed" ? "failed" : "completed";
@@ -88,7 +88,7 @@ function combineMiniMaxLogs(timeline: AgentIOTimelineItem[]): MiniMaxLogItem[] {
           from: item.from,
           toRole: item.toRole,
           runId: raw.runId as string | undefined,
-          taskId: item.taskId,
+          taskId: item.taskId
         };
       } else {
         // 开始新的合并日志
@@ -100,12 +100,12 @@ function combineMiniMaxLogs(timeline: AgentIOTimelineItem[]): MiniMaxLogItem[] {
           from: item.from,
           toRole: item.toRole,
           runId: raw.runId as string | undefined,
-          taskId: item.taskId,
+          taskId: item.taskId
         };
       }
     }
   }
-  
+
   // 添加最后一个未完成的日志
   if (currentLog) {
     logs.push(currentLog);
@@ -114,25 +114,11 @@ function combineMiniMaxLogs(timeline: AgentIOTimelineItem[]): MiniMaxLogItem[] {
   return logs.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
 }
 
-// Helper to format param value for display
-function formatParamValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "object" && value !== null) {
-    try {
-      return JSON.stringify(value, null, 2);
-    } catch {
-      return String(value);
-    }
-  }
-  return String(value);
-}
-
 function RenderMinimaxLogEvents({ events }: { events: TaskLifecycleEvent[] }) {
   if (events.length === 0) return null;
 
   const contentByStream: Record<string, string[]> = {};
-  events.forEach(e => {
+  events.forEach((e) => {
     const stream = (e.payload?.stream as string) || "other";
     const content = (e.payload?.content as string) || "";
     if (!contentByStream[stream]) contentByStream[stream] = [];
@@ -140,7 +126,9 @@ function RenderMinimaxLogEvents({ events }: { events: TaskLifecycleEvent[] }) {
   });
 
   const firstTime = events[0]?.created_at ? new Date(events[0].created_at).toLocaleString() : "";
-  const lastTime = events[events.length - 1]?.created_at ? new Date(events[events.length - 1].created_at).toLocaleString() : "";
+  const lastTime = events[events.length - 1]?.created_at
+    ? new Date(events[events.length - 1].created_at).toLocaleString()
+    : "";
 
   const streamEntries = Object.entries(contentByStream);
   const lastIdx = streamEntries.length - 1;
@@ -152,23 +140,40 @@ function RenderMinimaxLogEvents({ events }: { events: TaskLifecycleEvent[] }) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", flex: 1, minHeight: 0, overflow: "hidden" }}>
         {streamEntries.map(([stream, contents], idx) => (
-          <div 
-            key={stream} 
-            style={{ 
-              padding: "12px", 
-              background: "var(--bg-surface)", 
+          <div
+            key={stream}
+            style={{
+              padding: "12px",
+              background: "var(--bg-surface)",
               borderRadius: "6px",
               display: "flex",
               flexDirection: "column",
               minHeight: 0,
               flex: idx === lastIdx ? 1 : "none",
-              overflow: "hidden",
+              overflow: "hidden"
             }}
           >
-            <div style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "8px", fontWeight: 500, flexShrink: 0 }}>
+            <div
+              style={{
+                fontSize: "14px",
+                color: "var(--text-muted)",
+                marginBottom: "8px",
+                fontWeight: 500,
+                flexShrink: 0
+              }}
+            >
               {stream.toUpperCase()} ({contents.length} lines)
             </div>
-            <pre style={{ fontSize: "14px", overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0, flex: 1 }}>
+            <pre
+              style={{
+                fontSize: "14px",
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+                margin: 0,
+                flex: 1
+              }}
+            >
               {contents.join("\n")}
             </pre>
           </div>
@@ -178,21 +183,17 @@ function RenderMinimaxLogEvents({ events }: { events: TaskLifecycleEvent[] }) {
   );
 }
 
-export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], createParams, minimaxLogEvents }: TaskDetailsModalProps) {
+export function TaskDetailsModal({
+  isOpen,
+  onClose,
+  children,
+  timeline = [],
+  createParams,
+  minimaxLogEvents
+}: TaskDetailsModalProps) {
   if (!isOpen) return null;
 
   const miniMaxLogs = combineMiniMaxLogs(timeline);
-
-  // Filter non-empty create params
-  const nonEmptyParams = createParams 
-    ? Object.entries(createParams).filter(([, value]) => {
-        if (value === null || value === undefined) return false;
-        if (typeof value === "string" && value.trim() === "") return false;
-        if (Array.isArray(value) && value.length === 0) return false;
-        if (typeof value === "object" && Object.keys(value as Record<string, unknown>).length === 0) return false;
-        return true;
-      })
-    : [];
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -203,7 +204,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
   const statusColors: Record<string, string> = {
     running: "var(--accent-warning)",
     completed: "var(--accent-success)",
-    failed: "var(--accent-danger)",
+    failed: "var(--accent-danger)"
   };
 
   return (
@@ -216,7 +217,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: "rgba(0, 0, 0, 0.5)",
-        zIndex: 1000,
+        zIndex: 1000
       }}
     >
       <div
@@ -230,7 +231,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
           WebkitBackdropFilter: "blur(10px)",
           borderRadius: "12px",
           border: "1px solid var(--border-color)",
-          overflow: "hidden",
+          overflow: "hidden"
         }}
       >
         <div
@@ -240,7 +241,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
             alignItems: "center",
             padding: "12px 16px",
             borderBottom: "1px solid var(--border-color)",
-            flexShrink: 0,
+            flexShrink: 0
           }}
         >
           <button
@@ -255,7 +256,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
               alignItems: "center",
               justifyContent: "center",
               borderRadius: "4px",
-              transition: "all 0.15s",
+              transition: "all 0.15s"
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "var(--bg-hover)";
@@ -273,7 +274,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
           style={{
             flex: 1,
             overflow: "auto",
-            padding: "16px",
+            padding: "16px"
           }}
         >
           {/* Create Parameters Section - Full JSON Display */}
@@ -282,22 +283,26 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
               <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "12px", color: "var(--text-primary)" }}>
                 Task Create Parameters
               </div>
-              <div style={{ 
-                padding: "16px", 
-                background: "var(--bg-surface)", 
-                borderRadius: "8px",
-                overflow: "auto",
-                maxHeight: "60vh",
-                border: "1px solid var(--border-color)",
-              }}>
-                <pre style={{ 
-                  fontSize: "13px", 
-                  lineHeight: "1.6",
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  color: "var(--text-primary)",
-                }}>
+              <div
+                style={{
+                  padding: "16px",
+                  background: "var(--bg-surface)",
+                  borderRadius: "8px",
+                  overflow: "auto",
+                  maxHeight: "60vh",
+                  border: "1px solid var(--border-color)"
+                }}
+              >
+                <pre
+                  style={{
+                    fontSize: "13px",
+                    lineHeight: "1.6",
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    color: "var(--text-primary)"
+                  }}
+                >
                   {JSON.stringify(createParams, null, 2)}
                 </pre>
               </div>
@@ -331,7 +336,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
                       padding: "10px 14px",
                       background: "var(--bg-elevated)",
                       borderRadius: "8px",
-                      fontSize: "14px",
+                      fontSize: "14px"
                     }}
                   >
                     <span
@@ -339,7 +344,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
                       style={{
                         background: statusColors[log.status] || "var(--text-muted)",
                         fontSize: "13px",
-                        padding: "4px 10px",
+                        padding: "4px 10px"
                       }}
                     >
                       {log.status}
@@ -354,9 +359,7 @@ export function TaskDetailsModal({ isOpen, onClose, children, timeline = [], cre
                       {log.endTime && <span> - {new Date(log.endTime).toLocaleTimeString()}</span>}
                     </span>
                     {log.runId && (
-                      <code style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                        {log.runId.slice(0, 12)}...
-                      </code>
+                      <code style={{ fontSize: "12px", color: "var(--text-muted)" }}>{log.runId.slice(0, 12)}...</code>
                     )}
                   </div>
                 ))}

@@ -1,7 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type { Message, LLMResponse, ToolSchema, ToolCall, TokenUsage } from '../types.js';
+import Anthropic from "@anthropic-ai/sdk";
+import type { Message, LLMResponse, ToolSchema, ToolCall, TokenUsage } from "../types.js";
 
-const MINIMAX_DOMAINS = ['api.minimax.io', 'api.minimaxi.com'];
+const MINIMAX_DOMAINS = ["api.minimax.io", "api.minimaxi.com"];
 
 export interface StreamCallbacks {
   onText?: (text: string) => void;
@@ -48,7 +48,7 @@ export function sanitizeMessagesForToolProtocol(messages: Message[]): ToolProtoc
   let correctedCount = 0;
 
   for (const message of messages) {
-    if (message.role === 'assistant') {
+    if (message.role === "assistant") {
       for (const toolCall of message.toolCalls ?? []) {
         if (toolCall.id && toolCall.id.trim().length > 0) {
           pendingToolUseIds.add(toolCall.id);
@@ -58,7 +58,7 @@ export function sanitizeMessagesForToolProtocol(messages: Message[]): ToolProtoc
       continue;
     }
 
-    if (message.role === 'tool') {
+    if (message.role === "tool") {
       const toolCallId = message.toolCallId?.trim();
       if (toolCallId && pendingToolUseIds.has(toolCallId)) {
         pendingToolUseIds.delete(toolCallId);
@@ -67,13 +67,13 @@ export function sanitizeMessagesForToolProtocol(messages: Message[]): ToolProtoc
       }
 
       correctedCount += 1;
-      const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+      const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content);
       const truncated = content.length > 500 ? `${content.slice(0, 500)}...(truncated)` : content;
       sanitized.push({
-        role: 'user',
+        role: "user",
         content:
           `[TOOLCALL_FAILED] Invalid tool_result without matching tool_use.` +
-          ` tool_call_id=${toolCallId ?? '(missing)'}, tool=${message.name ?? '(unknown)'}.` +
+          ` tool_call_id=${toolCallId ?? "(missing)"}, tool=${message.name ?? "(unknown)"}.` +
           ` original_content=${truncated}.` +
           ` next_action=Issue a fresh tool call and continue.`
       });
@@ -89,19 +89,12 @@ export function sanitizeMessagesForToolProtocol(messages: Message[]): ToolProtoc
 export function isMiniMaxToolResultIdNotFoundError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
-  return (
-    normalized.includes("(2013)") &&
-    normalized.includes("tool id") &&
-    normalized.includes("not found")
-  );
+  return normalized.includes("(2013)") && normalized.includes("tool id") && normalized.includes("not found");
 }
 
 export function extractMissingToolCallId(error: unknown): string | undefined {
   const message = error instanceof Error ? error.message : String(error);
-  const patterns = [
-    /tool id\(([^)]+)\)\s+not found/i,
-    /tool[_\s-]*use[_\s-]*id[=:]\s*([a-z0-9._:-]+)/i
-  ];
+  const patterns = [/tool id\(([^)]+)\)\s+not found/i, /tool[_\s-]*use[_\s-]*id[=:]\s*([a-z0-9._:-]+)/i];
   for (const pattern of patterns) {
     const match = message.match(pattern);
     if (match && match[1]) {
@@ -205,7 +198,10 @@ export function trimMessagesForContextWindow(
   });
 
   const reserveForNotice = 220;
-  const contentBudget = Math.max(1000, maxTotalChars - (systemMessage ? estimateMessageCharacters(systemMessage) : 0) - reserveForNotice);
+  const contentBudget = Math.max(
+    1000,
+    maxTotalChars - (systemMessage ? estimateMessageCharacters(systemMessage) : 0) - reserveForNotice
+  );
 
   const selected: Message[] = [];
   let selectedChars = 0;
@@ -260,36 +256,32 @@ export class LLMClient {
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 4096;
 
-    let apiBase = config.apiBase.replace(/\/$/, '');
-    
-    const isMinimax = MINIMAX_DOMAINS.some(domain => apiBase.includes(domain));
-    
+    let apiBase = config.apiBase.replace(/\/$/, "");
+
+    const isMinimax = MINIMAX_DOMAINS.some((domain) => apiBase.includes(domain));
+
     if (isMinimax) {
-      apiBase = apiBase.replace('/anthropic', '').replace('/v1', '');
+      apiBase = apiBase.replace("/anthropic", "").replace("/v1", "");
       apiBase = `${apiBase}/anthropic`;
     }
 
     this.client = new Anthropic({
       apiKey: config.apiKey,
-      baseURL: apiBase,
+      baseURL: apiBase
     });
   }
 
-  async generate(
-    messages: Message[],
-    tools?: ToolSchema[],
-    systemPrompt?: string
-  ): Promise<LLMResponse> {
+  async generate(messages: Message[], tools?: ToolSchema[], systemPrompt?: string): Promise<LLMResponse> {
     const preTrimSanitized = sanitizeMessagesForToolProtocol(messages);
     const trimmed = trimMessagesForContextWindow(preTrimSanitized.messages);
     // Trim may break tool_use -> tool_result adjacency; sanitize again after trim.
     const postTrimSanitized = sanitizeMessagesForToolProtocol(trimmed.messages);
     const anthropicMessages = this.convertMessages(postTrimSanitized.messages);
-    
+
     const requestParams: Anthropic.Messages.MessageCreateParams = {
       model: this.model,
       max_tokens: this.maxTokens,
-      messages: anthropicMessages,
+      messages: anthropicMessages
     };
 
     if (systemPrompt) {
@@ -297,10 +289,10 @@ export class LLMClient {
     }
 
     if (tools && tools.length > 0) {
-      requestParams.tools = tools.map(tool => ({
+      requestParams.tools = tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        input_schema: tool.inputSchema as Anthropic.Messages.Tool['input_schema'],
+        input_schema: tool.inputSchema as Anthropic.Messages.Tool["input_schema"]
       }));
     }
 
@@ -339,11 +331,11 @@ export class LLMClient {
     // Trim may break tool_use -> tool_result adjacency; sanitize again after trim.
     const postTrimSanitized = sanitizeMessagesForToolProtocol(trimmed.messages);
     const anthropicMessages = this.convertMessages(postTrimSanitized.messages);
-    
+
     const requestParams: Anthropic.Messages.MessageCreateParams = {
       model: this.model,
       max_tokens: this.maxTokens,
-      messages: anthropicMessages,
+      messages: anthropicMessages
     };
 
     if (systemPrompt) {
@@ -351,45 +343,45 @@ export class LLMClient {
     }
 
     if (tools && tools.length > 0) {
-      requestParams.tools = tools.map(tool => ({
+      requestParams.tools = tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        input_schema: tool.inputSchema as Anthropic.Messages.Tool['input_schema'],
+        input_schema: tool.inputSchema as Anthropic.Messages.Tool["input_schema"]
       }));
     }
 
     const stream = this.client.messages.stream(requestParams);
 
-    let content = '';
-    let thinking = '';
+    let content = "";
+    let thinking = "";
     const toolCalls: ToolCall[] = [];
     let usage: TokenUsage | undefined;
 
     for await (const event of stream) {
-      if (event.type === 'content_block_delta') {
+      if (event.type === "content_block_delta") {
         const delta = event.delta;
-        
-        if (delta.type === 'text_delta') {
+
+        if (delta.type === "text_delta") {
           content += delta.text;
-          yield { type: 'text', data: delta.text };
-        } else if (delta.type === 'thinking_delta') {
+          yield { type: "text", data: delta.text };
+        } else if (delta.type === "thinking_delta") {
           thinking += delta.thinking;
-          yield { type: 'thinking', data: delta.thinking };
-        } else if (delta.type === 'input_json_delta') {
-          yield { type: 'tool_input', data: delta.partial_json };
+          yield { type: "thinking", data: delta.thinking };
+        } else if (delta.type === "input_json_delta") {
+          yield { type: "tool_input", data: delta.partial_json };
         }
-      } else if (event.type === 'content_block_start') {
+      } else if (event.type === "content_block_start") {
         const block = event.content_block;
-        if (block.type === 'tool_use') {
-          yield { type: 'tool_start', data: { id: block.id, name: block.name } };
+        if (block.type === "tool_use") {
+          yield { type: "tool_start", data: { id: block.id, name: block.name } };
         }
-      } else if (event.type === 'message_start') {
+      } else if (event.type === "message_start") {
         usage = {
           promptTokens: event.message.usage.input_tokens,
           completionTokens: 0,
-          totalTokens: event.message.usage.input_tokens,
+          totalTokens: event.message.usage.input_tokens
         };
-      } else if (event.type === 'message_delta') {
+      } else if (event.type === "message_delta") {
         if (usage && event.usage) {
           usage.completionTokens = event.usage.output_tokens;
           usage.totalTokens = usage.promptTokens + usage.completionTokens;
@@ -400,7 +392,7 @@ export class LLMClient {
     const finalMessage = await stream.finalMessage();
     const response = this.convertResponse(finalMessage);
 
-    yield { type: 'complete', data: response };
+    yield { type: "complete", data: response };
     return response;
   }
 
@@ -415,17 +407,17 @@ export class LLMClient {
 
     for await (const event of generator) {
       switch (event.type) {
-        case 'text':
+        case "text":
           callbacks.onText?.(event.data as string);
           break;
-        case 'thinking':
+        case "thinking":
           callbacks.onThinking?.(event.data as string);
           break;
-        case 'tool_start':
+        case "tool_start":
           const toolStart = event.data as { id: string; name: string };
           callbacks.onToolUse?.(toolStart.id, toolStart.name, {});
           break;
-        case 'complete':
+        case "complete":
           finalResponse = event.data as LLMResponse;
           callbacks.onComplete?.(finalResponse);
           break;
@@ -436,82 +428,82 @@ export class LLMClient {
   }
 
   private convertMessages(messages: Message[]): Anthropic.Messages.MessageParam[] {
-    return messages.map(msg => {
-      if (msg.role === 'system') {
-        return { role: 'user' as const, content: msg.content };
+    return messages.map((msg) => {
+      if (msg.role === "system") {
+        return { role: "user" as const, content: msg.content };
       }
 
-      if (msg.role === 'tool') {
+      if (msg.role === "tool") {
         return {
-          role: 'user' as const,
+          role: "user" as const,
           content: [
             {
-              type: 'tool_result',
-              tool_use_id: msg.toolCallId ?? '',
-              content: msg.content,
-            },
-          ],
+              type: "tool_result",
+              tool_use_id: msg.toolCallId ?? "",
+              content: msg.content
+            }
+          ]
         };
       }
 
-      if (msg.role === 'assistant') {
+      if (msg.role === "assistant") {
         const content: Anthropic.Messages.ContentBlock[] = [];
-        
+
         if (msg.thinking) {
           content.push({
-            type: 'thinking',
-            thinking: msg.thinking,
+            type: "thinking",
+            thinking: msg.thinking
           } as Anthropic.Messages.ContentBlock);
         }
 
-        if (typeof msg.content === 'string' && msg.content) {
+        if (typeof msg.content === "string" && msg.content) {
           content.push({
-            type: 'text',
-            text: msg.content,
+            type: "text",
+            text: msg.content
           } as Anthropic.Messages.ContentBlock);
         }
 
         if (msg.toolCalls && msg.toolCalls.length > 0) {
           for (const tc of msg.toolCalls) {
             content.push({
-              type: 'tool_use',
+              type: "tool_use",
               id: tc.id,
               name: tc.function.name,
-              input: tc.function.arguments,
+              input: tc.function.arguments
             } as Anthropic.Messages.ContentBlock);
           }
         }
 
-        return { role: 'assistant', content };
+        return { role: "assistant", content };
       }
 
-      if (typeof msg.content === 'string') {
-        return { role: 'user', content: msg.content };
+      if (typeof msg.content === "string") {
+        return { role: "user", content: msg.content };
       }
 
-      return { role: 'user', content: msg.content };
+      return { role: "user", content: msg.content };
     }) as Anthropic.Messages.MessageParam[];
   }
 
   private convertResponse(response: Anthropic.Messages.Message): LLMResponse {
-    let content = '';
+    let content = "";
     let thinking: string | undefined;
     const toolCalls: ToolCall[] = [];
     let usage: TokenUsage | undefined;
 
     for (const block of response.content) {
-      if (block.type === 'text') {
+      if (block.type === "text") {
         content += block.text;
-      } else if (block.type === 'thinking') {
+      } else if (block.type === "thinking") {
         thinking = (block as any).thinking;
-      } else if (block.type === 'tool_use') {
+      } else if (block.type === "tool_use") {
         toolCalls.push({
           id: block.id,
-          type: 'function',
+          type: "function",
           function: {
             name: block.name,
-            arguments: block.input as Record<string, unknown>,
-          },
+            arguments: block.input as Record<string, unknown>
+          }
         });
       }
     }
@@ -520,7 +512,7 @@ export class LLMClient {
       usage = {
         promptTokens: response.usage.input_tokens,
         completionTokens: response.usage.output_tokens,
-        totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+        totalTokens: response.usage.input_tokens + response.usage.output_tokens
       };
     }
 
@@ -528,8 +520,8 @@ export class LLMClient {
       content,
       thinking,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      finishReason: response.stop_reason ?? 'end_turn',
-      usage,
+      finishReason: response.stop_reason ?? "end_turn",
+      usage
     };
   }
 }

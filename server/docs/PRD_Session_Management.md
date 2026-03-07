@@ -3,6 +3,7 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 Session 管理模块负责项目内角色会话生命周期与角色会话槽位维护，核心是单 `sessionId` 通道：
 
 - 会话创建、更新、查询、状态迁移
@@ -48,19 +49,19 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 
 `POST /api/projects/:id/sessions`
 
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| role | string | 是 | 角色名 |
-| status | string | 否 | 初始状态，默认 `idle` |
-| current_task_id | string | 否 | 当前任务 |
+| 参数            | 类型   | 必填 | 说明                  |
+| --------------- | ------ | ---- | --------------------- |
+| role            | string | 是   | 角色名                |
+| status          | string | 否   | 初始状态，默认 `idle` |
+| current_task_id | string | 否   | 当前任务              |
 
 #### 修复会话
 
 `POST /api/projects/:id/sessions/:session_id/repair`
 
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| target_status | `idle \| blocked` | 是 | 目标状态 |
+| 参数          | 类型              | 必填 | 说明     |
+| ------------- | ----------------- | ---- | -------- |
+| target_status | `idle \| blocked` | 是   | 目标状态 |
 
 ### 3.2 输出
 
@@ -105,12 +106,12 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 
 ## 6. 异常与边界
 
-| 场景 | 错误码 |
-|---|---|
-| role 缺失 | `INVALID_ROLE` |
-| status 非法 | `INVALID_STATUS` |
-| 同 role 冲突 | `SESSION_ROLE_CONFLICT` |
-| session 不存在 | `SESSION_NOT_FOUND` |
+| 场景            | 错误码                           |
+| --------------- | -------------------------------- |
+| role 缺失       | `INVALID_ROLE`                   |
+| status 非法     | `INVALID_STATUS`                 |
+| 同 role 冲突    | `SESSION_ROLE_CONFLICT`          |
+| session 不存在  | `SESSION_NOT_FOUND`              |
 | provider 不支持 | `SESSION_PROVIDER_NOT_SUPPORTED` |
 
 ---

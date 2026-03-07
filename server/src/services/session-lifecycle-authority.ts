@@ -41,16 +41,8 @@ function parseTimestampMs(value: string | undefined): number {
 }
 
 function sortByRecent(a: SessionRecord, b: SessionRecord): number {
-  const aKey = Math.max(
-    parseTimestampMs(a.lastActiveAt),
-    parseTimestampMs(a.updatedAt),
-    parseTimestampMs(a.createdAt)
-  );
-  const bKey = Math.max(
-    parseTimestampMs(b.lastActiveAt),
-    parseTimestampMs(b.updatedAt),
-    parseTimestampMs(b.createdAt)
-  );
+  const aKey = Math.max(parseTimestampMs(a.lastActiveAt), parseTimestampMs(a.updatedAt), parseTimestampMs(a.createdAt));
+  const bKey = Math.max(parseTimestampMs(b.lastActiveAt), parseTimestampMs(b.updatedAt), parseTimestampMs(b.createdAt));
   if (aKey !== bKey) {
     return bKey - aKey;
   }
@@ -195,10 +187,7 @@ export async function markRunnerStarted(input: RunnerLifecycleBaseInput): Promis
     currentTaskId: input.taskId ?? existing.currentTaskId ?? null,
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: now,
-    providerSessionId:
-      input.providerSessionId === undefined
-        ? existing.providerSessionId
-        : input.providerSessionId,
+    providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
     provider: input.provider ?? existing.provider ?? "codex",
     lastRunId: input.runId ?? existing.lastRunId,
     lastDispatchId: input.dispatchId ?? existing.lastDispatchId,
@@ -227,10 +216,7 @@ export async function markRunnerSuccess(input: RunnerLifecycleBaseInput): Promis
     currentTaskId: input.taskId ?? existing.currentTaskId ?? null,
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: now,
-    providerSessionId:
-      input.providerSessionId === undefined
-        ? existing.providerSessionId
-        : input.providerSessionId,
+    providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
     provider: input.provider ?? existing.provider ?? "codex",
     timeoutStreak: 0,
     errorStreak: 0,
@@ -242,7 +228,9 @@ export async function markRunnerSuccess(input: RunnerLifecycleBaseInput): Promis
   });
 }
 
-export async function markRunnerTimeout(input: RunnerLifecycleBaseInput): Promise<{ session: SessionRecord | null; escalated: boolean }> {
+export async function markRunnerTimeout(
+  input: RunnerLifecycleBaseInput
+): Promise<{ session: SessionRecord | null; escalated: boolean }> {
   const existing = await getSession(input.paths, input.project.projectId, input.sessionId);
   if (!existing) {
     return { session: null, escalated: false };
@@ -260,10 +248,7 @@ export async function markRunnerTimeout(input: RunnerLifecycleBaseInput): Promis
     currentTaskId: input.taskId ?? existing.currentTaskId ?? null,
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: now,
-    providerSessionId:
-      input.providerSessionId === undefined
-        ? existing.providerSessionId
-        : input.providerSessionId,
+    providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
     provider: input.provider ?? existing.provider ?? "codex",
     timeoutStreak,
     lastFailureAt: now,
@@ -303,10 +288,7 @@ export async function markRunnerFatalError(input: RunnerErrorInput): Promise<Ses
     currentTaskId: input.taskId ?? existing.currentTaskId ?? null,
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: now,
-    providerSessionId:
-      input.providerSessionId === undefined
-        ? existing.providerSessionId
-        : input.providerSessionId,
+    providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
     provider: input.provider ?? existing.provider ?? "codex",
     errorStreak,
     lastFailureAt: now,

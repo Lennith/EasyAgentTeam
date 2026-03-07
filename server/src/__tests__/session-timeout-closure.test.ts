@@ -93,9 +93,7 @@ test("running session timeout appends dispatch/run closure events", async () => 
   assert.equal((dispatchClosed?.payload as Record<string, unknown>).timedOut, true);
 
   const timeoutSoft = events.find(
-    (item) =>
-      item.eventType === "RUNNER_TIMEOUT_SOFT" &&
-      item.sessionId === "sess-timeout"
+    (item) => item.eventType === "RUNNER_TIMEOUT_SOFT" && item.sessionId === "sess-timeout"
   );
   assert.ok(timeoutSoft);
 
@@ -109,9 +107,7 @@ test("running session timeout appends dispatch/run closure events", async () => 
   assert.equal((runFinished?.payload as Record<string, unknown>).status, "timeout");
 
   const terminationAttempted = events.find(
-    (item) =>
-      item.eventType === "SESSION_PROCESS_TERMINATION_ATTEMPTED" &&
-      item.sessionId === "sess-timeout"
+    (item) => item.eventType === "SESSION_PROCESS_TERMINATION_ATTEMPTED" && item.sessionId === "sess-timeout"
   );
   assert.ok(terminationAttempted);
 });

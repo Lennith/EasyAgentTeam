@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { ProjectPaths, ProjectRecord, TaskActionResult, TaskReport, TaskState, ManagerToAgentMessage } from "../domain/models.js";
+import type {
+  ProjectPaths,
+  ProjectRecord,
+  TaskActionResult,
+  TaskReport,
+  TaskState,
+  ManagerToAgentMessage
+} from "../domain/models.js";
 import { appendEvent } from "../data/event-store.js";
 import { isProjectRouteAllowed, isTaskAssignRouteAllowed, setRoleSessionMapping } from "../data/project-store.js";
 import { addSession, getSession } from "../data/session-store.js";
@@ -87,22 +94,25 @@ interface TaskReportRejectedResult {
   reported_target_state?: TaskState;
 }
 
-function buildTaskAssignmentMessageForTask(project: ProjectRecord, task: {
-  taskId: string;
-  taskKind?: string;
-  parentTaskId: string;
-  rootTaskId?: string;
-  title: string;
-  state?: string;
-  ownerRole: string;
-  ownerSession?: string;
-  priority?: number;
-  writeSet?: string[];
-  dependencies?: string[];
-  acceptance?: string[];
-  artifacts?: string[];
-  lastSummary?: string;
-}): ManagerToAgentMessage {
+function buildTaskAssignmentMessageForTask(
+  project: ProjectRecord,
+  task: {
+    taskId: string;
+    taskKind?: string;
+    parentTaskId: string;
+    rootTaskId?: string;
+    title: string;
+    state?: string;
+    ownerRole: string;
+    ownerSession?: string;
+    priority?: number;
+    writeSet?: string[];
+    dependencies?: string[];
+    acceptance?: string[];
+    artifacts?: string[];
+    lastSummary?: string;
+  }
+): ManagerToAgentMessage {
   const requestId = randomUUID();
   return {
     envelope: {
@@ -379,7 +389,10 @@ function normalizeTaskReport(
   payload: Record<string, unknown>
 ): TaskReport {
   const reportId = readString(payload.report_id) ?? readString(payload.reportId) ?? randomUUID();
-  if (Object.prototype.hasOwnProperty.call(payload, "report_mode") || Object.prototype.hasOwnProperty.call(payload, "reportMode")) {
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "report_mode") ||
+    Object.prototype.hasOwnProperty.call(payload, "reportMode")
+  ) {
     throw new TaskActionError(
       "TASK_REPORT report_mode is retired. Use results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.",
       "TASK_ACTION_INVALID",
@@ -521,449 +534,457 @@ export async function handleTaskAction(
     }
 
     if (actionType === "TASK_CREATE") {
-    const taskId = readString(actionInput.task_id) ?? readString(actionInput.taskId);
-    const title = readString(actionInput.title);
-    const ownerRole = readString(actionInput.owner_role) ?? readString(actionInput.ownerRole) ?? toRole;
-    const parentTaskId = readString(actionInput.parent_task_id) ?? readString(actionInput.parentTaskId);
-    const taskKind = (readString(actionInput.task_kind) ?? readString(actionInput.taskKind)) as
-      | "PROJECT_ROOT"
-      | "USER_ROOT"
-      | "EXECUTION"
-      | undefined;
-    if (!taskId || !title || !ownerRole || (!parentTaskId && taskKind !== "PROJECT_ROOT")) {
-      throw new TaskActionError(
-        "TASK_CREATE requires task_id, title, parent_task_id, owner_role",
-        "TASK_BINDING_REQUIRED",
-        400
-      );
-    }
-    if (!isTaskAssignRouteAllowed(project, fromAgent, ownerRole)) {
-      throw new TaskActionError("task assign route denied", "TASK_ROUTE_DENIED");
-    }
-    const ownerSession = await resolveTargetSession(dataRoot, project, paths, ownerRole, toSessionId);
-    const created = await createTask(paths, project.projectId, {
-      taskId,
-      taskKind: taskKind as any,
-      parentTaskId,
-      rootTaskId: readString(actionInput.root_task_id) ?? readString(actionInput.rootTaskId),
-      title,
-      creatorRole: fromAgent,
-      creatorSessionId: fromSessionId,
-      ownerRole,
-      ownerSession,
-      priority: Number(actionInput.priority ?? 0),
-      dependencies: readStringList(actionInput.dependencies),
-      writeSet: readStringList(actionInput.write_set ?? actionInput.writeSet),
-      acceptance: readStringList(actionInput.acceptance),
-      artifacts: readStringList(actionInput.artifacts),
-      state: "PLANNED"
-    });
-    await recomputeRunnableStates(paths, project.projectId);
-    await appendEvent(paths, {
-      projectId: project.projectId,
-      eventType: "TASK_CREATED",
-      source: "manager",
-      sessionId: fromSessionId,
-      taskId: created.taskId,
-      payload: {
-        requestId,
-        ownerRole: created.ownerRole,
-        ownerSession: created.ownerSession ?? null
+      const taskId = readString(actionInput.task_id) ?? readString(actionInput.taskId);
+      const title = readString(actionInput.title);
+      const ownerRole = readString(actionInput.owner_role) ?? readString(actionInput.ownerRole) ?? toRole;
+      const parentTaskId = readString(actionInput.parent_task_id) ?? readString(actionInput.parentTaskId);
+      const taskKind = (readString(actionInput.task_kind) ?? readString(actionInput.taskKind)) as
+        | "PROJECT_ROOT"
+        | "USER_ROOT"
+        | "EXECUTION"
+        | undefined;
+      if (!taskId || !title || !ownerRole || (!parentTaskId && taskKind !== "PROJECT_ROOT")) {
+        throw new TaskActionError(
+          "TASK_CREATE requires task_id, title, parent_task_id, owner_role",
+          "TASK_BINDING_REQUIRED",
+          400
+        );
       }
-    });
-    if (created.ownerSession && created.taskKind !== "PROJECT_ROOT" && created.taskKind !== "USER_ROOT") {
-      const taskMessage = buildTaskAssignmentMessageForTask(project, {
+      if (!isTaskAssignRouteAllowed(project, fromAgent, ownerRole)) {
+        throw new TaskActionError("task assign route denied", "TASK_ROUTE_DENIED");
+      }
+      const ownerSession = await resolveTargetSession(dataRoot, project, paths, ownerRole, toSessionId);
+      const created = await createTask(paths, project.projectId, {
+        taskId,
+        taskKind: taskKind as any,
+        parentTaskId,
+        rootTaskId: readString(actionInput.root_task_id) ?? readString(actionInput.rootTaskId),
+        title,
+        creatorRole: fromAgent,
+        creatorSessionId: fromSessionId,
+        ownerRole,
+        ownerSession,
+        priority: Number(actionInput.priority ?? 0),
+        dependencies: readStringList(actionInput.dependencies),
+        writeSet: readStringList(actionInput.write_set ?? actionInput.writeSet),
+        acceptance: readStringList(actionInput.acceptance),
+        artifacts: readStringList(actionInput.artifacts),
+        state: "PLANNED"
+      });
+      await recomputeRunnableStates(paths, project.projectId);
+      await appendEvent(paths, {
+        projectId: project.projectId,
+        eventType: "TASK_CREATED",
+        source: "manager",
+        sessionId: fromSessionId,
         taskId: created.taskId,
-        taskKind: created.taskKind,
-        parentTaskId: created.parentTaskId,
-        rootTaskId: created.rootTaskId,
-        title: created.title,
-        state: created.state,
-        ownerRole: created.ownerRole,
-        ownerSession: created.ownerSession,
-        priority: created.priority,
-        writeSet: created.writeSet,
-        dependencies: created.dependencies,
-        acceptance: created.acceptance,
-        artifacts: created.artifacts,
-        lastSummary: created.lastSummary
+        payload: {
+          requestId,
+          ownerRole: created.ownerRole,
+          ownerSession: created.ownerSession ?? null
+        }
       });
-      await deliverManagerMessage({
-        dataRoot,
-        project,
-        paths,
-        message: taskMessage,
-        targetRole: created.ownerRole,
-        targetSessionId: created.ownerSession,
-        updateRoleSessionMap: true
-      });
-    }
-    return {
-      success: true,
-      requestId,
-      actionType: "TASK_CREATE",
-      taskId: created.taskId
-    };
-  }
-
-  if (actionType === "TASK_UPDATE") {
-    const taskId = readString(actionInput.task_id) ?? readString(actionInput.taskId) ?? defaultTaskId;
-    if (!taskId) {
-      throw new TaskActionError("TASK_UPDATE requires task_id", "TASK_BINDING_REQUIRED", 400);
-    }
-    const existing = await getTask(paths, project.projectId, taskId);
-    if (!existing) {
-      throw new TaskActionError(`task '${taskId}' not found`, "TASK_NOT_FOUND", 404);
-    }
-    const patch: TaskPatchInput = {};
-    if (Object.prototype.hasOwnProperty.call(actionInput, "title")) {
-      patch.title = readString(actionInput.title) ?? undefined;
-    }
-    if (Object.prototype.hasOwnProperty.call(actionInput, "dependencies")) {
-      patch.dependencies = readStringList(actionInput.dependencies);
-    }
-    if (Object.prototype.hasOwnProperty.call(actionInput, "write_set") || Object.prototype.hasOwnProperty.call(actionInput, "writeSet")) {
-      patch.writeSet = readStringList(actionInput.write_set ?? actionInput.writeSet);
-    }
-    if (Object.prototype.hasOwnProperty.call(actionInput, "acceptance")) {
-      patch.acceptance = readStringList(actionInput.acceptance);
-    }
-    if (Object.prototype.hasOwnProperty.call(actionInput, "artifacts")) {
-      patch.artifacts = readStringList(actionInput.artifacts);
-    }
-    if (Object.prototype.hasOwnProperty.call(actionInput, "priority")) {
-      const priority = Number(actionInput.priority);
-      if (Number.isFinite(priority)) {
-        patch.priority = Math.floor(priority);
+      if (created.ownerSession && created.taskKind !== "PROJECT_ROOT" && created.taskKind !== "USER_ROOT") {
+        const taskMessage = buildTaskAssignmentMessageForTask(project, {
+          taskId: created.taskId,
+          taskKind: created.taskKind,
+          parentTaskId: created.parentTaskId,
+          rootTaskId: created.rootTaskId,
+          title: created.title,
+          state: created.state,
+          ownerRole: created.ownerRole,
+          ownerSession: created.ownerSession,
+          priority: created.priority,
+          writeSet: created.writeSet,
+          dependencies: created.dependencies,
+          acceptance: created.acceptance,
+          artifacts: created.artifacts,
+          lastSummary: created.lastSummary
+        });
+        await deliverManagerMessage({
+          dataRoot,
+          project,
+          paths,
+          message: taskMessage,
+          targetRole: created.ownerRole,
+          targetSessionId: created.ownerSession,
+          updateRoleSessionMap: true
+        });
       }
-    }
-    if (Object.prototype.hasOwnProperty.call(actionInput, "alert")) {
-      patch.alert = readString(actionInput.alert) ?? null;
-    }
-    const patched = await patchTask(paths, project.projectId, taskId, patch);
-    await recomputeRunnableStates(paths, project.projectId);
-    await appendEvent(paths, {
-      projectId: project.projectId,
-      eventType: "TASK_UPDATED",
-      source: "manager",
-      sessionId: fromSessionId,
-      taskId: patched.task.taskId,
-      payload: {
+      return {
+        success: true,
         requestId,
-        updates: patch
-      }
-    });
-    return {
-      success: true,
-      requestId,
-      actionType: "TASK_UPDATE",
-      taskId: patched.task.taskId
-    };
-  }
+        actionType: "TASK_CREATE",
+        taskId: created.taskId
+      };
+    }
 
-  if (actionType === "TASK_ASSIGN") {
-    const taskId = readString(actionInput.task_id) ?? readString(actionInput.taskId) ?? defaultTaskId;
-    const ownerRole = readString(actionInput.owner_role) ?? readString(actionInput.ownerRole) ?? toRole;
-    if (!taskId || !ownerRole) {
-      throw new TaskActionError("TASK_ASSIGN requires task_id and owner_role", "TASK_BINDING_REQUIRED", 400);
-    }
-    if (!isTaskAssignRouteAllowed(project, fromAgent, ownerRole)) {
-      throw new TaskActionError("task assign route denied", "TASK_ROUTE_DENIED");
-    }
-    const ownerSession = await resolveTargetSession(dataRoot, project, paths, ownerRole, toSessionId);
-    const dependenciesProvided = Object.prototype.hasOwnProperty.call(actionInput, "dependencies");
-    const patched = await patchTask(paths, project.projectId, taskId, {
-      ownerRole,
-      ownerSession,
-      dependencies: dependenciesProvided ? readStringList(actionInput.dependencies) : undefined,
-      priority: Number(actionInput.priority ?? Number.NaN),
-      state: "PLANNED"
-    });
-    await recomputeRunnableStates(paths, project.projectId);
-    await appendEvent(paths, {
-      projectId: project.projectId,
-      eventType: "TASK_ASSIGN_UPDATED",
-      source: "manager",
-      sessionId: fromSessionId,
-      taskId: patched.task.taskId,
-      payload: {
-        requestId,
-        ownerRole: patched.task.ownerRole,
-        ownerSession: patched.task.ownerSession ?? null
+    if (actionType === "TASK_UPDATE") {
+      const taskId = readString(actionInput.task_id) ?? readString(actionInput.taskId) ?? defaultTaskId;
+      if (!taskId) {
+        throw new TaskActionError("TASK_UPDATE requires task_id", "TASK_BINDING_REQUIRED", 400);
       }
-    });
-    if (patched.task.ownerSession && patched.task.taskKind !== "PROJECT_ROOT" && patched.task.taskKind !== "USER_ROOT") {
-      const taskMessage = buildTaskAssignmentMessageForTask(project, {
+      const existing = await getTask(paths, project.projectId, taskId);
+      if (!existing) {
+        throw new TaskActionError(`task '${taskId}' not found`, "TASK_NOT_FOUND", 404);
+      }
+      const patch: TaskPatchInput = {};
+      if (Object.prototype.hasOwnProperty.call(actionInput, "title")) {
+        patch.title = readString(actionInput.title) ?? undefined;
+      }
+      if (Object.prototype.hasOwnProperty.call(actionInput, "dependencies")) {
+        patch.dependencies = readStringList(actionInput.dependencies);
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(actionInput, "write_set") ||
+        Object.prototype.hasOwnProperty.call(actionInput, "writeSet")
+      ) {
+        patch.writeSet = readStringList(actionInput.write_set ?? actionInput.writeSet);
+      }
+      if (Object.prototype.hasOwnProperty.call(actionInput, "acceptance")) {
+        patch.acceptance = readStringList(actionInput.acceptance);
+      }
+      if (Object.prototype.hasOwnProperty.call(actionInput, "artifacts")) {
+        patch.artifacts = readStringList(actionInput.artifacts);
+      }
+      if (Object.prototype.hasOwnProperty.call(actionInput, "priority")) {
+        const priority = Number(actionInput.priority);
+        if (Number.isFinite(priority)) {
+          patch.priority = Math.floor(priority);
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(actionInput, "alert")) {
+        patch.alert = readString(actionInput.alert) ?? null;
+      }
+      const patched = await patchTask(paths, project.projectId, taskId, patch);
+      await recomputeRunnableStates(paths, project.projectId);
+      await appendEvent(paths, {
+        projectId: project.projectId,
+        eventType: "TASK_UPDATED",
+        source: "manager",
+        sessionId: fromSessionId,
         taskId: patched.task.taskId,
-        taskKind: patched.task.taskKind,
-        parentTaskId: patched.task.parentTaskId,
-        rootTaskId: patched.task.rootTaskId,
-        title: patched.task.title,
-        state: patched.task.state,
-        ownerRole: patched.task.ownerRole,
-        ownerSession: patched.task.ownerSession,
-        priority: patched.task.priority,
-        writeSet: patched.task.writeSet,
-        dependencies: patched.task.dependencies,
-        acceptance: patched.task.acceptance,
-        artifacts: patched.task.artifacts,
-        lastSummary: patched.task.lastSummary
+        payload: {
+          requestId,
+          updates: patch
+        }
       });
-      await deliverManagerMessage({
-        dataRoot,
-        project,
-        paths,
-        message: taskMessage,
-        targetRole: patched.task.ownerRole,
-        targetSessionId: patched.task.ownerSession,
-        updateRoleSessionMap: true
-      });
+      return {
+        success: true,
+        requestId,
+        actionType: "TASK_UPDATE",
+        taskId: patched.task.taskId
+      };
     }
-    return {
-      success: true,
-      requestId,
-      actionType: "TASK_ASSIGN",
-      taskId: patched.task.taskId
-    };
-  }
 
-  if (
-    actionType === "TASK_DISCUSS_REQUEST" ||
-    actionType === "TASK_DISCUSS_REPLY" ||
-    actionType === "TASK_DISCUSS_CLOSED"
-  ) {
-    if (!toRole && !toSessionId) {
-      throw new TaskActionError("task discuss target is required", "TASK_BINDING_REQUIRED", 400);
+    if (actionType === "TASK_ASSIGN") {
+      const taskId = readString(actionInput.task_id) ?? readString(actionInput.taskId) ?? defaultTaskId;
+      const ownerRole = readString(actionInput.owner_role) ?? readString(actionInput.ownerRole) ?? toRole;
+      if (!taskId || !ownerRole) {
+        throw new TaskActionError("TASK_ASSIGN requires task_id and owner_role", "TASK_BINDING_REQUIRED", 400);
+      }
+      if (!isTaskAssignRouteAllowed(project, fromAgent, ownerRole)) {
+        throw new TaskActionError("task assign route denied", "TASK_ROUTE_DENIED");
+      }
+      const ownerSession = await resolveTargetSession(dataRoot, project, paths, ownerRole, toSessionId);
+      const dependenciesProvided = Object.prototype.hasOwnProperty.call(actionInput, "dependencies");
+      const patched = await patchTask(paths, project.projectId, taskId, {
+        ownerRole,
+        ownerSession,
+        dependencies: dependenciesProvided ? readStringList(actionInput.dependencies) : undefined,
+        priority: Number(actionInput.priority ?? Number.NaN),
+        state: "PLANNED"
+      });
+      await recomputeRunnableStates(paths, project.projectId);
+      await appendEvent(paths, {
+        projectId: project.projectId,
+        eventType: "TASK_ASSIGN_UPDATED",
+        source: "manager",
+        sessionId: fromSessionId,
+        taskId: patched.task.taskId,
+        payload: {
+          requestId,
+          ownerRole: patched.task.ownerRole,
+          ownerSession: patched.task.ownerSession ?? null
+        }
+      });
+      if (
+        patched.task.ownerSession &&
+        patched.task.taskKind !== "PROJECT_ROOT" &&
+        patched.task.taskKind !== "USER_ROOT"
+      ) {
+        const taskMessage = buildTaskAssignmentMessageForTask(project, {
+          taskId: patched.task.taskId,
+          taskKind: patched.task.taskKind,
+          parentTaskId: patched.task.parentTaskId,
+          rootTaskId: patched.task.rootTaskId,
+          title: patched.task.title,
+          state: patched.task.state,
+          ownerRole: patched.task.ownerRole,
+          ownerSession: patched.task.ownerSession,
+          priority: patched.task.priority,
+          writeSet: patched.task.writeSet,
+          dependencies: patched.task.dependencies,
+          acceptance: patched.task.acceptance,
+          artifacts: patched.task.artifacts,
+          lastSummary: patched.task.lastSummary
+        });
+        await deliverManagerMessage({
+          dataRoot,
+          project,
+          paths,
+          message: taskMessage,
+          targetRole: patched.task.ownerRole,
+          targetSessionId: patched.task.ownerSession,
+          updateRoleSessionMap: true
+        });
+      }
+      return {
+        success: true,
+        requestId,
+        actionType: "TASK_ASSIGN",
+        taskId: patched.task.taskId
+      };
     }
-    const resolvedToSessionEntry = toSessionId
-      ? await getSession(paths, project.projectId, toSessionId)
-      : null;
-    const resolvedToRole = toRole ?? resolvedToSessionEntry?.role;
-    if (!resolvedToRole) {
-      throw new TaskActionError("unable to resolve discuss target role", "TASK_BINDING_MISMATCH", 409);
-    }
-    if (!isProjectRouteAllowed(project, fromAgent, resolvedToRole)) {
-      throw new TaskActionError("discuss route denied", "TASK_ROUTE_DENIED");
-    }
-    const taskId = readString(actionInput.task_id) ?? readString(actionInput.taskId) ?? defaultTaskId;
-    if (!taskId) {
-      throw new TaskActionError("task_id is required for task discuss", "TASK_BINDING_REQUIRED", 400);
-    }
-    const resolvedToSession = await resolveTargetSession(dataRoot, project, paths, resolvedToRole, toSessionId);
-    const content = readString(actionInput.content) ?? "";
-    const messageId = randomUUID();
-    const managerMessage = {
-      envelope: {
-        message_id: messageId,
-        project_id: project.projectId,
-        timestamp: new Date().toISOString(),
-        sender: {
-          type: fromAgent === "manager" ? ("system" as const) : ("agent" as const),
-          role: fromAgent,
-          session_id: fromSessionId
-        },
-        via: { type: "manager" as const },
-        intent: "TASK_DISCUSS",
-        priority: "normal" as const,
-        correlation: {
-          request_id: requestId,
-          parent_request_id: readString(actionInput.parent_request_id),
-          task_id: taskId
-        },
-        accountability: {
-          owner_role: resolvedToRole,
-          report_to: {
+
+    if (
+      actionType === "TASK_DISCUSS_REQUEST" ||
+      actionType === "TASK_DISCUSS_REPLY" ||
+      actionType === "TASK_DISCUSS_CLOSED"
+    ) {
+      if (!toRole && !toSessionId) {
+        throw new TaskActionError("task discuss target is required", "TASK_BINDING_REQUIRED", 400);
+      }
+      const resolvedToSessionEntry = toSessionId ? await getSession(paths, project.projectId, toSessionId) : null;
+      const resolvedToRole = toRole ?? resolvedToSessionEntry?.role;
+      if (!resolvedToRole) {
+        throw new TaskActionError("unable to resolve discuss target role", "TASK_BINDING_MISMATCH", 409);
+      }
+      if (!isProjectRouteAllowed(project, fromAgent, resolvedToRole)) {
+        throw new TaskActionError("discuss route denied", "TASK_ROUTE_DENIED");
+      }
+      const taskId = readString(actionInput.task_id) ?? readString(actionInput.taskId) ?? defaultTaskId;
+      if (!taskId) {
+        throw new TaskActionError("task_id is required for task discuss", "TASK_BINDING_REQUIRED", 400);
+      }
+      const resolvedToSession = await resolveTargetSession(dataRoot, project, paths, resolvedToRole, toSessionId);
+      const content = readString(actionInput.content) ?? "";
+      const messageId = randomUUID();
+      const managerMessage = {
+        envelope: {
+          message_id: messageId,
+          project_id: project.projectId,
+          timestamp: new Date().toISOString(),
+          sender: {
+            type: fromAgent === "manager" ? ("system" as const) : ("agent" as const),
             role: fromAgent,
             session_id: fromSessionId
           },
-          expect: actionType === "TASK_DISCUSS_REQUEST" ? ("DISCUSS_REPLY" as const) : ("TASK_REPORT" as const)
+          via: { type: "manager" as const },
+          intent: "TASK_DISCUSS",
+          priority: "normal" as const,
+          correlation: {
+            request_id: requestId,
+            parent_request_id: readString(actionInput.parent_request_id),
+            task_id: taskId
+          },
+          accountability: {
+            owner_role: resolvedToRole,
+            report_to: {
+              role: fromAgent,
+              session_id: fromSessionId
+            },
+            expect: actionType === "TASK_DISCUSS_REQUEST" ? ("DISCUSS_REPLY" as const) : ("TASK_REPORT" as const)
+          },
+          dispatch_policy: "fixed_session" as const
         },
-        dispatch_policy: "fixed_session" as const
-      },
-      body: {
-        content,
-        mode: "CHAT",
-        messageType: actionType,
-        taskId,
-        discuss: actionInput.discuss ?? null
-      }
-    };
-    await deliverManagerMessage({
-      dataRoot,
-      project,
-      paths,
-      message: managerMessage,
-      targetRole: resolvedToRole,
-      targetSessionId: resolvedToSession,
-      currentTaskId: taskId,
-      updateRoleSessionMap: true
-    });
-
-    await emitUserMessageReceived(
-      {
-        projectId: project.projectId,
+        body: {
+          content,
+          mode: "CHAT",
+          messageType: actionType,
+          taskId,
+          discuss: actionInput.discuss ?? null
+        }
+      };
+      await deliverManagerMessage({
+        dataRoot,
+        project,
         paths,
-        source: "manager",
-        taskId
-      },
-      {
-        requestId,
-        content,
-        fromAgent,
-        toRole: resolvedToRole,
-        mode: "CHAT",
-        messageType: actionType,
-        taskId,
-        discuss: actionInput.discuss ?? null
-      }
-    );
-    await emitMessageRouted(
-      {
-        projectId: project.projectId,
-        paths,
-        source: "manager",
-        sessionId: resolvedToSession,
-        taskId
-      },
-      {
-        requestId,
-        toRole: resolvedToRole,
-        resolvedSessionId: resolvedToSession,
-        messageId,
-        mode: "CHAT",
-        messageType: actionType,
-        taskId,
-        discuss: actionInput.discuss ?? null,
-        content
-      }
-    );
-    return {
-      success: true,
-      requestId,
-      actionType: actionType as TaskActionResult["actionType"],
-      taskId,
-      messageId
-    };
-  }
+        message: managerMessage,
+        targetRole: resolvedToRole,
+        targetSessionId: resolvedToSession,
+        currentTaskId: taskId,
+        updateRoleSessionMap: true
+      });
 
-  if (actionType === "TASK_REPORT") {
-    const report = normalizeTaskReport(project.projectId, fromSessionId, fromAgent, actionInput);
-    const taskItems = await listTasks(paths, project.projectId);
-    const byId = new Map(taskItems.map((task) => [task.taskId, task]));
-
-    const acceptedResults: TaskReport["results"] = [];
-    const rejectedResults: TaskReportRejectedResult[] = [];
-    for (const result of report.results) {
-      const target = byId.get(result.taskId);
-      if (!target) {
-        rejectedResults.push({
-          task_id: result.taskId,
-          reason_code: "TASK_RESULT_INVALID_TARGET",
-          reason: `task '${result.taskId}' not found`
-        });
-        continue;
-      }
-
-      const authorized = target.ownerRole === fromAgent || target.creatorRole === fromAgent;
-      if (!authorized) {
-        rejectedResults.push({
-          task_id: result.taskId,
-          reason_code: "TASK_RESULT_INVALID_TARGET",
-          reason: `task '${result.taskId}' is neither owned nor created by ${fromAgent}`
-        });
-        continue;
-      }
-
-      const nextState = result.outcome;
-      if (!isAllowedTaskReportTransition(target.state, nextState)) {
-        rejectedResults.push({
-          task_id: result.taskId,
-          reason_code: "TASK_STATE_STALE",
-          reason: `stale transition ${target.state} -> ${nextState}`,
-          current_state: target.state,
-          reported_target_state: nextState
-        });
-        continue;
-      }
-
-      acceptedResults.push(result);
-    }
-
-    if (acceptedResults.length === 0) {
-      const onlyStale = rejectedResults.length > 0 && rejectedResults.every((item) => item.reason_code === "TASK_STATE_STALE");
-      throw new TaskActionError(
-        onlyStale ? "TASK_REPORT transition is stale for all reported tasks" : "TASK_REPORT has no acceptable results",
-        onlyStale ? "TASK_STATE_STALE" : "TASK_RESULT_INVALID_TARGET",
-        409,
+      await emitUserMessageReceived(
         {
-          reportId: report.reportId,
-          rejectedResults
+          projectId: project.projectId,
+          paths,
+          source: "manager",
+          taskId
+        },
+        {
+          requestId,
+          content,
+          fromAgent,
+          toRole: resolvedToRole,
+          mode: "CHAT",
+          messageType: actionType,
+          taskId,
+          discuss: actionInput.discuss ?? null
         }
       );
-    }
-
-    const acceptedTaskIds = acceptedResults.map((item) => item.taskId);
-    const acceptedReport: TaskReport = {
-      ...report,
-      results: acceptedResults
-    };
-
-    try {
-      await validateAgentProgressFile(project, fromAgent, acceptedReport, {
-        resultTaskIds: acceptedTaskIds
-      });
-    } catch (error) {
-      if (error instanceof TaskProgressValidationError) {
-        await appendEvent(paths, {
+      await emitMessageRouted(
+        {
           projectId: project.projectId,
-          eventType: "TASK_PROGRESS_VALIDATION_FAILED",
+          paths,
           source: "manager",
-          sessionId: fromSessionId,
-          payload: {
-            requestId,
-            fromAgent,
-            reason: error.message,
-            acceptedTaskIds
-          }
-        });
-        throw new TaskActionError(error.message, "TASK_PROGRESS_REQUIRED");
-      }
-      throw error;
+          sessionId: resolvedToSession,
+          taskId
+        },
+        {
+          requestId,
+          toRole: resolvedToRole,
+          resolvedSessionId: resolvedToSession,
+          messageId,
+          mode: "CHAT",
+          messageType: actionType,
+          taskId,
+          discuss: actionInput.discuss ?? null,
+          content
+        }
+      );
+      return {
+        success: true,
+        requestId,
+        actionType: actionType as TaskActionResult["actionType"],
+        taskId,
+        messageId
+      };
     }
 
-    const update = await updateTaskboardFromTaskReport(paths, project.projectId, acceptedReport);
-    await appendEvent(paths, {
-      projectId: project.projectId,
-      eventType: "TASK_REPORT_APPLIED",
-      source: "manager",
-      sessionId: fromSessionId,
-      taskId: report.parentTaskId ?? report.results[0]?.taskId,
-      payload: {
-        requestId,
-        fromAgent,
-        toRole: "manager",
-        reportId: report.reportId,
-        parentTaskId: report.parentTaskId ?? null,
-        updatedTaskIds: update.updatedTaskIds,
-        appliedTaskIds: acceptedTaskIds,
-        rejectedResults,
-        appliedCount: acceptedTaskIds.length,
-        rejectedCount: rejectedResults.length
-      }
-    });
-    await emitCreatorTerminalReportsIfReady(dataRoot, project, paths, requestId);
-    return {
-      success: true,
-      requestId,
-      actionType: "TASK_REPORT",
-      taskId: report.parentTaskId ?? report.results[0]?.taskId,
-      partialApplied: rejectedResults.length > 0,
-      appliedTaskIds: acceptedTaskIds,
-      rejectedResults
-    };
-  }
+    if (actionType === "TASK_REPORT") {
+      const report = normalizeTaskReport(project.projectId, fromSessionId, fromAgent, actionInput);
+      const taskItems = await listTasks(paths, project.projectId);
+      const byId = new Map(taskItems.map((task) => [task.taskId, task]));
 
-  throw new TaskActionError("unsupported action", "TASK_ACTION_INVALID", 400);
+      const acceptedResults: TaskReport["results"] = [];
+      const rejectedResults: TaskReportRejectedResult[] = [];
+      for (const result of report.results) {
+        const target = byId.get(result.taskId);
+        if (!target) {
+          rejectedResults.push({
+            task_id: result.taskId,
+            reason_code: "TASK_RESULT_INVALID_TARGET",
+            reason: `task '${result.taskId}' not found`
+          });
+          continue;
+        }
+
+        const authorized = target.ownerRole === fromAgent || target.creatorRole === fromAgent;
+        if (!authorized) {
+          rejectedResults.push({
+            task_id: result.taskId,
+            reason_code: "TASK_RESULT_INVALID_TARGET",
+            reason: `task '${result.taskId}' is neither owned nor created by ${fromAgent}`
+          });
+          continue;
+        }
+
+        const nextState = result.outcome;
+        if (!isAllowedTaskReportTransition(target.state, nextState)) {
+          rejectedResults.push({
+            task_id: result.taskId,
+            reason_code: "TASK_STATE_STALE",
+            reason: `stale transition ${target.state} -> ${nextState}`,
+            current_state: target.state,
+            reported_target_state: nextState
+          });
+          continue;
+        }
+
+        acceptedResults.push(result);
+      }
+
+      if (acceptedResults.length === 0) {
+        const onlyStale =
+          rejectedResults.length > 0 && rejectedResults.every((item) => item.reason_code === "TASK_STATE_STALE");
+        throw new TaskActionError(
+          onlyStale
+            ? "TASK_REPORT transition is stale for all reported tasks"
+            : "TASK_REPORT has no acceptable results",
+          onlyStale ? "TASK_STATE_STALE" : "TASK_RESULT_INVALID_TARGET",
+          409,
+          {
+            reportId: report.reportId,
+            rejectedResults
+          }
+        );
+      }
+
+      const acceptedTaskIds = acceptedResults.map((item) => item.taskId);
+      const acceptedReport: TaskReport = {
+        ...report,
+        results: acceptedResults
+      };
+
+      try {
+        await validateAgentProgressFile(project, fromAgent, acceptedReport, {
+          resultTaskIds: acceptedTaskIds
+        });
+      } catch (error) {
+        if (error instanceof TaskProgressValidationError) {
+          await appendEvent(paths, {
+            projectId: project.projectId,
+            eventType: "TASK_PROGRESS_VALIDATION_FAILED",
+            source: "manager",
+            sessionId: fromSessionId,
+            payload: {
+              requestId,
+              fromAgent,
+              reason: error.message,
+              acceptedTaskIds
+            }
+          });
+          throw new TaskActionError(error.message, "TASK_PROGRESS_REQUIRED");
+        }
+        throw error;
+      }
+
+      const update = await updateTaskboardFromTaskReport(paths, project.projectId, acceptedReport);
+      await appendEvent(paths, {
+        projectId: project.projectId,
+        eventType: "TASK_REPORT_APPLIED",
+        source: "manager",
+        sessionId: fromSessionId,
+        taskId: report.parentTaskId ?? report.results[0]?.taskId,
+        payload: {
+          requestId,
+          fromAgent,
+          toRole: "manager",
+          reportId: report.reportId,
+          parentTaskId: report.parentTaskId ?? null,
+          updatedTaskIds: update.updatedTaskIds,
+          appliedTaskIds: acceptedTaskIds,
+          rejectedResults,
+          appliedCount: acceptedTaskIds.length,
+          rejectedCount: rejectedResults.length
+        }
+      });
+      await emitCreatorTerminalReportsIfReady(dataRoot, project, paths, requestId);
+      return {
+        success: true,
+        requestId,
+        actionType: "TASK_REPORT",
+        taskId: report.parentTaskId ?? report.results[0]?.taskId,
+        partialApplied: rejectedResults.length > 0,
+        appliedTaskIds: acceptedTaskIds,
+        rejectedResults
+      };
+    }
+
+    throw new TaskActionError("unsupported action", "TASK_ACTION_INVALID", 400);
   } catch (error) {
     let normalizedError: unknown = error;
     if (error instanceof TaskboardStoreError) {

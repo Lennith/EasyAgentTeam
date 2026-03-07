@@ -1,21 +1,9 @@
-import * as path from 'path';
-import * as fs from 'fs';
-import {
-  LLMClient,
-  extractMissingToolCallId,
-  isMiniMaxToolResultIdNotFoundError
-} from '../llm/LLMClient.js';
-import { ToolRegistry, Tool } from '../tools/index.js';
-import { logger } from '../../utils/logger.js';
-import type {
-  Message,
-  AgentCallback,
-  ToolResult,
-  ToolCall,
-  Session,
-  TokenUsage,
-  LLMResponse,
-} from '../types.js';
+import * as path from "path";
+import * as fs from "fs";
+import { LLMClient, extractMissingToolCallId, isMiniMaxToolResultIdNotFoundError } from "../llm/LLMClient.js";
+import { ToolRegistry, Tool } from "../tools/index.js";
+import { logger } from "../../utils/logger.js";
+import type { Message, AgentCallback, ToolResult, ToolCall, Session, TokenUsage, LLMResponse } from "../types.js";
 
 export interface AgentRunResult {
   content: string;
@@ -42,7 +30,7 @@ export class Agent {
   private workspaceDir: string;
   private callback?: AgentCallback;
   private mcpToolDescriptions?: string;
-  
+
   private messages: Message[] = [];
   private sessionId: string | null = null;
   private isRunning: boolean = false;
@@ -55,7 +43,7 @@ export class Agent {
     this.systemPrompt = options.systemPrompt;
     this.maxSteps = options.maxSteps ?? 100;
     this.tokenLimit = options.tokenLimit ?? 80000;
-    this.workspaceDir = path.resolve(options.workspaceDir ?? './workspace');
+    this.workspaceDir = path.resolve(options.workspaceDir ?? "./workspace");
     this.callback = options.callback;
     this.mcpToolDescriptions = options.mcpToolDescriptions;
 
@@ -71,31 +59,31 @@ export class Agent {
 
   private initializeMessages(): void {
     let prompt = this.systemPrompt;
-    
-    if (!prompt.includes('Current Workspace')) {
+
+    if (!prompt.includes("Current Workspace")) {
       prompt += `\n\n## Current Workspace\nYou are currently working in: \`${this.workspaceDir}\`\nAll relative paths will be resolved relative to this directory.`;
     }
-    
+
     if (this.mcpToolDescriptions) {
       prompt += `\n\n## MCP Tools\nYou have access to the following MCP (Model Context Protocol) tools:\n${this.mcpToolDescriptions}`;
     }
-    
-    this.messages = [{ role: 'system', content: prompt }];
+
+    this.messages = [{ role: "system", content: prompt }];
   }
 
   private ensureSystemPrompt(): void {
-    if (this.messages.length === 0 || this.messages[0].role !== 'system') {
+    if (this.messages.length === 0 || this.messages[0].role !== "system") {
       let prompt = this.systemPrompt;
-      
-      if (!prompt.includes('Current Workspace')) {
+
+      if (!prompt.includes("Current Workspace")) {
         prompt += `\n\n## Current Workspace\nYou are currently working in: \`${this.workspaceDir}\`\nAll relative paths will be resolved relative to this directory.`;
       }
-      
+
       if (this.mcpToolDescriptions) {
         prompt += `\n\n## MCP Tools\nYou have access to the following MCP (Model Context Protocol) tools:\n${this.mcpToolDescriptions}`;
       }
-      
-      this.messages.unshift({ role: 'system', content: prompt });
+
+      this.messages.unshift({ role: "system", content: prompt });
     }
   }
 
@@ -112,7 +100,7 @@ export class Agent {
   }
 
   addUserMessage(content: string): void {
-    this.messages.push({ role: 'user', content });
+    this.messages.push({ role: "user", content });
   }
 
   getMessages(): Message[] {
@@ -120,9 +108,9 @@ export class Agent {
   }
 
   setMessages(messages: Message[]): void {
-    const hasSystemPrompt = this.messages.length > 0 && this.messages[0].role === 'system';
-    const incomingHasSystem = messages.length > 0 && messages[0].role === 'system';
-    
+    const hasSystemPrompt = this.messages.length > 0 && this.messages[0].role === "system";
+    const incomingHasSystem = messages.length > 0 && messages[0].role === "system";
+
     if (hasSystemPrompt && !incomingHasSystem) {
       this.messages = [this.messages[0], ...messages];
     } else {
@@ -136,12 +124,12 @@ export class Agent {
 
   getSession(): Session {
     return {
-      id: this.sessionId ?? '',
+      id: this.sessionId ?? "",
       messages: this.messages,
       createdAt: new Date(),
       updatedAt: new Date(),
       workspaceDir: this.workspaceDir,
-      additionalDirs: [],
+      additionalDirs: []
     };
   }
 
@@ -190,39 +178,36 @@ export class Agent {
     return result.content;
   }
 
-    async runWithResult(prompt: string, sessionId?: string): Promise<AgentRunResult> {
+  async runWithResult(prompt: string, sessionId?: string): Promise<AgentRunResult> {
     if (this.isRunning) {
-      throw new Error('Agent is already running');
+      throw new Error("Agent is already running");
     }
 
     this.isRunning = true;
     this.abortController = new AbortController();
-    
+
     if (sessionId) {
       this.sessionId = sessionId;
     }
 
     this.addUserMessage(prompt);
-    
+
     let step = 0;
-    let lastResult = '';
+    let lastResult = "";
     let lastUsage: TokenUsage | undefined;
     let consecutiveToolCallProtocolFailures = 0;
 
     try {
       while (step < this.maxSteps) {
         if (this.abortController.signal.aborted) {
-          return { content: 'Task cancelled by user.', usage: lastUsage };
+          return { content: "Task cancelled by user.", usage: lastUsage };
         }
 
         this.callback?.onStep?.(step + 1, this.maxSteps);
 
         let response: LLMResponse;
         try {
-          response = await this.llm.generate(
-            this.messages,
-            this.tools.getSchemas()
-          );
+          response = await this.llm.generate(this.messages, this.tools.getSchemas());
           consecutiveToolCallProtocolFailures = 0;
         } catch (error) {
           if (!isMiniMaxToolResultIdNotFoundError(error)) {
@@ -265,10 +250,10 @@ export class Agent {
         }
 
         const assistantMsg: Message = {
-          role: 'assistant',
+          role: "assistant",
           content: response.content,
           thinking: response.thinking,
-          toolCalls: response.toolCalls,
+          toolCalls: response.toolCalls
         };
         this.messages.push(assistantMsg);
 
@@ -277,41 +262,45 @@ export class Agent {
         }
 
         if (response.content) {
-          this.callback?.onMessage?.('assistant', response.content);
+          this.callback?.onMessage?.("assistant", response.content);
         }
 
         if (response.toolCalls && response.toolCalls.length > 0) {
           lastResult = response.content;
           for (const toolCall of response.toolCalls) {
             if (this.abortController.signal.aborted) {
-              return { content: 'Task cancelled by user.', usage: lastUsage };
+              return { content: "Task cancelled by user.", usage: lastUsage };
             }
-            const { name, arguments: args } = toolCall.function; 
+            const { name, arguments: args } = toolCall.function;
             this.callback?.onToolCall?.(name, args);
             const result = await this.tools.execute(name, args);
             this.callback?.onToolResult?.(name, result);
             const toolMsg: Message = {
-                role: 'tool',
-                content: result.success ? result.content : `Error: ${result.error}`,
-                toolCallId: toolCall.id,
-                name,
-              };
-              this.messages.push(toolMsg);
+              role: "tool",
+              content: result.success ? result.content : `Error: ${result.error}`,
+              toolCallId: toolCall.id,
+              name
+            };
+            this.messages.push(toolMsg);
           }
         }
         step++;
-        if(response.finishReason != "tool_use"){
+        if (response.finishReason != "tool_use") {
           // Pass finishReason separately to callback
           this.callback?.onComplete?.(lastResult, response.finishReason);
           return { content: response.finishReason + lastResult, usage: lastUsage };
         }
 
         // Log full response to minimax.log for debugging
-        logger.minimax(`[Response] step=${step}, finishReason=${response.finishReason}, content length=${response.content.length}, thinking=${response.thinking ? 'yes' : 'no'}, toolCalls=${response.toolCalls?.length ?? 0}`);
-        
+        logger.minimax(
+          `[Response] step=${step}, finishReason=${response.finishReason}, content length=${response.content.length}, thinking=${response.thinking ? "yes" : "no"}, toolCalls=${response.toolCalls?.length ?? 0}`
+        );
+
         // Log unhandled content blocks
         if (response.toolCalls && response.toolCalls.length > 0) {
-          logger.minimax(`[ToolCalls] ${JSON.stringify(response.toolCalls.map(tc => ({ id: tc.id, name: tc.function.name })))}`);
+          logger.minimax(
+            `[ToolCalls] ${JSON.stringify(response.toolCalls.map((tc) => ({ id: tc.id, name: tc.function.name })))}`
+          );
         }
       }
 
@@ -321,7 +310,6 @@ export class Agent {
 
       this.callback?.onComplete?.(lastResult);
       return { content: lastResult, usage: lastUsage };
-
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.callback?.onError?.(err);
@@ -338,19 +326,19 @@ export class Agent {
     maxRetries: number = 3,
     sessionId?: string
   ): Promise<string> {
-    let lastResult = '';
+    let lastResult = "";
     let retries = 0;
 
     while (retries < maxRetries) {
       lastResult = await this.run(prompt, sessionId);
-      
+
       const passed = await assertFn(lastResult);
       if (passed) {
         return lastResult;
       }
 
       retries++;
-      
+
       if (retries < maxRetries) {
         this.addUserMessage(
           `The previous result did not meet the requirements. Please try again. Attempt ${retries + 1}/${maxRetries}.`

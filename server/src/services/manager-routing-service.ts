@@ -74,12 +74,21 @@ async function getOrCreateSession(
   return { sessionId: newSessionId, sessionExisted: false };
 }
 
-export async function deliverManagerMessage(input: DeliverManagerMessageInput): Promise<{ sessionExisted: boolean; sessionId: string }> {
+export async function deliverManagerMessage(
+  input: DeliverManagerMessageInput
+): Promise<{ sessionExisted: boolean; sessionId: string }> {
   const role = (input.targetRole ?? input.message.envelope.accountability?.owner_role ?? "").trim();
   const requestedSessionId = input.targetSessionId;
-  const target = await getOrCreateSession(input.dataRoot, input.paths, input.project.projectId, role, input.project, requestedSessionId);
+  const target = await getOrCreateSession(
+    input.dataRoot,
+    input.paths,
+    input.project.projectId,
+    role,
+    input.project,
+    requestedSessionId
+  );
   const targetSessionId = target.sessionId;
-  const currentTaskId = input.currentTaskId === undefined ? undefined : input.currentTaskId ?? null;
+  const currentTaskId = input.currentTaskId === undefined ? undefined : (input.currentTaskId ?? null);
   const currentTaskIdForAdd = typeof currentTaskId === "string" ? currentTaskId : undefined;
 
   const allTasks = await listTasks(input.paths, input.project.projectId);

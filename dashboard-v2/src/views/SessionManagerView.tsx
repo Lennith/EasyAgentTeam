@@ -54,7 +54,7 @@ export function SessionManagerView({ projectId, sessions, reload }: SessionManag
     running: "var(--accent-success)",
     idle: "var(--text-muted)",
     blocked: "var(--accent-warning)",
-    dismissed: "var(--accent-danger)",
+    dismissed: "var(--accent-danger)"
   };
 
   return (
@@ -91,11 +91,12 @@ export function SessionManagerView({ projectId, sessions, reload }: SessionManag
           {filteredSessions.map((session) => {
             const safeStatus = session.status || "unknown";
             return (
-              <div 
+              <div
                 key={session.sessionId}
-                style={{ 
-                  padding: "12px", 
-                  background: selectedSessionId === session.sessionId ? "var(--accent-primary)20" : "var(--bg-elevated)", 
+                style={{
+                  padding: "12px",
+                  background:
+                    selectedSessionId === session.sessionId ? "var(--accent-primary)20" : "var(--bg-elevated)",
                   borderRadius: "8px",
                   cursor: "pointer",
                   border: `1px solid ${selectedSessionId === session.sessionId ? "var(--accent-primary)" : "transparent"}`
@@ -110,16 +111,16 @@ export function SessionManagerView({ projectId, sessions, reload }: SessionManag
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                    <span 
-                      className="badge" 
-                      style={{ background: statusColors[safeStatus] || "var(--text-muted)" }}
-                    >
+                    <span className="badge" style={{ background: statusColors[safeStatus] || "var(--text-muted)" }}>
                       {safeStatus}
                     </span>
                     {safeStatus !== "dismissed" && (
-                      <button 
+                      <button
                         className="btn btn-danger btn-sm"
-                        onClick={(e) => { e.stopPropagation(); handleDismiss(session.sessionId); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDismiss(session.sessionId);
+                        }}
                         disabled={busyAction === session.sessionId}
                       >
                         <XCircle size={12} />
@@ -139,20 +140,52 @@ export function SessionManagerView({ projectId, sessions, reload }: SessionManag
             <h3>Session Details</h3>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            <div><strong>Session ID:</strong> <code>{selectedSession.sessionId}</code></div>
-            <div><strong>Role:</strong> {selectedSession.role}</div>
-            <div><strong>Status:</strong> {selectedSession.status}</div>
-            <div><strong>Provider:</strong> {selectedSession.provider || "-"}</div>
-            <div><strong>Provider Session ID:</strong> {selectedSession.providerSessionId ? <code>{selectedSession.providerSessionId}</code> : "-"}</div>
-            <div><strong>Agent Tool:</strong> {selectedSession.agentTool || "-"}</div>
-            <div><strong>Session Key:</strong> {selectedSession.sessionKey ? <code>{selectedSession.sessionKey}</code> : "-"}</div>
-            <div><strong>Locks Held:</strong> {selectedSession.locksHeldCount ?? 0}</div>
-            <div><strong>Created:</strong> {selectedSession.createdAt ? new Date(selectedSession.createdAt).toLocaleString() : "N/A"}</div>
-            <div><strong>Last Updated:</strong> {selectedSession.updatedAt ? new Date(selectedSession.updatedAt).toLocaleString() : "N/A"}</div>
-            <div><strong>Last Active:</strong> {selectedSession.lastActiveAt ? new Date(selectedSession.lastActiveAt).toLocaleString() : "N/A"}</div>
-            <div><strong>Last Dispatched:</strong> {selectedSession.lastDispatchedAt ? new Date(selectedSession.lastDispatchedAt).toLocaleString() : "N/A"}</div>
+            <div>
+              <strong>Session ID:</strong> <code>{selectedSession.sessionId}</code>
+            </div>
+            <div>
+              <strong>Role:</strong> {selectedSession.role}
+            </div>
+            <div>
+              <strong>Status:</strong> {selectedSession.status}
+            </div>
+            <div>
+              <strong>Provider:</strong> {selectedSession.provider || "-"}
+            </div>
+            <div>
+              <strong>Provider Session ID:</strong>{" "}
+              {selectedSession.providerSessionId ? <code>{selectedSession.providerSessionId}</code> : "-"}
+            </div>
+            <div>
+              <strong>Agent Tool:</strong> {selectedSession.agentTool || "-"}
+            </div>
+            <div>
+              <strong>Session Key:</strong>{" "}
+              {selectedSession.sessionKey ? <code>{selectedSession.sessionKey}</code> : "-"}
+            </div>
+            <div>
+              <strong>Locks Held:</strong> {selectedSession.locksHeldCount ?? 0}
+            </div>
+            <div>
+              <strong>Created:</strong>{" "}
+              {selectedSession.createdAt ? new Date(selectedSession.createdAt).toLocaleString() : "N/A"}
+            </div>
+            <div>
+              <strong>Last Updated:</strong>{" "}
+              {selectedSession.updatedAt ? new Date(selectedSession.updatedAt).toLocaleString() : "N/A"}
+            </div>
+            <div>
+              <strong>Last Active:</strong>{" "}
+              {selectedSession.lastActiveAt ? new Date(selectedSession.lastActiveAt).toLocaleString() : "N/A"}
+            </div>
+            <div>
+              <strong>Last Dispatched:</strong>{" "}
+              {selectedSession.lastDispatchedAt ? new Date(selectedSession.lastDispatchedAt).toLocaleString() : "N/A"}
+            </div>
             {selectedSession.currentTaskId && (
-              <div><strong>Current Task:</strong> <code>{selectedSession.currentTaskId}</code></div>
+              <div>
+                <strong>Current Task:</strong> <code>{selectedSession.currentTaskId}</code>
+              </div>
             )}
           </div>
         </div>

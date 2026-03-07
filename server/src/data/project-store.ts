@@ -25,6 +25,7 @@ interface CreateProjectInput {
   routeDiscussRounds?: Record<string, Record<string, number>>;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
+  holdEnabled?: boolean;
   reminderMode?: "backoff" | "fixed_interval";
   roleSessionMap?: Record<string, string>;
 }
@@ -41,6 +42,7 @@ interface ProjectOverview extends ProjectSummary {
   agentModelConfigs?: Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
+  holdEnabled?: boolean;
   reminderMode?: "backoff" | "fixed_interval";
   roleSessionMap?: Record<string, string>;
 }
@@ -191,6 +193,13 @@ function normalizeAutoDispatchRemaining(raw: unknown, fallback = 5): number {
     return fallback;
   }
   return Math.max(0, Math.min(1000, Math.floor(raw)));
+}
+
+function normalizeHoldEnabled(raw: unknown, fallback = false): boolean {
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  return fallback;
 }
 
 function normalizeReminderMode(raw: unknown, fallback: "backoff" | "fixed_interval" = "backoff"): "backoff" | "fixed_interval" {
@@ -368,6 +377,7 @@ export async function createProject(
     ),
     autoDispatchEnabled: normalizeAutoDispatchEnabled(input.autoDispatchEnabled, true),
     autoDispatchRemaining: normalizeAutoDispatchRemaining(input.autoDispatchRemaining, 5),
+    holdEnabled: normalizeHoldEnabled(input.holdEnabled, false),
     reminderMode: normalizeReminderMode(input.reminderMode, "backoff"),
     createdAt: now,
     updatedAt: now,
@@ -390,6 +400,7 @@ export async function getProject(dataRoot: string, projectId: string): Promise<P
     ...project,
     autoDispatchEnabled: normalizeAutoDispatchEnabled(project.autoDispatchEnabled, true),
     autoDispatchRemaining: normalizeAutoDispatchRemaining(project.autoDispatchRemaining, 5),
+    holdEnabled: normalizeHoldEnabled(project.holdEnabled, false),
     reminderMode: normalizeReminderMode(project.reminderMode, "backoff")
   };
 }
@@ -467,6 +478,7 @@ export async function getProjectOverview(dataRoot: string, projectId: string): P
     agentModelConfigs: project.agentModelConfigs,
     autoDispatchEnabled: project.autoDispatchEnabled,
     autoDispatchRemaining: project.autoDispatchRemaining,
+    holdEnabled: project.holdEnabled,
     reminderMode: project.reminderMode,
     roleSessionMap: project.roleSessionMap
   };
@@ -671,6 +683,7 @@ export async function updateProjectOrchestratorSettings(
   input: {
     autoDispatchEnabled?: boolean;
     autoDispatchRemaining?: number;
+    holdEnabled?: boolean;
     reminderMode?: "backoff" | "fixed_interval";
   }
 ): Promise<ProjectRecord> {
@@ -685,6 +698,10 @@ export async function updateProjectOrchestratorSettings(
       input.autoDispatchRemaining === undefined
         ? normalizeAutoDispatchRemaining(project.autoDispatchRemaining, 5)
         : normalizeAutoDispatchRemaining(input.autoDispatchRemaining, 5),
+    holdEnabled:
+      input.holdEnabled === undefined
+        ? normalizeHoldEnabled(project.holdEnabled, false)
+        : normalizeHoldEnabled(input.holdEnabled, false),
     reminderMode:
       input.reminderMode === undefined
         ? normalizeReminderMode(project.reminderMode, "backoff")

@@ -4,9 +4,18 @@
   "version": "0.1.0",
   "packageManager": "pnpm@9.12.3",
   "scripts": {
-    "server": "npm --prefix server run dev",
-    "web": "npm --prefix dashboard-v2 run dev",
-    "build": "npm --prefix agent_library run build && npm --prefix server run build && npm --prefix dashboard-v2 run build",
+    "dev:server": "pnpm --filter @autodev/server dev",
+    "dev:web": "pnpm --filter dashboard-v2 dev",
+    "dev": "concurrently -k -n server,web -c cyan,magenta \"pnpm run dev:server\" \"pnpm run dev:web\"",
+    "dev:legacy": "concurrently -k -n server,web -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix dashboard-v2 run dev\"",
+    "build": "pnpm --filter @autodev/agent-library build && pnpm --filter @autodev/server build && pnpm --filter dashboard-v2 build",
+    "lint": "eslint server/src dashboard-v2/src agent_library/src tools --ext .ts,.tsx,.js,.mjs",
+    "format": "prettier --write \"server/src/**/*.{ts,tsx,js,mjs,json}\" \"dashboard-v2/src/**/*.{ts,tsx,js,mjs,json,css}\" \"agent_library/src/**/*.{ts,tsx,js,mjs,json}\" \"tools/**/*.{ts,tsx,js,mjs}\" \"server/docs/**/*.md\" \"dashboard-v2/docs/**/*.md\" \"*.{md,json,yml,yaml}\"",
+    "format:check": "prettier --check \"server/src/**/*.{ts,tsx,js,mjs,json}\" \"dashboard-v2/src/**/*.{ts,tsx,js,mjs,json,css}\" \"agent_library/src/**/*.{ts,tsx,js,mjs,json}\" \"tools/**/*.{ts,tsx,js,mjs}\" \"server/docs/**/*.md\" \"dashboard-v2/docs/**/*.md\" \"*.{md,json,yml,yaml}\"",
+    "docs:check": "node tools/docs_check.mjs",
+    "doctor": "node tools/doctor.mjs",
+    "healthcheck": "node tools/healthcheck.mjs",
+    "test": "pnpm test:smoke && pnpm test:unit",
     "test:smoke": "node tools/check_schemas.mjs",
     "test:api": "node tools/verify_dev.mjs",
     "test:step1": "node tools/verify_step1.mjs",
@@ -15,14 +24,33 @@
     "test:step4": "node tools/verify_step4.mjs",
     "test:step5": "node tools/verify_step5.mjs",
     "test:step6": "node tools/verify_step6.mjs",
-    "test:unit": "npm --prefix server run test",
+    "test:unit": "pnpm --filter @autodev/server test",
     "mock:report": "node --import tsx tools/mock_report.ts",
     "mock:lock": "node --import tsx tools/mock_lock.ts",
     "mock:workflow": "node --import tsx tools/mock_workflow.ts",
-    "mock:session": "node --import tsx tools/mock_session.ts"
+    "mock:session": "node --import tsx tools/mock_session.ts",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@eslint/js": "^9.16.0",
     "concurrently": "^9.0.1",
-    "tsx": "^4.20.5"
+    "eslint": "^9.16.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.13.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.11",
+    "prettier": "^3.4.2",
+    "tsx": "^4.20.5",
+    "typescript-eslint": "^8.17.0"
+  },
+  "lint-staged": {
+    "*.{md,json,yml,yaml,css}": [
+      "prettier --write"
+    ],
+    "{server,dashboard-v2,agent_library,tools}/**/*.{ts,tsx,js,mjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   }
 }

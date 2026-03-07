@@ -198,7 +198,10 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
 
     const outboxDir = path.join(dataRoot, "projects", "taskactions", "collab", "outbox");
     const outboxFiles = await fs.readdir(outboxDir).catch(() => [] as string[]);
-    assert.equal(outboxFiles.some((name) => name === "task-dispatch-buffer-manager-system.jsonl"), false);
+    assert.equal(
+      outboxFiles.some((name) => name === "task-dispatch-buffer-manager-system.jsonl"),
+      false
+    );
 
     const treeRes = await fetch(`${baseUrl}/api/projects/taskactions/task-tree`);
     assert.equal(treeRes.status, 200);
@@ -212,9 +215,7 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     assert.equal(nodeIds.has("exec-task-1"), true);
     const parentEdge = tree.edges.find(
       (edge) =>
-        edge.edge_type === "PARENT_CHILD" &&
-        edge.from_task_id === "user-root-1" &&
-        edge.to_task_id === "exec-task-1"
+        edge.edge_type === "PARENT_CHILD" && edge.from_task_id === "user-root-1" && edge.to_task_id === "exec-task-1"
     );
     assert.ok(parentEdge);
     const execNode = tree.nodes.find((item) => item.task_id === "exec-task-1");
@@ -405,8 +406,14 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     assert.equal(detail.task_detail_id, "exec-task-1");
     assert.equal(detail.created_by.role, "manager");
     assert.equal((detail.create_parameters?.actionType as string | undefined) ?? "", "TASK_CREATE");
-    assert.equal(detail.lifecycle.some((item) => item.event_type === "TASK_ACTION_RECEIVED"), true);
-    assert.equal(detail.lifecycle.some((item) => item.event_type === "TASK_REPORT_APPLIED"), true);
+    assert.equal(
+      detail.lifecycle.some((item) => item.event_type === "TASK_ACTION_RECEIVED"),
+      true
+    );
+    assert.equal(
+      detail.lifecycle.some((item) => item.event_type === "TASK_REPORT_APPLIED"),
+      true
+    );
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

@@ -1,5 +1,5 @@
-import * as path from 'path';
-import type { PermissionCheckResult, DirectoryPermissions } from '../types.js';
+import * as path from "path";
+import type { PermissionCheckResult, DirectoryPermissions } from "../types.js";
 
 export class PermissionManager {
   private workspaceDir: string;
@@ -18,13 +18,13 @@ export class PermissionManager {
     }
   }
 
-  checkPermission(filePath: string, operation: 'read' | 'write'): PermissionCheckResult {
+  checkPermission(filePath: string, operation: "read" | "write"): PermissionCheckResult {
     const resolved = path.resolve(filePath);
-    
-    if (operation === 'read') {
+
+    if (operation === "read") {
       return this.checkRead(resolved);
     }
-    
+
     return this.checkWrite(resolved);
   }
 
@@ -37,7 +37,7 @@ export class PermissionManager {
 
     return {
       allowed: false,
-      reason: `Path "${filePath}" is outside readable directories`,
+      reason: `Path "${filePath}" is outside readable directories`
     };
   }
 
@@ -50,7 +50,7 @@ export class PermissionManager {
 
     return {
       allowed: false,
-      reason: `Path "${filePath}" is outside writable directories`,
+      reason: `Path "${filePath}" is outside writable directories`
     };
   }
 
@@ -83,15 +83,15 @@ export class PermissionManager {
   }
 
   isWritable(filePath: string): boolean {
-    return this.checkPermission(filePath, 'write').allowed;
+    return this.checkPermission(filePath, "write").allowed;
   }
 
   isReadable(filePath: string): boolean {
-    return this.checkPermission(filePath, 'read').allowed;
+    return this.checkPermission(filePath, "read").allowed;
   }
 
-  createPermissionChecker(): (filePath: string, operation: 'read' | 'write') => PermissionCheckResult {
-    return (filePath: string, operation: 'read' | 'write') => this.checkPermission(filePath, operation);
+  createPermissionChecker(): (filePath: string, operation: "read" | "write") => PermissionCheckResult {
+    return (filePath: string, operation: "read" | "write") => this.checkPermission(filePath, operation);
   }
 }
 

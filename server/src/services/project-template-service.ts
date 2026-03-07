@@ -154,7 +154,8 @@ Lock is MANDATORY, not optional.
    \`\`\`
 3. Verify output shows \`"result": "acquired"\` before proceeding
 4. If lock fails with LOCK_HELD, coordinate with lock owner or wait
-5. NEVER proceed with edits without acquiring lock first
+5. Prefer file-level lock keys; use \`"target_type":"dir"\` only when a whole subtree must be protected
+6. NEVER proceed with edits without acquiring lock first
 
 ## During Work
 1. Only edit files you have successfully locked

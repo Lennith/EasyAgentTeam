@@ -1,19 +1,23 @@
 param(
-  [string]$BaseUrl = "http://127.0.0.1:3000",
-  [string[]]$Cases = @("chain", "discuss"),
-  [bool]$RunReminderAfter = $true,
+  [string]$BaseUrl = "http://127.0.0.1:43123",
+  [string[]]$Cases = @("chain", "workflow"),
+  [bool]$RunReminderAfter = $false,
   [string]$ChainScenarioPath = "",
   [string]$DiscussScenarioPath = "",
+  [string]$WorkflowScenarioPath = "",
   [string]$ChainWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestRound20",
   [string]$DiscussWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss",
+  [string]$WorkflowWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace",
   [string]$ReminderWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestReminder",
   [int]$AutoDispatchBudget = 30,
-  [int]$MaxMinutes = 75,
-  [int]$PollSeconds = 30,
+  [int]$MaxMinutes = 90,
+  [int]$PollSeconds = 5,
   [int]$AutoTopupStep = 30,
   [int]$MaxTopups = 10,
   [int]$MaxTotalBudget = 330,
-  [switch]$SetupOnly
+  [switch]$SetupOnly,
+  [switch]$StrictObserve,
+  [switch]$LegacyMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +29,9 @@ if (-not $ChainScenarioPath) {
 }
 if (-not $DiscussScenarioPath) {
   $DiscussScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\team-discuss-framework.json"
+}
+if (-not $WorkflowScenarioPath) {
+  $WorkflowScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\workflow-gesture-real-agent.json"
 }
 
 $caseMap = @{
@@ -38,24 +45,34 @@ $caseMap = @{
     scenario = $DiscussScenarioPath
     workspace = $DiscussWorkspaceRoot
   }
+  "workflow" = @{
+    script = Join-Path $scriptDir "run-workflow-e2e.ps1"
+    scenario = $WorkflowScenarioPath
+    workspace = $WorkflowWorkspaceRoot
+  }
 }
 
 $selected = @()
 foreach ($caseIdRaw in $Cases) {
   $caseId = $caseIdRaw.Trim().ToLower()
   if (-not $caseMap.ContainsKey($caseId)) {
-    throw "Unknown case '$caseId'. Supported: chain, discuss"
+    throw "Unknown case '$caseId'. Supported: chain, discuss, workflow"
   }
   $selected += $caseId
 }
 if ($selected.Count -eq 0) {
   throw "No cases selected"
 }
+if (($selected -notcontains "workflow") -or (-not ($selected -contains "chain" -or $selected -contains "discuss"))) {
+  throw "run-multi-e2e requires at least one project case (chain/discuss) and workflow case in the same run"
+}
 
 Write-Host "== Multi E2E Start =="
 Write-Host ("cases={0}" -f ($selected -join ","))
 Write-Host ("base_url={0}" -f $BaseUrl)
 Write-Host ("setup_only={0}" -f $SetupOnly.IsPresent)
+$strictMode = $StrictObserve.IsPresent -or (-not $LegacyMode.IsPresent)
+Write-Host ("strict_observe={0}" -f $strictMode)
 
 $jobs = @()
 foreach ($caseId in $selected) {
@@ -77,7 +94,9 @@ foreach ($caseId in $selected) {
       [int]$AutoTopupStep,
       [int]$MaxTopups,
       [int]$MaxTotalBudget,
-      [bool]$SetupOnly
+      [bool]$SetupOnly,
+      [bool]$StrictObserve,
+      [string]$CaseId
     )
     $args = @(
       "-ExecutionPolicy", "Bypass",
@@ -95,12 +114,15 @@ foreach ($caseId in $selected) {
     if ($SetupOnly) {
       $args += "-SetupOnly"
     }
+    if ($StrictObserve -and $CaseId -eq "chain") {
+      $args += "-StrictObserve"
+    }
     & powershell @args
     $code = $LASTEXITCODE
     [pscustomobject]@{
       exitCode = $code
     }
-  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $AutoTopupStep, $MaxTopups, $MaxTotalBudget, $SetupOnly.IsPresent
+  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $AutoTopupStep, $MaxTopups, $MaxTotalBudget, $SetupOnly.IsPresent, $strictMode, $caseId
 }
 
 $failed = @()
@@ -140,7 +162,7 @@ if ($failed.Count -gt 0) {
 
 if ($RunReminderAfter) {
   $reminderScript = Join-Path $scriptDir "run-reminder-e2e.ps1"
-  Write-Host "== Running reminder e2e after chain/discuss =="
+  Write-Host "== Running reminder e2e after chain/discuss/workflow =="
   $reminderArgs = @(
     "-ExecutionPolicy", "Bypass",
     "-File", $reminderScript,

@@ -3,6 +3,7 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 Task 协议模块定义任务驱动协作的统一写入入口、状态机、依赖门禁与任务查询能力。
 
 **源码路径**:
@@ -135,13 +136,13 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 
 ## 7. 异常与边界
 
-| 场景 | 错误码 |
-|---|---|
-| 祖先依赖非法 | `TASK_DEPENDENCY_ANCESTOR_FORBIDDEN` |
-| 路由越权 | `TASK_ROUTE_DENIED` |
-| 上报目标非法 | `TASK_RESULT_INVALID_TARGET` |
-| 上报状态滞后 | `TASK_STATE_STALE` |
-| progress 证据不足 | `TASK_PROGRESS_REQUIRED` |
+| 场景              | 错误码                               |
+| ----------------- | ------------------------------------ |
+| 祖先依赖非法      | `TASK_DEPENDENCY_ANCESTOR_FORBIDDEN` |
+| 路由越权          | `TASK_ROUTE_DENIED`                  |
+| 上报目标非法      | `TASK_RESULT_INVALID_TARGET`         |
+| 上报状态滞后      | `TASK_STATE_STALE`                   |
+| progress 证据不足 | `TASK_PROGRESS_REQUIRED`             |
 
 ---
 

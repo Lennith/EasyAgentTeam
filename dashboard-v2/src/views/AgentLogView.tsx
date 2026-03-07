@@ -144,25 +144,31 @@ function DiffBlock({ data }: { data: { fileName: string; lines: { type: string; 
   const delCount = data.lines.filter((l) => l.type === "del").length;
 
   return (
-    <div style={{
-      margin: "8px 0",
-      border: "1px solid var(--border-color)",
-      borderRadius: "6px",
-      overflow: "hidden",
-      background: "var(--bg-surface)"
-    }}>
-      <div style={{
-        background: "var(--bg-elevated)",
-        padding: "6px 10px",
-        fontSize: "11px",
-        color: "var(--text-secondary)",
-        borderBottom: "1px solid var(--border-color)",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center"
-      }}>
+    <div
+      style={{
+        margin: "8px 0",
+        border: "1px solid var(--border-color)",
+        borderRadius: "6px",
+        overflow: "hidden",
+        background: "var(--bg-surface)"
+      }}
+    >
+      <div
+        style={{
+          background: "var(--bg-elevated)",
+          padding: "6px 10px",
+          fontSize: "11px",
+          color: "var(--text-secondary)",
+          borderBottom: "1px solid var(--border-color)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center"
+        }}
+      >
         <span style={{ color: "var(--accent-warning)" }}>{data.fileName}</span>
-        <span style={{ color: "var(--text-muted)" }}>+{addCount} -{delCount}</span>
+        <span style={{ color: "var(--text-muted)" }}>
+          +{addCount} -{delCount}
+        </span>
       </div>
       <div style={{ padding: "5px 10px", fontSize: "11px", lineHeight: 1.3, overflowX: "auto" }}>
         {data.lines.map((line, idx) => {
@@ -182,7 +188,17 @@ function DiffBlock({ data }: { data: { fileName: string; lines: { type: string; 
           }
           return (
             <div key={idx} style={{ whiteSpace: "pre", display: "flex", background: bg }}>
-              <span style={{ color: "var(--text-muted)", minWidth: "30px", textAlign: "right", marginRight: "10px", fontSize: "10px" }}>{idx + 1}</span>
+              <span
+                style={{
+                  color: "var(--text-muted)",
+                  minWidth: "30px",
+                  textAlign: "right",
+                  marginRight: "10px",
+                  fontSize: "10px"
+                }}
+              >
+                {idx + 1}
+              </span>
               <span style={{ color }}>{line.content}</span>
             </div>
           );
@@ -198,9 +214,23 @@ function StreamContent({ stream, items }: { stream: string; items: JsonlLine[] }
     return (
       <>
         {timeGroups.map((group, gi) => (
-          <div key={gi} style={{ marginBottom: "8px", borderLeft: "2px solid var(--border-color)", paddingLeft: "10px" }}>
-            <div style={{ fontSize: "11px", color: "var(--accent-primary)", marginBottom: "4px", display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ background: "var(--bg-elevated)", padding: "1px 6px", borderRadius: "3px" }}>{formatTime(group.startTime)}</span>
+          <div
+            key={gi}
+            style={{ marginBottom: "8px", borderLeft: "2px solid var(--border-color)", paddingLeft: "10px" }}
+          >
+            <div
+              style={{
+                fontSize: "11px",
+                color: "var(--accent-primary)",
+                marginBottom: "4px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px"
+              }}
+            >
+              <span style={{ background: "var(--bg-elevated)", padding: "1px 6px", borderRadius: "3px" }}>
+                {formatTime(group.startTime)}
+              </span>
               <span style={{ color: "var(--text-muted)" }}>{group.items.length} lines</span>
             </div>
             <ContentLines items={group.items} />
@@ -218,14 +248,28 @@ function ContentLines({ items }: { items: JsonlLine[] }) {
     <>
       {blocks.map((block, bi) => {
         if (block.type === "diff" && block.data) {
-          return <DiffBlock key={bi} data={block.data as { fileName: string; lines: { type: string; content: string }[] }} />;
+          return (
+            <DiffBlock key={bi} data={block.data as { fileName: string; lines: { type: string; content: string }[] }} />
+          );
         }
         return (
           <div key={bi}>
             {(block.lines || []).map((item, idx) => (
               <div key={idx} style={{ display: "flex", minHeight: "18px" }}>
-                <span style={{ color: "var(--text-muted)", minWidth: "40px", textAlign: "right", marginRight: "10px", fontSize: "10px" }}>{String(idx + 1).padStart(4, " ")}</span>
-                <span style={{ flex: 1, whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: "12px" }}>{item.content}</span>
+                <span
+                  style={{
+                    color: "var(--text-muted)",
+                    minWidth: "40px",
+                    textAlign: "right",
+                    marginRight: "10px",
+                    fontSize: "10px"
+                  }}
+                >
+                  {String(idx + 1).padStart(4, " ")}
+                </span>
+                <span style={{ flex: 1, whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: "12px" }}>
+                  {item.content}
+                </span>
               </div>
             ))}
           </div>
@@ -283,14 +327,18 @@ export function AgentLogView() {
       }
     }
     loadProjects();
-    return () => { closed = true; };
+    return () => {
+      closed = true;
+    };
   }, [settings.useMockData]);
 
   const fetchData = useCallback(async () => {
     if (!selectedProjectId || settings.useMockData) return;
 
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/codex-output?t=${Date.now()}`);
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(selectedProjectId)}/codex-output?t=${Date.now()}`
+      );
       if (!response.ok) {
         if (response.status === 404) {
           setSessionData({});
@@ -475,10 +523,20 @@ export function AgentLogView() {
           Agent Logs
         </h1>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <span className="badge badge-neutral">Lines: {totalLines} | Sessions: {sessionCount}</span>
+          <span className="badge badge-neutral">
+            Lines: {totalLines} | Sessions: {sessionCount}
+          </span>
           <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
             {isRunning ? (
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--accent-success)", animation: "pulse 2s infinite" }} />
+              <span
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  background: "var(--accent-success)",
+                  animation: "pulse 2s infinite"
+                }}
+              />
             ) : (
               <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--accent-warning)" }} />
             )}
@@ -512,8 +570,12 @@ export function AgentLogView() {
             {isRunning ? <Pause size={14} /> : <Play size={14} />}
             {isRunning ? "Pause" : "Resume"}
           </button>
-          <button className="btn btn-secondary" onClick={expandAll}>Expand All</button>
-          <button className="btn btn-secondary" onClick={collapseAll}>Collapse All</button>
+          <button className="btn btn-secondary" onClick={expandAll}>
+            Expand All
+          </button>
+          <button className="btn btn-secondary" onClick={collapseAll}>
+            Collapse All
+          </button>
           <button className="btn btn-secondary" onClick={resetAndReload}>
             <RotateCcw size={14} />
             Reset
@@ -522,7 +584,11 @@ export function AgentLogView() {
       </div>
 
       {selectedProjectId && (
-        <div className="card" data-scrollable style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+        <div
+          className="card"
+          data-scrollable
+          style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
+        >
           <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
             {sessions.length === 0 ? (
               <div className="empty-state" style={{ padding: "24px" }}>
@@ -535,7 +601,15 @@ export function AgentLogView() {
                 const sessionLines = Object.values(session.streams).reduce((sum, arr) => sum + arr.length, 0);
 
                 return (
-                  <div key={session.id} style={{ marginBottom: "16px", border: "1px solid var(--border-color)", borderRadius: "8px", overflow: "hidden" }}>
+                  <div
+                    key={session.id}
+                    style={{
+                      marginBottom: "16px",
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "8px",
+                      overflow: "hidden"
+                    }}
+                  >
                     <div
                       onClick={() => toggleSession(session.id)}
                       style={{
@@ -549,7 +623,9 @@ export function AgentLogView() {
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        <code style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent-warning)" }}>{session.id}</code>
+                        <code style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent-warning)" }}>
+                          {session.id}
+                        </code>
                         <span className="badge badge-primary">{session.role}</span>
                       </div>
                       <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{sessionLines} lines</span>
@@ -571,11 +647,40 @@ export function AgentLogView() {
 
                           return (
                             <div key={stream} style={{ marginBottom: "10px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "5px", paddingBottom: "3px", borderBottom: "1px solid var(--border-color)" }}>
-                                <span className="badge" style={{ background: `${streamColors[stream]}20`, color: streamColors[stream], fontSize: "10px" }}>{stream.toUpperCase()}</span>
-                                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{items.length} lines</span>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  marginBottom: "5px",
+                                  paddingBottom: "3px",
+                                  borderBottom: "1px solid var(--border-color)"
+                                }}
+                              >
+                                <span
+                                  className="badge"
+                                  style={{
+                                    background: `${streamColors[stream]}20`,
+                                    color: streamColors[stream],
+                                    fontSize: "10px"
+                                  }}
+                                >
+                                  {stream.toUpperCase()}
+                                </span>
+                                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                  {items.length} lines
+                                </span>
                               </div>
-                              <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: "12px", lineHeight: 1.4, maxHeight: "300px", overflowY: "auto" }}>
+                              <div
+                                style={{
+                                  whiteSpace: "pre-wrap",
+                                  wordBreak: "break-all",
+                                  fontSize: "12px",
+                                  lineHeight: 1.4,
+                                  maxHeight: "300px",
+                                  overflowY: "auto"
+                                }}
+                              >
                                 <StreamContent stream={stream} items={items} />
                               </div>
                             </div>

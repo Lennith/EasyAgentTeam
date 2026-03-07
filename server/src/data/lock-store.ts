@@ -1,23 +1,41 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { LockRecord, ProjectPaths } from "../domain/models.js";
+import type { LockRecord } from "../domain/models.js";
 import { ensureDirectory, readJsonFile } from "./file-utils.js";
 
 export class LockStoreError extends Error {
-  constructor(message: string, public readonly code: "INVALID_LOCK_KEY" | "INVALID_TTL") {
+  constructor(
+    message: string,
+    public readonly code: "INVALID_LOCK_KEY" | "INVALID_TTL" | "INVALID_OWNER" | "INVALID_SCOPE"
+  ) {
     super(message);
   }
 }
 
-interface LockPathInfo {
-  normalizedLockKey: string;
-  sanitizedKey: string;
-  lockFile: string;
+export interface LockScope {
+  dataRoot: string;
+  workspaceRoot: string;
+  ownerDomain: "project" | "workflow_run";
+  ownerDomainId: string;
+  projectId?: string;
+}
+
+interface WorkspaceScopeInfo {
+  workspaceRootAbs: string;
+  workspaceComparablePath: string;
+  workspaceHash: string;
+  workspaceLocksDir: string;
+}
+
+interface WorkspaceLockEntry {
+  file: string;
+  rawLock: LockRecord;
+  lock: LockRecord;
+  comparableResourcePath: string;
 }
 
 interface AcquireLockInput {
-  projectId: string;
   sessionId: string;
   lockKey: string;
   targetType?: "file" | "dir";
@@ -53,9 +71,38 @@ type ReleaseLockResult =
   | { kind: "not_owner"; existingLock: LockRecord };
 
 interface ReleaseManyInput {
-  projectId: string;
   sessionId: string;
   lockKeys?: string[];
+}
+
+class WorkspaceAcquireMutex {
+  private tail: Promise<void> = Promise.resolve();
+
+  async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const waitFor = this.tail;
+    let release!: () => void;
+    this.tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await waitFor.catch(() => {});
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+}
+
+const workspaceAcquireMutexes = new Map<string, WorkspaceAcquireMutex>();
+
+function getWorkspaceAcquireMutex(workspaceHash: string): WorkspaceAcquireMutex {
+  const existing = workspaceAcquireMutexes.get(workspaceHash);
+  if (existing) {
+    return existing;
+  }
+  const created = new WorkspaceAcquireMutex();
+  workspaceAcquireMutexes.set(workspaceHash, created);
+  return created;
 }
 
 function normalizeTtlSeconds(raw: number): number {
@@ -74,7 +121,6 @@ function normalizeLockKey(lockKey: string): string {
   if (!trimmed) {
     throw new LockStoreError("lock_key must not be empty", "INVALID_LOCK_KEY");
   }
-
   const normalizedSlashes = trimmed.replace(/\\/g, "/");
   if (
     normalizedSlashes.startsWith("/") ||
@@ -83,7 +129,6 @@ function normalizeLockKey(lockKey: string): string {
   ) {
     throw new LockStoreError("lock_key must be a workspace-relative path", "INVALID_LOCK_KEY");
   }
-
   const normalized = path.posix.normalize(normalizedSlashes).replace(/^\.\/+/g, "");
   if (!normalized || normalized === "." || normalized.startsWith("../")) {
     throw new LockStoreError("lock_key must stay within workspace relative path", "INVALID_LOCK_KEY");
@@ -102,13 +147,90 @@ function sanitizeLockKey(normalizedKey: string): string {
   return `${prefix}-${hash}`;
 }
 
-export function resolveLockPath(paths: ProjectPaths, lockKey: string): LockPathInfo {
+function normalizeComparablePath(absolutePath: string): string {
+  let normalized = path.normalize(path.resolve(absolutePath)).replace(/\\/g, "/");
+  if (process.platform === "win32") {
+    normalized = normalized.toLowerCase();
+  }
+  const isWindowsRoot = /^[a-z]:\/$/i.test(normalized);
+  if (!isWindowsRoot && normalized !== "/") {
+    normalized = normalized.replace(/\/+$/g, "");
+  }
+  return normalized;
+}
+
+function isSameOrDescendantPath(parentPath: string, childPath: string): boolean {
+  if (parentPath === childPath) {
+    return true;
+  }
+  return childPath.startsWith(`${parentPath}/`);
+}
+
+function assertOwnerScope(scope: LockScope): void {
+  const ownerDomainId = scope.ownerDomainId.trim();
+  if (!ownerDomainId) {
+    throw new LockStoreError("owner_domain_id must not be empty", "INVALID_OWNER");
+  }
+}
+
+async function canonicalizeWorkspacePath(workspaceRoot: string): Promise<string> {
+  const resolved = path.resolve(workspaceRoot);
+  try {
+    const real = await fs.realpath(resolved);
+    return path.resolve(real);
+  } catch {
+    return resolved;
+  }
+}
+
+async function canonicalizeResourcePath(resourceAbsPath: string): Promise<string> {
+  const resolved = path.resolve(resourceAbsPath);
+  const parentDir = path.dirname(resolved);
+  try {
+    const realParent = await fs.realpath(parentDir);
+    return path.join(realParent, path.basename(resolved));
+  } catch {
+    return resolved;
+  }
+}
+
+async function resolveWorkspaceScope(scope: LockScope): Promise<WorkspaceScopeInfo> {
+  assertOwnerScope(scope);
+  const workspaceRootAbs = path.resolve(scope.workspaceRoot);
+  const workspaceCanonical = await canonicalizeWorkspacePath(workspaceRootAbs);
+  const workspaceComparablePath = normalizeComparablePath(workspaceCanonical);
+  const workspaceHash = createHash("sha1").update(workspaceComparablePath).digest("hex");
+  const workspaceLocksDir = path.join(scope.dataRoot, "locks", "global", workspaceHash);
+  return {
+    workspaceRootAbs,
+    workspaceComparablePath,
+    workspaceHash,
+    workspaceLocksDir
+  };
+}
+
+async function resolveResourcePathInfo(
+  workspaceRootAbs: string,
+  workspaceComparablePath: string,
+  lockKey: string
+): Promise<{
+  normalizedLockKey: string;
+  sanitizedKey: string;
+  resourceAbsPath: string;
+  comparableResourcePath: string;
+}> {
   const normalizedLockKey = normalizeLockKey(lockKey);
-  const sanitizedKey = sanitizeLockKey(normalizedLockKey);
+  const candidateAbsPath = path.resolve(workspaceRootAbs, normalizedLockKey);
+  const resourceAbsPath = await canonicalizeResourcePath(candidateAbsPath);
+  const comparableResourcePath = normalizeComparablePath(resourceAbsPath);
+  if (!isSameOrDescendantPath(workspaceComparablePath, comparableResourcePath)) {
+    throw new LockStoreError("lock_key resolved outside workspace root", "INVALID_LOCK_KEY");
+  }
   return {
     normalizedLockKey,
-    sanitizedKey,
-    lockFile: path.join(paths.locksDir, `${sanitizedKey}.json`)
+    sanitizedKey: sanitizeLockKey(normalizedLockKey),
+    resourceAbsPath: path.normalize(resourceAbsPath),
+    comparableResourcePath
   };
 }
 
@@ -136,26 +258,106 @@ async function writeLock(lockFile: string, lock: LockRecord, createOnly = false)
   });
 }
 
+async function removeLockFile(lockFile: string): Promise<void> {
+  try {
+    await fs.rm(lockFile, { force: true });
+  } catch (error) {
+    const known = error as NodeJS.ErrnoException;
+    if (known.code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
+
+async function listLockFiles(workspaceLocksDir: string): Promise<string[]> {
+  await ensureDirectory(workspaceLocksDir);
+  const entries = await fs.readdir(workspaceLocksDir, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => path.join(workspaceLocksDir, entry.name))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+async function loadWorkspaceLockEntries(workspaceLocksDir: string): Promise<WorkspaceLockEntry[]> {
+  const files = await listLockFiles(workspaceLocksDir);
+  const entries: WorkspaceLockEntry[] = [];
+  for (const file of files) {
+    const rawLock = await readLock(file);
+    if (!rawLock) {
+      continue;
+    }
+    const lock = materializeLock(rawLock);
+    if (!lock.resourceAbsPath || !lock.ownerDomain || !lock.ownerDomainId) {
+      continue;
+    }
+    entries.push({
+      file,
+      rawLock,
+      lock,
+      comparableResourcePath: normalizeComparablePath(lock.resourceAbsPath)
+    });
+  }
+  return entries;
+}
+
+function isOwnerMatch(scope: LockScope, sessionId: string, lock: LockRecord): boolean {
+  return (
+    lock.ownerSessionId === sessionId &&
+    lock.ownerDomain === scope.ownerDomain &&
+    lock.ownerDomainId === scope.ownerDomainId
+  );
+}
+
+function doesHierarchicalConflict(
+  requestedType: "file" | "dir",
+  requestedResourcePath: string,
+  existingType: "file" | "dir",
+  existingResourcePath: string
+): boolean {
+  if (requestedType === "file") {
+    if (existingType === "file") {
+      return requestedResourcePath === existingResourcePath;
+    }
+    return isSameOrDescendantPath(existingResourcePath, requestedResourcePath);
+  }
+
+  if (existingType === "file") {
+    return isSameOrDescendantPath(requestedResourcePath, existingResourcePath);
+  }
+  return (
+    isSameOrDescendantPath(requestedResourcePath, existingResourcePath) ||
+    isSameOrDescendantPath(existingResourcePath, requestedResourcePath)
+  );
+}
+
 function buildActiveLock(input: {
-  projectId: string;
-  sessionId: string;
+  scope: LockScope;
+  workspaceRootAbs: string;
   lockKey: string;
   sanitizedKey: string;
-  targetType?: "file" | "dir";
+  resourceAbsPath: string;
+  resourceType: "file" | "dir";
+  sessionId: string;
   ttlSeconds: number;
   purpose?: string;
   stealReason?: string;
   stolenFromSessionId?: string;
 }): LockRecord {
   const nowMs = Date.now();
+  const projectId = input.scope.projectId ?? "";
   return {
     schemaVersion: "1.0",
     lockId: randomUUID(),
-    projectId: input.projectId,
+    projectId,
     lockKey: input.lockKey,
     sanitizedKey: input.sanitizedKey,
+    workspaceRootAbs: input.workspaceRootAbs,
+    resourceAbsPath: input.resourceAbsPath,
+    resourceType: input.resourceType,
+    ownerDomain: input.scope.ownerDomain,
+    ownerDomainId: input.scope.ownerDomainId,
     ownerSessionId: input.sessionId,
-    targetType: input.targetType,
+    targetType: input.resourceType,
     purpose: input.purpose,
     ttlSeconds: input.ttlSeconds,
     acquiredAt: new Date(nowMs).toISOString(),
@@ -167,154 +369,184 @@ function buildActiveLock(input: {
   };
 }
 
-export async function acquireLock(paths: ProjectPaths, input: AcquireLockInput): Promise<AcquireLockResult> {
-  const ttlSeconds = normalizeTtlSeconds(input.ttlSeconds);
-  const pathInfo = resolveLockPath(paths, input.lockKey);
-  let previousExpiredLock: LockRecord | undefined;
+function pickLatestByAcquiredAt(entries: WorkspaceLockEntry[]): WorkspaceLockEntry {
+  return [...entries].sort((a, b) => Date.parse(b.lock.acquiredAt) - Date.parse(a.lock.acquiredAt))[0];
+}
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+export function createProjectLockScope(dataRoot: string, projectId: string, workspaceRoot: string): LockScope {
+  return {
+    dataRoot,
+    workspaceRoot,
+    ownerDomain: "project",
+    ownerDomainId: projectId,
+    projectId
+  };
+}
+
+export function createWorkflowRunLockScope(
+  dataRoot: string,
+  runId: string,
+  workspaceRoot: string
+): LockScope {
+  return {
+    dataRoot,
+    workspaceRoot,
+    ownerDomain: "workflow_run",
+    ownerDomainId: runId
+  };
+}
+
+export async function acquireLock(scope: LockScope, input: AcquireLockInput): Promise<AcquireLockResult> {
+  const ttlSeconds = normalizeTtlSeconds(input.ttlSeconds);
+  const sessionId = input.sessionId.trim();
+  if (!sessionId) {
+    throw new LockStoreError("session_id must not be empty", "INVALID_OWNER");
+  }
+  const workspace = await resolveWorkspaceScope(scope);
+  const resource = await resolveResourcePathInfo(workspace.workspaceRootAbs, workspace.workspaceComparablePath, input.lockKey);
+  const resourceType = input.targetType === "dir" ? "dir" : "file";
+  const purpose = input.purpose?.trim() || undefined;
+
+  return getWorkspaceAcquireMutex(workspace.workspaceHash).runExclusive(async () => {
+    const entries = await loadWorkspaceLockEntries(workspace.workspaceLocksDir);
+    let previousExpiredLock: LockRecord | undefined;
+
+    for (const entry of entries) {
+      const existingType = entry.lock.resourceType ?? entry.lock.targetType ?? "file";
+      const conflict = doesHierarchicalConflict(
+        resourceType,
+        resource.comparableResourcePath,
+        existingType,
+        entry.comparableResourcePath
+      );
+      if (!conflict) {
+        continue;
+      }
+      if (entry.lock.status !== "active") {
+        if (!previousExpiredLock && entry.lock.status === "expired") {
+          previousExpiredLock = entry.lock;
+        }
+        await removeLockFile(entry.file);
+        continue;
+      }
+      return {
+        kind: "failed",
+        existingLock: entry.lock,
+        reason: "LOCK_HELD"
+      };
+    }
+
     const nextLock = buildActiveLock({
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      lockKey: pathInfo.normalizedLockKey,
-      sanitizedKey: pathInfo.sanitizedKey,
-      targetType: input.targetType,
+      scope,
+      workspaceRootAbs: workspace.workspaceRootAbs,
+      lockKey: resource.normalizedLockKey,
+      sanitizedKey: resource.sanitizedKey,
+      resourceAbsPath: resource.resourceAbsPath,
+      resourceType,
+      sessionId,
       ttlSeconds,
-      purpose: input.purpose,
+      purpose,
       stealReason: previousExpiredLock ? "lock expired and was stolen" : undefined,
       stolenFromSessionId: previousExpiredLock?.ownerSessionId
     });
-
-    try {
-      await writeLock(pathInfo.lockFile, nextLock, true);
-      if (previousExpiredLock) {
-        return {
-          kind: "stolen",
-          lock: nextLock,
-          previousLock: materializeLock(previousExpiredLock)
-        };
-      }
-      return { kind: "acquired", lock: nextLock };
-    } catch (error) {
-      const known = error as NodeJS.ErrnoException;
-      if (known.code !== "EEXIST") {
-        throw error;
-      }
+    const lockFile = path.join(workspace.workspaceLocksDir, `${nextLock.sanitizedKey}-${nextLock.lockId}.json`);
+    await writeLock(lockFile, nextLock, true);
+    if (previousExpiredLock) {
+      return {
+        kind: "stolen",
+        lock: nextLock,
+        previousLock: previousExpiredLock
+      };
     }
-
-    const existingLock = await readLock(pathInfo.lockFile);
-    if (!existingLock) {
-      continue;
-    }
-
-    const existing = materializeLock(existingLock);
-    if (existing.status !== "active") {
-      previousExpiredLock = existing;
-      try {
-        await fs.rm(pathInfo.lockFile, { force: true });
-      } catch (error) {
-        const known = error as NodeJS.ErrnoException;
-        if (known.code !== "ENOENT") {
-          throw error;
-        }
-      }
-      continue;
-    }
-
     return {
-      kind: "failed",
-      existingLock: existing,
-      reason: "LOCK_HELD"
+      kind: "acquired",
+      lock: nextLock
     };
-  }
-
-  throw new Error(`Failed to acquire lock for '${input.lockKey}' due to repeated concurrent changes`);
+  });
 }
 
 export async function renewLock(
-  paths: ProjectPaths,
+  scope: LockScope,
   input: { sessionId: string; lockKey: string }
 ): Promise<RenewLockResult> {
-  const pathInfo = resolveLockPath(paths, input.lockKey);
-  const existingRaw = await readLock(pathInfo.lockFile);
-  if (!existingRaw) {
+  const sessionId = input.sessionId.trim();
+  if (!sessionId) {
+    throw new LockStoreError("session_id must not be empty", "INVALID_OWNER");
+  }
+  const workspace = await resolveWorkspaceScope(scope);
+  const normalizedLockKey = normalizeLockKey(input.lockKey);
+  const entries = await loadWorkspaceLockEntries(workspace.workspaceLocksDir);
+  const keyMatched = entries.filter((entry) => entry.lock.lockKey === normalizedLockKey);
+  if (keyMatched.length === 0) {
     return { kind: "not_found" };
   }
 
-  const existing = materializeLock(existingRaw);
-  if (existing.ownerSessionId !== input.sessionId) {
-    return { kind: "not_owner", existingLock: existing };
+  const ownerMatched = keyMatched.filter((entry) => isOwnerMatch(scope, sessionId, entry.lock));
+  if (ownerMatched.length === 0) {
+    return { kind: "not_owner", existingLock: pickLatestByAcquiredAt(keyMatched).lock };
   }
-  if (existing.status !== "active") {
-    return { kind: "expired", existingLock: existing };
+  const target = pickLatestByAcquiredAt(ownerMatched);
+  if (target.lock.status !== "active") {
+    return { kind: "expired", existingLock: target.lock };
   }
 
   const nowMs = Date.now();
   const renewed: LockRecord = {
-    ...existingRaw,
-    expiresAt: new Date(nowMs + existingRaw.ttlSeconds * 1000).toISOString(),
-    renewCount: existingRaw.renewCount + 1,
+    ...target.rawLock,
+    expiresAt: new Date(nowMs + target.rawLock.ttlSeconds * 1000).toISOString(),
+    renewCount: target.rawLock.renewCount + 1,
     status: "active"
   };
-  await writeLock(pathInfo.lockFile, renewed);
+  await writeLock(target.file, renewed);
   return { kind: "renewed", lock: renewed };
 }
 
 export async function releaseLock(
-  paths: ProjectPaths,
+  scope: LockScope,
   input: { sessionId: string; lockKey: string }
 ): Promise<ReleaseLockResult> {
-  const pathInfo = resolveLockPath(paths, input.lockKey);
-  const existingRaw = await readLock(pathInfo.lockFile);
-  if (!existingRaw) {
+  const sessionId = input.sessionId.trim();
+  if (!sessionId) {
+    throw new LockStoreError("session_id must not be empty", "INVALID_OWNER");
+  }
+  const workspace = await resolveWorkspaceScope(scope);
+  const normalizedLockKey = normalizeLockKey(input.lockKey);
+  const entries = await loadWorkspaceLockEntries(workspace.workspaceLocksDir);
+  const keyMatched = entries.filter((entry) => entry.lock.lockKey === normalizedLockKey);
+  if (keyMatched.length === 0) {
     return { kind: "not_found" };
   }
-  const existing = materializeLock(existingRaw);
-  if (existing.ownerSessionId !== input.sessionId) {
-    return { kind: "not_owner", existingLock: existing };
+  const ownerMatched = keyMatched.filter((entry) => isOwnerMatch(scope, sessionId, entry.lock));
+  if (ownerMatched.length === 0) {
+    return { kind: "not_owner", existingLock: pickLatestByAcquiredAt(keyMatched).lock };
   }
-
+  const target = pickLatestByAcquiredAt(ownerMatched);
   const released: LockRecord = {
-    ...existingRaw,
+    ...target.rawLock,
     status: "released",
     releasedAt: new Date().toISOString(),
     expiresAt: new Date().toISOString()
   };
-
-  await fs.rm(pathInfo.lockFile, { force: true });
+  await removeLockFile(target.file);
   return { kind: "released", lock: released };
 }
 
-async function listLockFiles(locksDir: string): Promise<string[]> {
-  await ensureDirectory(locksDir);
-  const entries = await fs.readdir(locksDir, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .map((entry) => path.join(locksDir, entry.name))
-    .sort((a, b) => a.localeCompare(b));
+export async function listLocks(scope: LockScope): Promise<LockRecord[]> {
+  const workspace = await resolveWorkspaceScope(scope);
+  const entries = await loadWorkspaceLockEntries(workspace.workspaceLocksDir);
+  return entries.map((entry) => entry.lock).sort((a, b) => a.lockKey.localeCompare(b.lockKey));
 }
 
-export async function listLocks(paths: ProjectPaths): Promise<LockRecord[]> {
-  const files = await listLockFiles(paths.locksDir);
-  const locks: LockRecord[] = [];
-  for (const file of files) {
-    const lock = await readLock(file);
-    if (lock) {
-      locks.push(materializeLock(lock));
-    }
-  }
-  return locks.sort((a, b) => a.lockKey.localeCompare(b.lockKey));
-}
-
-export async function listActiveLocks(paths: ProjectPaths): Promise<LockRecord[]> {
-  const all = await listLocks(paths);
+export async function listActiveLocks(scope: LockScope): Promise<LockRecord[]> {
+  const all = await listLocks(scope);
   return all.filter((lock) => lock.status === "active");
 }
 
-export async function releaseLocks(
-  paths: ProjectPaths,
-  input: ReleaseManyInput
-): Promise<LockRecord[]> {
+export async function releaseLocks(scope: LockScope, input: ReleaseManyInput): Promise<LockRecord[]> {
+  const sessionId = input.sessionId.trim();
+  if (!sessionId) {
+    throw new LockStoreError("session_id must not be empty", "INVALID_OWNER");
+  }
   const normalizedKeys = input.lockKeys?.map((key) => {
     try {
       return normalizeLockKey(key);
@@ -323,9 +555,9 @@ export async function releaseLocks(
     }
   }).filter((item): item is string => item !== null);
 
-  const locks = await listLocks(paths);
+  const locks = await listLocks(scope);
   const targets = locks.filter((lock) => {
-    if (lock.ownerSessionId !== input.sessionId) {
+    if (!isOwnerMatch(scope, sessionId, lock)) {
       return false;
     }
     if (lock.status !== "active") {
@@ -339,8 +571,8 @@ export async function releaseLocks(
 
   const released: LockRecord[] = [];
   for (const target of targets) {
-    const result = await releaseLock(paths, {
-      sessionId: input.sessionId,
+    const result = await releaseLock(scope, {
+      sessionId,
       lockKey: target.lockKey
     });
     if (result.kind === "released") {

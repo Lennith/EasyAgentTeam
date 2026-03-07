@@ -1,6 +1,15 @@
 import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import type { ProjectDetail, SessionRecord, TaskTreeNode, LockRecord, EventRecord, AgentIOTimelineItem, TaskState, TaskDetail } from "@/types";
+import type {
+  ProjectDetail,
+  SessionRecord,
+  TaskTreeNode,
+  LockRecord,
+  EventRecord,
+  AgentIOTimelineItem,
+  TaskState,
+  TaskDetail
+} from "@/types";
 import { projectApi } from "@/services/api";
 import { Save, Loader, Search, FileText } from "lucide-react";
 
@@ -35,9 +44,7 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
   const filteredTasks = useMemo(() => {
     if (!searchQuery) return tasks.slice(0, 50);
     const q = searchQuery.toLowerCase();
-    return tasks.filter(
-      (tsk) => tsk.task_id.toLowerCase().includes(q) || tsk.title.toLowerCase().includes(q)
-    );
+    return tasks.filter((tsk) => tsk.task_id.toLowerCase().includes(q) || tsk.title.toLowerCase().includes(q));
   }, [tasks, searchQuery]);
 
   const selectedTask = tasks.find((tsk) => tsk.task_id === selectedTaskId);
@@ -48,7 +55,8 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
       setTaskDetail(null);
       return;
     }
-    projectApi.getTaskDetail(projectId, selectedTaskId)
+    projectApi
+      .getTaskDetail(projectId, selectedTaskId)
       .then(setTaskDetail)
       .catch(() => setTaskDetail(null));
   }, [projectId, selectedTaskId]);
@@ -75,16 +83,25 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
       setError(null);
       setSuccess(null);
 
-      const writeSetArr = writeSet.split("\n").map((s) => s.trim()).filter(Boolean);
-      const dependenciesArr = dependencies.split("\n").map((s) => s.trim()).filter(Boolean);
-      const acceptanceArr = acceptance.split("\n").map((s) => s.trim()).filter(Boolean);
+      const writeSetArr = writeSet
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const dependenciesArr = dependencies
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const acceptanceArr = acceptance
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
 
       await projectApi.patchTask(projectId, selectedTaskId, {
         state: state || undefined,
         owner_role: ownerRole || undefined,
         write_set: writeSetArr.length > 0 ? writeSetArr : undefined,
         dependencies: dependenciesArr.length > 0 ? dependenciesArr : undefined,
-        acceptance: acceptanceArr.length > 0 ? acceptanceArr : undefined,
+        acceptance: acceptanceArr.length > 0 ? acceptanceArr : undefined
       });
 
       setSuccess(`Task updated: ${selectedTaskId}`);
@@ -112,7 +129,16 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
           </div>
           <div className="form-group" style={{ marginBottom: "12px" }}>
             <div style={{ position: "relative" }}>
-              <Search size={16} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+              <Search
+                size={16}
+                style={{
+                  position: "absolute",
+                  left: "12px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "var(--text-muted)"
+                }}
+              />
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -121,7 +147,15 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
               />
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "calc(100vh - 320px)", overflow: "auto" }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+              maxHeight: "calc(100vh - 320px)",
+              overflow: "auto"
+            }}
+          >
             {filteredTasks.map((tsk) => (
               <button
                 key={tsk.task_id}
@@ -168,7 +202,7 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
                       transition: "all 0.15s",
                       maxHeight: "120px",
                       overflow: "hidden",
-                      position: "relative",
+                      position: "relative"
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = "var(--accent-primary)";
@@ -179,29 +213,33 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
                       e.currentTarget.style.background = "var(--bg-elevated)";
                     }}
                   >
-                    <div style={{ 
-                      fontSize: "13px", 
-                      color: "var(--text-secondary)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}>
-                      {createParamsContent.length > 200 
-                        ? createParamsContent.slice(0, 200) + "..." 
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        color: "var(--text-secondary)",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word"
+                      }}
+                    >
+                      {createParamsContent.length > 200
+                        ? createParamsContent.slice(0, 200) + "..."
                         : createParamsContent}
                     </div>
-                    <div style={{
-                      position: "absolute",
-                      bottom: 0,
-                      right: 0,
-                      padding: "4px 8px",
-                      background: "var(--bg-elevated)",
-                      borderTopLeftRadius: "4px",
-                      fontSize: "11px",
-                      color: "var(--text-muted)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "4px",
-                    }}>
+                    <div
+                      style={{
+                        position: "absolute",
+                        bottom: 0,
+                        right: 0,
+                        padding: "4px 8px",
+                        background: "var(--bg-elevated)",
+                        borderTopLeftRadius: "4px",
+                        fontSize: "11px",
+                        color: "var(--text-muted)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px"
+                      }}
+                    >
                       <FileText size={12} />
                       Click to view full params
                     </div>
@@ -230,7 +268,9 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
                   <select value={ownerRole} onChange={(e) => setOwnerRole(e.target.value)}>
                     <option value="">No change</option>
                     {agentRoles.map((role) => (
-                      <option key={role} value={role}>{role}</option>
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -238,37 +278,33 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
 
               <div className="form-group">
                 <label>{t.writeSet}</label>
-                <textarea 
-                  value={writeSet} 
-                  onChange={(e) => setWriteSet(e.target.value)} 
+                <textarea
+                  value={writeSet}
+                  onChange={(e) => setWriteSet(e.target.value)}
                   style={{ minHeight: "60px" }}
                 />
               </div>
 
               <div className="form-group">
                 <label>{t.dependencies}</label>
-                <textarea 
-                  value={dependencies} 
-                  onChange={(e) => setDependencies(e.target.value)} 
+                <textarea
+                  value={dependencies}
+                  onChange={(e) => setDependencies(e.target.value)}
                   style={{ minHeight: "60px" }}
                 />
               </div>
 
               <div className="form-group">
                 <label>{t.acceptance}</label>
-                <textarea 
-                  value={acceptance} 
-                  onChange={(e) => setAcceptance(e.target.value)} 
+                <textarea
+                  value={acceptance}
+                  onChange={(e) => setAcceptance(e.target.value)}
                   style={{ minHeight: "60px" }}
                 />
               </div>
 
               <div style={{ marginTop: "20px" }}>
-                <button 
-                  className="btn btn-primary btn-lg"
-                  disabled={saving}
-                  onClick={onUpdate}
-                >
+                <button className="btn btn-primary btn-lg" disabled={saving} onClick={onUpdate}>
                   {saving ? <Loader size={18} className="loading-spinner" /> : <Save size={18} />}
                   {saving ? t.saving : t.save}
                 </button>
@@ -282,8 +318,16 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
         </div>
       </div>
 
-      {error && <div className="error-message" style={{ marginTop: "16px" }}>{error}</div>}
-      {success && <div className="success-message" style={{ marginTop: "16px" }}>{success}</div>}
+      {error && (
+        <div className="error-message" style={{ marginTop: "16px" }}>
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="success-message" style={{ marginTop: "16px" }}>
+          {success}
+        </div>
+      )}
 
       {/* Create Params Modal */}
       <TaskDetailsModal

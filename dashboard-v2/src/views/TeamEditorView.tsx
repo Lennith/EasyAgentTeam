@@ -19,7 +19,7 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
   const [team, setTeam] = useState<TeamRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [agentIds, setAgentIds] = useState<string[]>([]);
@@ -27,16 +27,16 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
   const [taskAssignRouteTable, setTaskAssignRouteTable] = useState<Record<string, string[]>>({});
   const [discussRounds, setDiscussRounds] = useState<DiscussRoundsConfig>({});
   const [modelConfigs, setModelConfigs] = useState<Record<string, AgentModelConfig>>({});
-  
+
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
+
   const [newAgentId, setNewAgentId] = useState("");
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<"members" | "message" | "task">("members");
   const initializedRef = useRef(false);
-  
+
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
 
   useEffect(() => {
@@ -181,7 +181,7 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
   }
 
   function getModelsForTool(tool: "codex" | "trae" | "minimax"): ModelInfo[] {
-    return availableModels.filter(m => m.vendor === tool);
+    return availableModels.filter((m) => m.vendor === tool);
   }
 
   async function onSave() {
@@ -189,7 +189,7 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
       setSaving(true);
       setSaveError(null);
       setSuccess(null);
-      
+
       await teamApi.update(teamId, {
         name,
         description: description || undefined,
@@ -197,9 +197,9 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
         route_table: routeTable,
         task_assign_route_table: taskAssignRouteTable,
         route_discuss_rounds: discussRounds,
-        agent_model_configs: modelConfigs,
+        agent_model_configs: modelConfigs
       });
-      
+
       setSuccess(t.teamUpdated);
       initializedRef.current = false;
       await loadTeam();
@@ -244,8 +244,16 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
         <span className="badge badge-neutral">{team.teamId}</span>
       </div>
 
-      {saveError && <div className="error-message" style={{ flexShrink: 0 }}>{saveError}</div>}
-      {success && <div className="success-message" style={{ flexShrink: 0 }}>{success}</div>}
+      {saveError && (
+        <div className="error-message" style={{ flexShrink: 0 }}>
+          {saveError}
+        </div>
+      )}
+      {success && (
+        <div className="success-message" style={{ flexShrink: 0 }}>
+          {success}
+        </div>
+      )}
 
       <div className="card" style={{ flexShrink: 0, marginBottom: "16px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
@@ -253,11 +261,7 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
             <label style={{ display: "block", fontSize: "12px", color: "var(--text-muted)", marginBottom: "4px" }}>
               {t.teamName}
             </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={{ width: "100%" }}
-            />
+            <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
           </div>
           <div>
             <label style={{ display: "block", fontSize: "12px", color: "var(--text-muted)", marginBottom: "4px" }}>
@@ -329,10 +333,12 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
                 <span style={{ flex: 1, fontWeight: 500 }}>{agent}</span>
                 <select
                   value={modelConfigs[agent]?.tool ?? "codex"}
-                  onChange={(e) => setModelConfigs((prev) => ({
-                    ...prev,
-                    [agent]: { ...prev[agent], tool: e.target.value as "codex" | "trae" | "minimax" }
-                  }))}
+                  onChange={(e) =>
+                    setModelConfigs((prev) => ({
+                      ...prev,
+                      [agent]: { ...prev[agent], tool: e.target.value as "codex" | "trae" | "minimax" }
+                    }))
+                  }
                   style={{ fontSize: "12px", padding: "4px 8px", width: "90px" }}
                 >
                   <option value="codex">Codex</option>
@@ -341,10 +347,12 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
                 </select>
                 <select
                   value={modelConfigs[agent]?.model ?? ""}
-                  onChange={(e) => setModelConfigs((prev) => ({
-                    ...prev,
-                    [agent]: { ...prev[agent], model: e.target.value }
-                  }))}
+                  onChange={(e) =>
+                    setModelConfigs((prev) => ({
+                      ...prev,
+                      [agent]: { ...prev[agent], model: e.target.value }
+                    }))
+                  }
                   style={{ fontSize: "12px", padding: "4px 8px", width: "120px" }}
                 >
                   <option value="">Model...</option>
@@ -356,20 +364,19 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
                 </select>
                 <select
                   value={modelConfigs[agent]?.effort ?? "medium"}
-                  onChange={(e) => setModelConfigs((prev) => ({
-                    ...prev,
-                    [agent]: { ...prev[agent], effort: e.target.value as "low" | "medium" | "high" }
-                  }))}
+                  onChange={(e) =>
+                    setModelConfigs((prev) => ({
+                      ...prev,
+                      [agent]: { ...prev[agent], effort: e.target.value as "low" | "medium" | "high" }
+                    }))
+                  }
                   style={{ fontSize: "12px", padding: "4px 8px", width: "70px" }}
                 >
                   <option value="low">{t.lowEffort}</option>
                   <option value="medium">{t.mediumEffort}</option>
                   <option value="high">{t.highEffort}</option>
                 </select>
-                <button
-                  className="btn btn-danger btn-sm"
-                  onClick={() => removeAgent(agent)}
-                >
+                <button className="btn btn-danger btn-sm" onClick={() => removeAgent(agent)}>
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -392,8 +399,12 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
           <div className="card-header" style={{ flexShrink: 0 }}>
             <h3>{activeTab === "message" ? t.messageRouting : t.taskRouting}</h3>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button className="btn btn-secondary btn-sm" onClick={expandAll}>Expand</button>
-              <button className="btn btn-secondary btn-sm" onClick={collapseAll}>Collapse</button>
+              <button className="btn btn-secondary btn-sm" onClick={expandAll}>
+                Expand
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={collapseAll}>
+                Collapse
+              </button>
             </div>
           </div>
 
@@ -443,51 +454,130 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
                     {isExpanded && (
                       <div style={{ padding: "0 16px 16px", marginLeft: "28px" }}>
                         {activeTab === "message" && (
-                          <div style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 70px 70px",
-                            gap: "6px",
-                            marginBottom: "8px",
-                            fontSize: "10px",
-                            color: "var(--text-muted)",
-                            fontWeight: 600
-                          }}>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 70px 70px",
+                              gap: "6px",
+                              marginBottom: "8px",
+                              fontSize: "10px",
+                              color: "var(--text-muted)",
+                              fontWeight: 600
+                            }}
+                          >
                             <span>Target Agent</span>
                             <span style={{ textAlign: "center" }}>Rounds</span>
                             <span style={{ textAlign: "center" }}>Route</span>
                           </div>
                         )}
-                        
+
                         {activeTab === "task" && (
-                          <div style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 70px",
-                            gap: "6px",
-                            marginBottom: "8px",
-                            fontSize: "10px",
-                            color: "var(--text-muted)",
-                            fontWeight: 600
-                          }}>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 70px",
+                              gap: "6px",
+                              marginBottom: "8px",
+                              fontSize: "10px",
+                              color: "var(--text-muted)",
+                              fontWeight: 600
+                            }}
+                          >
                             <span>Target Agent</span>
                             <span style={{ textAlign: "center" }}>Assign</span>
                           </div>
                         )}
 
-                        {agentIds.filter((to) => to !== from).map((to) => {
-                          const routeAllowed = isRouteAllowed(from, to);
-                          const assignAllowed = isTaskAssignAllowed(from, to);
-                          const rounds = getDiscussRounds(from, to);
+                        {agentIds
+                          .filter((to) => to !== from)
+                          .map((to) => {
+                            const routeAllowed = isRouteAllowed(from, to);
+                            const assignAllowed = isTaskAssignAllowed(from, to);
+                            const rounds = getDiscussRounds(from, to);
 
-                          if (activeTab === "message") {
+                            if (activeTab === "message") {
+                              return (
+                                <div
+                                  key={to}
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "1fr 70px 70px",
+                                    gap: "6px",
+                                    padding: "6px 10px",
+                                    background: routeAllowed ? "var(--bg-surface)" : "transparent",
+                                    borderRadius: "6px",
+                                    alignItems: "center"
+                                  }}
+                                >
+                                  <label
+                                    style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={routeAllowed}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        toggleRoute(from, to);
+                                      }}
+                                      style={{ width: "14px", height: "14px" }}
+                                    />
+                                    <span
+                                      style={{
+                                        fontSize: "12px",
+                                        color: routeAllowed ? "var(--text-primary)" : "var(--text-muted)",
+                                        fontWeight: routeAllowed ? 500 : 400
+                                      }}
+                                    >
+                                      {to}
+                                    </span>
+                                  </label>
+
+                                  <div style={{ textAlign: "center" }}>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={10}
+                                      value={rounds}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        setDiscussRoundsForRoute(from, to, parseInt(e.target.value) || 3);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      disabled={!routeAllowed}
+                                      style={{
+                                        width: "40px",
+                                        textAlign: "center",
+                                        padding: "2px 4px",
+                                        fontSize: "11px",
+                                        opacity: routeAllowed ? 1 : 0.5
+                                      }}
+                                    />
+                                  </div>
+
+                                  <div style={{ textAlign: "center" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={routeAllowed}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        toggleRoute(from, to);
+                                      }}
+                                      style={{ width: "14px", height: "14px" }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            }
+
                             return (
                               <div
                                 key={to}
                                 style={{
                                   display: "grid",
-                                  gridTemplateColumns: "1fr 70px 70px",
+                                  gridTemplateColumns: "1fr 70px",
                                   gap: "6px",
                                   padding: "6px 10px",
-                                  background: routeAllowed ? "var(--bg-surface)" : "transparent",
+                                  background: assignAllowed ? "var(--bg-surface)" : "transparent",
                                   borderRadius: "6px",
                                   alignItems: "center"
                                 }}
@@ -495,105 +585,38 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
                                 <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
                                   <input
                                     type="checkbox"
-                                    checked={routeAllowed}
+                                    checked={assignAllowed}
                                     onChange={(e) => {
                                       e.stopPropagation();
-                                      toggleRoute(from, to);
+                                      toggleTaskAssign(from, to);
                                     }}
                                     style={{ width: "14px", height: "14px" }}
                                   />
-                                  <span style={{
-                                    fontSize: "12px",
-                                    color: routeAllowed ? "var(--text-primary)" : "var(--text-muted)",
-                                    fontWeight: routeAllowed ? 500 : 400
-                                  }}>
+                                  <span
+                                    style={{
+                                      fontSize: "12px",
+                                      color: assignAllowed ? "var(--text-primary)" : "var(--text-muted)",
+                                      fontWeight: assignAllowed ? 500 : 400
+                                    }}
+                                  >
                                     {to}
                                   </span>
                                 </label>
 
                                 <div style={{ textAlign: "center" }}>
                                   <input
-                                    type="number"
-                                    min={1}
-                                    max={10}
-                                    value={rounds}
-                                    onChange={(e) => {
-                                      e.stopPropagation();
-                                      setDiscussRoundsForRoute(from, to, parseInt(e.target.value) || 3);
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                    disabled={!routeAllowed}
-                                    style={{
-                                      width: "40px",
-                                      textAlign: "center",
-                                      padding: "2px 4px",
-                                      fontSize: "11px",
-                                      opacity: routeAllowed ? 1 : 0.5
-                                    }}
-                                  />
-                                </div>
-
-                                <div style={{ textAlign: "center" }}>
-                                  <input
                                     type="checkbox"
-                                    checked={routeAllowed}
+                                    checked={assignAllowed}
                                     onChange={(e) => {
                                       e.stopPropagation();
-                                      toggleRoute(from, to);
+                                      toggleTaskAssign(from, to);
                                     }}
                                     style={{ width: "14px", height: "14px" }}
                                   />
                                 </div>
                               </div>
                             );
-                          }
-
-                          return (
-                            <div
-                              key={to}
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "1fr 70px",
-                                gap: "6px",
-                                padding: "6px 10px",
-                                background: assignAllowed ? "var(--bg-surface)" : "transparent",
-                                borderRadius: "6px",
-                                alignItems: "center"
-                              }}
-                            >
-                              <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={assignAllowed}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    toggleTaskAssign(from, to);
-                                  }}
-                                  style={{ width: "14px", height: "14px" }}
-                                />
-                                <span style={{
-                                  fontSize: "12px",
-                                  color: assignAllowed ? "var(--text-primary)" : "var(--text-muted)",
-                                  fontWeight: assignAllowed ? 500 : 400
-                                }}>
-                                  {to}
-                                </span>
-                              </label>
-
-                              <div style={{ textAlign: "center" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={assignAllowed}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    toggleTaskAssign(from, to);
-                                  }}
-                                  style={{ width: "14px", height: "14px" }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
+                          })}
                       </div>
                     )}
                   </div>
@@ -605,11 +628,7 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
       )}
 
       <div style={{ flexShrink: 0, paddingTop: "16px", display: "flex", gap: "8px" }}>
-        <button
-          className="btn btn-primary btn-lg"
-          disabled={saving}
-          onClick={onSave}
-        >
+        <button className="btn btn-primary btn-lg" disabled={saving} onClick={onSave}>
           {saving ? <Loader size={18} className="loading-spinner" /> : <Save size={18} />}
           {saving ? t.saving : t.save}
         </button>

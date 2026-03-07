@@ -71,7 +71,8 @@ function readDiscussThreadId(payload: Record<string, unknown>): string | null {
   if (!discussRaw) {
     return null;
   }
-  const thread = (typeof discussRaw.threadId === "string" ? discussRaw.threadId : undefined) ??
+  const thread =
+    (typeof discussRaw.threadId === "string" ? discussRaw.threadId : undefined) ??
     (typeof discussRaw.thread_id === "string" ? discussRaw.thread_id : undefined);
   if (!thread) {
     return null;
@@ -84,7 +85,7 @@ function computeSenderFrom(payload: Record<string, unknown>): string {
   const sourceType = readPayloadString(payload, "sourceType") as "user" | "agent" | "manager" | "system" | undefined;
   const originAgent = readPayloadString(payload, "originAgent") ?? readPayloadString(payload, "fromAgent");
   const fromAgent = readPayloadString(payload, "fromAgent");
-  
+
   if (sourceType === "user") {
     return "User";
   }

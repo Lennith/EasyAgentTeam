@@ -1,17 +1,17 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { Tool, successResult, errorResult } from './Tool.js';
-import type { ToolResult, PermissionCheckResult } from '../types.js';
+import * as fs from "fs";
+import * as path from "path";
+import { Tool, successResult, errorResult } from "./Tool.js";
+import type { ToolResult, PermissionCheckResult } from "../types.js";
 
 export interface FileToolsOptions {
   workspaceDir: string;
   additionalWritableDirs?: string[];
-  checkPermission?: (filePath: string, operation: 'read' | 'write') => PermissionCheckResult;
+  checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
 }
 
 export class ReadFileTool extends Tool {
   private workspaceDir: string;
-  private checkPermission?: (filePath: string, operation: 'read' | 'write') => PermissionCheckResult;
+  private checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
 
   constructor(options: FileToolsOptions) {
     super();
@@ -20,50 +20,50 @@ export class ReadFileTool extends Tool {
   }
 
   get name(): string {
-    return 'read_file';
+    return "read_file";
   }
 
   get description(): string {
-    return 'Read the contents of a file. Returns the file content as a string.';
+    return "Read the contents of a file. Returns the file content as a string.";
   }
 
   get parameters(): Record<string, unknown> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'The path to the file to read. Can be absolute or relative to workspace.',
+          type: "string",
+          description: "The path to the file to read. Can be absolute or relative to workspace."
         },
         offset: {
-          type: 'number',
-          description: 'Optional line offset (number of lines to skip from start).',
+          type: "number",
+          description: "Optional line offset (number of lines to skip from start).",
           default: 0
         },
         limit: {
-          type: 'number',
-          description: 'Optional max number of lines to return after offset.',
+          type: "number",
+          description: "Optional max number of lines to return after offset."
         },
         encoding: {
-          type: 'string',
-          description: 'The encoding to use. Default is utf-8.',
-          default: 'utf-8',
-        },
+          type: "string",
+          description: "The encoding to use. Default is utf-8.",
+          default: "utf-8"
+        }
       },
-      required: ['path'],
+      required: ["path"]
     };
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
     const filePath = this.resolvePath(args.path as string);
-    const encoding = (args.encoding as BufferEncoding) ?? 'utf-8';
+    const encoding = (args.encoding as BufferEncoding) ?? "utf-8";
     const offset = this.readInteger(args.offset, 0);
     const limit = this.readInteger(args.limit, undefined);
 
     if (this.checkPermission) {
-      const perm = this.checkPermission(filePath, 'read');
+      const perm = this.checkPermission(filePath, "read");
       if (!perm.allowed) {
-        return errorResult(perm.reason ?? 'Permission denied');
+        return errorResult(perm.reason ?? "Permission denied");
       }
     }
 
@@ -74,11 +74,11 @@ export class ReadFileTool extends Tool {
     try {
       const content = fs.readFileSync(filePath, encoding);
       if ((offset ?? 0) > 0 || limit !== undefined) {
-        const normalized = content.replace(/\r\n/g, '\n');
-        const lines = normalized.split('\n');
+        const normalized = content.replace(/\r\n/g, "\n");
+        const lines = normalized.split("\n");
         const start = Math.max(0, offset ?? 0);
         const sliced = limit === undefined ? lines.slice(start) : lines.slice(start, start + Math.max(0, limit));
-        return successResult(sliced.join('\n'));
+        return successResult(sliced.join("\n"));
       }
       return successResult(content);
     } catch (err) {
@@ -97,10 +97,10 @@ export class ReadFileTool extends Tool {
     if (value === undefined || value === null) {
       return fallback;
     }
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
       return Math.max(0, Math.floor(value));
     }
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof value === "string" && value.trim().length > 0) {
       const parsed = Number(value.trim());
       if (Number.isFinite(parsed)) {
         return Math.max(0, Math.floor(parsed));
@@ -112,7 +112,7 @@ export class ReadFileTool extends Tool {
 
 export class WriteFileTool extends Tool {
   private workspaceDir: string;
-  private checkPermission?: (filePath: string, operation: 'read' | 'write') => PermissionCheckResult;
+  private checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
 
   constructor(options: FileToolsOptions) {
     super();
@@ -121,44 +121,44 @@ export class WriteFileTool extends Tool {
   }
 
   get name(): string {
-    return 'write_file';
+    return "write_file";
   }
 
   get description(): string {
-    return 'Write content to a file. Creates the file if it does not exist, overwrites if it does.';
+    return "Write content to a file. Creates the file if it does not exist, overwrites if it does.";
   }
 
   get parameters(): Record<string, unknown> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'The path to the file to write. Can be absolute or relative to workspace.',
+          type: "string",
+          description: "The path to the file to write. Can be absolute or relative to workspace."
         },
         content: {
-          type: 'string',
-          description: 'The content to write to the file.',
+          type: "string",
+          description: "The content to write to the file."
         },
         encoding: {
-          type: 'string',
-          description: 'The encoding to use. Default is utf-8.',
-          default: 'utf-8',
-        },
+          type: "string",
+          description: "The encoding to use. Default is utf-8.",
+          default: "utf-8"
+        }
       },
-      required: ['path', 'content'],
+      required: ["path", "content"]
     };
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
     const filePath = this.resolvePath(args.path as string);
     const content = args.content as string;
-    const encoding = (args.encoding as BufferEncoding) ?? 'utf-8';
+    const encoding = (args.encoding as BufferEncoding) ?? "utf-8";
 
     if (this.checkPermission) {
-      const perm = this.checkPermission(filePath, 'write');
+      const perm = this.checkPermission(filePath, "write");
       if (!perm.allowed) {
-        return errorResult(perm.reason ?? 'Permission denied');
+        return errorResult(perm.reason ?? "Permission denied");
       }
     }
 
@@ -185,7 +185,7 @@ export class WriteFileTool extends Tool {
 
 export class EditFileTool extends Tool {
   private workspaceDir: string;
-  private checkPermission?: (filePath: string, operation: 'read' | 'write') => PermissionCheckResult;
+  private checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
 
   constructor(options: FileToolsOptions) {
     super();
@@ -194,31 +194,31 @@ export class EditFileTool extends Tool {
   }
 
   get name(): string {
-    return 'edit_file';
+    return "edit_file";
   }
 
   get description(): string {
-    return 'Edit a file by replacing a specific string with a new string.';
+    return "Edit a file by replacing a specific string with a new string.";
   }
 
   get parameters(): Record<string, unknown> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'The path to the file to edit.',
+          type: "string",
+          description: "The path to the file to edit."
         },
         oldStr: {
-          type: 'string',
-          description: 'The text to search for and replace.',
+          type: "string",
+          description: "The text to search for and replace."
         },
         newStr: {
-          type: 'string',
-          description: 'The text to replace with.',
-        },
+          type: "string",
+          description: "The text to replace with."
+        }
       },
-      required: ['path', 'oldStr', 'newStr'],
+      required: ["path", "oldStr", "newStr"]
     };
   }
 
@@ -228,9 +228,9 @@ export class EditFileTool extends Tool {
     const newStr = args.newStr as string;
 
     if (this.checkPermission) {
-      const perm = this.checkPermission(filePath, 'write');
+      const perm = this.checkPermission(filePath, "write");
       if (!perm.allowed) {
-        return errorResult(perm.reason ?? 'Permission denied');
+        return errorResult(perm.reason ?? "Permission denied");
       }
     }
 
@@ -239,15 +239,15 @@ export class EditFileTool extends Tool {
     }
 
     try {
-      let content = fs.readFileSync(filePath, 'utf-8');
-      
+      let content = fs.readFileSync(filePath, "utf-8");
+
       if (!content.includes(oldStr)) {
         return errorResult(`Text not found in file: "${oldStr.substring(0, 100)}..."`);
       }
 
       const newContent = content.replace(oldStr, newStr);
-      fs.writeFileSync(filePath, newContent, 'utf-8');
-      
+      fs.writeFileSync(filePath, newContent, "utf-8");
+
       return successResult(`Successfully edited ${filePath}`);
     } catch (err) {
       return errorResult(`Failed to edit file: ${err}`);
@@ -264,7 +264,7 @@ export class EditFileTool extends Tool {
 
 export class ListDirectoryTool extends Tool {
   private workspaceDir: string;
-  private checkPermission?: (filePath: string, operation: 'read' | 'write') => PermissionCheckResult;
+  private checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
 
   constructor(options: FileToolsOptions) {
     super();
@@ -273,33 +273,33 @@ export class ListDirectoryTool extends Tool {
   }
 
   get name(): string {
-    return 'list_directory';
+    return "list_directory";
   }
 
   get description(): string {
-    return 'List the contents of a directory.';
+    return "List the contents of a directory.";
   }
 
   get parameters(): Record<string, unknown> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         path: {
-          type: 'string',
-          description: 'The path to the directory to list. Default is workspace root.',
-        },
+          type: "string",
+          description: "The path to the directory to list. Default is workspace root."
+        }
       },
-      required: [],
+      required: []
     };
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
-    const dirPath = this.resolvePath((args.path as string) ?? '.');
+    const dirPath = this.resolvePath((args.path as string) ?? ".");
 
     if (this.checkPermission) {
-      const perm = this.checkPermission(dirPath, 'read');
+      const perm = this.checkPermission(dirPath, "read");
       if (!perm.allowed) {
-        return errorResult(perm.reason ?? 'Permission denied');
+        return errorResult(perm.reason ?? "Permission denied");
       }
     }
 
@@ -309,12 +309,12 @@ export class ListDirectoryTool extends Tool {
 
     try {
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-      const items = entries.map(entry => {
-        const type = entry.isDirectory() ? 'DIR' : 'FILE';
+      const items = entries.map((entry) => {
+        const type = entry.isDirectory() ? "DIR" : "FILE";
         return `${type}\t${entry.name}`;
       });
-      
-      return successResult(items.join('\n') || '(empty directory)');
+
+      return successResult(items.join("\n") || "(empty directory)");
     } catch (err) {
       return errorResult(`Failed to list directory: ${err}`);
     }
@@ -330,7 +330,7 @@ export class ListDirectoryTool extends Tool {
 
 export class GlobTool extends Tool {
   private workspaceDir: string;
-  private checkPermission?: (filePath: string, operation: 'read' | 'write') => PermissionCheckResult;
+  private checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
 
   constructor(options: FileToolsOptions) {
     super();
@@ -339,44 +339,44 @@ export class GlobTool extends Tool {
   }
 
   get name(): string {
-    return 'glob';
+    return "glob";
   }
 
   get description(): string {
-    return 'Find files matching a glob pattern.';
+    return "Find files matching a glob pattern.";
   }
 
   get parameters(): Record<string, unknown> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         pattern: {
-          type: 'string',
-          description: 'The glob pattern to match files. Example: "**/*.ts"',
+          type: "string",
+          description: 'The glob pattern to match files. Example: "**/*.ts"'
         },
         path: {
-          type: 'string',
-          description: 'The base directory to search from. Default is workspace root.',
-        },
+          type: "string",
+          description: "The base directory to search from. Default is workspace root."
+        }
       },
-      required: ['pattern'],
+      required: ["pattern"]
     };
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
     const pattern = args.pattern as string;
-    const basePath = this.resolvePath((args.path as string) ?? '.');
+    const basePath = this.resolvePath((args.path as string) ?? ".");
 
     if (this.checkPermission) {
-      const perm = this.checkPermission(basePath, 'read');
+      const perm = this.checkPermission(basePath, "read");
       if (!perm.allowed) {
-        return errorResult(perm.reason ?? 'Permission denied');
+        return errorResult(perm.reason ?? "Permission denied");
       }
     }
 
     try {
       const matches = this.globSearch(basePath, pattern);
-      return successResult(matches.join('\n') || 'No matches found');
+      return successResult(matches.join("\n") || "No matches found");
     } catch (err) {
       return errorResult(`Failed to search: ${err}`);
     }
@@ -395,18 +395,18 @@ export class GlobTool extends Tool {
 
     const search = (dir: string) => {
       if (!fs.existsSync(dir)) return;
-      
+
       const entries = fs.readdirSync(dir, { withFileTypes: true });
-      
+
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         const relativePath = path.relative(basePath, fullPath);
-        
+
         if (entry.isDirectory()) {
           search(fullPath);
         }
-        
-        if (regex.test(relativePath.replace(/\\/g, '/'))) {
+
+        if (regex.test(relativePath.replace(/\\/g, "/"))) {
           results.push(relativePath);
         }
       }
@@ -418,19 +418,19 @@ export class GlobTool extends Tool {
 
   private globToRegex(pattern: string): RegExp {
     let regex = pattern
-      .replace(/\*\*/g, '<<DOUBLESTAR>>')
-      .replace(/\*/g, '[^/]*')
-      .replace(/<<DOUBLESTAR>>/g, '.*')
-      .replace(/\?/g, '[^/]')
-      .replace(/\./g, '\\.');
-    
-    return new RegExp(`^${regex}$`, 'i');
+      .replace(/\*\*/g, "<<DOUBLESTAR>>")
+      .replace(/\*/g, "[^/]*")
+      .replace(/<<DOUBLESTAR>>/g, ".*")
+      .replace(/\?/g, "[^/]")
+      .replace(/\./g, "\\.");
+
+    return new RegExp(`^${regex}$`, "i");
   }
 }
 
 export class GrepTool extends Tool {
   private workspaceDir: string;
-  private checkPermission?: (filePath: string, operation: 'read' | 'write') => PermissionCheckResult;
+  private checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
 
   constructor(options: FileToolsOptions) {
     super();
@@ -439,55 +439,55 @@ export class GrepTool extends Tool {
   }
 
   get name(): string {
-    return 'grep';
+    return "grep";
   }
 
   get description(): string {
-    return 'Search text content across files and return matching lines with file path and line number.';
+    return "Search text content across files and return matching lines with file path and line number.";
   }
 
   get parameters(): Record<string, unknown> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         pattern: {
-          type: 'string',
-          description: 'Search pattern. Interpreted as JavaScript regular expression.',
+          type: "string",
+          description: "Search pattern. Interpreted as JavaScript regular expression."
         },
         path: {
-          type: 'string',
-          description: 'Base directory to search from. Default is workspace root.',
+          type: "string",
+          description: "Base directory to search from. Default is workspace root."
         },
         include: {
-          type: ['array', 'string'],
-          description: 'Optional glob-like include filters (example: "*.ts" or ["*.ts","*.md"]).',
+          type: ["array", "string"],
+          description: 'Optional glob-like include filters (example: "*.ts" or ["*.ts","*.md"]).'
         },
         max_results: {
-          type: 'number',
-          description: 'Maximum number of matched lines to return. Default 200.',
-          default: 200,
-        },
+          type: "number",
+          description: "Maximum number of matched lines to return. Default 200.",
+          default: 200
+        }
       },
-      required: ['pattern'],
+      required: ["pattern"]
     };
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
-    const patternRaw = String(args.pattern ?? '').trim();
+    const patternRaw = String(args.pattern ?? "").trim();
     if (!patternRaw) {
-      return errorResult('pattern is required');
+      return errorResult("pattern is required");
     }
     let regex: RegExp;
     try {
-      regex = new RegExp(patternRaw, 'i');
+      regex = new RegExp(patternRaw, "i");
     } catch (err) {
       return errorResult(`Invalid regex pattern: ${err}`);
     }
-    const basePath = this.resolvePath((args.path as string) ?? '.');
+    const basePath = this.resolvePath((args.path as string) ?? ".");
     if (this.checkPermission) {
-      const perm = this.checkPermission(basePath, 'read');
+      const perm = this.checkPermission(basePath, "read");
       if (!perm.allowed) {
-        return errorResult(perm.reason ?? 'Permission denied');
+        return errorResult(perm.reason ?? "Permission denied");
       }
     }
     const includePatterns = this.normalizeIncludePatterns(args.include);
@@ -499,17 +499,17 @@ export class GrepTool extends Tool {
       if (rows.length >= maxResults) {
         break;
       }
-      const relativePath = path.relative(basePath, filePath).replace(/\\/g, '/');
+      const relativePath = path.relative(basePath, filePath).replace(/\\/g, "/");
       if (!this.matchesInclude(relativePath, includePatterns)) {
         continue;
       }
-      let content = '';
+      let content = "";
       try {
-        content = fs.readFileSync(filePath, 'utf-8');
+        content = fs.readFileSync(filePath, "utf-8");
       } catch {
         continue;
       }
-      const lines = content.replace(/\r\n/g, '\n').split('\n');
+      const lines = content.replace(/\r\n/g, "\n").split("\n");
       for (let i = 0; i < lines.length; i += 1) {
         if (regex.test(lines[i])) {
           rows.push(`${relativePath}:${i + 1}:${lines[i]}`);
@@ -520,14 +520,14 @@ export class GrepTool extends Tool {
       }
     }
 
-    return successResult(rows.join('\n') || 'No matches found');
+    return successResult(rows.join("\n") || "No matches found");
   }
 
   private normalizeIncludePatterns(input: unknown): string[] {
     if (Array.isArray(input)) {
       return input.map((item) => String(item).trim()).filter((item) => item.length > 0);
     }
-    if (typeof input === 'string' && input.trim().length > 0) {
+    if (typeof input === "string" && input.trim().length > 0) {
       return input
         .split(/[,\n\r|]+/)
         .map((item) => item.trim())
@@ -545,12 +545,12 @@ export class GrepTool extends Tool {
 
   private globToRegex(pattern: string): RegExp {
     const escaped = pattern
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*\*/g, '<<DOUBLESTAR>>')
-      .replace(/\*/g, '[^/]*')
-      .replace(/<<DOUBLESTAR>>/g, '.*')
-      .replace(/\?/g, '[^/]');
-    return new RegExp(`^${escaped}$`, 'i');
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "<<DOUBLESTAR>>")
+      .replace(/\*/g, "[^/]*")
+      .replace(/<<DOUBLESTAR>>/g, ".*")
+      .replace(/\?/g, "[^/]");
+    return new RegExp(`^${escaped}$`, "i");
   }
 
   private collectFiles(basePath: string): string[] {
@@ -570,7 +570,7 @@ export class GrepTool extends Tool {
       for (const entry of entries) {
         const fullPath = path.join(current, entry.name);
         if (entry.isDirectory()) {
-          if (entry.name === '.git' || entry.name === 'node_modules') {
+          if (entry.name === ".git" || entry.name === "node_modules") {
             continue;
           }
           stack.push(fullPath);
@@ -592,10 +592,10 @@ export class GrepTool extends Tool {
   }
 
   private readInteger(value: unknown, fallback: number): number {
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
       return Math.max(1, Math.floor(value));
     }
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof value === "string" && value.trim().length > 0) {
       const parsed = Number(value.trim());
       if (Number.isFinite(parsed)) {
         return Math.max(1, Math.floor(parsed));
@@ -607,57 +607,59 @@ export class GrepTool extends Tool {
 
 export class WebFetchTool extends Tool {
   get name(): string {
-    return 'web_fetch';
+    return "web_fetch";
   }
 
   get description(): string {
-    return 'Fetch a URL and return page content (text/json/markdown).';
+    return "Fetch a URL and return page content (text/json/markdown).";
   }
 
   get parameters(): Record<string, unknown> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         url: {
-          type: 'string',
-          description: 'HTTP/HTTPS URL to fetch.'
+          type: "string",
+          description: "HTTP/HTTPS URL to fetch."
         },
         format: {
-          type: 'string',
-          description: 'Response format: text | json | markdown',
-          default: 'text'
+          type: "string",
+          description: "Response format: text | json | markdown",
+          default: "text"
         },
         timeout_ms: {
-          type: 'number',
-          description: 'Request timeout in milliseconds. Default 10000.',
+          type: "number",
+          description: "Request timeout in milliseconds. Default 10000.",
           default: 10000
         }
       },
-      required: ['url']
+      required: ["url"]
     };
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
-    const url = String(args.url ?? '').trim();
+    const url = String(args.url ?? "").trim();
     if (!url) {
-      return errorResult('url is required');
+      return errorResult("url is required");
     }
-    const format = String(args.format ?? 'text').trim().toLowerCase();
+    const format = String(args.format ?? "text")
+      .trim()
+      .toLowerCase();
     const timeoutMs = this.readInteger(args.timeout_ms, 10000);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, { signal: controller.signal });
-      const contentType = String(response.headers.get('content-type') ?? '').toLowerCase();
+      const contentType = String(response.headers.get("content-type") ?? "").toLowerCase();
       if (!response.ok) {
         return errorResult(`HTTP ${response.status}: ${response.statusText}`);
       }
-      if (format === 'json' || contentType.includes('application/json')) {
+      if (format === "json" || contentType.includes("application/json")) {
         const data = await response.json();
         return successResult(this.safeText(JSON.stringify(data, null, 2), 12000));
       }
       const text = await response.text();
-      if (format === 'markdown') {
+      if (format === "markdown") {
         const markdown = `# ${url}\n\n\`\`\`\n${this.safeText(text, 12000)}\n\`\`\``;
         return successResult(markdown);
       }
@@ -670,10 +672,10 @@ export class WebFetchTool extends Tool {
   }
 
   private readInteger(value: unknown, fallback: number): number {
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
       return Math.max(1000, Math.floor(value));
     }
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof value === "string" && value.trim().length > 0) {
       const parsed = Number(value.trim());
       if (Number.isFinite(parsed)) {
         return Math.max(1000, Math.floor(parsed));
@@ -692,35 +694,35 @@ export class WebFetchTool extends Tool {
 
 export class WebSearchTool extends Tool {
   get name(): string {
-    return 'web_search';
+    return "web_search";
   }
 
   get description(): string {
-    return 'Search web content and return brief result snippets.';
+    return "Search web content and return brief result snippets.";
   }
 
   get parameters(): Record<string, unknown> {
     return {
-      type: 'object',
+      type: "object",
       properties: {
         query: {
-          type: 'string',
-          description: 'Search query.'
+          type: "string",
+          description: "Search query."
         },
         num_results: {
-          type: 'number',
-          description: 'Number of results to return. Default 5.',
+          type: "number",
+          description: "Number of results to return. Default 5.",
           default: 5
         }
       },
-      required: ['query']
+      required: ["query"]
     };
   }
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
-    const query = String(args.query ?? '').trim();
+    const query = String(args.query ?? "").trim();
     if (!query) {
-      return errorResult('query is required');
+      return errorResult("query is required");
     }
     const numResults = this.readInteger(args.num_results, 5);
     const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&no_redirect=1`;
@@ -731,11 +733,11 @@ export class WebSearchTool extends Tool {
       }
       const data = (await response.json()) as Record<string, unknown>;
       const rows: Array<{ title: string; url: string; snippet: string }> = [];
-      const abstractText = typeof data.AbstractText === 'string' ? data.AbstractText : '';
-      const abstractUrl = typeof data.AbstractURL === 'string' ? data.AbstractURL : '';
+      const abstractText = typeof data.AbstractText === "string" ? data.AbstractText : "";
+      const abstractUrl = typeof data.AbstractURL === "string" ? data.AbstractURL : "";
       if (abstractText || abstractUrl) {
         rows.push({
-          title: 'Instant Answer',
+          title: "Instant Answer",
           url: abstractUrl,
           snippet: abstractText
         });
@@ -745,12 +747,12 @@ export class WebSearchTool extends Tool {
         if (rows.length >= numResults) {
           break;
         }
-        if (!topic || typeof topic !== 'object') {
+        if (!topic || typeof topic !== "object") {
           continue;
         }
         const row = topic as Record<string, unknown>;
-        const text = typeof row.Text === 'string' ? row.Text : '';
-        const firstUrl = typeof row.FirstURL === 'string' ? row.FirstURL : '';
+        const text = typeof row.Text === "string" ? row.Text : "";
+        const firstUrl = typeof row.FirstURL === "string" ? row.FirstURL : "";
         if (text || firstUrl) {
           rows.push({
             title: this.buildTitleFromText(text),
@@ -761,11 +763,11 @@ export class WebSearchTool extends Tool {
       }
       const resultRows = rows.slice(0, numResults);
       if (resultRows.length === 0) {
-        return successResult('No search results found');
+        return successResult("No search results found");
       }
       const content = resultRows
         .map((item, idx) => `${idx + 1}. ${item.title}\nURL: ${item.url}\n${item.snippet}`)
-        .join('\n\n');
+        .join("\n\n");
       return successResult(content);
     } catch (err) {
       return errorResult(`Failed to search web: ${err}`);
@@ -773,10 +775,10 @@ export class WebSearchTool extends Tool {
   }
 
   private readInteger(value: unknown, fallback: number): number {
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
       return Math.max(1, Math.min(20, Math.floor(value)));
     }
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof value === "string" && value.trim().length > 0) {
       const parsed = Number(value.trim());
       if (Number.isFinite(parsed)) {
         return Math.max(1, Math.min(20, Math.floor(parsed)));
@@ -788,7 +790,7 @@ export class WebSearchTool extends Tool {
   private buildTitleFromText(text: string): string {
     const trimmed = text.trim();
     if (!trimmed) {
-      return 'Search Result';
+      return "Search Result";
     }
     if (trimmed.length <= 80) {
       return trimmed;
@@ -806,6 +808,6 @@ export function createFileTools(options: FileToolsOptions): Tool[] {
     new GlobTool(options),
     new GrepTool(options),
     new WebFetchTool(),
-    new WebSearchTool(),
+    new WebSearchTool()
   ];
 }

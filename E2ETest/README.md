@@ -15,7 +15,7 @@ Validate the full task-driven orchestration loop, not only dependency gating:
 
 ## Scenario
 
-Default scenario file:
+Default scenario files:
 
 - `E2ETest/scenarios/a-self-decompose-chain.json`
 - `E2ETest/scenarios/team-discuss-framework.json`
@@ -26,8 +26,10 @@ Default scenario file:
   Runs the full E2E case through backend APIs.
 - `E2ETest/scripts/run-discuss-e2e.ps1`
   Runs the discuss-heavy multi-architect convergence case.
+- `E2ETest/scripts/run-workflow-e2e.ps1`
+  Runs workflow-mode lifecycle regression (template -> run -> start -> stop), based on the discuss scenario structure.
 - `E2ETest/scripts/run-multi-e2e.ps1`
-  Runs multiple projects concurrently (default: both chain + discuss), then runs reminder专项回归。
+  Runs multiple projects concurrently (default: chain + discuss + workflow), then runs reminder regression.
 - `E2ETest/scripts/run-reminder-e2e.ps1`
   Runs reminder-specific regression (fixed interval mode + manual reset recovery).
 - `E2ETest/scripts/export-core-logs.ps1`
@@ -43,7 +45,7 @@ Default scenario file:
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1
 ```
 
-Run both projects concurrently (default):
+Run all primary projects concurrently (default):
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1
@@ -53,17 +55,18 @@ Before each run, the script fully resets the workspace directory content (projec
 
 After one run finishes, artifacts are preserved (no post-run cleanup).
 
-Default workspace is:
+Default workspaces are:
 
 - `D:\AgentWorkSpace\TestTeam\TestRound20`
 - `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss`
+- `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace`
 - `D:\AgentWorkSpace\TestTeam\TestReminder`
 
 Optional parameters:
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1 `
-  -BaseUrl "http://127.0.0.1:3000" `
+  -BaseUrl "http://127.0.0.1:43123" `
   -WorkspaceRoot "D:\AgentWorkSpace\TestTeam\E2ETestRun" `
   -AutoDispatchBudget 30 `
   -AutoTopupStep 30 `
@@ -77,9 +80,10 @@ Multi-run configurable case/workspace example:
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 `
-  -Cases @("chain","discuss") `
+  -Cases @("chain","discuss","workflow") `
   -ChainWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestRound20" `
   -DiscussWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss" `
+  -WorkflowWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace" `
   -ReminderWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestReminder" `
   -RunReminderAfter $true `
   -AutoDispatchBudget 30 `
@@ -90,11 +94,20 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 `
   -PollSeconds 30
 ```
 
+Run workflow-only setup smoke (no runtime start):
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 `
+  -WorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace" `
+  -SetupOnly
+```
+
 ## Output
 
 By default, artifacts are written into:
 
 - `<workspace>\docs\e2e\<timestamp>\`
+- workflow script: `<workspace>\docs\e2e\<timestamp>-workflow\`
 
 Key files:
 
@@ -107,6 +120,10 @@ Key files:
 - `topup_log.json`
 - `analysis.md`
 - `run_summary.md`
+- `workflow_block_probe.json` (workflow script)
+- `workflow_timing_timeline.json` (workflow script)
+- `workflow_step_runtime_samples.json` (workflow script)
+- `workflow_block_analysis.md` (workflow script)
 
 ## Pass Criteria (Default)
 

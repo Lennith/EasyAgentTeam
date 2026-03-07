@@ -3,6 +3,7 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 MiniMax Agent Loop 模块负责单个 MiniMax 会话内的推理-工具调用执行循环。
 
 **源码路径**:
@@ -44,12 +45,12 @@ MiniMax Agent Loop 模块负责单个 MiniMax 会话内的推理-工具调用执
 
 ### 3.1 输入
 
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| prompt | string | 是 | 用户/系统输入 |
-| sessionId | string | 否 | 指定会话 |
-| maxSteps | number | 否 | 最大循环步数 |
-| callback | AgentCallback | 否 | 运行事件回调 |
+| 参数      | 类型          | 必填 | 说明          |
+| --------- | ------------- | ---- | ------------- |
+| prompt    | string        | 是   | 用户/系统输入 |
+| sessionId | string        | 否   | 指定会话      |
+| maxSteps  | number        | 否   | 最大循环步数  |
+| callback  | AgentCallback | 否   | 运行事件回调  |
 
 ### 3.2 输出
 
@@ -101,12 +102,12 @@ MiniMax Agent Loop 模块负责单个 MiniMax 会话内的推理-工具调用执
 
 ## 7. 异常与边界
 
-| 场景 | 处理 |
-|---|---|
-| Agent 并发调用 | 抛 `Agent is already running` |
-| 工具执行失败 | 写 tool error 内容，继续循环 |
-| 连续 TOOLCALL_FAILED | 第二次升级失败并上抛 |
-| 用户取消 | 返回 `Task cancelled by user.` |
+| 场景                 | 处理                           |
+| -------------------- | ------------------------------ |
+| Agent 并发调用       | 抛 `Agent is already running`  |
+| 工具执行失败         | 写 tool error 内容，继续循环   |
+| 连续 TOOLCALL_FAILED | 第二次升级失败并上抛           |
+| 用户取消             | 返回 `Task cancelled by user.` |
 
 ---
 

@@ -1,5 +1,5 @@
-import * as crypto from 'crypto';
-import type { Session, CreateSessionOptions, Message } from '../types.js';
+import * as crypto from "crypto";
+import type { Session, CreateSessionOptions, Message } from "../types.js";
 
 export class SessionManager {
   private sessions: Map<string, Session> = new Map();
@@ -7,7 +7,7 @@ export class SessionManager {
 
   generateSessionId(): string {
     const timestamp = Date.now();
-    const random = crypto.randomBytes(4).toString('hex');
+    const random = crypto.randomBytes(4).toString("hex");
     return `sess-${timestamp}-${random}`;
   }
 
@@ -24,9 +24,9 @@ export class SessionManager {
       messages: [],
       createdAt: now,
       updatedAt: now,
-      workspaceDir: options.workspaceDir ?? './workspace',
+      workspaceDir: options.workspaceDir ?? "./workspace",
       additionalDirs: options.additionalDirs ?? [],
-      systemPrompt: options.systemPrompt,
+      systemPrompt: options.systemPrompt
     };
 
     this.sessions.set(id, session);

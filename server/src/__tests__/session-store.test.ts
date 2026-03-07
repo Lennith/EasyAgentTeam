@@ -25,11 +25,7 @@ test("resolve latest session by role uses lastActiveAt", async () => {
     role: "dev_backend"
   });
 
-  const latestBeforeTouch = await resolveLatestSessionByRole(
-    created.paths,
-    "sessiontest",
-    "dev_backend"
-  );
+  const latestBeforeTouch = await resolveLatestSessionByRole(created.paths, "sessiontest", "dev_backend");
   assert.equal(latestBeforeTouch?.sessionId, "sess-dev-b");
 
   await touchSession(created.paths, "sessiontest", "sess-dev-a", { status: "running" });

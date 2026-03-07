@@ -108,7 +108,10 @@ export async function validateExplicitTargetSession(
   };
 }
 
-export function validateRoleSessionMapWrite(role: string | undefined, sessionId: string | undefined): RoutingRejectError | null {
+export function validateRoleSessionMapWrite(
+  role: string | undefined,
+  sessionId: string | undefined
+): RoutingRejectError | null {
   const normalizedRole = normalizeOptional(role);
   const normalizedSessionId = normalizeOptional(sessionId);
   if (!normalizedRole || !normalizedSessionId) {

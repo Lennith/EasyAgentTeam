@@ -140,7 +140,9 @@ export class ModelManagerService {
     return parsed;
   }
 
-  private async runModelListCommand(command: string): Promise<{ ok: true; stdout: string } | { ok: false; warning: string }> {
+  private async runModelListCommand(
+    command: string
+  ): Promise<{ ok: true; stdout: string } | { ok: false; warning: string }> {
     const parsed = parseCommand(command);
     if (!parsed.bin) {
       return { ok: false, warning: "empty command" };

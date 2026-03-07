@@ -66,11 +66,7 @@ function collectAncestors(taskId: string, byId: Map<string, TaskRecord>): string
   return ancestors;
 }
 
-function collectDescendants(
-  taskId: string,
-  childrenByParent: Map<string, TaskRecord[]>,
-  maxDepth?: number
-): string[] {
+function collectDescendants(taskId: string, childrenByParent: Map<string, TaskRecord[]>, maxDepth?: number): string[] {
   const descendants: string[] = [];
   const queue: Array<{ taskId: string; depth: number }> = [{ taskId, depth: 0 }];
   const visited = new Set<string>([taskId]);
@@ -96,7 +92,9 @@ function collectDescendants(
 export function buildTaskTreeResponse(input: BuildTaskTreeInput): TaskTreeResponse {
   const includeExternalDependencies = input.includeExternalDependencies ?? true;
   const maxDepth =
-    typeof input.maxDescendantDepth === "number" && Number.isFinite(input.maxDescendantDepth) && input.maxDescendantDepth >= 0
+    typeof input.maxDescendantDepth === "number" &&
+    Number.isFinite(input.maxDescendantDepth) &&
+    input.maxDescendantDepth >= 0
       ? Math.floor(input.maxDescendantDepth)
       : undefined;
   const byId = new Map(input.tasks.map((task) => [task.taskId, task]));

@@ -1,5 +1,5 @@
-import type { ToolSchema, ToolResult } from '../types.js';
-import { Tool } from './Tool.js';
+import type { ToolSchema, ToolResult } from "../types.js";
+import { Tool } from "./Tool.js";
 
 export class ToolRegistry {
   private tools: Map<string, Tool> = new Map();
@@ -25,20 +25,20 @@ export class ToolRegistry {
   }
 
   getSchemas(): ToolSchema[] {
-    return this.getAll().map(tool => tool.toSchema());
+    return this.getAll().map((tool) => tool.toSchema());
   }
 
   async execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
-      return { success: false, content: '', error: `Unknown tool: ${name}` };
+      return { success: false, content: "", error: `Unknown tool: ${name}` };
     }
-    
+
     try {
       return await tool.execute(args);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, content: '', error: `Tool execution failed: ${errorMessage}` };
+      return { success: false, content: "", error: `Tool execution failed: ${errorMessage}` };
     }
   }
 

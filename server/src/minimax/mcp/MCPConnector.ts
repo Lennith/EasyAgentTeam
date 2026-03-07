@@ -1,10 +1,10 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { Tool, successResult, errorResult } from '../tools/Tool.js';
-import type { ToolResult, MCPServerConfig } from '../types.js';
-import { logger } from '../../utils/logger.js';
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { Tool, successResult, errorResult } from "../tools/Tool.js";
+import type { ToolResult, MCPServerConfig } from "../types.js";
+import { logger } from "../../utils/logger.js";
 
 export interface MCPToolOptions {
   name: string;
@@ -46,7 +46,7 @@ export class MCPTool extends Tool {
     try {
       const result = await Promise.race([
         this.client.callTool({ name: this._name, arguments: args }),
-        this.createTimeout(this.timeout),
+        this.createTimeout(this.timeout)
       ]);
 
       const content = this.extractContent(result);
@@ -64,18 +64,18 @@ export class MCPTool extends Tool {
 
   private extractContent(result: any): string {
     if (!result.content) {
-      return '';
+      return "";
     }
 
     const parts: string[] = [];
     for (const item of result.content) {
-      if (item.type === 'text') {
+      if (item.type === "text") {
         parts.push(item.text);
       } else {
         parts.push(JSON.stringify(item));
       }
     }
-    return parts.join('\n');
+    return parts.join("\n");
   }
 
   private createTimeout(ms: number): Promise<never> {
@@ -109,10 +109,7 @@ export class MCPConnector {
 
     try {
       const transport = await this.createTransport(config);
-      const client = new Client(
-        { name: 'minimax-agent', version: '1.0.0' },
-        { capabilities: {} }
-      );
+      const client = new Client({ name: "minimax-agent", version: "1.0.0" }, { capabilities: {} });
 
       await client.connect(transport);
 
@@ -122,10 +119,10 @@ export class MCPConnector {
       for (const tool of toolsResult.tools) {
         const mcpTool = new MCPTool({
           name: tool.name,
-          description: tool.description ?? '',
+          description: tool.description ?? "",
           parameters: tool.inputSchema as Record<string, unknown>,
           client,
-          timeout: config.executeTimeout ?? this.defaultTimeout,
+          timeout: config.executeTimeout ?? this.defaultTimeout
         });
         tools.push(mcpTool);
       }
@@ -135,7 +132,7 @@ export class MCPConnector {
         config,
         client,
         transport,
-        tools,
+        tools
       });
 
       logger.info(`Connected to MCP server "${config.name}" - loaded ${tools.length} tools`);
@@ -148,22 +145,19 @@ export class MCPConnector {
   }
 
   private async createTransport(config: MCPServerConfig): Promise<Transport> {
-    if (config.type === 'stdio') {
+    if (config.type === "stdio") {
       if (!config.command) {
-        throw new Error('Command is required for stdio MCP server');
+        throw new Error("Command is required for stdio MCP server");
       }
       return new StdioClientTransport({
         command: config.command,
         args: config.args ?? [],
-        env: config.env ?? { ...process.env } as Record<string, string>,
+        env: config.env ?? ({ ...process.env } as Record<string, string>)
       });
     }
 
-    if (config.type === 'sse' && config.url) {
-      return new SSEClientTransport(
-        new URL(config.url),
-        { requestInit: { headers: config.headers } }
-      );
+    if (config.type === "sse" && config.url) {
+      return new SSEClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });
     }
 
     throw new Error(`Unsupported MCP server type: ${config.type}`);

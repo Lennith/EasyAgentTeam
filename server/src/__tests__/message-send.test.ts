@@ -372,7 +372,10 @@ test.skip("message send supports directional discuss round limits from project r
     const inboxRes = await fetch(`${baseUrl}/api/projects/msgclarify/inbox/agent_b?limit=20`);
     assert.equal(inboxRes.status, 200);
     const inboxPayload = (await inboxRes.json()) as {
-      items: Array<{ type: string; payload: { taskId?: string; clarification?: { threadId?: string; round?: number } } }>;
+      items: Array<{
+        type: string;
+        payload: { taskId?: string; clarification?: { threadId?: string; round?: number } };
+      }>;
     };
     assert.equal(inboxPayload.items.length, 0);
 

@@ -147,9 +147,7 @@ async function submitHandoffReport(): Promise<void> {
 }
 
 async function verifyWorkflowResult(): Promise<void> {
-  const taskPayload = await getJson<{ items: TaskRecord[]; total: number }>(
-    `/api/projects/${projectId}/tasks`
-  );
+  const taskPayload = await getJson<{ items: TaskRecord[]; total: number }>(`/api/projects/${projectId}/tasks`);
   const projectPayload = await getJson<{ inboxSessions: string[] }>(`/api/projects/${projectId}`);
   const eventsRaw = await getText(`/api/projects/${projectId}/events`);
   const events = parseNdjson(eventsRaw);
@@ -170,12 +168,15 @@ async function verifyWorkflowResult(): Promise<void> {
   assert(eventTypes.has("MANAGER_MESSAGE_ROUTED"), "missing MANAGER_MESSAGE_ROUTED event");
 
   console.log("[mock_workflow] verification passed");
-  console.log("[mock_workflow] tasks:", taskPayload.items.map((item) => ({
-    taskId: item.taskId,
-    state: item.state,
-    ownerRole: item.ownerRole,
-    ownerSession: item.ownerSession ?? null
-  })));
+  console.log(
+    "[mock_workflow] tasks:",
+    taskPayload.items.map((item) => ({
+      taskId: item.taskId,
+      state: item.state,
+      ownerRole: item.ownerRole,
+      ownerSession: item.ownerSession ?? null
+    }))
+  );
 }
 
 async function main() {

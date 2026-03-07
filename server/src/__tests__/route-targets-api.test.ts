@@ -57,9 +57,7 @@ test("route-targets API returns directional targets with directional discuss rou
     });
     assert.equal(createRes.status, 201);
 
-    const targetsRes = await fetch(
-      `${baseUrl}/api/projects/routetargetsdir/route-targets?from_agent=planner`
-    );
+    const targetsRes = await fetch(`${baseUrl}/api/projects/routetargetsdir/route-targets?from_agent=planner`);
     assert.equal(targetsRes.status, 200);
     const payload = (await targetsRes.json()) as {
       fromAgent: string;
@@ -105,9 +103,7 @@ test("route-targets API falls back to enabled agents when route table is not con
     });
     assert.equal(createRes.status, 201);
 
-    const targetsRes = await fetch(
-      `${baseUrl}/api/projects/routetargetsdefault/route-targets?from_agent=agent_b`
-    );
+    const targetsRes = await fetch(`${baseUrl}/api/projects/routetargetsdefault/route-targets?from_agent=agent_b`);
     assert.equal(targetsRes.status, 200);
     const payload = (await targetsRes.json()) as {
       hasExplicitRouteTable: boolean;

@@ -155,4 +155,3 @@ test("task assignment message is skipped when ancestor dependency gate is closed
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
-

@@ -39,7 +39,9 @@ export function AgentTemplatesView() {
       }
     }
     load();
-    return () => { closed = true; };
+    return () => {
+      closed = true;
+    };
   }, []);
 
   const startEdit = (template: AgentTemplateDefinition) => {
@@ -59,13 +61,13 @@ export function AgentTemplatesView() {
       setSaving(true);
       await templateApi.update(templateId, {
         display_name: editDisplayName,
-        prompt: editPrompt,
+        prompt: editPrompt
       });
-      setCustomTemplates(customTemplates.map((t) => 
-        t.templateId === templateId 
-          ? { ...t, displayName: editDisplayName, prompt: editPrompt }
-          : t
-      ));
+      setCustomTemplates(
+        customTemplates.map((t) =>
+          t.templateId === templateId ? { ...t, displayName: editDisplayName, prompt: editPrompt } : t
+        )
+      );
       cancelEdit();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
@@ -90,7 +92,7 @@ export function AgentTemplatesView() {
       await templateApi.create({
         template_id: newTemplateId,
         display_name: newDisplayName,
-        prompt: newPrompt,
+        prompt: newPrompt
       });
       const data = await templateApi.list();
       setCustomTemplates(data.customItems ?? []);
@@ -133,7 +135,11 @@ export function AgentTemplatesView() {
         </button>
       </div>
 
-      {error && <div className="error-message" style={{ flexShrink: 0 }}>{error}</div>}
+      {error && (
+        <div className="error-message" style={{ flexShrink: 0 }}>
+          {error}
+        </div>
+      )}
 
       {showNew && (
         <div className="card" style={{ flexShrink: 0 }}>
@@ -142,39 +148,64 @@ export function AgentTemplatesView() {
           </div>
           <div className="form-group">
             <label>{t.templateId} *</label>
-            <input value={newTemplateId} onChange={(e) => setNewTemplateId(e.target.value)} placeholder="e.g., custom_dev" />
+            <input
+              value={newTemplateId}
+              onChange={(e) => setNewTemplateId(e.target.value)}
+              placeholder="e.g., custom_dev"
+            />
           </div>
           <div className="form-group">
             <label>{t.displayName} *</label>
-            <input value={newDisplayName} onChange={(e) => setNewDisplayName(e.target.value)} placeholder="Display name" />
+            <input
+              value={newDisplayName}
+              onChange={(e) => setNewDisplayName(e.target.value)}
+              placeholder="Display name"
+            />
           </div>
           <div className="form-group">
             <label>{t.prompt}</label>
-            <textarea 
-              value={newPrompt} 
-              onChange={(e) => setNewPrompt(e.target.value)} 
+            <textarea
+              value={newPrompt}
+              onChange={(e) => setNewPrompt(e.target.value)}
               style={{ minHeight: "200px" }}
               placeholder="Enter the template prompt..."
             />
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
-            <button className="btn btn-primary" onClick={createTemplate} disabled={saving || !newTemplateId || !newDisplayName}>
+            <button
+              className="btn btn-primary"
+              onClick={createTemplate}
+              disabled={saving || !newTemplateId || !newDisplayName}
+            >
               {saving ? <Loader size={14} className="loading-spinner" /> : <Plus size={14} />}
               {t.create}
             </button>
-            <button className="btn btn-secondary" onClick={() => {
-              setShowNew(false);
-              setNewTemplateId("");
-              setNewDisplayName("");
-              setNewPrompt("");
-            }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setShowNew(false);
+                setNewTemplateId("");
+                setNewDisplayName("");
+                setNewPrompt("");
+              }}
+            >
               {t.cancel}
             </button>
           </div>
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto", paddingRight: "4px", display: "flex", flexDirection: "column", gap: "12px" }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: "auto",
+          paddingRight: "4px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "12px"
+        }}
+      >
         <div className="card" style={{ flexShrink: 0 }}>
           <div className="card-header">
             <h3>Built-in Templates</h3>
@@ -182,17 +213,22 @@ export function AgentTemplatesView() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {builtInTemplates.map((template) => (
-              <div key={template.templateId} style={{ 
-                padding: "12px", 
-                background: "var(--bg-elevated)", 
-                borderRadius: "8px" 
-              }}>
+              <div
+                key={template.templateId}
+                style={{
+                  padding: "12px",
+                  background: "var(--bg-elevated)",
+                  borderRadius: "8px"
+                }}
+              >
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
                   <div>
                     <span style={{ fontWeight: 600 }}>{template.displayName}</span>
-                    <span className="badge badge-neutral" style={{ marginLeft: "8px" }}>{template.templateId}</span>
+                    <span className="badge badge-neutral" style={{ marginLeft: "8px" }}>
+                      {template.templateId}
+                    </span>
                   </div>
-                  <button 
+                  <button
                     className="btn btn-secondary btn-sm"
                     onClick={() => {
                       setShowNew(true);
@@ -202,13 +238,15 @@ export function AgentTemplatesView() {
                     <Copy size={12} /> Copy
                   </button>
                 </div>
-                <pre style={{ 
-                  margin: 0, 
-                  fontSize: "11px", 
-                  maxHeight: "100px", 
-                  overflow: "auto",
-                  color: "var(--text-muted)"
-                }}>
+                <pre
+                  style={{
+                    margin: 0,
+                    fontSize: "11px",
+                    maxHeight: "100px",
+                    overflow: "auto",
+                    color: "var(--text-muted)"
+                  }}
+                >
                   {template.prompt.slice(0, 500)}...
                 </pre>
               </div>
@@ -223,11 +261,14 @@ export function AgentTemplatesView() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {customTemplates.map((template) => (
-              <div key={template.templateId} style={{ 
-                padding: "12px", 
-                background: "var(--bg-elevated)", 
-                borderRadius: "8px" 
-              }}>
+              <div
+                key={template.templateId}
+                style={{
+                  padding: "12px",
+                  background: "var(--bg-elevated)",
+                  borderRadius: "8px"
+                }}
+              >
                 {editingId === template.templateId ? (
                   <>
                     <div className="form-group">
@@ -236,10 +277,18 @@ export function AgentTemplatesView() {
                     </div>
                     <div className="form-group">
                       <label>{t.prompt}</label>
-                      <textarea value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} style={{ minHeight: "150px" }} />
+                      <textarea
+                        value={editPrompt}
+                        onChange={(e) => setEditPrompt(e.target.value)}
+                        style={{ minHeight: "150px" }}
+                      />
                     </div>
                     <div style={{ display: "flex", gap: "8px" }}>
-                      <button className="btn btn-primary" onClick={() => saveEdit(template.templateId)} disabled={saving}>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => saveEdit(template.templateId)}
+                        disabled={saving}
+                      >
                         {saving ? <Loader size={14} className="loading-spinner" /> : <Save size={14} />}
                         {t.save}
                       </button>
@@ -253,10 +302,12 @@ export function AgentTemplatesView() {
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
                       <div>
                         <span style={{ fontWeight: 600 }}>{template.displayName}</span>
-                        <span className="badge badge-neutral" style={{ marginLeft: "8px" }}>{template.templateId}</span>
+                        <span className="badge badge-neutral" style={{ marginLeft: "8px" }}>
+                          {template.templateId}
+                        </span>
                       </div>
                       <div style={{ display: "flex", gap: "8px" }}>
-                        <button 
+                        <button
                           className="btn btn-secondary btn-sm"
                           onClick={() => {
                             setShowNew(true);
@@ -273,13 +324,15 @@ export function AgentTemplatesView() {
                         </button>
                       </div>
                     </div>
-                    <pre style={{ 
-                      margin: 0, 
-                      fontSize: "11px", 
-                      maxHeight: "100px", 
-                      overflow: "auto",
-                      color: "var(--text-muted)"
-                    }}>
+                    <pre
+                      style={{
+                        margin: 0,
+                        fontSize: "11px",
+                        maxHeight: "100px",
+                        overflow: "auto",
+                        color: "var(--text-muted)"
+                      }}
+                    >
                       {template.prompt}
                     </pre>
                   </>

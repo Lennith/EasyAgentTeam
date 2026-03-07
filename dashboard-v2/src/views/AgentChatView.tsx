@@ -1,14 +1,25 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+﻿import { useState, useRef, useEffect, useMemo } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import type { SessionRecord } from "@/types";
+import type { SessionRecord, WorkflowSessionRecord } from "@/types";
 import { Send, XCircle, Loader, MessageCircle, Clock, Bot } from "lucide-react";
 
 interface AgentChatViewProps {
-  projectId: string;
-  sessions: SessionRecord[];
+  projectId?: string;
+  runId?: string;
+  sessions: Array<SessionRecord | WorkflowSessionRecord>;
 }
 
 const API_BASE = "/api";
+
+type SessionLite = {
+  sessionId: string;
+  role: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastActiveAt?: string;
+  providerSessionId?: string | null;
+};
 
 interface ChatMessage {
   type: "thinking" | "tool_call" | "tool_result" | "message" | "complete" | "error" | "step";
@@ -17,9 +28,49 @@ interface ChatMessage {
   role?: "user" | "assistant";
 }
 
-export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
+function parseMs(value?: string): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sessionStatusWeight(status?: string): number {
+  const normalized = String(status ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "running") return 0;
+  if (normalized === "idle") return 1;
+  if (normalized === "blocked") return 2;
+  if (normalized === "dismissed") return 99;
+  return 10;
+}
+
+function pickAuthoritativeSession(candidates: SessionLite[]): SessionLite | null {
+  const available = candidates.filter((item) => sessionStatusWeight(item.status) < 99);
+  if (available.length === 0) {
+    return null;
+  }
+  const sorted = [...available].sort((a, b) => {
+    const aWeight = sessionStatusWeight(a.status);
+    const bWeight = sessionStatusWeight(b.status);
+    if (aWeight !== bWeight) {
+      return aWeight - bWeight;
+    }
+    const aRecent = Math.max(parseMs(a.lastActiveAt), parseMs(a.updatedAt), parseMs(a.createdAt));
+    const bRecent = Math.max(parseMs(b.lastActiveAt), parseMs(b.updatedAt), parseMs(b.createdAt));
+    if (aRecent !== bRecent) {
+      return bRecent - aRecent;
+    }
+    return a.sessionId.localeCompare(b.sessionId);
+  });
+  return sorted[0] ?? null;
+}
+
+export function AgentChatView({ projectId, runId, sessions }: AgentChatViewProps) {
   const t = useTranslation();
-  const [selectedSession, setSelectedSession] = useState<SessionRecord | null>(null);
+  const [selectedSession, setSelectedSession] = useState<SessionLite | null>(null);
   const [inputText, setInputText] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -31,67 +82,130 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Group sessions by role
+  const sessionItems = useMemo<SessionLite[]>(() => {
+    const normalized = sessions
+      .filter((item) => Boolean(item.sessionId) && Boolean(item.role))
+      .map((item) => ({
+        sessionId: item.sessionId,
+        role: item.role,
+        status: (item as { status?: string }).status,
+        createdAt: (item as { createdAt?: string }).createdAt,
+        updatedAt: (item as { updatedAt?: string }).updatedAt,
+        lastActiveAt: item.lastActiveAt,
+        providerSessionId:
+          typeof (item as { providerSessionId?: string | null }).providerSessionId === "string"
+            ? (item as { providerSessionId?: string | null }).providerSessionId
+            : null
+      }));
+    const byRole = new Map<string, SessionLite[]>();
+    for (const item of normalized) {
+      const bucket = byRole.get(item.role) ?? [];
+      bucket.push(item);
+      byRole.set(item.role, bucket);
+    }
+    const authoritative: SessionLite[] = [];
+    for (const [, roleSessions] of byRole.entries()) {
+      const winner = pickAuthoritativeSession(roleSessions);
+      if (winner) {
+        authoritative.push(winner);
+      }
+    }
+    return authoritative.sort((a, b) => a.role.localeCompare(b.role));
+  }, [sessions]);
+
   const sessionsByRole = useMemo(() => {
-    const grouped: Record<string, SessionRecord[]> = {};
-    for (const session of sessions) {
-      if (!session.role) continue;
+    const grouped: Record<string, SessionLite[]> = {};
+    for (const session of sessionItems) {
       if (!grouped[session.role]) {
         grouped[session.role] = [];
       }
       grouped[session.role].push(session);
     }
     return grouped;
-  }, [sessions]);
+  }, [sessionItems]);
 
   const agentRoles = Object.keys(sessionsByRole);
 
-  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (!selectedSession) {
+      return;
+    }
+    const stillExists = sessionItems.some((item) => item.sessionId === selectedSession.sessionId);
+    if (!stillExists) {
+      setSelectedSession(null);
+      setMessages([]);
+      setError(null);
+      setActiveSessionId(null);
+      setFinishReason(null);
+    }
+  }, [sessionItems, selectedSession]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  function buildChatEndpoint(): string {
+    if (projectId) {
+      return `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-chat`;
+    }
+    if (runId) {
+      return `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/agent-chat`;
+    }
+    return "";
+  }
+
+  function buildInterruptEndpoint(sessionId: string): string {
+    if (projectId) {
+      return `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-chat/${encodeURIComponent(sessionId)}/interrupt`;
+    }
+    if (runId) {
+      return `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/agent-chat/${encodeURIComponent(sessionId)}/interrupt`;
+    }
+    return "";
+  }
+
   async function handleSend() {
     if (!selectedSession || !inputText.trim()) return;
 
-    // Save user's input before clearing
-    const prompt = inputText.trim();
+    const endpoint = buildChatEndpoint();
+    if (!endpoint) {
+      setError("Missing chat scope: projectId or runId is required");
+      return;
+    }
 
-    // Reset state and show user message immediately
-    setMessages([{
-      type: "message",
-      content: prompt,
-      timestamp: Date.now(),
-      role: "user"
-    }]);
+    const prompt = inputText.trim();
+    setMessages([
+      {
+        type: "message",
+        content: prompt,
+        timestamp: Date.now(),
+        role: "user"
+      }
+    ]);
     setError(null);
     setLoading(true);
     setCurrentStep(null);
     setMaxSteps(0);
     setFinishReason(null);
     setActiveSessionId(null);
-
     setInputText("");
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch(
-        `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-chat`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            role: selectedSession.role, 
-            prompt,
-            sessionId: selectedSession.sessionId,
-            providerSessionId: selectedSession.providerSessionId
-          }),
-          signal: abortControllerRef.current.signal,
-        }
-      );
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: selectedSession.role,
+          prompt,
+          sessionId: selectedSession.sessionId,
+          providerSessionId: selectedSession.providerSessionId
+        }),
+        signal: abortControllerRef.current.signal
+      });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || `HTTP ${response.status}`);
       }
 
@@ -109,36 +223,22 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE events - properly handle event: and data: pairs
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
         for (const line of lines) {
           if (line.startsWith("event:")) {
             currentEvent = line.slice(6).trim();
-          } else if (line.startsWith("data:") && currentEvent) {
+          } else if (line.startsWith("data:")) {
             const dataStr = line.slice(5).trim();
             if (!dataStr) continue;
-
             try {
               const data = JSON.parse(dataStr);
-              handleStreamEvent(currentEvent, data);
+              handleStreamEvent(currentEvent || "message", data as Record<string, unknown>);
             } catch {
-              // Skip invalid JSON
+              // ignore malformed chunk
             }
             currentEvent = "";
-          } else if (line.startsWith("data:")) {
-            // No event prefix, treat as default
-            const dataStr = line.slice(5).trim();
-            if (!dataStr) continue;
-
-            try {
-              const data = JSON.parse(dataStr);
-              handleStreamEvent("message", data);
-            } catch {
-              // Skip invalid JSON
-            }
           }
         }
       }
@@ -154,113 +254,88 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
     }
   }
 
-  function handleStreamEvent(eventType: string, eventData: Record<string, unknown>) {
-    const type = eventType;
-    const data = eventData;
-
-    switch (type) {
+  function handleStreamEvent(eventType: string, data: Record<string, unknown>) {
+    switch (eventType) {
       case "session": {
-        const sessionId = data?.sessionId as string | undefined;
+        const sessionId = typeof data.sessionId === "string" ? data.sessionId : undefined;
         if (sessionId) setActiveSessionId(sessionId);
         break;
       }
       case "thinking": {
-        const thinkingData = data as { thinking?: string } | undefined;
-        const thinking = thinkingData?.thinking;
+        const thinking = typeof data.thinking === "string" ? data.thinking : undefined;
         if (thinking) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              type: "thinking" as const,
-              content: thinking,
-              timestamp: Date.now(),
-            },
-          ]);
+          setMessages((prev) => [...prev, { type: "thinking", content: thinking, timestamp: Date.now() }]);
         }
         break;
       }
       case "tool_call": {
-        const toolData = data as { name?: string; args?: Record<string, unknown> } | undefined;
-        if (toolData?.name) {
+        const name = typeof data.name === "string" ? data.name : undefined;
+        const args = typeof data.args === "object" && data.args !== null ? data.args : undefined;
+        if (name) {
           setMessages((prev) => [
             ...prev,
             {
               type: "tool_call",
-              content: `🔧 Calling tool: ${toolData.name}${
-                toolData.args ? `\n${JSON.stringify(toolData.args, null, 2)}` : ""
-              }`,
-              timestamp: Date.now(),
-            },
+              content: `Calling tool: ${name}${args ? `\n${JSON.stringify(args, null, 2)}` : ""}`,
+              timestamp: Date.now()
+            }
           ]);
         }
         break;
       }
       case "tool_result": {
-        const resultData = data as { name?: string; result?: { content?: string; error?: string; success?: boolean } } | undefined;
-        if (resultData?.name && resultData?.result) {
-          const resultContent = resultData.result.error
-            ? `❌ Error: ${resultData.result.error}`
-            : resultData.result.content || "OK";
+        const name = typeof data.name === "string" ? data.name : undefined;
+        const result = typeof data.result === "object" && data.result !== null ? data.result : undefined;
+        if (name && result) {
+          const resultObj = result as { content?: string; error?: string };
+          const resultContent = resultObj.error ? `Error: ${resultObj.error}` : resultObj.content || "OK";
           setMessages((prev) => [
             ...prev,
             {
               type: "tool_result",
-              content: `📝 ${resultData.name} result:\n${resultContent}`,
-              timestamp: Date.now(),
-            },
+              content: `${name} result:\n${resultContent}`,
+              timestamp: Date.now()
+            }
           ]);
         }
         break;
       }
       case "step": {
-        const stepData = data as { step?: number; maxSteps?: number } | undefined;
-        if (stepData?.step !== undefined) {
-          setCurrentStep(stepData.step);
-          setMaxSteps(stepData.maxSteps || 0);
+        const step = typeof data.step === "number" ? data.step : undefined;
+        const max = typeof data.maxSteps === "number" ? data.maxSteps : undefined;
+        if (step !== undefined) {
+          setCurrentStep(step);
+          setMaxSteps(max ?? 0);
         }
         break;
       }
       case "message": {
-        const msgData = data as { role?: string; content?: string } | undefined;
-        const content = msgData?.content;
+        const content = typeof data.content === "string" ? data.content : undefined;
         if (content) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              type: "message" as const,
-              content: content,
-              timestamp: Date.now(),
-            },
-          ]);
+          setMessages((prev) => [...prev, { type: "message", content, timestamp: Date.now() }]);
         }
         break;
       }
       case "complete": {
-        const completeData = data as { result?: string; finishReason?: string } | undefined;
-        const finishReason = completeData?.finishReason;
-        const result = completeData?.result;
-        if (finishReason) {
-          setFinishReason(finishReason);
+        const result = typeof data.result === "string" ? data.result : undefined;
+        const reason = typeof data.finishReason === "string" ? data.finishReason : undefined;
+        if (reason) {
+          setFinishReason(reason);
         }
         if (result) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              type: "complete" as const,
-              content: result,
-              timestamp: Date.now(),
-            },
-          ]);
+          setMessages((prev) => [...prev, { type: "complete", content: result, timestamp: Date.now() }]);
         }
         break;
       }
       case "error": {
-        const errorData = data as { message?: string } | undefined;
-        if (errorData?.message) {
-          setError(errorData.message);
+        const message = typeof data.message === "string" ? data.message : undefined;
+        if (message) {
+          setError(message);
         }
         break;
       }
+      default:
+        break;
     }
   }
 
@@ -271,12 +346,12 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
 
     if (activeSessionId) {
       try {
-        await fetch(
-          `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-chat/${encodeURIComponent(activeSessionId)}/interrupt`,
-          { method: "POST" }
-        );
+        const endpoint = buildInterruptEndpoint(activeSessionId);
+        if (endpoint) {
+          await fetch(endpoint, { method: "POST" });
+        }
       } catch {
-        // Ignore interrupt errors
+        // ignore interrupt errors
       }
     }
 
@@ -287,7 +362,7 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   }
 
@@ -298,14 +373,13 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
       </div>
 
       <div style={{ display: "flex", gap: "16px", height: "calc(100vh - 180px)" }}>
-        {/* Left sidebar: Agent list */}
         <div
           style={{
             width: "240px",
             flexShrink: 0,
             display: "flex",
             flexDirection: "column",
-            gap: "8px",
+            gap: "8px"
           }}
         >
           <div className="card" style={{ flex: 1, overflow: "auto" }}>
@@ -321,16 +395,18 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 {agentRoles.map((role) => (
                   <div key={role}>
-                    <div style={{ 
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      fontWeight: 600, 
-                      fontSize: "12px", 
-                      color: "var(--text-muted)",
-                      marginBottom: "4px",
-                      marginTop: "12px"
-                    }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontWeight: 600,
+                        fontSize: "12px",
+                        color: "var(--text-muted)",
+                        marginBottom: "4px",
+                        marginTop: "12px"
+                      }}
+                    >
                       <Bot size={12} />
                       {role}
                     </div>
@@ -343,13 +419,14 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
                           gap: "10px",
                           padding: "10px 12px",
                           marginLeft: "8px",
-                          background: selectedSession?.sessionId === session.sessionId 
-                            ? "var(--accent-primary)20" 
-                            : "var(--bg-surface)",
+                          background:
+                            selectedSession?.sessionId === session.sessionId
+                              ? "var(--accent-primary)20"
+                              : "var(--bg-surface)",
                           borderRadius: "6px",
                           cursor: "pointer",
                           border: `1px solid ${selectedSession?.sessionId === session.sessionId ? "var(--accent-primary)" : "transparent"}`,
-                          transition: "all 0.15s ease",
+                          transition: "all 0.15s ease"
                         }}
                         onClick={() => {
                           setSelectedSession(session);
@@ -361,7 +438,15 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
                       >
                         <MessageCircle size={16} style={{ color: "var(--accent-primary)", flexShrink: 0 }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 500, fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <div
+                            style={{
+                              fontWeight: 500,
+                              fontSize: "13px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px"
+                            }}
+                          >
                             Chat
                             {session.lastActiveAt && (
                               <span style={{ fontSize: "10px", color: "var(--text-muted)", fontWeight: 400 }}>
@@ -380,9 +465,7 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
           </div>
         </div>
 
-        {/* Right panel: Chat area */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "16px" }}>
-          {/* Messages area */}
           <div className="card" style={{ flex: 1, overflow: "auto" }}>
             <div className="card-header">
               <h3>{t.chat || "Chat"}</h3>
@@ -412,32 +495,32 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
                         msg.role === "user"
                           ? "var(--accent-primary)10"
                           : msg.type === "thinking"
-                          ? "var(--accent-primary)10"
-                          : msg.type === "tool_call"
-                          ? "var(--accent-warning)10"
-                          : msg.type === "tool_result"
-                          ? "var(--accent-success)10"
-                          : msg.type === "error"
-                          ? "var(--accent-danger)10"
-                          : msg.type === "complete"
-                          ? "var(--bg-surface)"
-                          : "var(--bg-elevated)",
+                            ? "var(--accent-primary)10"
+                            : msg.type === "tool_call"
+                              ? "var(--accent-warning)10"
+                              : msg.type === "tool_result"
+                                ? "var(--accent-success)10"
+                                : msg.type === "error"
+                                  ? "var(--accent-danger)10"
+                                  : msg.type === "complete"
+                                    ? "var(--bg-surface)"
+                                    : "var(--bg-elevated)",
                       borderRadius: "8px",
                       borderLeft: `3px solid ${
                         msg.role === "user"
                           ? "var(--accent-primary)"
                           : msg.type === "thinking"
-                          ? "var(--accent-primary)"
-                          : msg.type === "tool_call"
-                          ? "var(--accent-warning)"
-                          : msg.type === "tool_result"
-                          ? "var(--accent-success)"
-                          : msg.type === "error"
-                          ? "var(--accent-danger)"
-                          : msg.type === "complete"
-                          ? "var(--accent-success)"
-                          : "var(--border-color)"
-                      }`,
+                            ? "var(--accent-primary)"
+                            : msg.type === "tool_call"
+                              ? "var(--accent-warning)"
+                              : msg.type === "tool_result"
+                                ? "var(--accent-success)"
+                                : msg.type === "error"
+                                  ? "var(--accent-danger)"
+                                  : msg.type === "complete"
+                                    ? "var(--accent-success)"
+                                    : "var(--border-color)"
+                      }`
                     }}
                   >
                     <div
@@ -445,22 +528,22 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
                         fontSize: "11px",
                         color: "var(--text-muted)",
                         marginBottom: "4px",
-                        textTransform: "uppercase",
+                        textTransform: "uppercase"
                       }}
                     >
                       {msg.role === "user"
-                        ? "👤 You"
+                        ? "You"
                         : msg.type === "thinking"
-                        ? "🤔 Thinking"
-                        : msg.type === "tool_call"
-                        ? "🔧 Tool Call"
-                        : msg.type === "tool_result"
-                        ? "📝 Tool Result"
-                        : msg.type === "message"
-                        ? "💬 Message"
-                        : msg.type === "complete"
-                        ? "✅ Complete"
-                        : msg.type}
+                          ? "Thinking"
+                          : msg.type === "tool_call"
+                            ? "Tool Call"
+                            : msg.type === "tool_result"
+                              ? "Tool Result"
+                              : msg.type === "message"
+                                ? "Message"
+                                : msg.type === "complete"
+                                  ? "Complete"
+                                  : msg.type}
                     </div>
                     <pre
                       style={{
@@ -468,7 +551,7 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
                         whiteSpace: "pre-wrap",
                         wordBreak: "break-word",
                         fontSize: "13px",
-                        fontFamily: "inherit",
+                        fontFamily: "inherit"
                       }}
                     >
                       {msg.content}
@@ -483,7 +566,7 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
                       borderRadius: "8px",
                       display: "flex",
                       alignItems: "center",
-                      gap: "8px",
+                      gap: "8px"
                     }}
                   >
                     <Loader size={14} className="loading-spinner" />
@@ -501,10 +584,10 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
                       background: "var(--accent-success)10",
                       borderRadius: "8px",
                       fontSize: "12px",
-                      color: "var(--accent-success)",
+                      color: "var(--accent-success)"
                     }}
                   >
-                    🎯 Finish Reason: {finishReason}
+                    Finish Reason: {finishReason}
                   </div>
                 )}
                 <div ref={messagesEndRef} />
@@ -518,7 +601,6 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
             )}
           </div>
 
-          {/* Input area */}
           <div className="card">
             <div style={{ display: "flex", gap: "12px", alignItems: "flex-end" }}>
               <textarea
@@ -530,20 +612,20 @@ export function AgentChatView({ projectId, sessions }: AgentChatViewProps) {
                 style={{
                   flex: 1,
                   minHeight: "80px",
-                  resize: "vertical",
+                  resize: "vertical"
                 }}
               />
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <button
                   className="btn btn-primary"
-                  onClick={handleSend}
+                  onClick={() => void handleSend()}
                   disabled={!selectedSession || !inputText.trim() || loading}
                 >
                   {loading ? <Loader size={14} className="loading-spinner" /> : <Send size={14} />}
                   <span style={{ marginLeft: "6px" }}>{t.send || "Send"}</span>
                 </button>
                 {loading && (
-                  <button className="btn btn-danger" onClick={handleInterrupt}>
+                  <button className="btn btn-danger" onClick={() => void handleInterrupt()}>
                     <XCircle size={14} />
                     <span style={{ marginLeft: "6px" }}>{t.interrupt || "Interrupt"}</span>
                   </button>

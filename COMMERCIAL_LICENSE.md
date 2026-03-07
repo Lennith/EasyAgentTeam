@@ -21,5 +21,3 @@ Contact the project owner with:
 4. Estimated seats or scale
 
 You can then receive a separate written commercial agreement.
-
-

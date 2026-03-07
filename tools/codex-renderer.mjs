@@ -800,61 +800,61 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
 const server = http.createServer((req, res) => {
   const reqUrl = new URL(req.url, `http://localhost:${PORT}`);
-  
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  
-  if (reqUrl.pathname === '/' || reqUrl.pathname === '/index.html') {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  if (reqUrl.pathname === "/" || reqUrl.pathname === "/index.html") {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.end(HTML_CONTENT);
     return;
   }
-  
-  if (reqUrl.pathname === '/current') {
-    res.setHeader('Content-Type', 'application/json');
+
+  if (reqUrl.pathname === "/current") {
+    res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ path: currentFilePath }));
     return;
   }
-  
-  if (reqUrl.pathname === '/open') {
-    const filePath = reqUrl.searchParams.get('path');
+
+  if (reqUrl.pathname === "/open") {
+    const filePath = reqUrl.searchParams.get("path");
     if (!filePath) {
       res.statusCode = 400;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ error: 'Path parameter required' }));
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Path parameter required" }));
       return;
     }
-    
+
     const resolvedPath = path.resolve(filePath);
-    
+
     try {
       fs.accessSync(resolvedPath, fs.constants.R_OK);
       currentFilePath = resolvedPath;
       console.log(`Switched to file: ${currentFilePath}`);
-      res.setHeader('Content-Type', 'application/json');
+      res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify({ path: currentFilePath }));
     } catch (err) {
       res.statusCode = 404;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ error: 'File not found or not readable' }));
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "File not found or not readable" }));
     }
     return;
   }
-  
-  if (reqUrl.pathname === '/data') {
+
+  if (reqUrl.pathname === "/data") {
     try {
-      const content = fs.readFileSync(currentFilePath, 'utf-8');
-      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      const content = fs.readFileSync(currentFilePath, "utf-8");
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
       res.end(content);
     } catch (err) {
       res.statusCode = 404;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ error: 'File not found: ' + currentFilePath }));
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "File not found: " + currentFilePath }));
     }
     return;
   }
-  
+
   res.statusCode = 404;
-  res.end('Not found');
+  res.end("Not found");
 });
 
 server.listen(PORT, () => {

@@ -8,16 +8,7 @@
     "envelope": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "message_id",
-        "project_id",
-        "timestamp",
-        "sender",
-        "via",
-        "intent",
-        "priority",
-        "correlation"
-      ],
+      "required": ["message_id", "project_id", "timestamp", "sender", "via", "intent", "priority", "correlation"],
       "properties": {
         "message_id": { "type": "string", "minLength": 1 },
         "project_id": { "type": "string", "minLength": 1 },

@@ -15,11 +15,11 @@ function getDateString(): string {
   // Use local timezone instead of UTC
   const now = new Date();
   const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
@@ -56,7 +56,11 @@ class Logger {
     this.minimaxStream = createWriteStream(this.minimaxPath, { flags: "a" });
   }
 
-  private ensureStream(path: string, stream: ReturnType<typeof createWriteStream>, name: string): ReturnType<typeof createWriteStream> {
+  private ensureStream(
+    path: string,
+    stream: ReturnType<typeof createWriteStream>,
+    name: string
+  ): ReturnType<typeof createWriteStream> {
     try {
       // Check if file still exists
       statSync(path);
@@ -68,11 +72,11 @@ class Logger {
         const timer = setTimeout(() => {
           this.pendingRecreate.delete(name);
           console.error(`[logger] recreating ${name}.log stream...`);
-          if (name === 'info') this.infoStream = createWriteStream(this.infoPath, { flags: "a" });
-          if (name === 'error') this.errorStream = createWriteStream(this.errorPath, { flags: "a" });
-          if (name === 'warn') this.warnStream = createWriteStream(this.warnPath, { flags: "a" });
-          if (name === 'process') this.processStream = createWriteStream(this.processPath, { flags: "a" });
-          if (name === 'minimax') this.minimaxStream = createWriteStream(this.minimaxPath, { flags: "a" });
+          if (name === "info") this.infoStream = createWriteStream(this.infoPath, { flags: "a" });
+          if (name === "error") this.errorStream = createWriteStream(this.errorPath, { flags: "a" });
+          if (name === "warn") this.warnStream = createWriteStream(this.warnPath, { flags: "a" });
+          if (name === "process") this.processStream = createWriteStream(this.processPath, { flags: "a" });
+          if (name === "minimax") this.minimaxStream = createWriteStream(this.minimaxPath, { flags: "a" });
         }, 5000);
         this.pendingRecreate.set(name, timer);
       }
@@ -83,35 +87,35 @@ class Logger {
   info(message: string): void {
     const formatted = formatMessage("INFO", message);
     process.stdout.write(formatted);
-    this.infoStream = this.ensureStream(this.infoPath, this.infoStream, 'info');
+    this.infoStream = this.ensureStream(this.infoPath, this.infoStream, "info");
     this.infoStream.write(formatted);
   }
 
   error(message: string): void {
     const formatted = formatMessage("ERROR", message);
     process.stderr.write(formatted);
-    this.errorStream = this.ensureStream(this.errorPath, this.errorStream, 'error');
+    this.errorStream = this.ensureStream(this.errorPath, this.errorStream, "error");
     this.errorStream.write(formatted);
   }
 
   warn(message: string): void {
     const formatted = formatMessage("WARN", message);
     process.stderr.write(formatted);
-    this.warnStream = this.ensureStream(this.warnPath, this.warnStream, 'warn');
+    this.warnStream = this.ensureStream(this.warnPath, this.warnStream, "warn");
     this.warnStream.write(formatted);
   }
 
   process(message: string): void {
     const formatted = formatMessage("PROCESS", message);
     process.stdout.write(formatted);
-    this.processStream = this.ensureStream(this.processPath, this.processStream, 'process');
+    this.processStream = this.ensureStream(this.processPath, this.processStream, "process");
     this.processStream.write(formatted);
   }
 
   minimax(message: string): void {
     const formatted = formatMessage("MINIMAX", message);
     process.stdout.write(formatted);
-    this.minimaxStream = this.ensureStream(this.minimaxPath, this.minimaxStream, 'minimax');
+    this.minimaxStream = this.ensureStream(this.minimaxPath, this.minimaxStream, "minimax");
     this.minimaxStream.write(formatted);
   }
 

@@ -9,7 +9,12 @@ import { ensureProjectRuntime, getProjectPaths } from "../data/project-store.js"
 import { getRoleReminderState, updateRoleReminderState } from "../data/role-reminder-store.js";
 import { listEvents } from "../data/event-store.js";
 
-async function createBasicProject(baseUrl: string, workspacePath: string, projectId: string, role: string): Promise<void> {
+async function createBasicProject(
+  baseUrl: string,
+  workspacePath: string,
+  projectId: string,
+  role: string
+): Promise<void> {
   const createAgentRes = await fetch(`${baseUrl}/api/agents`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -108,9 +113,12 @@ test("session dismiss and repair reset role reminder state", async () => {
       reminderCount: 3,
       lastRoleState: "IDLE"
     });
-    const dismissRes = await fetch(`${baseUrl}/api/projects/${projectId}/sessions/${encodeURIComponent(sessionToken)}/dismiss`, {
-      method: "POST"
-    });
+    const dismissRes = await fetch(
+      `${baseUrl}/api/projects/${projectId}/sessions/${encodeURIComponent(sessionToken)}/dismiss`,
+      {
+        method: "POST"
+      }
+    );
     assert.equal(dismissRes.status, 200);
     let reminderState = await getRoleReminderState(paths, projectId, role);
     assert.equal(reminderState?.reminderCount, 0);
@@ -131,11 +139,14 @@ test("session dismiss and repair reset role reminder state", async () => {
       reminderCount: 2,
       lastRoleState: "IDLE"
     });
-    const repairRes = await fetch(`${baseUrl}/api/projects/${projectId}/sessions/${encodeURIComponent(sessionToken2)}/repair`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target_status: "idle" })
-    });
+    const repairRes = await fetch(
+      `${baseUrl}/api/projects/${projectId}/sessions/${encodeURIComponent(sessionToken2)}/repair`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_status: "idle" })
+      }
+    );
     assert.equal(repairRes.status, 200);
     reminderState = await getRoleReminderState(paths, projectId, role);
     assert.equal(reminderState?.reminderCount, 0);

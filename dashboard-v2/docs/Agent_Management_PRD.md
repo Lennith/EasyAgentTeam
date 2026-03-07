@@ -3,9 +3,11 @@
 ## 1. 模块目标
 
 ### 模块职责
+
 Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和监控AI Agent的全生命周期。该模块提供Agent注册、模板管理、实时对话、消息IO监控、日志查看和会话管理等功能。
 
 ### 解决问题
+
 - 用户无法直观管理项目中注册的AI Agent
 - 缺乏Agent模板的创建、编辑和复用机制
 - 无法与Agent进行实时交互和对话
@@ -14,6 +16,7 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 - 缺乏对Agent会话状态的全面了解
 
 ### 业务价值
+
 - 提供统一的Agent管理界面，降低运维成本
 - 通过模板机制提升Agent创建的效率
 - 实时的消息和日志监控便于问题排查
@@ -26,6 +29,7 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 ### 包含能力
 
 #### 2.1 Agent注册管理 (AgentRegistryView)
+
 - 列出项目中所有已注册的Agent
 - 创建新Agent（指定agentId、displayName、prompt、defaultCliTool）
 - 编辑已有Agent的配置信息
@@ -35,6 +39,7 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 - 默认CLI工具配置（codex/trae/minimax）
 
 #### 2.2 Agent模板管理 (AgentTemplatesView)
+
 - 列出系统内置模板（built-in）
 - 列出用户自定义模板（custom）
 - 创建新模板
@@ -43,6 +48,7 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 - 从内置模板或自定义模板复制创建新模板
 
 #### 2.3 Agent实时对话 (AgentChatView)
+
 - 按角色（role）分组展示Agent会话
 - 选择指定会话进行对话
 - 实时流式响应展示（thinking、tool_call、tool_result）
@@ -51,6 +57,7 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 - 展示完成原因（finishReason）
 
 #### 2.4 Agent消息IO监控 (AgentIOView)
+
 - 时间线形式展示Agent消息流转
 - 消息类型过滤（user_message、message_routed、task_action等）
 - 消息详情展开查看（content、messageType、requestId等）
@@ -58,6 +65,7 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 - 支持多种消息类型（MANAGER_MESSAGE、TASK_DISCUSS系列）
 
 #### 2.5 Agent日志查看 (AgentLogView)
+
 - 按项目查看Agent日志
 - 多会话日志聚合展示
 - 按流类型分类（stdout、stderr、system、response）
@@ -67,12 +75,14 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 - 日志量统计
 
 #### 2.6 Agent会话管理 (AgentSessionsView)
+
 - 按项目查看所有Agent会话
 - 会话列表展示（sessionId、role、status、currentTaskId等）
 - 会话状态筛选（running、idle等）
 - 会话创建时间和心跳时间展示
 
 ### 不包含能力
+
 - Agent后端服务部署和管理
 - Agent性能指标监控和告警
 - Agent资源使用统计
@@ -86,20 +96,23 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 ### 3.1 输入
 
 #### 来源
+
 - 后端API服务（通过agentApi、templateApi、projectApi）
 - 本地Mock数据（开发/测试环境）
 
 #### 参数
-| 视图 | 主要输入参数 |
-|------|-------------|
-| AgentRegistryView | useMockData (boolean) |
-| AgentTemplatesView | - |
-| AgentChatView | projectId (string), sessions (SessionRecord[]) |
-| AgentIOView | projectId, project, sessions, tasks, locks, events, timeline |
-| AgentLogView | projectId (string) |
-| AgentSessionsView | projectId (string) |
+
+| 视图               | 主要输入参数                                                 |
+| ------------------ | ------------------------------------------------------------ |
+| AgentRegistryView  | useMockData (boolean)                                        |
+| AgentTemplatesView | -                                                            |
+| AgentChatView      | projectId (string), sessions (SessionRecord[])               |
+| AgentIOView        | projectId, project, sessions, tasks, locks, events, timeline |
+| AgentLogView       | projectId (string)                                           |
+| AgentSessionsView  | projectId (string)                                           |
 
 #### 约束
+
 - 所有API调用均需项目上下文
 - Mock数据模式用于离线开发和测试
 - SSE流式响应需处理AbortController
@@ -107,12 +120,14 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 ### 3.2 输出
 
 #### 结果
+
 - Agent列表、模板列表、会话列表等业务数据展示
 - 实时流式响应输出
 - 消息发送结果反馈
 - 日志内容渲染
 
 #### 触发条件
+
 - 页面加载时自动获取数据
 - 用户交互（点击、输入、提交）触发操作
 - 定时轮询刷新日志（REFRESH_INTERVAL=3000ms）
@@ -124,21 +139,25 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 ### 4.1 核心处理规则
 
 #### 数据加载
+
 - 组件挂载时通过useEffect触发数据加载
 - 支持Mock数据和真实API两种模式
 - 加载状态管理（loading、error）
 
 #### 表单处理
+
 - 受控组件管理表单状态
 - 输入验证（必填字段检查）
 - 提交时显示loading状态
 
 #### 流式响应
+
 - 使用Fetch API + ReadableStream
 - 解析SSE事件（event: 和 data:）
 - 实时更新消息列表
 
 #### 日志处理
+
 - JSONL格式日志解析
 - 按sessionId分组
 - 时间窗口合并（MERGE_WINDOW_MS=30000ms）
@@ -146,20 +165,21 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 
 ### 4.2 状态变化
 
-| 视图 | 核心状态 |
-|------|---------|
-| AgentRegistryView | agents[], editingId, showNew |
-| AgentTemplatesView | builtInTemplates[], customTemplates[], editingId |
-| AgentChatView | selectedSession, messages[], loading, currentStep |
-| AgentIOView | timeline[], expandedItems, kindFilter, showSendForm |
-| AgentLogView | sessionData{}, expandedSessions, isRunning |
-| AgentSessionsView | sessions[], selectedProjectId |
+| 视图               | 核心状态                                            |
+| ------------------ | --------------------------------------------------- |
+| AgentRegistryView  | agents[], editingId, showNew                        |
+| AgentTemplatesView | builtInTemplates[], customTemplates[], editingId    |
+| AgentChatView      | selectedSession, messages[], loading, currentStep   |
+| AgentIOView        | timeline[], expandedItems, kindFilter, showSendForm |
+| AgentLogView       | sessionData{}, expandedSessions, isRunning          |
+| AgentSessionsView  | sessions[], selectedProjectId                       |
 
 ---
 
 ## 5. 依赖关系
 
 ### 上游依赖
+
 - **后端API服务**: 提供Agent、Template、Session、Project等数据接口
 - **路由系统**: 通过React Router管理各视图的访问路径
 - **国际化模块**: @/hooks/i18n 提供多语言支持
@@ -167,6 +187,7 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 - **类型定义**: @/types 定义所有业务数据类型
 
 ### 下游影响
+
 - 为任务管理模块（TaskboardView）提供Agent选择
 - 为项目工作区（ProjectWorkspace）提供Agent上下文
 - 为调试功能（DebugAgentSessionsView）提供会话数据
@@ -176,17 +197,20 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 ## 6. 约束条件
 
 ### 技术约束
+
 - React 18+ 函数组件
 - TypeScript强类型
 - SSE流式通信
 - JSONL日志格式解析
 
 ### 性能要求
+
 - 日志视图需支持大量数据渲染（虚拟滚动优化）
 - 实时日志刷新间隔3秒
 - 消息列表最大展示200条
 
 ### 兼容性
+
 - 浏览器现代特性（Fetch API、ReadableStream）
 - Windows/Linux双平台支持
 
@@ -195,12 +219,14 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 ## 7. 异常与边界
 
 ### 异常处理
+
 - API请求失败显示错误提示
 - JSON解析失败跳过异常行
 - SSE连接中断显示错误状态
 - 删除操作前需要用户确认
 
 ### 边界情况
+
 - 空数据展示empty state
 - 网络超时处理
 - 大日志文件分页/滚动
@@ -213,6 +239,7 @@ Agent管理模块是dashboard-v2前端系统中的核心模块，负责管理和
 ### 8.1 关键数据
 
 #### AgentDefinition
+
 `	ypescript
 interface AgentDefinition {
   agentId: string;
@@ -224,6 +251,7 @@ interface AgentDefinition {
 `
 
 #### AgentTemplateDefinition
+
 `	ypescript
 interface AgentTemplateDefinition {
   templateId: string;
@@ -233,6 +261,7 @@ interface AgentTemplateDefinition {
 `
 
 #### SessionRecord
+
 `	ypescript
 interface SessionRecord {
   sessionId: string;
@@ -248,6 +277,7 @@ interface SessionRecord {
 `
 
 #### AgentIOTimelineItem
+
 `	ypescript
 interface AgentIOTimelineItem {
   itemId: string;
@@ -268,6 +298,7 @@ interface AgentIOTimelineItem {
 `
 
 ### 8.2 生命周期
+
 - Agent注册后持久化存储
 - Session随项目存在，会话结束标记为stopped
 - 日志数据按项目存储，定时清理
@@ -299,17 +330,17 @@ interface AgentIOTimelineItem {
 
 ## 附录：视图文件清单
 
-| 文件路径 | 功能描述 |
-|---------|---------|
-| src/views/AgentRegistryView.tsx | Agent注册管理 |
-| src/views/AgentTemplatesView.tsx | Agent模板管理 |
-| src/views/AgentChatView.tsx | Agent实时对话 |
-| src/views/AgentIOView.tsx | Agent消息IO监控 |
-| src/views/AgentLogView.tsx | Agent日志查看 |
-| src/views/AgentSessionsView.tsx | Agent会话管理 |
+| 文件路径                         | 功能描述        |
+| -------------------------------- | --------------- |
+| src/views/AgentRegistryView.tsx  | Agent注册管理   |
+| src/views/AgentTemplatesView.tsx | Agent模板管理   |
+| src/views/AgentChatView.tsx      | Agent实时对话   |
+| src/views/AgentIOView.tsx        | Agent消息IO监控 |
+| src/views/AgentLogView.tsx       | Agent日志查看   |
+| src/views/AgentSessionsView.tsx  | Agent会话管理   |
 
 ---
 
-*文档版本: 1.0*
-*创建时间: 2026-02-22*
-*编写角色: PRD_Agent_0*
+_文档版本: 1.0_
+_创建时间: 2026-02-22_
+_编写角色: PRD_Agent_0_

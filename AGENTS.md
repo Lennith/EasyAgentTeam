@@ -25,20 +25,26 @@ This repository is a `pnpm` monorepo for AutoDev task-driven collaboration.
 
 ```powershell
 # install
-pnpm install
+pnpm i
 
 # dev
-pnpm server
-pnpm web
+pnpm dev
+pnpm dev:legacy
 
 # build
 pnpm build
 pnpm --filter @autodev/server build
-pnpm --filter @autodev/dashboard-v2 build
+pnpm --filter dashboard-v2 build
+
+# docs/health
+pnpm docs:check
+pnpm run doctor
+pnpm healthcheck
 
 # tests
+pnpm test
 pnpm --filter @autodev/server test
-pnpm --filter @autodev/server test -- --test-name-pattern "task report"
+pnpm --filter @autodev/server run test -- --test-name-pattern "task report"
 ```
 
 ## Engineering Rules

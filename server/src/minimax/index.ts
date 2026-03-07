@@ -1,34 +1,34 @@
-import * as path from 'path';
-import * as crypto from 'crypto';
-import { logger } from '../utils/logger.js';
-import { LLMClient, trimMessagesForContextWindow } from './llm/LLMClient.js';
-import { Agent } from './agent/Agent.js';
-import { 
+import * as path from "path";
+import * as crypto from "crypto";
+import { logger } from "../utils/logger.js";
+import { LLMClient, trimMessagesForContextWindow } from "./llm/LLMClient.js";
+import { Agent } from "./agent/Agent.js";
+import {
   Tool,
-  ToolRegistry, 
-  createFileTools, 
-  createShellTool, 
+  ToolRegistry,
+  createFileTools,
+  createShellTool,
   createNoteTool,
   PermissionManager,
   createTeamTools,
   createToolRegistrationState,
   registerToolWithDedupe,
   resolveToolCapabilityFamily
-} from './tools/index.js';
-import { MCPConnector } from './mcp/MCPConnector.js';
-import { SessionStorage } from './storage/SessionStorage.js';
-import { ContextCompressor } from './compression/ContextCompressor.js';
-import { SkillLoader } from './skills/SkillLoader.js';
-import type { 
-  MiniMaxRunOptions, 
+} from "./tools/index.js";
+import { MCPConnector } from "./mcp/MCPConnector.js";
+import { SessionStorage } from "./storage/SessionStorage.js";
+import { ContextCompressor } from "./compression/ContextCompressor.js";
+import { SkillLoader } from "./skills/SkillLoader.js";
+import type {
+  MiniMaxRunOptions,
   MiniMaxRunResult,
-  AgentCallback, 
+  AgentCallback,
   MCPServerConfig,
   Session,
   Message,
   SessionStorageConfig,
-  MiniMaxAgentConfig,
-} from './types.js';
+  MiniMaxAgentConfig
+} from "./types.js";
 
 export interface MiniMaxAgentOptions {
   config: MiniMaxAgentConfig;
@@ -88,57 +88,48 @@ export class MiniMaxAgent {
   constructor(options: MiniMaxAgentOptions) {
     this.config = options.config;
 
-    this.sessionDir = this.config.sessionDir 
-      ?? path.join(this.config.workspaceDir, '.minimax', 'sessions');
-    
-    logger.info(`[MiniMaxAgent] config.sessionDir: ${this.config.sessionDir ?? '(not set)'}`);
+    this.sessionDir = this.config.sessionDir ?? path.join(this.config.workspaceDir, ".minimax", "sessions");
+
+    logger.info(`[MiniMaxAgent] config.sessionDir: ${this.config.sessionDir ?? "(not set)"}`);
     logger.info(`[MiniMaxAgent] resolved sessionDir: ${this.sessionDir}`);
     logger.info(`[MiniMaxAgent] workspaceDir: ${this.config.workspaceDir}`);
-    
-    this.storage = new SessionStorage(
-      this.config.workspaceDir, 
-      options.storageConfig,
-      this.sessionDir
-    );
-    
+
+    this.storage = new SessionStorage(this.config.workspaceDir, options.storageConfig, this.sessionDir);
+
     this.skillLoader = new SkillLoader();
   }
 
   private generateSessionId(): string {
     const timestamp = Date.now();
-    const random = crypto.randomBytes(4).toString('hex');
+    const random = crypto.randomBytes(4).toString("hex");
     return `sess-${timestamp}-${random}`;
   }
 
   private isValidSessionId(sessionId: string): boolean {
-    return /^sess-\d+-[a-f0-9]{8}$/.test(sessionId) || 
-           /^[a-zA-Z0-9_-]+$/.test(sessionId);
+    return /^sess-\d+-[a-f0-9]{8}$/.test(sessionId) || /^[a-zA-Z0-9_-]+$/.test(sessionId);
   }
 
   async initialize(callback?: AgentCallback): Promise<void> {
     if (!this.config.apiKey) {
-      throw new Error('API key is required. Set it via config.');
+      throw new Error("API key is required. Set it via config.");
     }
 
     this.llmClient = new LLMClient({
       apiKey: this.config.apiKey,
       apiBase: this.config.apiBase,
-      model: this.config.model,
+      model: this.config.model
     });
 
     this.compressor = new ContextCompressor(this.llmClient, 0.3);
 
     this.permissionManager = new PermissionManager({
       workspaceDir: this.config.workspaceDir,
-      additionalWritableDirs: this.config.additionalWritableDirs ?? [],
+      additionalWritableDirs: this.config.additionalWritableDirs ?? []
     });
 
     this.toolRegistry = new ToolRegistry();
     const registrationState = createToolRegistrationState();
-    const registerTool = (
-      tool: Tool,
-      source: 'team' | 'core' | 'other'
-    ) => {
+    const registerTool = (tool: Tool, source: "team" | "core" | "other") => {
       const result = registerToolWithDedupe(this.toolRegistry!, registrationState, tool, source);
       if (result.skipped) {
         logger.warn(
@@ -156,7 +147,7 @@ export class MiniMaxAgent {
     if (this.config.enableFileTools) {
       const fileTools = createFileTools({
         workspaceDir: this.config.workspaceDir,
-        checkPermission: this.permissionManager.createPermissionChecker(),
+        checkPermission: this.permissionManager.createPermissionChecker()
       });
       for (const tool of fileTools) {
         if (tool.name === "list_directory") {
@@ -167,8 +158,7 @@ export class MiniMaxAgent {
     }
 
     if (this.config.enableShell) {
-      const shellLogDir = this.config.shellLogDir 
-        ?? path.join(this.sessionDir, 'shell-logs');
+      const shellLogDir = this.config.shellLogDir ?? path.join(this.sessionDir, "shell-logs");
       const shellTool = createShellTool({
         workspaceDir: this.config.workspaceDir,
         shell: this.config.shellType,
@@ -178,14 +168,14 @@ export class MiniMaxAgent {
         maxOutputSize: this.config.shellMaxOutputSize,
         logDir: shellLogDir,
         checkPermission: this.permissionManager.createPermissionChecker(),
-        env: this.config.env,
+        env: this.config.env
       });
       registerTool(shellTool, "core");
     }
 
     if (this.config.enableNote) {
       const noteTool = createNoteTool({
-        workspaceDir: this.config.workspaceDir,
+        workspaceDir: this.config.workspaceDir
       });
       registerTool(noteTool, "core");
     }
@@ -210,13 +200,11 @@ export class MiniMaxAgent {
 
     const systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
-    let mcpToolDescriptions = '';
+    let mcpToolDescriptions = "";
     if (this.mcpConnector) {
       const mcpTools = this.mcpConnector.getAllTools();
       if (mcpTools.length > 0) {
-        mcpToolDescriptions = mcpTools.map(tool => 
-          `- **${tool.name}**: ${tool.description}`
-        ).join('\n');
+        mcpToolDescriptions = mcpTools.map((tool) => `- **${tool.name}**: ${tool.description}`).join("\n");
       }
     }
 
@@ -228,7 +216,7 @@ export class MiniMaxAgent {
       tokenLimit: this.config.tokenLimit,
       workspaceDir: this.config.workspaceDir,
       callback,
-      mcpToolDescriptions,
+      mcpToolDescriptions
     });
   }
 
@@ -239,13 +227,13 @@ export class MiniMaxAgent {
 
   async runWithResult(options: MiniMaxRunOptions): Promise<MiniMaxRunResult> {
     logger.info(`[MiniMaxAgent] runWithResult called with options.sessionId=${options.sessionId}`);
-    
+
     if (!this.agent || !this.llmClient || !this.compressor) {
       await this.initialize(options.callback);
     }
 
     if (!this.agent || !this.llmClient || !this.compressor) {
-      throw new Error('Failed to initialize agent');
+      throw new Error("Failed to initialize agent");
     }
 
     let sessionId = options.sessionId;
@@ -255,7 +243,7 @@ export class MiniMaxAgent {
       if (!this.isValidSessionId(sessionId)) {
         throw new Error(`Invalid session ID format: ${sessionId}`);
       }
-      
+
       if (!this.storage.sessionExists(sessionId)) {
         this.storage.createSession(sessionId);
         isNewSession = true;
@@ -266,18 +254,20 @@ export class MiniMaxAgent {
       isNewSession = true;
     }
 
-    logger.info(`[MiniMaxAgent] runWithResult: options.sessionId=${options.sessionId}, resolved sessionId=${sessionId}, isNewSession=${isNewSession}`);
+    logger.info(
+      `[MiniMaxAgent] runWithResult: options.sessionId=${options.sessionId}, resolved sessionId=${sessionId}, isNewSession=${isNewSession}`
+    );
 
     const persistedMessages = this.storage.loadMessages(sessionId);
     let baselineMessageCount = 0;
     if (persistedMessages.length > 0) {
-      const messages: Message[] = persistedMessages.map(pmsg => ({
+      const messages: Message[] = persistedMessages.map((pmsg) => ({
         role: pmsg.role,
         content: pmsg.content,
         thinking: pmsg.thinking,
         toolCalls: pmsg.toolCalls,
         toolCallId: pmsg.toolCallId,
-        name: pmsg.name,
+        name: pmsg.name
       }));
       const contextTrimmed = trimMessagesForContextWindow(messages, {
         maxTotalChars: Math.max(24000, Math.min(120000, Math.floor((this.config.tokenLimit ?? 80000) * 2)))
@@ -285,7 +275,7 @@ export class MiniMaxAgent {
       if (contextTrimmed.removedCount > 0 || contextTrimmed.truncatedCount > 0) {
         logger.warn(
           `[MiniMaxAgent] Context trimmed before run: removed=${contextTrimmed.removedCount}, ` +
-          `truncated=${contextTrimmed.truncatedCount}, chars=${contextTrimmed.originalChars}->${contextTrimmed.trimmedChars}`
+            `truncated=${contextTrimmed.truncatedCount}, chars=${contextTrimmed.originalChars}->${contextTrimmed.trimmedChars}`
         );
       }
       this.agent.setMessages(contextTrimmed.messages);
@@ -306,12 +296,7 @@ export class MiniMaxAgent {
     let usage = undefined;
 
     if (options.assert) {
-      result = await this.agent.runWithAssert(
-        options.prompt,
-        options.assert,
-        3,
-        sessionId
-      );
+      result = await this.agent.runWithAssert(options.prompt, options.assert, 3, sessionId);
     } else {
       const agentResult = await this.agent.runWithResult(options.prompt, sessionId);
       result = agentResult.content;
@@ -319,9 +304,8 @@ export class MiniMaxAgent {
     }
 
     const messages = this.agent.getMessages();
-    const newMessages = messages.slice(baselineMessageCount)
-      .filter(msg => msg.role !== 'system');
-    
+    const newMessages = messages.slice(baselineMessageCount).filter((msg) => msg.role !== "system");
+
     for (const msg of newMessages) {
       const pmsg = this.storage.messageToPersisted(msg);
       this.storage.appendMessage(sessionId, pmsg);
@@ -331,7 +315,7 @@ export class MiniMaxAgent {
     if (this.storage.needsCompression(sessionId)) {
       const allMessages = this.storage.loadMessages(sessionId);
       const compressionResult = await this.compressor.compress(allMessages);
-      
+
       if (compressionResult.success && compressionResult.compressedContent) {
         this.storage.saveCompressedHistory(
           sessionId,
@@ -347,7 +331,7 @@ export class MiniMaxAgent {
       content: result,
       sessionId,
       isNewSession,
-      usage,
+      usage
     };
   }
 
@@ -386,18 +370,18 @@ export class MiniMaxAgent {
     const messages = this.storage.loadMessages(sessionId);
     return {
       id: meta.id,
-      messages: messages.map(m => ({
+      messages: messages.map((m) => ({
         role: m.role,
         content: m.content,
         thinking: m.thinking,
         toolCalls: m.toolCalls,
         toolCallId: m.toolCallId,
-        name: m.name,
+        name: m.name
       })),
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.updatedAt),
       workspaceDir: meta.workspaceDir,
-      additionalDirs: [],
+      additionalDirs: []
     };
   }
 
@@ -411,14 +395,13 @@ export class MiniMaxAgent {
 
   async cleanup(): Promise<void> {
     logger.info(`[MiniMaxAgent] cleanup called`);
-    
+
     // Cleanup ShellTool processes to prevent memory leaks
     if (this.toolRegistry) {
-      const shellTool = this.toolRegistry.get('shell_execute');
+      const shellTool = this.toolRegistry.get("shell_execute");
       if (shellTool) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const shellToolAny = shellTool as any;
-        if (typeof shellToolAny.cleanupAll === 'function') {
+        if (typeof shellToolAny.cleanupAll === "function") {
           logger.info(`[MiniMaxAgent] calling shellTool.cleanupAll()`);
           shellToolAny.cleanupAll();
         }
