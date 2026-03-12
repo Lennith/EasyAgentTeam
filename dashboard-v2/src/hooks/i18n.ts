@@ -192,6 +192,9 @@ interface Translations {
   workflowRuns: string;
   newWorkflowTemplate: string;
   newWorkflowRun: string;
+  skills: string;
+  skillLibrary: string;
+  skillLists: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -385,7 +388,10 @@ const translations: Record<Language, Translations> = {
     workflowTemplates: "Workflow Templates",
     workflowRuns: "Workflow Runs",
     newWorkflowTemplate: "New Template",
-    newWorkflowRun: "New Run"
+    newWorkflowRun: "New Run",
+    skills: "Skills",
+    skillLibrary: "Library",
+    skillLists: "Lists"
   },
   zh: {
     home: "首页",
@@ -576,7 +582,10 @@ const translations: Record<Language, Translations> = {
     workflowTemplates: "任务流模板",
     workflowRuns: "任务流运行",
     newWorkflowTemplate: "新建模板",
-    newWorkflowRun: "新建运行"
+    newWorkflowRun: "新建运行",
+    skills: "技能",
+    skillLibrary: "库",
+    skillLists: "列表"
   }
 };
 

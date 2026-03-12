@@ -188,28 +188,34 @@ export async function buildWorkflowAgentIOTimeline(
       continue;
     }
     if (event.eventType === "ORCHESTRATOR_DISPATCH_STARTED") {
+      const requestedSkillIds = readPayloadStringArray(payload, "requestedSkillIds") ?? [];
       items.push({
         itemId: event.eventId,
         kind: "dispatch_started",
         createdAt: event.createdAt,
         requestId: (payload.requestId as string | null | undefined) ?? null,
         messageId: (payload.messageId as string | null | undefined) ?? null,
-        status: "running"
+        status: "running",
+        content: requestedSkillIds.length > 0 ? `requestedSkillIds=${requestedSkillIds.join(",")}` : undefined
       });
       continue;
     }
     if (event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
+      const requestedSkillIds = readPayloadStringArray(payload, "requestedSkillIds") ?? [];
+      const error = String(payload.error ?? "dispatch_failed");
       items.push({
         itemId: event.eventId,
         kind: "dispatch_failed",
         createdAt: event.createdAt,
         requestId: (payload.requestId as string | null | undefined) ?? null,
         messageId: (payload.messageId as string | null | undefined) ?? null,
-        status: String(payload.error ?? "dispatch_failed")
+        status: error,
+        content: requestedSkillIds.length > 0 ? `${error} | requestedSkillIds=${requestedSkillIds.join(",")}` : error
       });
       continue;
     }
     if (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED") {
+      const requestedSkillIds = readPayloadStringArray(payload, "requestedSkillIds") ?? [];
       items.push({
         itemId: event.eventId,
         kind: "dispatch_finished",
@@ -217,7 +223,8 @@ export async function buildWorkflowAgentIOTimeline(
         requestId: (payload.requestId as string | null | undefined) ?? null,
         messageId: (payload.messageId as string | null | undefined) ?? null,
         runId: (payload.runId as string | null | undefined) ?? null,
-        status: (payload.timedOut as boolean | undefined) ? "timed_out" : "done"
+        status: (payload.timedOut as boolean | undefined) ? "timed_out" : "done",
+        content: requestedSkillIds.length > 0 ? `requestedSkillIds=${requestedSkillIds.join(",")}` : undefined
       });
     }
   }

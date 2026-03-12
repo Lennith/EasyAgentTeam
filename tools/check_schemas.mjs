@@ -4,7 +4,8 @@ import path from "node:path";
 const root = process.cwd();
 const schemaDir = path.join(root, "agent_library", "src", "schemas");
 const requiredFiles = [
-  "final-report.schema.json",
+  "task-action.schema.json",
+  "provider-runtime.schema.json",
   "manager-to-agent-message.schema.json",
   "lock-record.schema.json",
   "event-record.schema.json"

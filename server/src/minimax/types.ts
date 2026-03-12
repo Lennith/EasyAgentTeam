@@ -145,6 +145,7 @@ export interface MiniMaxAgentConfig {
   tokenLimit: number;
   workspaceDir: string;
   sessionDir?: string;
+  systemPrompt?: string;
   systemPromptPath?: string;
   skillListPath?: string;
   enableFileTools: boolean;

@@ -1,3 +1,5 @@
+import type { ProviderId } from "@autodev/agent-library";
+
 export interface ProjectSummary {
   projectId: string;
   name: string;
@@ -29,7 +31,7 @@ export interface OrchestratorSettings {
 }
 
 export interface AgentModelConfig {
-  tool: "codex" | "trae" | "minimax";
+  provider_id: ProviderId;
   model: string;
   effort?: "low" | "medium" | "high";
 }
@@ -168,11 +170,51 @@ export interface AgentDefinition {
   agentId: string;
   displayName: string;
   prompt: string;
+  summary?: string;
+  skillList?: string[];
   updatedAt: string;
-  defaultCliTool?: "codex" | "trae" | "minimax";
+  defaultCliTool?: ProviderId;
   defaultModelParams?: Record<string, unknown>;
   modelSelectionEnabled?: boolean;
   createdAt?: string;
+}
+
+export interface SkillDefinition {
+  schemaVersion: "1.0";
+  skillId: string;
+  name: string;
+  description: string;
+  license: string;
+  compatibility: string;
+  sourceType: "opencode" | "codex" | "local";
+  sourcePath: string;
+  packagePath: string;
+  entryFile: string;
+  warnings?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillImportItem {
+  skill: SkillDefinition;
+  action: "created" | "updated";
+  warnings: string[];
+}
+
+export interface SkillImportResult {
+  imported: SkillImportItem[];
+  warnings: string[];
+}
+
+export interface SkillListDefinition {
+  schemaVersion: "1.0";
+  listId: string;
+  displayName: string;
+  description?: string;
+  includeAll: boolean;
+  skillIds: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AgentTemplateDefinition {
@@ -374,6 +416,7 @@ export type DebugView = "agent-sessions" | "session-prompts" | "codex-output";
 export type TeamView = "list" | "edit" | "new";
 export type WorkflowRunWorkspaceView = "overview" | "task-tree" | "chat" | "agent-chat" | "team-config";
 export type WorkflowView = "runs" | "new-run" | "run-workspace" | "templates" | "new-template" | "edit-template";
+export type SkillView = "library" | "lists";
 
 export interface TeamRecord {
   schemaVersion: "1.0";
@@ -635,7 +678,7 @@ export interface WorkflowSessionRecord {
   sessionId: string;
   runId: string;
   role: string;
-  provider: "codex" | "trae" | "minimax";
+  provider: ProviderId;
   status: "running" | "idle" | "blocked" | "dismissed";
   createdAt: string;
   updatedAt: string;
@@ -675,6 +718,7 @@ export type L1Route =
   | { l1: "project"; projectId: string; view?: ProjectView }
   | { l1: "teams"; view?: TeamView; teamId?: string }
   | { l1: "workflow"; view?: WorkflowView; runId?: string; runView?: WorkflowRunWorkspaceView; templateId?: string }
+  | { l1: "skills"; view?: SkillView }
   | { l1: "agents"; view?: AgentView }
   | { l1: "debug"; debugView?: DebugView }
   | { l1: "settings" };

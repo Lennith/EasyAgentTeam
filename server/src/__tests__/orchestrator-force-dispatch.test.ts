@@ -273,7 +273,7 @@ test("force dispatch auto-bootstraps session when owner has only dismissed sessi
         agent_ids: ["dev_0"],
         route_table: { manager: ["dev_0"], dev_0: ["manager"] },
         agent_model_configs: {
-          dev_0: { tool: "trae", model: "trae-default" }
+          dev_0: { provider_id: "trae", model: "trae-default" }
         }
       })
     });

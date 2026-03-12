@@ -1,6 +1,7 @@
 import { appendEvent } from "../data/event-store.js";
 import { clearRoleSessionMapping, setRoleSessionMapping } from "../data/project-store.js";
 import { getSession, listSessions, touchSession } from "../data/session-store.js";
+import type { ProviderId } from "@autodev/agent-library";
 import type { ProjectPaths, ProjectRecord, SessionRecord } from "../domain/models.js";
 import { isMiniMaxRunnerActive } from "./minimax-runner.js";
 
@@ -25,7 +26,7 @@ interface RunnerLifecycleBaseInput {
   taskId?: string;
   messageId?: string;
   providerSessionId?: string | null;
-  provider?: "codex" | "trae" | "minimax";
+  provider?: ProviderId;
 }
 
 interface RunnerErrorInput extends RunnerLifecycleBaseInput {
@@ -188,7 +189,7 @@ export async function markRunnerStarted(input: RunnerLifecycleBaseInput): Promis
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: now,
     providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
-    provider: input.provider ?? existing.provider ?? "codex",
+    provider: input.provider ?? existing.provider ?? "minimax",
     lastRunId: input.runId ?? existing.lastRunId,
     lastDispatchId: input.dispatchId ?? existing.lastDispatchId,
     cooldownUntil: null
@@ -217,7 +218,7 @@ export async function markRunnerSuccess(input: RunnerLifecycleBaseInput): Promis
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: now,
     providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
-    provider: input.provider ?? existing.provider ?? "codex",
+    provider: input.provider ?? existing.provider ?? "minimax",
     timeoutStreak: 0,
     errorStreak: 0,
     lastFailureAt: null,
@@ -249,7 +250,7 @@ export async function markRunnerTimeout(
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: now,
     providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
-    provider: input.provider ?? existing.provider ?? "codex",
+    provider: input.provider ?? existing.provider ?? "minimax",
     timeoutStreak,
     lastFailureAt: now,
     lastFailureKind: "timeout",
@@ -289,7 +290,7 @@ export async function markRunnerFatalError(input: RunnerErrorInput): Promise<Ses
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: now,
     providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
-    provider: input.provider ?? existing.provider ?? "codex",
+    provider: input.provider ?? existing.provider ?? "minimax",
     errorStreak,
     lastFailureAt: now,
     lastFailureKind: "error",

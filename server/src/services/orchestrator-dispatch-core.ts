@@ -92,12 +92,19 @@ export function selectTaskForDispatch<TTask extends DispatchTaskLike, TMessage e
       return { taskId, messages: sortMessagesByTime(messages), dispatchKind: "task" };
     }
 
+    const task = allTasks.find((item) => item.taskId === taskId);
+    if (!task || !activeTaskStates.has(task.state)) {
+      continue;
+    }
+
     const hasDiscuss = messages.some((m) => isDiscussMessage(m));
     if (hasDiscuss) {
-      const task = allTasks.find((item) => item.taskId === taskId);
-      if (task && activeTaskStates.has(task.state)) {
-        return { taskId, messages: sortMessagesByTime(messages), dispatchKind: "message" };
-      }
+      return { taskId, messages: sortMessagesByTime(messages), dispatchKind: "message" };
+    }
+
+    const hasTaskBoundMessage = messages.some((m) => !isTaskAssignMessage(m));
+    if (hasTaskBoundMessage) {
+      return { taskId, messages: sortMessagesByTime(messages), dispatchKind: "message" };
     }
   }
 

@@ -211,7 +211,7 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
   const projectId = rows[0]?.projectId ?? "";
   const sessionId = rows[0]?.sessionId ?? "";
   const taskId = rows.find((row) => typeof row.taskId === "string" && row.taskId.trim().length > 0)?.taskId;
-  const provider = rows[0]?.provider ?? "codex";
+  const provider = rows[0]?.provider ?? "minimax";
   const streams = { stdout: 0, stderr: 0, system: 0 };
   for (const row of rows) {
     streams[row.stream] += 1;

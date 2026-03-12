@@ -9,7 +9,10 @@
   [int]$MaxTopups = 10,
   [int]$MaxTotalBudget = 330,
   [switch]$SetupOnly,
-  [bool]$StrictObserve = $true
+  [bool]$StrictObserve = $true,
+  [string]$MiniMaxApiKeyOverride = "",
+  [string]$MiniMaxApiBaseOverride = "",
+  [switch]$ClearMiniMaxSettings
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +29,14 @@ if (-not (Test-Path -LiteralPath $ScenarioPath)) {
 
 $scenario = Get-Content -LiteralPath $ScenarioPath -Raw | ConvertFrom-Json
 $modelCfg = $scenario.agent_model
+$providerIdRaw = if ($modelCfg.provider_id) { [string]$modelCfg.provider_id } else { [string]$modelCfg.tool }
+$providerId = $providerIdRaw.Trim().ToLower()
+if ([string]::IsNullOrWhiteSpace($providerId)) {
+  $providerId = "minimax"
+}
+if ($providerId -ne "minimax") {
+  throw "Workflow E2E requires MiniMax provider. scenario.agent_model.provider_id='$providerId'"
+}
 $workspace = $WorkspaceRoot
 $artifactsBase = Join-Path $workspace "docs\e2e"
 
@@ -64,6 +75,8 @@ $script:runCreateResponse = $null
 $script:runStarted = $false
 $script:agentChatTranscripts = New-Object System.Collections.Generic.List[object]
 $strictMode = [bool]$StrictObserve
+$effectiveMiniMaxApiKeyOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) { [string]$env:E2E_MINIMAX_API_KEY } else { [string]$MiniMaxApiKeyOverride }
+$effectiveMiniMaxApiBaseOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) { [string]$env:E2E_MINIMAX_API_BASE } else { [string]$MiniMaxApiBaseOverride }
 
 function Get-StringProp {
   param(
@@ -532,6 +545,40 @@ try {
   }
 
   $settings = Invoke-TimedApi -Method GET -Path "/api/settings" -AllowStatus @(200)
+  $settingsPatch = @{}
+  if ($ClearMiniMaxSettings.IsPresent) {
+    $settingsPatch["minimaxApiKey"] = $null
+    $settingsPatch["minimaxApiBase"] = $null
+  }
+  if (-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiKeyOverride)) {
+    $settingsPatch["minimaxApiKey"] = $effectiveMiniMaxApiKeyOverride.Trim()
+  }
+  if (-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiBaseOverride)) {
+    $settingsPatch["minimaxApiBase"] = $effectiveMiniMaxApiBaseOverride.Trim()
+  }
+  if ($settingsPatch.Keys.Count -gt 0) {
+    Write-Host "== Apply MiniMax settings override =="
+    Invoke-TimedApi -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $settingsPatch | Out-Null
+    $settings = Invoke-TimedApi -Method GET -Path "/api/settings" -AllowStatus @(200)
+
+    $readBackKey = Get-StringProp -Obj $settings.body -Names @("minimaxApiKey", "minimax_api_key")
+    $readBackBase = Get-StringProp -Obj $settings.body -Names @("minimaxApiBase", "minimax_api_base")
+    if ($settingsPatch.ContainsKey("minimaxApiKey")) {
+      $expectedKey = if ($null -eq $settingsPatch["minimaxApiKey"]) { "" } else { [string]$settingsPatch["minimaxApiKey"] }
+      if (($expectedKey -eq "" -and -not [string]::IsNullOrWhiteSpace($readBackKey)) -or ($expectedKey -ne "" -and $readBackKey -ne $expectedKey)) {
+        $finalReason = "minimax_settings_override_mismatch"
+        throw "minimaxApiKey override mismatch: expected='$expectedKey' actual='$readBackKey'"
+      }
+    }
+    if ($settingsPatch.ContainsKey("minimaxApiBase")) {
+      $expectedBase = if ($null -eq $settingsPatch["minimaxApiBase"]) { "" } else { [string]$settingsPatch["minimaxApiBase"] }
+      if (($expectedBase -eq "" -and -not [string]::IsNullOrWhiteSpace($readBackBase)) -or ($expectedBase -ne "" -and $readBackBase -ne $expectedBase)) {
+        $finalReason = "minimax_settings_override_mismatch"
+        throw "minimaxApiBase override mismatch: expected='$expectedBase' actual='$readBackBase'"
+      }
+    }
+  }
+
   $minimaxKey = Get-StringProp -Obj $settings.body -Names @("minimaxApiKey", "minimax_api_key")
   if ([string]::IsNullOrWhiteSpace($minimaxKey)) {
     $finalReason = "minimax_not_configured"
@@ -614,7 +661,7 @@ try {
         agent_id = [string]$entry.id
         display_name = [string]$entry.id
         prompt = $prompt
-        default_cli_tool = [string]$modelCfg.tool
+        provider_id = $providerId
         default_model_params = @{
           model = [string]$modelCfg.model
           effort = [string]$modelCfg.effort
@@ -710,8 +757,16 @@ try {
         role = [string]$entry.id
         session_id = $workflowSessionId
         status = "idle"
-        provider = [string]$modelCfg.tool
+        provider_id = $providerId
       } | Out-Null
+    }
+    $sessionsVerify = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/sessions" -AllowStatus @(200)
+    foreach ($item in @($sessionsVerify.body.items)) {
+      $sessionProvider = [string]$item.provider
+      if ($sessionProvider.Trim().ToLower() -ne "minimax") {
+        $finalReason = "provider_not_minimax"
+        throw "Workflow session provider must be minimax. session_id=$($item.sessionId) role=$($item.role) provider=$sessionProvider"
+      }
     }
 
     Write-Host "== Kickoff message and initial dispatch =="
@@ -729,11 +784,13 @@ try {
       ) -join "`n"
     } | Out-Null
 
-    Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/orchestrator/dispatch" -AllowStatus @(200) -Body @{
-      role = $rdLeadRole
-      force = $false
-      only_idle = $false
-    } | Out-Null
+    if (-not $strictMode) {
+      Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/orchestrator/dispatch" -AllowStatus @(200) -Body @{
+        role = $rdLeadRole
+        force = $false
+        only_idle = $false
+      } | Out-Null
+    }
 
     if ($SetupOnly) {
       Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/stop" -AllowStatus @(200, 409) | Out-Null
@@ -943,6 +1000,9 @@ $summary += "- scenario: $($scenario.scenario_id)"
 $summary += "- workspace: $workspace"
 $summary += "- setup_only: $($SetupOnly.IsPresent)"
 $summary += "- strict_observe: $strictMode"
+$summary += "- clear_minimax_settings: $($ClearMiniMaxSettings.IsPresent)"
+$summary += "- minimax_api_key_override_applied: $(-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiKeyOverride))"
+$summary += "- minimax_api_base_override_applied: $(-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiBaseOverride))"
 $summary += "- run_id: $runId"
 $summary += "- template_id: $templateId"
 $summary += "- final_reason: $finalReason"

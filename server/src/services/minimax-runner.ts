@@ -9,8 +9,11 @@ import type { RuntimeSettings } from "../data/runtime-settings-store.js";
 import { logger } from "../utils/logger.js";
 import { MiniMaxAgent, createMiniMaxAgent, type MiniMaxRunResult } from "../minimax/index.js";
 import { isMiniMaxContextWindowExceededError, isMiniMaxToolResultIdNotFoundError } from "../minimax/llm/LLMClient.js";
-import { createMiniMaxTeamToolBridge } from "./minimax-teamtool-bridge.js";
-import type { TeamToolExecutionContext } from "../minimax/tools/team/types.js";
+import { createProjectToolExecutionAdapter, DefaultToolInjector } from "./tool-injector.js";
+import { listAgents } from "../data/agent-store.js";
+import { resolveImportedSkillPromptSegments, resolveSkillIdsForAgent } from "../data/skill-store.js";
+import { composeSystemPrompt } from "./prompt-composer.js";
+import { resolveSkillPromptSegments } from "./skill-catalog.js";
 
 const activeRunners = new Map<string, MiniMaxRunner>();
 
@@ -295,6 +298,43 @@ export class MiniMaxRunner {
       );
       await this.appendLog("system", `[MiniMaxRunner] resolved sessionDir: ${sessionDir}`);
       await this.appendLog("system", `[MiniMaxRunner] workingDirectory: ${workingDirectory}`);
+      const agents = await listAgents(this.dataRoot);
+      const roleAgent = this.request.agentRole
+        ? agents.find((item) => item.agentId === this.request.agentRole)
+        : undefined;
+      const rolePrompt = roleAgent?.prompt;
+      const requestedSkillIds = await resolveSkillIdsForAgent(this.dataRoot, roleAgent?.skillList);
+      const importedSkillPrompt = await resolveImportedSkillPromptSegments(this.dataRoot, requestedSkillIds);
+      const skillPrompt = resolveSkillPromptSegments({
+        manifestPath: process.env.AUTO_DEV_SKILL_MANIFEST,
+        providerId: "minimax",
+        contextKind: "project_dispatch",
+        requestedSkillIds
+      });
+      const promptCompose = composeSystemPrompt({
+        providerId: "minimax",
+        role: this.request.agentRole,
+        rolePrompt,
+        contextKind: "project_dispatch",
+        contextOverride: this.request.taskId ? `Active task: ${this.request.taskId}` : undefined,
+        runtimeConstraints: ["Use task-action tool calls for create/discuss/report lifecycle updates."],
+        skillSegments: [...importedSkillPrompt.segments, ...skillPrompt.segments]
+      });
+      const toolInjection = DefaultToolInjector.build(
+        createProjectToolExecutionAdapter({
+          dataRoot: this.dataRoot,
+          project: this.project,
+          paths: this.paths,
+          agentRole: this.request.agentRole ?? "",
+          sessionId: this.request.sessionId,
+          activeTaskId: this.request.taskId,
+          activeTaskTitle: this.request.activeTaskTitle,
+          activeParentTaskId: this.request.activeParentTaskId,
+          activeRootTaskId: this.request.activeRootTaskId,
+          activeRequestId: this.request.activeRequestId,
+          parentRequestId: this.request.parentRequestId
+        })
+      );
 
       this.agent = createMiniMaxAgent({
         config: {
@@ -317,33 +357,10 @@ export class MiniMaxRunner {
           mcpServers: this.settings.minimaxMcpServers ?? [],
           mcpConnectTimeout: 30000,
           mcpExecuteTimeout: 60000,
+          systemPrompt: promptCompose.systemPrompt,
           additionalWritableDirs: [this.project.workspacePath],
-          teamToolContext: {
-            dataRoot: this.dataRoot,
-            project: this.project,
-            paths: this.paths,
-            agentRole: this.request.agentRole ?? "",
-            sessionId: this.request.sessionId,
-            activeTaskId: this.request.taskId,
-            activeTaskTitle: this.request.activeTaskTitle,
-            activeParentTaskId: this.request.activeParentTaskId,
-            activeRootTaskId: this.request.activeRootTaskId,
-            activeRequestId: this.request.activeRequestId,
-            parentRequestId: this.request.parentRequestId
-          } satisfies TeamToolExecutionContext,
-          teamToolBridge: createMiniMaxTeamToolBridge({
-            dataRoot: this.dataRoot,
-            project: this.project,
-            paths: this.paths,
-            agentRole: this.request.agentRole ?? "",
-            sessionId: this.request.sessionId,
-            activeTaskId: this.request.taskId,
-            activeTaskTitle: this.request.activeTaskTitle,
-            activeParentTaskId: this.request.activeParentTaskId,
-            activeRootTaskId: this.request.activeRootTaskId,
-            activeRequestId: this.request.activeRequestId,
-            parentRequestId: this.request.parentRequestId
-          }),
+          teamToolContext: toolInjection.teamToolContext,
+          teamToolBridge: toolInjection.teamToolBridge,
           env: {
             AUTO_DEV_PROJECT_ID: this.project.projectId,
             AUTO_DEV_SESSION_ID: this.request.sessionId,

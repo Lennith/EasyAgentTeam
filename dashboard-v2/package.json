@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@autodev/agent-library": "workspace:*",
     "@xyflow/react": "^12.10.1",
     "lucide-react": "^0.263.1",
     "react": "^18.2.0",

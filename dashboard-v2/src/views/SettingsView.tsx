@@ -82,7 +82,7 @@ export function SettingsView() {
           const resolvedTheme = data.theme ?? readCurrentTheme();
           setTheme(resolvedTheme);
           setMiniMaxApiKey(data.minimaxApiKey ?? "");
-          setMiniMaxApiBase(data.minimaxApiBase ?? "https://api.minimax.io");
+          setMiniMaxApiBase(data.minimaxApiBase ?? "");
           setMiniMaxModel(data.minimaxModel ?? "MiniMax-M2.5");
           setMiniMaxSessionDir(data.minimaxSessionDir ?? "");
           setMiniMaxMaxSteps(data.minimaxMaxSteps ?? 100);
@@ -122,17 +122,19 @@ export function SettingsView() {
       setSaving(true);
       setError(null);
       setSuccess(null);
-      await settingsApi.update({
+      const updated = await settingsApi.update({
         codexCliCommand,
         traeCliCommand,
         theme,
-        minimaxApiKey,
-        minimaxApiBase,
+        minimaxApiKey: minimaxApiKey.trim().length > 0 ? minimaxApiKey.trim() : null,
+        minimaxApiBase: minimaxApiBase.trim().length > 0 ? minimaxApiBase.trim() : null,
         minimaxModel,
         minimaxSessionDir: minimaxSessionDir || undefined,
         minimaxMaxSteps,
         minimaxTokenLimit
       });
+      setMiniMaxApiKey(updated.minimaxApiKey ?? "");
+      setMiniMaxApiBase(updated.minimaxApiBase ?? "");
       applyTheme(theme);
       setSuccess(t.settingsSaved);
     } catch (err) {

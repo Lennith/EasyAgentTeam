@@ -5,6 +5,7 @@ import type {
   SessionStatus,
   SessionsState
 } from "../domain/models.js";
+import type { ProviderId } from "@autodev/agent-library";
 import { readJsonFile, writeJsonFile } from "./file-utils.js";
 
 const VALID_SESSION_STATUS = new Set<SessionStatus>(["running", "idle", "blocked", "dismissed"]);
@@ -113,7 +114,7 @@ export async function addSession(
     currentTaskId?: string;
     lastInboxMessageId?: string;
     lastDispatchedAt?: string;
-    provider?: "codex" | "trae" | "minimax";
+    provider?: ProviderId;
     providerSessionId?: string;
     allowRoleConflict?: boolean;
     timeoutStreak?: number;
@@ -216,7 +217,7 @@ export async function touchSession(
     lastInboxMessageId?: string | null;
     lastDispatchedAt?: string | null;
     providerSessionId?: string | null;
-    provider?: "codex" | "trae" | "minimax" | null;
+    provider?: ProviderId | null;
     agentPid?: number | null;
     pendingConfirmedMessages?: PendingConfirmedMessage[] | null;
     confirmedMessageIds?: string[] | null;

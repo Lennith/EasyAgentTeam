@@ -179,8 +179,8 @@ export function NewTeamView() {
     return routeTable[from] ?? [];
   }
 
-  function getModelsForTool(tool: "codex" | "trae" | "minimax"): ModelInfo[] {
-    return availableModels.filter((m) => m.vendor === tool);
+  function getModelsForProvider(providerId: "codex" | "trae" | "minimax"): ModelInfo[] {
+    return availableModels.filter((m) => m.vendor === providerId);
   }
 
   async function onCreate() {
@@ -359,11 +359,11 @@ export function NewTeamView() {
                 >
                   <span style={{ flex: 1, fontWeight: 500 }}>{agent}</span>
                   <select
-                    value={modelConfigs[agent]?.tool ?? "codex"}
+                    value={modelConfigs[agent]?.provider_id ?? "codex"}
                     onChange={(e) =>
                       setModelConfigs((prev) => ({
                         ...prev,
-                        [agent]: { ...prev[agent], tool: e.target.value as "codex" | "trae" | "minimax" }
+                        [agent]: { ...prev[agent], provider_id: e.target.value as "codex" | "trae" | "minimax" }
                       }))
                     }
                     style={{ fontSize: "12px", padding: "4px 8px", width: "90px" }}
@@ -383,7 +383,7 @@ export function NewTeamView() {
                     style={{ fontSize: "12px", padding: "4px 8px", width: "120px" }}
                   >
                     <option value="">Model...</option>
-                    {getModelsForTool(modelConfigs[agent]?.tool ?? "codex").map((m) => (
+                    {getModelsForProvider(modelConfigs[agent]?.provider_id ?? "codex").map((m) => (
                       <option key={m.model} value={m.model}>
                         {m.model.length > 16 ? m.model.slice(0, 16) + "..." : m.model}
                       </option>

@@ -50,6 +50,9 @@ importers:
 
   dashboard-v2:
     dependencies:
+      '@autodev/agent-library':
+        specifier: workspace:*
+        version: link:../agent_library
       '@xyflow/react':
         specifier: ^12.10.1
         version: 12.10.1(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -84,6 +87,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.76.0
         version: 0.76.0(zod@4.3.6)
+      '@autodev/agent-library':
+        specifier: workspace:*
+        version: link:../agent_library
       '@modelcontextprotocol/sdk':
         specifier: ^1.26.0
         version: 1.27.1(zod@4.3.6)

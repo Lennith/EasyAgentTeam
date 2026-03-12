@@ -2,106 +2,282 @@
 
 Task-driven multi-agent collaboration framework for software delivery.
 
-This repository contains a backend orchestrator, shared schemas, and a V2 dashboard for running role-based agent teams (PM / Eng Manager / Dev / QA style) on real projects.
+This repository contains the backend runtime, shared schemas, dashboard-v2, workspace bootstrap templates, and E2E scripts for running role-based agent teams on local workspaces.
 
-## What It Does
+## Product Overview
 
-- Task-first protocol (`/task-actions`) for create/assign/discuss/report
-- Dependency-gated orchestration with auto-dispatch budget controls
-- Session lifecycle management (pending -> provider session, dismiss, repair)
-- MiniMax-native team tools (direct bridge to backend services)
-- Task tree + task detail query APIs for visualization and audit
-- Event + timeline observability for replay and debugging
-- Workflow mode: high-level phase orchestration with autonomous agent subtask creation
+EasyAgentTeam supports two execution modes:
+
+- Project mode: task-first collaboration inside a concrete project workspace.
+- Workflow mode: phase-level orchestration where role agents decompose and execute work inside a workflow run workspace.
+
+The current product surface includes:
+
+- Task V2 protocol centered on `POST /api/projects/:id/task-actions`
+- Project and workflow orchestrators with reminder, redispatch, hold, and dispatch-budget controls
+- Agent registry with `summary` and `skill_list`
+- Local skill import, standardization, and reusable skill lists
+- Team routing configuration for message routing, task assignment routing, discuss rounds, and per-agent provider/model selection
+- Session lifecycle management, timeline/event inspection, and agent chat
+- MiniMax runtime skill injection for imported local skills
 
 ## Repository Layout
 
-- `server/` Express backend (orchestrator, task protocol, routing, runtime settings)
-- `dashboard-v2/` React + Vite dashboard
-- `agent_library/` shared TypeScript types/schemas
-- `TeamsTools/` team tool docs/templates
-- `E2ETest/` standardized end-to-end test scripts
-- `data/` runtime data (projects, sessions, events)
+- `server/`: Express backend, orchestration runtime, storage, provider dispatch, and API endpoints
+- `dashboard-v2/`: current React + Vite dashboard
+- `agent_library/`: shared TypeScript types and schemas
+- `TeamsTools/`: workspace bootstrap templates and team tool documents
+- `E2ETest/`: standardized PowerShell end-to-end regression scripts
+- `data/`: runtime data for projects, workflow runs, agents, skills, sessions, and events
 
-## Current API Baseline (Hard Cut)
+## Dashboard Navigation
 
-Active:
+Dashboard v2 is organized as L1 modules:
 
-- `POST /api/projects/:id/task-actions`
+- `Home`: orchestrator health
+- `Projects`: project list and project workspace
+- `Workflow`: workflow templates, runs, and run workspace
+- `Teams`: team registry and team editor
+- `Skills`: skill library and skill lists
+- `Agents`: agent sessions, registry, and templates
+- `Debug`: debug sessions and logs
+- `Settings`: runtime and provider settings
+
+### Project Workspace Tabs
+
+- `timeline`
+- `chat`
+- `session-manager`
+- `agent-io`
+- `agent-chat`
+- `taskboard`
+- `task-tree`
+- `task-create`
+- `task-update`
+- `lock-manager`
+- `team-config`
+- `project-settings`
+
+### Workflow Run Workspace Tabs
+
+- `overview`
+- `task-tree`
+- `chat`
+- `agent-chat`
+- `team-config`
+
+### Skills Tabs
+
+- `library`
+- `lists`
+
+## Agent Registry
+
+Agent registry is the global source of truth for reusable agent definitions.
+
+Each agent definition includes:
+
+- `agent_id`
+- `display_name`
+- `prompt`
+- `summary`
+- `skill_list`
+- optional provider override via `provider_id`
+
+Current semantics:
+
+- `summary` is consumed by generated `Agents/TEAM.md` files in project and workflow workspaces.
+- `skill_list` is an array of skill list ids, not raw skill ids.
+- Project and workflow views consume agent registry data but do not edit agent registry state.
+
+## Skills
+
+Skills are imported from local filesystem paths. A skill package is a directory whose required contract is a `SKILL.md` file at the package root. Any sibling files or nested folders are treated as package dependencies and are copied into the managed skill package.
+
+### Standard Skill Contract
+
+Imported skills are normalized to a standard `SKILL.md` format with YAML frontmatter:
+
+- `name`
+- `description`
+- `license`
+- `compatibility`
+
+Import behavior:
+
+- input may be a directory or a direct `SKILL.md` path
+- recursive discovery is supported for directory import
+- `opencode`, `codex`, and generic local layouts are recognized
+- missing frontmatter fields are auto-filled with warnings
+- normalized packages are copied into `data/skills/packages/<skill_id>/`
+- same `skill_id` imports overwrite the managed package
+
+### Skill Lists
+
+Skill lists are reusable groups of imported skills.
+
+Each list includes:
+
+- `list_id`
+- `display_name`
+- `description`
+- `include_all`
+- `skill_ids`
+
+Resolution rules:
+
+- `include_all=true` dynamically includes all imported skills
+- explicit `skill_ids` are appended after the dynamic set
+- final resolved skill ids are deduplicated in order across all referenced lists
+
+### Runtime Injection Boundary
+
+Imported skills are injected only on the MiniMax agent runtime path.
+
+Current injected MiniMax paths:
+
+- project orchestrator dispatch
+- project agent chat
+- workflow orchestrator dispatch
+- workflow agent chat
+
+Current non-injected paths:
+
+- `codex`
+- `trae`
+- external CLI or exe wrappers that do not use the MiniMax prompt composition path
+
+## Project Runtime
+
+Project mode is the task-first runtime for concrete delivery work.
+
+Core characteristics:
+
+- user and agent actions write through Task V2
+- task tree and task detail are the primary read APIs
+- message routing and task assignment routing are configured at project/team level
+- sessions can be registered, dispatched, repaired, and dismissed
+- reminders are task-aware and use the shared reminder message body contract
+
+### Project API Baseline
+
+Active endpoints:
+
+- `POST /api/projects`
+- `GET /api/projects`
+- `GET /api/projects/:id`
+- `DELETE /api/projects/:id`
 - `GET /api/projects/:id/task-tree`
 - `GET /api/projects/:id/tasks/:task_id/detail`
-- `POST /api/projects/:id/messages/send` (`MANAGER_MESSAGE`, `TASK_DISCUSS_*`)
+- `POST /api/projects/:id/task-actions`
+- `PATCH /api/projects/:id/tasks/:task_id`
+- `POST /api/projects/:id/messages/send`
+- `GET /api/projects/:id/sessions`
+- `POST /api/projects/:id/sessions`
+- `POST /api/projects/:id/sessions/:session_id/dismiss`
+- `POST /api/projects/:id/sessions/:session_id/repair`
+- `GET /api/projects/:id/agent-io/timeline`
+- `GET /api/projects/:id/events`
 - `GET/PATCH /api/projects/:id/orchestrator/settings`
+- `POST /api/projects/:id/orchestrator/dispatch`
+- `POST /api/projects/:id/orchestrator/dispatch-message`
+- `GET/PATCH /api/projects/:id/task-assign-routing`
+- lock endpoints under `/api/projects/:id/locks/*`
 
-Retired (returns `410`):
+Retired project endpoints:
 
-- `POST /api/projects/:id/agent-handoff`
-- `POST /api/projects/:id/reports`
-- `GET /api/projects/:id/tasks`
+- `POST /api/projects/:id/agent-handoff` -> `410`
+- `POST /api/projects/:id/reports` -> `410`
+- `GET /api/projects/:id/tasks` -> `410`
 
-## Workflow Mode (Design and Usage)
+## Workflow Runtime
 
-### Design Purpose
+Workflow mode runs a phase graph inside a dedicated workspace path and reuses the same task protocol concepts for agent-created subtasks and discussion.
 
-Workflow mode is used for multi-phase delivery where manager provides an abstract goal, and role agents self-plan and self-decompose under dependency constraints.
+Core characteristics:
 
-Core intent:
+- workflow run creation requires `workspace_path`
+- top-level workflow tasks remain phase tasks
+- role agents can create subtasks through workflow task actions
+- runtime state is exposed through `task-runtime` and `task-tree-runtime`
+- reminder messages use the same task-aware payload shape as project reminders
+- task-bound reminder messages can be redispatched as message dispatches
 
-- Keep top-level workflow tasks high-level (phase tasks), not micro-managed by manager.
-- Let role agents create/assign subtasks through the same task protocol.
-- Orchestrator advances phases by dependency gates, messages, reminders, and dispatch budget.
-- Preserve full observability (task tree/runtime/sessions/timeline) for diagnosis and replay.
+### Workflow API Baseline
 
-### Core Workflow APIs
+Active endpoints:
 
-- `POST /api/workflow-templates`
-- `GET/PATCH /api/workflow-templates/:template_id`
-- `POST /api/workflow-runs` (requires `workspace_path`; supports `auto_start`)
+- `GET /api/workflow-orchestrator/status`
+- `GET/POST/PATCH/DELETE /api/workflow-templates`
+- `GET/POST/DELETE /api/workflow-runs`
+- `GET /api/workflow-runs/:run_id`
+- `POST /api/workflow-runs/:run_id/start`
+- `POST /api/workflow-runs/:run_id/stop`
+- `GET /api/workflow-runs/:run_id/status`
+- `GET /api/workflow-runs/:run_id/task-runtime`
+- `GET /api/workflow-runs/:run_id/task-tree-runtime`
 - `GET /api/workflow-runs/:run_id/task-tree`
 - `GET /api/workflow-runs/:run_id/tasks/:task_id/detail`
 - `POST /api/workflow-runs/:run_id/task-actions`
+- `GET/POST /api/workflow-runs/:run_id/sessions`
 - `POST /api/workflow-runs/:run_id/messages/send`
+- `GET /api/workflow-runs/:run_id/agent-io/timeline`
 - `GET/PATCH /api/workflow-runs/:run_id/orchestrator/settings`
 - `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
-- `POST /api/workflow-runs/:run_id/agent-chat` (SSE)
+- `POST /api/workflow-runs/:run_id/agent-chat`
+- `POST /api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt`
 
-### Typical Runtime Flow
+Retired workflow endpoints:
 
-1. Create a workflow template with phase tasks and dependency graph.
-2. Create a workflow run with `workspace_path` and optional `auto_start=true`.
-3. Register role sessions for the run (`/workflow-runs/:run_id/sessions`).
-4. Send kickoff manager message to phase owner (`/messages/send`).
-5. Let orchestrator/agents run; observe via task tree/runtime/sessions/timeline.
-6. Validate final phase convergence and artifacts in workspace.
+- `GET /api/workflow-runs/:run_id/step-runtime` -> `410`, use `task-runtime`
+- `POST /api/workflow-runs/:run_id/step-actions` -> `410`, use `task-actions`
 
-### Example: Create Run (Auto Start)
+## Team Configuration
 
-```json
-POST /api/workflow-runs
-{
-  "run_id": "wf_demo_run_01",
-  "template_id": "wf_demo_tpl",
-  "name": "Android Gesture App",
-  "description": "帮我做一个安卓端的手势识别应用",
-  "workspace_path": "D:\\AgentWorkSpace\\TestTeam\\TestWorkflowSpace",
-  "auto_dispatch_enabled": true,
-  "auto_dispatch_remaining": 5,
-  "auto_start": true
-}
-```
+Teams define reusable collaboration topology.
 
-Notes:
+Current team configuration includes:
 
-- Workflow run is workspace-bound (`workspace_path`), not project-bound.
-- `project_id` binding fields are retired for workflow run creation.
-- Host project bootstrap is not required for workflow runtime.
+- team metadata
+- `agent_ids`
+- `route_table`
+- `task_assign_route_table`
+- `route_discuss_rounds`
+- `agent_model_configs`
 
-### E2E (Brief, Non-Core)
+Team configuration is consumed by:
 
-E2E scripts are for regression validation of orchestration behavior, not product runtime dependencies:
+- project creation and project workspace routing
+- workflow template/run routing
+- provider and model selection per team member
 
-- `E2ETest/scripts/run-workflow-e2e.ps1` (workflow case)
-- `E2ETest/scripts/run-multi-e2e.ps1` (parallel project + workflow)
+## Shared Reminder Contract
+
+Project and workflow reminders now use the same task-aware payload shape.
+
+Reminder body includes:
+
+- `taskId`
+- `summary`
+- `task`
+- `task.write_set`
+- `reminder.open_task_ids`
+- `reminder.open_task_titles`
+- `taskHint`
+- `envelope.correlation.task_id`
+
+This allows reminders to carry the current task context instead of a text-only nudge.
+
+## Runtime Data Layout
+
+Important persisted data paths:
+
+- `data/agents/registry.json`
+- `data/skills/registry.json`
+- `data/skills/lists.json`
+- `data/skills/packages/<skill_id>/`
+- `data/projects/<project_id>/...`
+- `data/workflows/runs/<run_id>/...`
 
 ## Quick Start
 
@@ -109,175 +285,56 @@ E2E scripts are for regression validation of orchestration behavior, not product
 
 - Node.js 20+
 - pnpm 9+
-- Windows PowerShell environment (current runtime target)
+- Windows PowerShell
 
 ### Install
 
-```bash
+```powershell
 pnpm i
 ```
 
-### Agent Deployment Checklist
+### Start Local Development
 
-1. Install dependencies
-
-```bash
-pnpm i
-```
-
-Expected output:
-
-- `Packages:`
-- `Done in`
-
-2. Build all packages
-
-```bash
-pnpm build
-```
-
-Expected output:
-
-- `@autodev/agent-library@0.1.0 build`
-- `@autodev/server@0.1.0 build`
-- `dashboard-v2@1.0.0 build`
-- `✓ built in`
-
-3. Start local dev stack (server + dashboard)
-
-```bash
+```powershell
 pnpm dev
 ```
 
-Expected output:
+### Build
 
-- `[server] listening on http://127.0.0.1:43123`
-- `Local:   http://127.0.0.1:54174/`
-
-4. Run passive health check (do not auto-start services)
-
-```bash
-pnpm healthcheck
+```powershell
+pnpm build
+pnpm --filter @autodev/server build
+pnpm --filter dashboard-v2 build
 ```
 
-Expected output:
+### Test
 
-- `status=PASS`
-- `reason=all_checks_passed`
-
-5. (Optional) Run baseline tests
-
-```bash
+```powershell
 pnpm test
+pnpm --filter @autodev/server test
+pnpm --filter dashboard-v2 build
 ```
 
-Expected output:
+### E2E
 
-- `test:smoke`
-- `test:unit`
-
-### Common Failures (and fixes)
-
-| Symptom                      | Reason                                  | Fix                                                                                                       |
-| ---------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `pnpm: command not found`    | pnpm missing                            | `corepack enable && corepack prepare pnpm@9.12.3 --activate`                                              |
-| `node version below minimum` | Node < 20                               | Install Node 20+, then reopen shell                                                                       |
-| `healthz_unreachable`        | server not running or wrong port        | `pnpm run dev:server` then re-run `pnpm healthcheck`                                                      |
-| `dashboard_unreachable`      | dashboard dev server not running        | `pnpm run dev:web` then re-run `pnpm healthcheck`                                                         |
-| `EADDRINUSE` on 43123/54174  | port occupied                           | `Get-NetTCPConnection -LocalPort 43123,54174 \| Select-Object LocalPort,OwningProcess` then stop that PID |
-| PowerShell permission errors | execution policy restrictive            | `Set-ExecutionPolicy -Scope Process Bypass`                                                               |
-| Path errors on Windows       | workspace path invalid or no permission | move repo/workspace to writable path (for example `D:\work\...`)                                          |
-
-### Stop Conditions (do not keep retrying)
-
-Stop and output diagnostics if any of these conditions are met:
-
-1. Same command fails 3 times with the same error signature.
-2. `pnpm run doctor` returns `status=FAIL` for version or lockfile checks.
-3. `pnpm healthcheck --json` keeps failing with same `reason` for over 10 minutes.
-4. Build fails after reinstall (`pnpm i`) with unchanged error stack.
-
-Diagnostics to collect:
-
-```bash
-pnpm run doctor -- --json > doctor.json
-pnpm healthcheck --json > healthcheck.json
-pnpm docs:check --json > docs-check.json
-```
-
-### Tests
-
-```bash
-pnpm test
-pnpm test:api
-pnpm docs:check
+```powershell
+E2ETest\scripts\run-reminder-e2e.ps1
+E2ETest\scripts\run-workflow-e2e.ps1
 ```
 
 ## Documentation
 
 - Backend PRD index: `server/docs/ServerPRD_Index.md`
+- Agent and skill registry backend PRD: `server/docs/PRD_Agent_Skill_Registry.md`
 - Orchestrator: `server/docs/PRD_Orchestrator.md`
 - Task protocol: `server/docs/PRD_Task_Protocol.md`
-- Routing & message orchestration: `server/docs/PRD_Routing_Orchestration.md`
-- MiniMax tools: `server/docs/PRD_MiniMax_Tools.md`
-
-## UI Preview
-
-Place screenshots under `docs/images/` with the exact filenames below.
-
-### 1) Dashboard Overview
-
-![Dashboard Overview](docs/images/ui-01-dashboard-overview.png)
-
-### 2) Project Detail (Sessions + Routing)
-
-![Project Detail](docs/images/ui-02-project-detail.png)
-
-### 3) Task Tree View
-
-![Task Tree](docs/images/ui-03-task-tree.png)
-
-### 4) Task Detail Drawer
-
-![Task Detail](docs/images/ui-04-task-detail.png)
-
-### 5) Timeline / Events View
-
-![Timeline Events](docs/images/ui-05-timeline-events.png)
-
-### 6) Orchestrator Settings
-
-![Orchestrator Settings](docs/images/ui-06-orchestrator-settings.png)
-
-### 7) Agent Console View
-
-![Agent Console](docs/images/ui-07-agent.png)
-
-### 8) Team Settings
-
-![Team Settings](docs/images/ui-08-teamsetting.png)
-
-## Open Source Readiness Checklist
-
-Before public release, complete:
-
-- Add `CONTRIBUTING.md`
-- Add `CODE_OF_CONDUCT.md`
-- Add `SECURITY.md`
-- Add issue/PR templates in `.github/`
-- Add CI workflow for build + tests
-- Remove local runtime artifacts from repo (`data/`, `.minimax/`, logs if tracked)
-- Publish architecture diagram and API examples
-- Pin minimal supported versions (Node, pnpm, OS)
-
-## Status
-
-Active development. Interfaces are stabilizing around Task V2 + MiniMax toolcall workflow.
-Not yet production-hardened.
+- Workflow runtime: `server/docs/PRD_Workflow_Runtime.md`
+- Agent management PRD: `dashboard-v2/docs/Agent_Management_PRD.md`
+- Skills management PRD: `dashboard-v2/docs/Skills_Management_PRD.md`
+- Project management PRD: `dashboard-v2/docs/Project_Management_PRD.md`
+- Team management PRD: `dashboard-v2/docs/Team_Management_PRD.md`
+- Workflow backend API contract: `dashboard-v2/docs/Workflow_Mode_Backend_API.md`
 
 ## License
 
 This project is source-available for non-commercial use.
-
-- Default license: see `LICENSE`
-- Commercial use: requires separate authorization, see `COMMERCIAL_LICENSE.md`

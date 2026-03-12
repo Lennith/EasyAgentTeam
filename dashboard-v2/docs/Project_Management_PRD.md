@@ -1,175 +1,166 @@
-# 项目管理模块 PRD
+﻿# Project Management PRD
 
-## 1. 模块目标
+## 1. Scope
 
-模块职责：
-提供项目管理能力，支持项目的创建、查看、删除，以及项目工作区的多视图展示和项目配置管理。
+The Project Management module owns project lifecycle and the project workspace UI.
 
-解决问题：
+It covers:
 
-- 用户需要创建和管理多个独立的项目工作区
-- 用户需要在项目内查看任务进度、事件日志、会话状态
-- 用户需要配置项目的调度器设置和路由规则
+- project list
+- project creation and deletion
+- project workspace navigation
+- task, session, timeline, lock, and routing views
+- project orchestrator settings
 
-业务价值：
+It does not cover:
 
-- 实现项目的隔离管理，每个项目有独立的配置和资源
-- 提供统一的操作入口，支持任务的创建、分配、跟踪
-- 支持团队协作，配置路由规则实现多Agent协调
+- workflow template and workflow run management
+- global skill library management
+- global agent registry editing
 
-## 2. 功能范围
+## 2. Product Goals
 
-包含能力：
+Project mode is the concrete delivery runtime for task-first multi-agent collaboration inside a project workspace.
 
-- 项目列表展示（ProjectsHome）
-- 项目创建（NewProjectView）：支持选择模板、团队、Agent
-- 项目删除
-- 项目工作区（ProjectWorkspace）：多视图容器
-  - 事件时间线（EventTimelineView）
-  - 聊天时间线（ChatTimelineView）
-  - 会话管理（SessionManagerView）
-  - Agent IO（AgentIOView）
-  - Agent 聊天（AgentChatView）
-  - 任务看板（TaskboardView）
-  - 任务树（TaskTreeView）
-  - 创建任务（CreateTaskView）
-  - 更新任务（UpdateTaskView）
-  - 锁管理（LockManagerView）
-  - 团队配置（RoutingConfigView）
-  - 项目设置（ProjectSettingsView）
-- 项目设置管理（ProjectSettingsView）：
-  - 调度器自动分发配置
-  - 剩余分发次数配置
-  - 项目信息展示
+Current goals:
 
-不包含能力：
+- create isolated project workspaces
+- expose the full task-first runtime surface
+- let operators inspect routing, sessions, events, and task state in one place
+- expose project-level control of auto dispatch, hold, and reminder behavior
 
-- 项目模板定义（模板管理由独立的模板模块负责）
-- 项目文件系统的直接操作
-- 跨项目任务依赖
+## 3. Navigation
 
-## 3. 对外行为
+L1 module: `Projects`
 
-### 3.1 输入
+Views:
 
-来源：
+- project list at `#/projects`
+- new project at `#/new-project`
+- project workspace at `#/project/:projectId/:view`
 
-- 用户交互（页面操作）
-- 后端API调用
+Project workspace tabs:
 
-参数：
+- `timeline`
+- `chat`
+- `session-manager`
+- `agent-io`
+- `agent-chat`
+- `taskboard`
+- `task-tree`
+- `task-create`
+- `task-update`
+- `lock-manager`
+- `team-config`
+- `project-settings`
 
-- projectId：项目唯一标识
-- name：项目名称
-- workspacePath：工作区路径
-- templateId：模板ID（可选）
-- teamId：团队ID（可选）
-- agentIds：Agent ID列表（可选）
+## 4. User Capabilities
 
-约束：
+### 4.1 Project List
 
-- projectId：必填，小写字母、数字、下划线组合
-- name：必填，非空字符串
-- workspacePath：必填，有效路径格式
-- templateId、teamId、agentIds：可选
+The project list supports:
 
-### 3.2 输出
+- listing all projects
+- opening a project workspace
+- deleting a project
 
-结果：
+### 4.2 Create Project
 
-- 项目列表：ProjectSummary[]
-- 项目详情：ProjectDetail
-- 项目工作区数据：sessions, tasks, locks, events, timeline
-- 任务树：TaskTreeResponse
-- 任务详情：TaskDetail
+The create flow supports:
 
-触发条件：
+- `project_id`
+- `name`
+- `workspace_path`
+- optional `template_id`
+- optional `team_id`
+- optional `agent_ids`
+- optional auto-dispatch settings
 
-- 页面加载时获取数据
-- 用户提交表单时创建/更新项目
-- 用户点击操作按钮时触发相应API
+### 4.3 Project Workspace
 
-## 4. 内部逻辑
+The project workspace provides operational views for:
 
-核心处理规则：
+- event timeline
+- routed chat timeline
+- session lifecycle management
+- agent I/O timeline
+- agent chat
+- taskboard and task tree
+- task create and task patch
+- workspace lock management
+- team and routing configuration
+- project-level orchestrator settings
 
-- ProjectWorkspace根据URL参数(projectId, view)动态渲染子视图
-- 使用React Hooks管理状态：useProjectWorkspace获取工作区数据
-- 表单验证：必填字段校验
-- 加载状态管理：loading/success/error三种状态
+## 5. Backend Dependency
 
-状态变化：
+Primary project endpoints:
 
-- 初始 -> 加载中 -> 成功/错误
-- 创建项目 -> 保存中 -> 成功/失败 -> 跳转或提示
+- `POST /api/projects`
+- `GET /api/projects`
+- `GET /api/projects/:id`
+- `DELETE /api/projects/:id`
+- `GET /api/projects/:id/task-tree`
+- `GET /api/projects/:id/tasks/:task_id/detail`
+- `POST /api/projects/:id/task-actions`
+- `PATCH /api/projects/:id/tasks/:task_id`
+- `POST /api/projects/:id/messages/send`
+- `GET /api/projects/:id/sessions`
+- `POST /api/projects/:id/sessions`
+- `POST /api/projects/:id/sessions/:session_id/dismiss`
+- `POST /api/projects/:id/sessions/:session_id/repair`
+- `GET /api/projects/:id/agent-io/timeline`
+- `GET /api/projects/:id/events`
+- `GET/PATCH /api/projects/:id/orchestrator/settings`
+- `POST /api/projects/:id/orchestrator/dispatch`
+- `POST /api/projects/:id/orchestrator/dispatch-message`
+- `GET/PATCH /api/projects/:id/task-assign-routing`
+- `/api/projects/:id/locks/*`
 
-## 5. 依赖关系
+Retired endpoints are not part of the product surface.
 
-上游依赖：
+## 6. Data and Semantics
 
-- 项目模板服务（projectTemplateApi）
-- Agent服务（agentApi）
-- 团队服务（teamApi）
+### 6.1 Project Detail
 
-下游影响：
+Project detail may include:
 
-- 任务模块：项目管理任务的创建和更新
-- 会话模块：项目内会话的管理
-- 路由模块：项目级路由配置
+- `agentIds`
+- `routeTable`
+- `taskAssignRouteTable`
+- `routeDiscussRounds`
+- `agentModelConfigs`
+- `autoDispatchEnabled`
+- `autoDispatchRemaining`
+- `holdEnabled`
 
-## 6. 约束条件
+### 6.2 Reminder and Dispatch Controls
 
-技术约束：
+Project settings expose:
 
-- 前端框架：React + TypeScript
-- 路由：Hash Router（基于URL hash）
-- 状态管理：React Hooks
-- API通信：RESTful + JSON
+- auto dispatch enabled flag
+- remaining dispatch budget
+- hold flag
+- reminder mode
 
-性能要求：
+Reminder messages are task-aware and share the same contract as workflow reminders.
 
-- 列表加载：应小于2秒
-- 表单提交：应小于3秒
-- 实时数据：定时刷新或WebSocket（TODO）
+### 6.3 Workspace Documents
 
-## 7. 异常与边界
+Generated `Agents/TEAM.md` consumes agent registry `summary` values but the project UI does not edit those global agent fields.
 
-异常处理：
+## 7. UX Expectations
 
-- 网络错误：显示错误消息，提供重试按钮
-- API返回错误：解析错误消息并展示
-- 数据为空：显示空状态UI
+- project list loads on module entry
+- workspace tabs switch without leaving project context
+- settings and routing views write directly through backend APIs
+- destructive actions require confirmation
 
-边界情况：
+## 8. Non-Goals
 
-- 无项目：显示空状态和创建按钮
-- 项目不存在：显示404错误
-- 表单验证失败：实时提示错误信息
-- 并发删除：乐观更新，失败回滚
+- workflow-phase orchestration management
+- skill package import
+- agent registry maintenance
 
-## 8. 数据定义
+## 9. Status
 
-关键数据：
-
-- ProjectSummary：{projectId, name, workspacePath}
-- ProjectDetail：继承ProjectSummary，额外包含createdAt, updatedAt, templateId, agentIds, routeTable等
-- OrchestratorSettings：{project_id, auto_dispatch_enabled, auto_dispatch_remaining, updated_at}
-- SessionRecord：{sessionId, projectId, role, status, ...}
-- TaskTreeNode：{task_id, task_kind, parent_task_id, root_task_id, title, state, ...}
-
-生命周期：
-
-- 创建：用户填写表单 -> API调用 -> 后端存储 -> 前端更新
-- 读取：页面加载 -> API调用 -> 数据展示
-- 更新：用户修改 -> 表单提交 -> API调用 -> 前端更新
-- 删除：用户确认 -> API调用 -> 前端移除
-
-## 9. 待确认问题
-
-TODO(需确认: 原始输入未提供)
-
-- 项目的最大数量限制
-- 工作区路径的验证规则
-- 自动调度器的触发条件
-- 任务依赖的深度限制
-- 路由配置的默认值
+Status: `ACTIVE`

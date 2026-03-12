@@ -1,13 +1,15 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
-  [string[]]$Cases = @("chain", "workflow"),
+  [string[]]$Cases = @("chain", "workflow", "skill"),
   [bool]$RunReminderAfter = $false,
   [string]$ChainScenarioPath = "",
   [string]$DiscussScenarioPath = "",
   [string]$WorkflowScenarioPath = "",
+  [string]$SkillSourcePath = "C:\Users\spiri\.config\opencode\skills\minimax-vision",
   [string]$ChainWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestRound20",
   [string]$DiscussWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss",
   [string]$WorkflowWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace",
+  [string]$SkillWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestSkillImport",
   [string]$ReminderWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestReminder",
   [int]$AutoDispatchBudget = 30,
   [int]$MaxMinutes = 90,
@@ -17,7 +19,10 @@ param(
   [int]$MaxTotalBudget = 330,
   [switch]$SetupOnly,
   [switch]$StrictObserve,
-  [switch]$LegacyMode
+  [switch]$LegacyMode,
+  [string]$MiniMaxApiKeyOverride = "",
+  [string]$MiniMaxApiBaseOverride = "",
+  [switch]$ClearMiniMaxSettings
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,13 +55,18 @@ $caseMap = @{
     scenario = $WorkflowScenarioPath
     workspace = $WorkflowWorkspaceRoot
   }
+  "skill" = @{
+    script = Join-Path $scriptDir "run-skill-import-e2e.ps1"
+    scenario = ""
+    workspace = $SkillWorkspaceRoot
+  }
 }
 
 $selected = @()
 foreach ($caseIdRaw in $Cases) {
   $caseId = $caseIdRaw.Trim().ToLower()
   if (-not $caseMap.ContainsKey($caseId)) {
-    throw "Unknown case '$caseId'. Supported: chain, discuss, workflow"
+    throw "Unknown case '$caseId'. Supported: chain, discuss, workflow, skill"
   }
   $selected += $caseId
 }
@@ -96,7 +106,11 @@ foreach ($caseId in $selected) {
       [int]$MaxTotalBudget,
       [bool]$SetupOnly,
       [bool]$StrictObserve,
-      [string]$CaseId
+      [string]$CaseId,
+      [string]$SkillSourcePath,
+      [string]$MiniMaxApiKeyOverride,
+      [string]$MiniMaxApiBaseOverride,
+      [bool]$ClearMiniMaxSettings
     )
     $args = @(
       "-ExecutionPolicy", "Bypass",
@@ -117,12 +131,33 @@ foreach ($caseId in $selected) {
     if ($StrictObserve -and $CaseId -eq "chain") {
       $args += "-StrictObserve"
     }
+  if ($CaseId -eq "workflow") {
+      if (-not [string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) {
+        $args += @("-MiniMaxApiKeyOverride", $MiniMaxApiKeyOverride)
+      }
+      if (-not [string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) {
+        $args += @("-MiniMaxApiBaseOverride", $MiniMaxApiBaseOverride)
+      }
+      if ($ClearMiniMaxSettings) {
+        $args += "-ClearMiniMaxSettings"
+      }
+    } elseif ($CaseId -eq "skill") {
+      $args = @(
+        "-ExecutionPolicy", "Bypass",
+        "-File", $ScriptPath,
+        "-BaseUrl", $BaseUrl,
+        "-WorkspaceRoot", $WorkspaceRoot,
+        "-SkillSourcePath", $SkillSourcePath,
+        "-MaxMinutes", "$MaxMinutes",
+        "-PollSeconds", "$PollSeconds"
+      )
+    }
     & powershell @args
     $code = $LASTEXITCODE
     [pscustomobject]@{
       exitCode = $code
     }
-  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $AutoTopupStep, $MaxTopups, $MaxTotalBudget, $SetupOnly.IsPresent, $strictMode, $caseId
+  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $AutoTopupStep, $MaxTopups, $MaxTotalBudget, $SetupOnly.IsPresent, $strictMode, $caseId, $SkillSourcePath, $MiniMaxApiKeyOverride, $MiniMaxApiBaseOverride, $ClearMiniMaxSettings.IsPresent
 }
 
 $failed = @()

@@ -168,8 +168,8 @@ export function RoutingConfigView({ projectId, project, reload }: RoutingConfigV
     return routeTable[from] ?? [];
   }
 
-  function getModelsForTool(tool: "codex" | "trae" | "minimax"): ModelInfo[] {
-    return availableModels.filter((m) => m.vendor === tool);
+  function getModelsForProvider(providerId: "codex" | "trae" | "minimax"): ModelInfo[] {
+    return availableModels.filter((m) => m.vendor === providerId);
   }
 
   async function onSave() {
@@ -353,11 +353,11 @@ export function RoutingConfigView({ projectId, project, reload }: RoutingConfigV
                       onClick={(e) => e.stopPropagation()}
                     >
                       <select
-                        value={modelConfigs[from]?.tool ?? "codex"}
+                        value={modelConfigs[from]?.provider_id ?? "codex"}
                         onChange={(e) =>
                           setModelConfigs((prev) => ({
                             ...prev,
-                            [from]: { ...prev[from], tool: e.target.value as "codex" | "trae" | "minimax" }
+                            [from]: { ...prev[from], provider_id: e.target.value as "codex" | "trae" | "minimax" }
                           }))
                         }
                         style={{ fontSize: "11px", padding: "2px 6px", width: "70px" }}
@@ -377,7 +377,7 @@ export function RoutingConfigView({ projectId, project, reload }: RoutingConfigV
                         style={{ fontSize: "11px", padding: "2px 6px", width: "100px" }}
                       >
                         <option value="">Model...</option>
-                        {getModelsForTool(modelConfigs[from]?.tool ?? "codex").map((m) => (
+                        {getModelsForProvider(modelConfigs[from]?.provider_id ?? "codex").map((m) => (
                           <option key={m.model} value={m.model}>
                             {m.model.length > 12 ? m.model.slice(0, 12) + "..." : m.model}
                           </option>

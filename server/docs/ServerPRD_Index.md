@@ -1,81 +1,124 @@
-﻿# Server PRD 索引文档
+﻿# Server PRD Index
 
-本文档为 `server/docs` 的后端 PRD 索引，已按当前源码（`server/src/**`）对齐。
+This index reflects the current backend product surface in `server/src/**`.
 
-## 核心模块 (P0)
+## Core Modules
 
-| 序号 | 模块名称                | 文件路径                                   | 优先级 | 状态   | 对应源码                                                                                                                                                                              |
-| ---- | ----------------------- | ------------------------------------------ | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | 编排器模块              | `server/docs/PRD_Orchestrator.md`          | P0     | ACTIVE | `server/src/services/orchestrator-service.ts`                                                                                                                                         |
-| 2    | 路由与消息编排模块      | `server/docs/PRD_Routing_Orchestration.md` | P0     | ACTIVE | `server/src/services/manager-message-service.ts` `server/src/services/routing-guard-service.ts` `server/src/services/project-routing-snapshot-service.ts`                             |
-| 3    | 任务协议模块（Task V2） | `server/docs/PRD_Task_Protocol.md`         | P0     | ACTIVE | `server/src/services/task-action-service.ts` `server/src/data/taskboard-store.ts` `server/src/services/task-tree-query-service.ts` `server/src/services/task-detail-query-service.ts` |
-| 4    | MiniMax Tools 模块      | `server/docs/PRD_MiniMax_Tools.md`         | P0     | ACTIVE | `server/src/minimax/tools/**` `server/src/services/minimax-teamtool-bridge.ts`                                                                                                        |
-| 5    | MiniMax Agent Loop 模块 | `server/docs/PRD_MiniMax_AgentLoop.md`     | P0     | ACTIVE | `server/src/minimax/agent/Agent.ts` `server/src/minimax/llm/LLMClient.ts`                                                                                                             |
+| Priority | Module                            | PRD File                                   | Main Source                                                                                      |
+| -------- | --------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| P0       | Orchestrator                      | `server/docs/PRD_Orchestrator.md`          | `server/src/services/orchestrator-service.ts`                                                    |
+| P0       | Routing and Message Orchestration | `server/docs/PRD_Routing_Orchestration.md` | `server/src/services/manager-message-service.ts`                                                 |
+| P0       | Task Protocol                     | `server/docs/PRD_Task_Protocol.md`         | `server/src/services/task-action-service.ts`                                                     |
+| P0       | MiniMax Tools                     | `server/docs/PRD_MiniMax_Tools.md`         | `server/src/minimax/tools/**`                                                                    |
+| P0       | MiniMax Agent Loop                | `server/docs/PRD_MiniMax_AgentLoop.md`     | `server/src/minimax/agent/Agent.ts`                                                              |
+| P1       | Workflow Runtime                  | `server/docs/PRD_Workflow_Runtime.md`      | `server/src/services/workflow-orchestrator-service.ts`                                           |
+| P1       | Agent and Skill Registry          | `server/docs/PRD_Agent_Skill_Registry.md`  | `server/src/data/agent-store.ts`, `server/src/data/skill-store.ts`, `server/src/app.ts`          |
+| P1       | Session Management                | `server/docs/PRD_Session_Management.md`    | `server/src/data/session-store.ts`, `server/src/app.ts`                                          |
+| P1       | Runtime Settings                  | `server/docs/PRD_Runtime_Settings.md`      | `server/src/data/runtime-settings-store.ts`, `server/src/app.ts`                                 |
+| P1       | Debug Services                    | `server/docs/PRD_Debug_Services.md`        | `server/src/services/agent-debug-service.ts`, `server/src/services/agent-io-timeline-service.ts` |
+| P1       | Domain Models                     | `server/docs/PRD_Domain_Models.md`         | `server/src/domain/models.ts`                                                                    |
+| P1       | Data Storage                      | `server/docs/PRD_Data_Storage.md`          | `server/src/data/**`                                                                             |
+| P1       | MiniMax Support                   | `server/docs/PRD_MiniMax_Support.md`       | `server/src/services/minimax-runner.ts`, `server/src/minimax/**`                                 |
 
-## 重要模块 (P1)
+## Project API Baseline
 
-| 序号 | 模块名称              | 文件路径                                | 优先级 | 状态   | 对应源码                                                                                                       |
-| ---- | --------------------- | --------------------------------------- | ------ | ------ | -------------------------------------------------------------------------------------------------------------- |
-| 6    | Session 管理模块      | `server/docs/PRD_Session_Management.md` | P1     | ACTIVE | `server/src/data/session-store.ts` `server/src/app.ts`（sessions 路由）                                        |
-| 7    | 运行时配置模块        | `server/docs/PRD_Runtime_Settings.md`   | P1     | ACTIVE | `server/src/data/runtime-settings-store.ts` `server/src/app.ts`（/api/settings）                               |
-| 8    | 调试与时间线模块      | `server/docs/PRD_Debug_Services.md`     | P1     | ACTIVE | `server/src/services/agent-debug-service.ts` `server/src/services/agent-io-timeline-service.ts`                |
-| 9    | 领域模型模块          | `server/docs/PRD_Domain_Models.md`      | P1     | ACTIVE | `server/src/domain/models.ts`                                                                                  |
-| 10   | 数据存储模块          | `server/docs/PRD_Data_Storage.md`       | P1     | ACTIVE | `server/src/data/**`                                                                                           |
-| 11   | MiniMax 支撑模块      | `server/docs/PRD_MiniMax_Support.md`    | P1     | ACTIVE | `server/src/services/minimax-runner.ts` `server/src/minimax/index.ts` `server/src/minimax/storage/**`          |
-| 12   | Workflow Runtime 模块 | `server/docs/PRD_Workflow_Runtime.md`   | P1     | ACTIVE | `server/src/services/workflow-orchestrator-service.ts` `server/src/data/workflow-store.ts` `server/src/app.ts` |
+Current active project endpoints:
 
-## Workflow Runtime API 基线
-
-- `GET /api/workflow-orchestrator/status`
-- `GET /api/workflow-templates`
-- `GET /api/workflow-templates/:template_id`
-- `POST /api/workflow-templates`
-- `PATCH /api/workflow-templates/:template_id`
-- `DELETE /api/workflow-templates/:template_id`
-- `GET /api/workflow-runs`
-- `POST /api/workflow-runs`
-- `GET /api/workflow-runs/:run_id`
-- `POST /api/workflow-runs/:run_id/start`
-- `POST /api/workflow-runs/:run_id/stop`
-- `GET /api/workflow-runs/:run_id/status`
-- `GET /api/workflow-runs/:run_id/step-runtime`
-- `POST /api/workflow-runs/:run_id/step-actions`
-- `GET /api/workflow-runs/:run_id/task-tree-runtime`
-
-## Agent Chat API 归属
-
-Agent Chat 归属到调试与时间线能力（`PRD_Debug_Services.md`），当前接口为：
-
-- `POST /api/projects/:id/agent-chat`
-- `POST /api/projects/:id/agent-chat/:sessionId/interrupt`
-
-## 退役说明（硬切）
-
-以下接口/语义已退役，仅用于历史追溯：
-
-- `POST /api/projects/:id/agent-handoff` -> 410
-- `POST /api/projects/:id/reports` -> 410
-- `GET /api/projects/:id/tasks` -> 410
-- `/messages/send` 中 `mode=TASK_ASSIGN` -> 410
-
-当前任务写入统一使用：
-
-- `POST /api/projects/:id/task-actions`
-
-## 文档维护规则
-
-1. PRD 与源码一一对应，新增 service 或新增关键 API 必须在本索引登记。
-2. 任何接口硬切后，需要同步更新本索引中的退役说明。
-3. 文档状态仅使用：`ACTIVE` / `DEPRECATED` / `DRAFT`。
-
-## Project Core API Baseline (docs:check)
-
+- `POST /api/projects`
+- `GET /api/projects`
+- `GET /api/projects/:id`
+- `DELETE /api/projects/:id`
 - `GET /api/projects/:id/task-tree`
+- `GET /api/projects/:id/tasks/:task_id/detail`
+- `POST /api/projects/:id/task-actions`
+- `PATCH /api/projects/:id/tasks/:task_id`
+- `POST /api/projects/:id/messages/send`
 - `GET /api/projects/:id/sessions`
 - `POST /api/projects/:id/sessions`
 - `POST /api/projects/:id/sessions/:session_id/dismiss`
 - `POST /api/projects/:id/sessions/:session_id/repair`
-- `GET /api/projects/:id/orchestrator/settings`
-- `PATCH /api/projects/:id/orchestrator/settings`
 - `GET /api/projects/:id/agent-io/timeline`
-- `POST /api/projects/:id/messages/send`
+- `POST /api/projects/:id/agent-chat`
+- `POST /api/projects/:id/agent-chat/:sessionId/interrupt`
+- `GET /api/projects/:id/events`
+- `GET/PATCH /api/projects/:id/orchestrator/settings`
+- `POST /api/projects/:id/orchestrator/dispatch`
+- `POST /api/projects/:id/orchestrator/dispatch-message`
+- `GET/PATCH /api/projects/:id/task-assign-routing`
+- `/api/projects/:id/locks/*`
+
+## Workflow API Baseline
+
+Current active workflow endpoints:
+
+- `GET /api/workflow-orchestrator/status`
+- `GET/POST/PATCH/DELETE /api/workflow-templates`
+- `GET/POST/DELETE /api/workflow-runs`
+- `GET /api/workflow-runs/:run_id`
+- `POST /api/workflow-runs/:run_id/start`
+- `POST /api/workflow-runs/:run_id/stop`
+- `GET /api/workflow-runs/:run_id/status`
+- `GET /api/workflow-runs/:run_id/task-runtime`
+- `GET /api/workflow-runs/:run_id/task-tree-runtime`
+- `GET /api/workflow-runs/:run_id/task-tree`
+- `GET /api/workflow-runs/:run_id/tasks/:task_id/detail`
+- `POST /api/workflow-runs/:run_id/task-actions`
+- `GET/POST /api/workflow-runs/:run_id/sessions`
+- `POST /api/workflow-runs/:run_id/messages/send`
+- `GET /api/workflow-runs/:run_id/agent-io/timeline`
+- `GET/PATCH /api/workflow-runs/:run_id/orchestrator/settings`
+- `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
+- `POST /api/workflow-runs/:run_id/agent-chat`
+- `POST /api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt`
+
+Retired workflow endpoints:
+
+- `GET /api/workflow-runs/:run_id/step-runtime` -> `410`
+- `POST /api/workflow-runs/:run_id/step-actions` -> `410`
+
+## Agent and Skill Registry API Baseline
+
+Current active registry endpoints:
+
+- `GET /api/agents`
+- `POST /api/agents`
+- `PATCH /api/agents/:agent_id`
+- `DELETE /api/agents/:agent_id`
+- `GET /api/skills`
+- `POST /api/skills/import`
+- `DELETE /api/skills/:skill_id`
+- `GET /api/skill-lists`
+- `POST /api/skill-lists`
+- `PATCH /api/skill-lists/:list_id`
+- `DELETE /api/skill-lists/:list_id`
+
+## Shared Reminder Contract
+
+Project and workflow orchestrators both use the shared reminder message body model defined in `server/src/domain/models.ts` and produced by `server/src/services/reminder-message-builder.ts`.
+
+Reminder payload includes:
+
+- `taskId`
+- `summary`
+- `task`
+- `reminder.open_task_ids`
+- `reminder.open_task_titles`
+- `taskHint`
+- `envelope.correlation.task_id`
+
+Task-bound reminder messages are eligible for message redispatch through `server/src/services/orchestrator-dispatch-core.ts`.
+
+## Hard-Cut Retired Project API
+
+The following project endpoints remain retired and return `410`:
+
+- `POST /api/projects/:id/agent-handoff`
+- `POST /api/projects/:id/reports`
+- `GET /api/projects/:id/tasks`
+- `/messages/send` with `mode=TASK_ASSIGN`
+
+## Documentation Rules
+
+1. PRD files reflect current runtime behavior, not migration notes.
+2. New service modules or new public endpoints must be registered here.
+3. Status vocabulary stays limited to `ACTIVE`, `DRAFT`, or `DEPRECATED` in module-specific PRDs.

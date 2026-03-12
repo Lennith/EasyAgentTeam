@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { listAgents } from "../data/agent-store.js";
+import { resolveImportedSkillPromptSegments, resolveSkillIdsForAgent } from "../data/skill-store.js";
 import { getRuntimeSettings } from "../data/runtime-settings-store.js";
 import {
   appendWorkflowInboxMessage,
@@ -30,7 +31,6 @@ import type {
   WorkflowTaskRuntimeRecord,
   WorkflowTaskState
 } from "../domain/models.js";
-import { createMiniMaxAgent } from "../minimax/index.js";
 import { logger } from "../utils/logger.js";
 import {
   extractTaskIdFromMessage,
@@ -44,11 +44,10 @@ import {
   OrchestratorLoopCore,
   runOrchestratorAdapterTick
 } from "./orchestrator-core.js";
+import { buildReminderMessageBody } from "./reminder-message-builder.js";
 import { getTimeoutCooldownMs, getTimeoutEscalationThreshold } from "./session-lifecycle-authority.js";
-import {
-  buildWorkflowTeamToolContext,
-  createWorkflowMiniMaxTeamToolBridge
-} from "./workflow-minimax-teamtool-bridge.js";
+import { createProviderRegistry, resolveSessionProviderId } from "./provider-runtime.js";
+import { createWorkflowToolExecutionAdapter, DefaultToolInjector } from "./tool-injector.js";
 
 export interface WorkflowRunRuntimeStatus {
   runId: string;
@@ -166,6 +165,7 @@ const REPORTABLE_STATES = new Set<WorkflowTaskState>([
   "BLOCKED_DEP",
   "MAY_BE_DONE"
 ]);
+const providerRegistry = createProviderRegistry();
 
 function isTerminalState(state: WorkflowTaskState): boolean {
   return TERMINAL_STATES.has(state);
@@ -528,10 +528,33 @@ export class WorkflowOrchestratorService {
     dispatchId: string;
   }): Promise<void> {
     const runId = input.run.runId;
-    const sessionKey = this.buildRunSessionKey(runId, input.session.sessionId);
+    let requestedSkillIds: string[] = [];
     try {
+      const agents = await listAgents(this.dataRoot);
+      const roleAgent = agents.find((item) => item.agentId === input.role);
+      const rolePrompt = roleAgent?.prompt;
+      requestedSkillIds = await resolveSkillIdsForAgent(this.dataRoot, roleAgent?.skillList);
+      const importedSkillPrompt = await resolveImportedSkillPromptSegments(this.dataRoot, requestedSkillIds);
+
       const settings = await getRuntimeSettings(this.dataRoot);
-      if (!settings.minimaxApiKey) {
+      const providerId = input.session.provider ?? resolveSessionProviderId(input.run, input.role, "minimax");
+
+      await appendWorkflowRunEvent(this.dataRoot, runId, {
+        eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+        source: "system",
+        sessionId: input.session.sessionId,
+        taskId: input.taskId ?? undefined,
+        payload: {
+          requestId: input.requestId,
+          dispatchId: input.dispatchId,
+          runId,
+          dispatchKind: input.dispatchKind,
+          messageId: input.messageId ?? null,
+          requestedSkillIds
+        }
+      });
+
+      if (providerId === "minimax" && !settings.minimaxApiKey) {
         await appendWorkflowRunEvent(this.dataRoot, runId, {
           eventType: "ORCHESTRATOR_DISPATCH_FAILED",
           source: "system",
@@ -540,7 +563,10 @@ export class WorkflowOrchestratorService {
           payload: {
             requestId: input.requestId,
             dispatchId: input.dispatchId,
+            runId,
+            dispatchKind: input.dispatchKind,
             messageId: input.messageId ?? null,
+            requestedSkillIds,
             error: "minimax_not_configured"
           }
         });
@@ -555,8 +581,6 @@ export class WorkflowOrchestratorService {
         return;
       }
 
-      const agents = await listAgents(this.dataRoot);
-      const rolePrompt = agents.find((item) => item.agentId === input.role)?.prompt;
       const runtime = await this.getRunTaskRuntime(runId);
       const runtimeTask = input.taskId ? (runtime.tasks.find((item) => item.taskId === input.taskId) ?? null) : null;
       const prompt = this.buildDispatchPrompt({
@@ -572,71 +596,46 @@ export class WorkflowOrchestratorService {
       const agentWorkspaceDir = path.join(input.run.workspacePath, "Agents", input.role);
       await fs.mkdir(agentWorkspaceDir, { recursive: true });
       const providerSessionId = input.session.providerSessionId?.trim() || input.session.sessionId;
-      const teamToolContext = buildWorkflowTeamToolContext({
-        dataRoot: this.dataRoot,
-        run: input.run,
-        agentRole: input.role,
-        sessionId: input.session.sessionId,
-        activeTaskId: input.taskId ?? undefined,
-        activeRequestId: input.requestId,
-        parentRequestId: input.requestId,
-        applyTaskAction: async (request) =>
-          (await this.applyTaskActions(runId, request)) as unknown as Record<string, unknown>,
-        sendRunMessage: async (request) =>
-          (await this.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
-      });
-      const teamToolBridge = createWorkflowMiniMaxTeamToolBridge({
-        dataRoot: this.dataRoot,
-        run: input.run,
-        agentRole: input.role,
-        sessionId: input.session.sessionId,
-        activeTaskId: input.taskId ?? undefined,
-        activeRequestId: input.requestId,
-        parentRequestId: input.requestId,
-        applyTaskAction: async (request) =>
-          (await this.applyTaskActions(runId, request)) as unknown as Record<string, unknown>,
-        sendRunMessage: async (request) =>
-          (await this.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
-      });
-
-      const agent = createMiniMaxAgent({
-        config: {
-          apiKey: settings.minimaxApiKey ?? "",
-          apiBase: settings.minimaxApiBase ?? "https://api.minimax.io",
-          model: settings.minimaxModel ?? "MiniMax-M2.5",
-          workspaceDir: agentWorkspaceDir,
-          sessionDir: settings.minimaxSessionDir ?? path.join(input.run.workspacePath, ".minimax", "sessions"),
-          maxSteps: settings.minimaxMaxSteps ?? 200,
-          tokenLimit: settings.minimaxTokenLimit ?? 180000,
-          enableFileTools: true,
-          enableShell: true,
-          enableNote: true,
-          shellType: "powershell",
-          shellTimeout: settings.minimaxShellTimeout ?? 30000,
-          shellOutputIdleTimeout: settings.minimaxShellOutputIdleTimeout ?? 60000,
-          shellMaxRunTime: settings.minimaxShellMaxRunTime ?? 600000,
-          shellMaxOutputSize: settings.minimaxShellMaxOutputSize ?? 52428800,
-          mcpEnabled: (settings.minimaxMcpServers?.length ?? 0) > 0,
-          mcpServers: settings.minimaxMcpServers ?? [],
-          mcpConnectTimeout: 30000,
-          mcpExecuteTimeout: 60000,
-          additionalWritableDirs: [input.run.workspacePath],
-          teamToolContext,
-          teamToolBridge,
-          env: {
-            AUTO_DEV_WORKFLOW_RUN_ID: runId,
-            AUTO_DEV_SESSION_ID: input.session.sessionId,
-            AUTO_DEV_AGENT_ROLE: input.role,
-            AUTO_DEV_WORKFLOW_ROOT: input.run.workspacePath,
-            AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
-            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123"
-          }
-        }
-      });
-
-      await agent.runWithResult({
+      const toolInjection = DefaultToolInjector.build(
+        createWorkflowToolExecutionAdapter({
+          dataRoot: this.dataRoot,
+          run: input.run,
+          agentRole: input.role,
+          sessionId: input.session.sessionId,
+          activeTaskId: input.taskId ?? undefined,
+          activeRequestId: input.requestId,
+          parentRequestId: input.requestId,
+          applyTaskAction: async (request) =>
+            (await this.applyTaskActions(runId, request)) as unknown as Record<string, unknown>,
+          sendRunMessage: async (request) =>
+            (await this.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
+        })
+      );
+      await providerRegistry.runSessionWithTools(providerId, settings, {
         prompt,
-        sessionId: providerSessionId,
+        providerSessionId,
+        workspaceDir: agentWorkspaceDir,
+        workspaceRoot: input.run.workspacePath,
+        role: input.role,
+        rolePrompt,
+        skillIds: requestedSkillIds,
+        skillSegments: importedSkillPrompt.segments,
+        contextKind: "workflow_dispatch",
+        contextOverride: input.taskId ? `Active task: ${input.taskId}` : undefined,
+        runtimeConstraints: ["Report phase completion via TASK_REPORT on the phase task."],
+        sessionDirFallback: path.join(input.run.workspacePath, ".minimax", "sessions"),
+        apiBaseFallback: "https://api.minimax.io",
+        modelFallback: "MiniMax-M2.5",
+        teamToolContext: toolInjection.teamToolContext,
+        teamToolBridge: toolInjection.teamToolBridge,
+        env: {
+          AUTO_DEV_WORKFLOW_RUN_ID: runId,
+          AUTO_DEV_SESSION_ID: input.session.sessionId,
+          AUTO_DEV_AGENT_ROLE: input.role,
+          AUTO_DEV_WORKFLOW_ROOT: input.run.workspacePath,
+          AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
+          AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123"
+        },
         callback: {
           onThinking: () => void this.touchSessionHeartbeat(runId, input.session.sessionId),
           onToolCall: () => void this.touchSessionHeartbeat(runId, input.session.sessionId),
@@ -667,7 +666,8 @@ export class WorkflowOrchestratorService {
           dispatchId: input.dispatchId,
           runId,
           dispatchKind: input.dispatchKind,
-          messageId: input.messageId ?? null
+          messageId: input.messageId ?? null,
+          requestedSkillIds
         }
       });
     } catch (error) {
@@ -683,6 +683,7 @@ export class WorkflowOrchestratorService {
           runId,
           dispatchKind: input.dispatchKind,
           messageId: input.messageId ?? null,
+          requestedSkillIds,
           error: reason
         }
       });
@@ -696,8 +697,6 @@ export class WorkflowOrchestratorService {
         agentPid: null,
         lastRunId: runId
       }).catch(() => {});
-    } finally {
-      this.inFlightDispatchSessionKeys.delete(sessionKey);
     }
   }
 
@@ -711,16 +710,46 @@ export class WorkflowOrchestratorService {
     }
     const nowMs = Date.now();
     const reminderMode = normalizeReminderMode(run.reminderMode);
-    const openTasksByRole = new Map<string, number>();
+    const openTasksByRole = new Map<
+      string,
+      Array<{
+        taskId: string;
+        title: string;
+        resolvedTitle: string;
+        parentTaskId?: string;
+        ownerRole: string;
+        dependencies?: string[];
+        writeSet?: string[];
+        acceptance?: string[];
+        artifacts?: string[];
+        state: WorkflowTaskState;
+        summary?: string;
+      }>
+    >();
     for (const task of run.tasks) {
       const runtimeTask = runtime.tasks.find((item) => item.taskId === task.taskId);
       if (!runtimeTask || !isRemindableTaskState(runtimeTask.state)) {
         continue;
       }
-      openTasksByRole.set(task.ownerRole, (openTasksByRole.get(task.ownerRole) ?? 0) + 1);
+      const taskList = openTasksByRole.get(task.ownerRole) ?? [];
+      taskList.push({
+        taskId: task.taskId,
+        title: task.title,
+        resolvedTitle: task.resolvedTitle,
+        parentTaskId: task.parentTaskId,
+        ownerRole: task.ownerRole,
+        dependencies: task.dependencies,
+        writeSet: task.writeSet,
+        acceptance: task.acceptance,
+        artifacts: task.artifacts,
+        state: runtimeTask.state,
+        summary: runtimeTask.lastSummary
+      });
+      openTasksByRole.set(task.ownerRole, taskList);
     }
 
-    for (const [role, openCount] of openTasksByRole.entries()) {
+    for (const [role, roleOpenTasks] of openTasksByRole.entries()) {
+      const openCount = roleOpenTasks.length;
       const session = await this.resolveAuthoritativeSession(run.runId, role, sessions);
       const roleState = getRoleState(session);
       const key = this.buildRunRoleKey(run.runId, role);
@@ -758,7 +787,16 @@ export class WorkflowOrchestratorService {
 
       const reminderMessageId = `reminder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const reminderRequestId = randomUUID();
-      const content = `Reminder: you still have ${openCount} open task(s). Continue execution and report progress via TASK_REPORT.`;
+      const primaryTask = roleOpenTasks[0] ?? null;
+      const primaryTaskId = primaryTask?.taskId ?? null;
+      const openTaskTitlePreview = roleOpenTasks
+        .slice(0, 3)
+        .map((task) => `${task.taskId}: ${task.resolvedTitle}`)
+        .join("; ");
+      const content =
+        `Reminder: you have ${openCount} open task(s) without recent progress. ` +
+        (openTaskTitlePreview.length > 0 ? `Open tasks: ${openTaskTitlePreview}. ` : "") +
+        `Please continue execution and submit TASK_REPORT for current work.`;
       const message: WorkflowManagerToAgentMessage = {
         envelope: {
           message_id: reminderMessageId,
@@ -768,7 +806,11 @@ export class WorkflowOrchestratorService {
           via: { type: "manager" },
           intent: "MANAGER_MESSAGE",
           priority: "normal",
-          correlation: { request_id: reminderRequestId, parent_request_id: reminderRequestId },
+          correlation: {
+            request_id: reminderRequestId,
+            parent_request_id: reminderRequestId,
+            task_id: primaryTaskId ?? undefined
+          },
           accountability: {
             owner_role: role,
             report_to: { role: "manager", session_id: "manager-system" },
@@ -776,7 +818,32 @@ export class WorkflowOrchestratorService {
           },
           dispatch_policy: "fixed_session"
         },
-        body: { messageType: "MANAGER_MESSAGE", mode: "CHAT", content }
+        body: buildReminderMessageBody({
+          role,
+          reminderMode,
+          reminderCount: next.reminderCount,
+          nextReminderAt: next.nextReminderAt ?? null,
+          openTasks: roleOpenTasks.map((task) => ({
+            taskId: task.taskId,
+            title: task.resolvedTitle
+          })),
+          content,
+          primaryTaskId,
+          primarySummary: primaryTask?.summary ?? "",
+          primaryTask:
+            primaryTask === null
+              ? null
+              : {
+                  task_id: primaryTask.taskId,
+                  state: primaryTask.state,
+                  owner_role: primaryTask.ownerRole,
+                  parent_task_id: primaryTask.parentTaskId ?? null,
+                  write_set: primaryTask.writeSet ?? [],
+                  dependencies: primaryTask.dependencies ?? [],
+                  acceptance: primaryTask.acceptance ?? [],
+                  artifacts: primaryTask.artifacts ?? []
+                }
+        })
       };
       await appendWorkflowInboxMessage(this.dataRoot, run.runId, role, message);
       await appendWorkflowRunEvent(this.dataRoot, run.runId, {
@@ -811,10 +878,6 @@ export class WorkflowOrchestratorService {
       if (session.status !== "running") {
         continue;
       }
-      const inFlightKey = this.buildRunSessionKey(run.runId, session.sessionId);
-      if (this.inFlightDispatchSessionKeys.has(inFlightKey)) {
-        continue;
-      }
       const lastActiveMs = parseIsoMs(session.lastActiveAt ?? session.updatedAt);
       if (!Number.isFinite(lastActiveMs)) {
         continue;
@@ -822,6 +885,9 @@ export class WorkflowOrchestratorService {
       if (nowMs - lastActiveMs < this.options.sessionRunningTimeoutMs) {
         continue;
       }
+      const providerId = session.provider ?? resolveSessionProviderId(run, session.role, "minimax");
+      const cancelSessionId = session.providerSessionId?.trim() || session.sessionId;
+      const cancelRequested = providerRegistry.cancelSession(providerId, cancelSessionId);
       const timeoutStreak = (session.timeoutStreak ?? 0) + 1;
       const escalated = timeoutStreak >= threshold;
       const cooldownUntil =
@@ -842,6 +908,9 @@ export class WorkflowOrchestratorService {
         payload: {
           timeoutMs: this.options.sessionRunningTimeoutMs,
           lastActiveAt: session.lastActiveAt,
+          provider: providerId,
+          providerSessionId: cancelSessionId,
+          cancelRequested,
           timeoutStreak,
           threshold,
           escalated,
@@ -941,6 +1010,31 @@ export class WorkflowOrchestratorService {
         stoppedAt: run.stoppedAt,
         lastHeartbeatAt: run.lastHeartbeatAt
       };
+    }
+    const sessions = await listWorkflowSessions(this.dataRoot, runId);
+    for (const session of sessions) {
+      if (session.status !== "running") {
+        continue;
+      }
+      const providerId = session.provider ?? resolveSessionProviderId(run, session.role, "minimax");
+      const cancelSessionId = session.providerSessionId?.trim() || session.sessionId;
+      const canceled = providerRegistry.cancelSession(providerId, cancelSessionId);
+      await touchWorkflowSession(this.dataRoot, runId, session.sessionId, {
+        status: "idle",
+        currentTaskId: null,
+        agentPid: null,
+        cooldownUntil: null
+      }).catch(() => {});
+      await appendWorkflowRunEvent(this.dataRoot, runId, {
+        eventType: "RUN_STOP_SESSION_CANCEL",
+        source: "system",
+        sessionId: session.sessionId,
+        payload: {
+          provider: providerId,
+          providerSessionId: cancelSessionId,
+          canceled
+        }
+      });
     }
     const now = new Date().toISOString();
     const updated = await patchWorkflowRun(this.dataRoot, runId, {
@@ -1472,212 +1566,222 @@ export class WorkflowOrchestratorService {
     const maxDispatchesRaw = Number(input.maxDispatches ?? 1);
     const maxDispatches = Number.isFinite(maxDispatchesRaw) && maxDispatchesRaw > 0 ? Math.floor(maxDispatchesRaw) : 1;
     const sessionList = await listWorkflowSessions(this.dataRoot, runId);
+    const lockedSessionKeys = new Set<string>();
     let remaining = Math.max(0, Math.floor(run.autoDispatchRemaining ?? 5));
     const results: WorkflowDispatchResult["results"] = [];
     let dispatchedCount = 0;
-
-    for (let i = 0; i < maxDispatches; i += 1) {
-      if (!force && this.inFlightDispatchSessionKeys.size >= this.options.maxConcurrentDispatches) {
-        if (results.length === 0) {
-          results.push({
-            role: role ?? "any",
-            sessionId: null,
-            taskId: taskFilter ?? null,
-            outcome: "session_busy",
-            reason: "max concurrent dispatches reached"
-          });
-        }
-        break;
-      }
-      const roleSet = new Set<string>();
-      for (const task of run.tasks) roleSet.add(task.ownerRole);
-      for (const s of sessionList) if (s.status !== "dismissed") roleSet.add(s.role);
-      if (role) {
-        roleSet.clear();
-        roleSet.add(role);
-      }
-
-      let chosen:
-        | {
-            role: string;
-            session: WorkflowSessionRecord;
-            taskId: string | null;
-            dispatchKind: "task" | "message";
-            message: WorkflowManagerToAgentMessage | null;
-            runtimeTask: WorkflowTaskRuntimeRecord | null;
+    try {
+      for (let i = 0; i < maxDispatches; i += 1) {
+        if (!force && this.inFlightDispatchSessionKeys.size >= this.options.maxConcurrentDispatches) {
+          if (results.length === 0) {
+            results.push({
+              role: role ?? "any",
+              sessionId: null,
+              taskId: taskFilter ?? null,
+              outcome: "session_busy",
+              reason: "max concurrent dispatches reached"
+            });
           }
-        | undefined;
-      let busyFound = false;
+          break;
+        }
+        const roleSet = new Set<string>();
+        for (const task of run.tasks) roleSet.add(task.ownerRole);
+        for (const s of sessionList) if (s.status !== "dismissed") roleSet.add(s.role);
+        if (role) {
+          roleSet.clear();
+          roleSet.add(role);
+        }
 
-      for (const roleCandidate of Array.from(roleSet).sort((a, b) => a.localeCompare(b))) {
-        const session = await this.resolveAuthoritativeSession(runId, roleCandidate, sessionList);
-        if (!session) {
-          continue;
-        }
-        const sessionKey = this.buildRunSessionKey(runId, session.sessionId);
-        if (
-          (onlyIdle && session.status !== "idle") ||
-          (!force && (session.status === "running" || this.inFlightDispatchSessionKeys.has(sessionKey)))
-        ) {
-          busyFound = true;
-          continue;
-        }
-        if (!force && session.cooldownUntil && parseIsoMs(session.cooldownUntil) > Date.now()) {
-          busyFound = true;
-          continue;
-        }
-        const messages = sortMessagesByTime(
-          await listWorkflowInboxMessages(this.dataRoot, runId, roleCandidate)
-        ).filter((message) => {
-          if (!taskFilter) {
-            return true;
-          }
-          return (extractTaskIdFromMessage(message) ?? "") === taskFilter;
-        });
-        const roleTasks = run.tasks
-          .filter((task) => task.ownerRole === roleCandidate)
-          .filter((task) => !taskFilter || task.taskId === taskFilter)
-          .map((task) => {
-            const runtimeTask = runtime.tasks.find((item) => item.taskId === task.taskId);
-            if (!runtimeTask) {
-              return null;
+        let chosen:
+          | {
+              role: string;
+              session: WorkflowSessionRecord;
+              taskId: string | null;
+              dispatchKind: "task" | "message";
+              message: WorkflowManagerToAgentMessage | null;
+              runtimeTask: WorkflowTaskRuntimeRecord | null;
             }
-            return {
-              taskId: task.taskId,
-              state: runtimeTask.state,
-              createdAt: runtimeTask.lastTransitionAt ?? run.createdAt
+          | undefined;
+        let busyFound = false;
+
+        for (const roleCandidate of Array.from(roleSet).sort((a, b) => a.localeCompare(b))) {
+          const session = await this.resolveAuthoritativeSession(runId, roleCandidate, sessionList);
+          if (!session) {
+            continue;
+          }
+          const sessionKey = this.buildRunSessionKey(runId, session.sessionId);
+          if (
+            (onlyIdle && session.status !== "idle") ||
+            (!force && (session.status === "running" || this.inFlightDispatchSessionKeys.has(sessionKey)))
+          ) {
+            busyFound = true;
+            continue;
+          }
+          if (!force && session.cooldownUntil && parseIsoMs(session.cooldownUntil) > Date.now()) {
+            busyFound = true;
+            continue;
+          }
+          const messages = sortMessagesByTime(
+            await listWorkflowInboxMessages(this.dataRoot, runId, roleCandidate)
+          ).filter((message) => {
+            if (!taskFilter) {
+              return true;
+            }
+            return (extractTaskIdFromMessage(message) ?? "") === taskFilter;
+          });
+          const roleTasks = run.tasks
+            .filter((task) => task.ownerRole === roleCandidate)
+            .filter((task) => !taskFilter || task.taskId === taskFilter)
+            .map((task) => {
+              const runtimeTask = runtime.tasks.find((item) => item.taskId === task.taskId);
+              if (!runtimeTask) {
+                return null;
+              }
+              return {
+                taskId: task.taskId,
+                state: runtimeTask.state,
+                createdAt: runtimeTask.lastTransitionAt ?? run.createdAt
+              };
+            })
+            .filter((item): item is { taskId: string; state: WorkflowTaskState; createdAt: string } => item !== null);
+          const runnableRoleTasks = roleTasks.filter(
+            (task) =>
+              task.state === "READY" ||
+              (force &&
+                taskFilter === task.taskId &&
+                (task.state === "DISPATCHED" || task.state === "IN_PROGRESS" || task.state === "MAY_BE_DONE"))
+          );
+          const selection = selectTaskForDispatch(messages, runnableRoleTasks, roleTasks);
+          if (!selection) {
+            const fallbackTask = runnableRoleTasks[0] ?? null;
+            if (!fallbackTask) {
+              continue;
+            }
+            chosen = {
+              role: roleCandidate,
+              session,
+              taskId: fallbackTask.taskId,
+              dispatchKind: "task",
+              message: null,
+              runtimeTask: runtime.tasks.find((item) => item.taskId === fallbackTask.taskId) ?? null
             };
-          })
-          .filter((item): item is { taskId: string; state: WorkflowTaskState; createdAt: string } => item !== null);
-        const runnableRoleTasks = roleTasks.filter(
-          (task) =>
-            task.state === "READY" ||
-            (force &&
-              taskFilter === task.taskId &&
-              (task.state === "DISPATCHED" || task.state === "IN_PROGRESS" || task.state === "MAY_BE_DONE"))
-        );
-        const selection = selectTaskForDispatch(messages, runnableRoleTasks, roleTasks);
-        if (!selection) {
-          const fallbackTask = runnableRoleTasks[0] ?? null;
-          if (!fallbackTask) {
+            if (!chosen.runtimeTask) {
+              chosen = undefined;
+              continue;
+            }
+            break;
+          }
+          const selectedMessage = selection.messages[0] ?? null;
+          const selectedTaskId = selection.taskId.length > 0 ? selection.taskId : null;
+          const selectedRuntimeTask = selectedTaskId
+            ? (runtime.tasks.find((item) => item.taskId === selectedTaskId) ?? null)
+            : null;
+          if (selection.dispatchKind === "task" && !selectedRuntimeTask) {
+            continue;
+          }
+          if (selection.dispatchKind === "message" && !selectedMessage) {
             continue;
           }
           chosen = {
             role: roleCandidate,
             session,
-            taskId: fallbackTask.taskId,
-            dispatchKind: "task",
-            message: null,
-            runtimeTask: runtime.tasks.find((item) => item.taskId === fallbackTask.taskId) ?? null
+            taskId: selectedTaskId,
+            dispatchKind: selection.dispatchKind,
+            message: selectedMessage,
+            runtimeTask: selectedRuntimeTask
           };
-          if (!chosen.runtimeTask) {
-            chosen = undefined;
-            continue;
+          break;
+        }
+
+        if (!chosen) {
+          if (results.length === 0) {
+            results.push({
+              role: role ?? "any",
+              sessionId: null,
+              taskId: taskFilter ?? null,
+              outcome: busyFound ? "session_busy" : "no_task",
+              reason: busyFound ? "session busy" : undefined
+            });
           }
           break;
         }
-        const selectedMessage = selection.messages[0] ?? null;
-        const selectedTaskId = selection.taskId.length > 0 ? selection.taskId : null;
-        const selectedRuntimeTask = selectedTaskId
-          ? (runtime.tasks.find((item) => item.taskId === selectedTaskId) ?? null)
-          : null;
-        if (selection.dispatchKind === "task" && !selectedRuntimeTask) {
-          continue;
-        }
-        if (selection.dispatchKind === "message" && !selectedMessage) {
-          continue;
-        }
-        chosen = {
-          role: roleCandidate,
-          session,
-          taskId: selectedTaskId,
-          dispatchKind: selection.dispatchKind,
-          message: selectedMessage,
-          runtimeTask: selectedRuntimeTask
-        };
-        break;
-      }
 
-      if (!chosen) {
-        if (results.length === 0) {
+        if (!force && (run.autoDispatchEnabled ?? true) && chosen.dispatchKind === "task" && remaining <= 0) {
           results.push({
-            role: role ?? "any",
-            sessionId: null,
-            taskId: taskFilter ?? null,
-            outcome: busyFound ? "session_busy" : "no_task",
-            reason: busyFound ? "session busy" : undefined
+            role: chosen.role,
+            sessionId: chosen.session.sessionId,
+            taskId: chosen.taskId,
+            outcome: "invalid_target",
+            reason: "auto dispatch budget exhausted"
           });
+          break;
         }
-        break;
-      }
 
-      if (!force && (run.autoDispatchEnabled ?? true) && chosen.dispatchKind === "task" && remaining <= 0) {
+        const sessionKey = this.buildRunSessionKey(runId, chosen.session.sessionId);
+        this.inFlightDispatchSessionKeys.add(sessionKey);
+        lockedSessionKeys.add(sessionKey);
+        const dispatchId = randomUUID();
+        const messageId = chosen.message?.envelope.message_id;
+        if (chosen.dispatchKind === "task" && chosen.runtimeTask) {
+          this.addTransition(runtime, chosen.runtimeTask, "DISPATCHED", "dispatched");
+        }
+        await touchWorkflowSession(this.dataRoot, runId, chosen.session.sessionId, {
+          status: "running",
+          currentTaskId: chosen.taskId,
+          lastDispatchedAt: new Date().toISOString(),
+          lastDispatchId: dispatchId,
+          lastDispatchedMessageId: messageId ?? null
+        }).catch(() => {});
+        chosen.session.status = "running";
+        chosen.session.currentTaskId = chosen.taskId ?? undefined;
+        chosen.session.lastDispatchId = dispatchId;
+        if (chosen.dispatchKind === "message" && chosen.message) {
+          await removeWorkflowInboxMessages(this.dataRoot, runId, chosen.role, [chosen.message.envelope.message_id]);
+        }
+        if (!force && (run.autoDispatchEnabled ?? true) && chosen.dispatchKind === "task") {
+          remaining = Math.max(0, remaining - 1);
+        }
         results.push({
           role: chosen.role,
           sessionId: chosen.session.sessionId,
           taskId: chosen.taskId,
-          outcome: "invalid_target",
-          reason: "auto dispatch budget exhausted"
+          dispatchKind: chosen.dispatchKind,
+          messageId,
+          requestId,
+          outcome: "dispatched"
         });
-        break;
+        dispatchedCount += 1;
+        void this.launchMiniMaxDispatch({
+          run,
+          session: chosen.session,
+          role: chosen.role,
+          dispatchKind: chosen.dispatchKind,
+          taskId: chosen.taskId,
+          message: chosen.message,
+          requestId,
+          messageId,
+          dispatchId
+        }).catch((error) => {
+          logger.error(
+            `[workflow-orchestrator] launchMiniMaxDispatch failed: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
       }
-
-      const sessionKey = this.buildRunSessionKey(runId, chosen.session.sessionId);
-      this.inFlightDispatchSessionKeys.add(sessionKey);
-      const dispatchId = randomUUID();
-      const messageId = chosen.message?.envelope.message_id;
-      if (chosen.dispatchKind === "task" && chosen.runtimeTask) {
-        this.addTransition(runtime, chosen.runtimeTask, "DISPATCHED", "dispatched");
+      if (results.length === 0) {
+        results.push({ role: role ?? "any", sessionId: null, taskId: taskFilter ?? null, outcome: "no_task" });
       }
-      await touchWorkflowSession(this.dataRoot, runId, chosen.session.sessionId, {
-        status: "running",
-        currentTaskId: chosen.taskId,
-        lastDispatchedAt: new Date().toISOString(),
-        lastDispatchId: dispatchId,
-        lastDispatchedMessageId: messageId ?? null
-      }).catch(() => {});
-      if (chosen.dispatchKind === "message" && chosen.message) {
-        await removeWorkflowInboxMessages(this.dataRoot, runId, chosen.role, [chosen.message.envelope.message_id]);
-      }
-      if (!force && (run.autoDispatchEnabled ?? true) && chosen.dispatchKind === "task") {
-        remaining = Math.max(0, remaining - 1);
-      }
-      results.push({
-        role: chosen.role,
-        sessionId: chosen.session.sessionId,
-        taskId: chosen.taskId,
-        dispatchKind: chosen.dispatchKind,
-        messageId,
-        requestId,
-        outcome: "dispatched"
+      await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
+      await patchWorkflowRun(this.dataRoot, runId, {
+        runtime,
+        autoDispatchRemaining: remaining,
+        lastHeartbeatAt: new Date().toISOString()
       });
-      dispatchedCount += 1;
-      void this.launchMiniMaxDispatch({
-        run,
-        session: chosen.session,
-        role: chosen.role,
-        dispatchKind: chosen.dispatchKind,
-        taskId: chosen.taskId,
-        message: chosen.message,
-        requestId,
-        messageId,
-        dispatchId
-      }).catch((error) => {
-        logger.error(
-          `[workflow-orchestrator] launchMiniMaxDispatch failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      });
+      return { runId, results, dispatchedCount, remainingBudget: remaining };
+    } finally {
+      for (const key of lockedSessionKeys) {
+        this.inFlightDispatchSessionKeys.delete(key);
+      }
     }
-    if (results.length === 0) {
-      results.push({ role: role ?? "any", sessionId: null, taskId: taskFilter ?? null, outcome: "no_task" });
-    }
-    await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
-    await patchWorkflowRun(this.dataRoot, runId, {
-      runtime,
-      autoDispatchRemaining: remaining,
-      lastHeartbeatAt: new Date().toISOString()
-    });
-    return { runId, results, dispatchedCount, remainingBudget: remaining };
   }
 
   async getStatus(): Promise<WorkflowOrchestratorStatus> {

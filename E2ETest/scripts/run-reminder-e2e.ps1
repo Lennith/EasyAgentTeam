@@ -54,7 +54,7 @@ $agentBody = @{
   agent_id = $role
   display_name = $role
   prompt = "You are reminder E2E worker. Keep reporting task progress."
-  default_cli_tool = "minimax"
+  provider_id = "minimax"
   default_model_params = @{
     model = "MiniMax-M2.5"
     effort = "high"
@@ -84,7 +84,7 @@ Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/projects/$ProjectId/r
   route_table = @{ $role = @() }
   agent_model_configs = @{
     $role = @{
-      tool = "minimax"
+      provider_id = "minimax"
       model = "MiniMax-M2.5"
       effort = "high"
     }
@@ -99,6 +99,13 @@ if ($settings.body.reminder_mode -ne "fixed_interval") {
 Write-Host "== Create session and stable blocked-open task =="
 $sessionRes = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$ProjectId/sessions" -Body @{ role = $role } -AllowStatus @(200, 201)
 $sessionToken = [string]$sessionRes.body.session.sessionId
+$sessionsVerify = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$ProjectId/sessions" -AllowStatus @(200)
+foreach ($item in @($sessionsVerify.body.items)) {
+  $sessionProvider = [string]$item.provider
+  if ($sessionProvider.Trim().ToLower() -ne "minimax") {
+    throw "Session provider must be minimax. session_id=$($item.sessionId) role=$($item.role) provider=$sessionProvider"
+  }
+}
 $rootTaskId = "$ProjectId-root"
 $blockerTaskId = "task-reminder-blocker"
 $taskId = "task-reminder-main"

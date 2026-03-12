@@ -10,7 +10,9 @@ import type {
   OrchestratorStatus,
   AgentDefinition,
   AgentTemplateDefinition,
-  TemplateDefinition
+  TemplateDefinition,
+  SkillDefinition,
+  SkillListDefinition
 } from "@/types";
 
 const now = new Date().toISOString();
@@ -44,8 +46,8 @@ export const mockProjectDetail: ProjectDetail = {
   },
   routeDiscussRounds: { pm: { backend_dev: 2 } },
   agentModelConfigs: {
-    backend_dev: { tool: "codex", model: "gpt-4", effort: "high" },
-    frontend_dev: { tool: "trae", model: "claude-3", effort: "medium" }
+    backend_dev: { provider_id: "codex", model: "gpt-4", effort: "high" },
+    frontend_dev: { provider_id: "trae", model: "claude-3", effort: "medium" }
   },
   autoDispatchEnabled: true,
   autoDispatchRemaining: 5,
@@ -432,6 +434,8 @@ export const mockAgents: AgentDefinition[] = [
     agentId: "pm",
     displayName: "Project Manager",
     prompt: "You are a project manager agent responsible for coordinating tasks and communicating with team members.",
+    summary: "Owns requirement decomposition and collaboration routing.",
+    skillList: ["default-core", "planning-pack"],
     updatedAt: twoHoursAgo,
     defaultCliTool: "codex",
     modelSelectionEnabled: true
@@ -440,6 +444,8 @@ export const mockAgents: AgentDefinition[] = [
     agentId: "backend_dev",
     displayName: "Backend Developer",
     prompt: "You are a backend developer agent specializing in Node.js, TypeScript, and database design.",
+    summary: "Implements backend services, schema changes, and reliability fixes.",
+    skillList: ["default-core"],
     updatedAt: hourAgo,
     defaultCliTool: "codex",
     defaultModelParams: { model: "gpt-4" }
@@ -448,6 +454,8 @@ export const mockAgents: AgentDefinition[] = [
     agentId: "frontend_dev",
     displayName: "Frontend Developer",
     prompt: "You are a frontend developer agent specializing in React, TypeScript, and modern CSS.",
+    summary: "Builds product UI and interaction flows with frontend tooling.",
+    skillList: ["default-core"],
     updatedAt: hourAgo,
     defaultCliTool: "trae",
     defaultModelParams: { model: "claude-3" }
@@ -456,8 +464,74 @@ export const mockAgents: AgentDefinition[] = [
     agentId: "qa",
     displayName: "QA Engineer",
     prompt: "You are a QA engineer agent responsible for testing and quality assurance.",
+    summary: "Designs test plans and validates acceptance criteria.",
+    skillList: ["qa-pack"],
     updatedAt: twoHoursAgo,
     defaultCliTool: "codex"
+  }
+];
+
+export const mockSkills: SkillDefinition[] = [
+  {
+    schemaVersion: "1.0",
+    skillId: "code-review",
+    name: "Code Review",
+    description: "Review patch risk and provide actionable findings.",
+    license: "UNSPECIFIED",
+    compatibility: "codex",
+    sourceType: "codex",
+    sourcePath: "C:/Users/spiri/.codex/skills/code-review",
+    packagePath: "packages/code-review",
+    entryFile: "SKILL.md",
+    createdAt: twoHoursAgo,
+    updatedAt: hourAgo
+  },
+  {
+    schemaVersion: "1.0",
+    skillId: "spec-writing",
+    name: "Spec Writing",
+    description: "Turn vague requests into executable requirement specs.",
+    license: "UNSPECIFIED",
+    compatibility: "opencode",
+    sourceType: "opencode",
+    sourcePath: "C:/Users/spiri/.config/opencode/skills/spec-writing",
+    packagePath: "packages/spec-writing",
+    entryFile: "SKILL.md",
+    createdAt: twoHoursAgo,
+    updatedAt: twoHoursAgo
+  }
+];
+
+export const mockSkillLists: SkillListDefinition[] = [
+  {
+    schemaVersion: "1.0",
+    listId: "default-core",
+    displayName: "Default Core",
+    description: "Base skills used by all implementation agents.",
+    includeAll: false,
+    skillIds: ["code-review"],
+    createdAt: twoHoursAgo,
+    updatedAt: hourAgo
+  },
+  {
+    schemaVersion: "1.0",
+    listId: "planning-pack",
+    displayName: "Planning Pack",
+    description: "Planning and specification toolkit.",
+    includeAll: false,
+    skillIds: ["spec-writing"],
+    createdAt: twoHoursAgo,
+    updatedAt: twoHoursAgo
+  },
+  {
+    schemaVersion: "1.0",
+    listId: "qa-pack",
+    displayName: "QA Pack",
+    description: "Quality and verification skills.",
+    includeAll: true,
+    skillIds: [],
+    createdAt: hourAgo,
+    updatedAt: hourAgo
   }
 ];
 

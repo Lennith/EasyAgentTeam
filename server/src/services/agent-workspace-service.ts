@@ -97,14 +97,22 @@ function buildAgentWorkspaceAgentsMd(): string {
   ].join("\n");
 }
 
-function buildTeamIndexMd(agentIds: string[]): string {
+function formatTeamAgentLine(agentId: string, summary?: string): string {
+  const normalizedSummary = summary?.trim();
+  if (!normalizedSummary) {
+    return `- [${agentId}](./${agentId}/)`;
+  }
+  return `- [${agentId}](./${agentId}/) - ${normalizedSummary}`;
+}
+
+function buildTeamIndexMd(agentIds: string[], agentSummaries?: Map<string, string>): string {
   return [
     "# Team Members",
     "",
     "This file lists all team members in this project.",
     "",
     "## Active Agents",
-    ...agentIds.map((agentId) => `- [${agentId}](./${agentId}/)`),
+    ...agentIds.map((agentId) => formatTeamAgentLine(agentId, agentSummaries?.get(agentId))),
     "",
     "## Add a New Agent",
     "To add a new team agent:",
@@ -378,7 +386,10 @@ async function upsertManagedFile(
   result.createdFiles.push(spec.relativePath);
 }
 
-export async function ensureTeamIndex(project: ProjectRecord): Promise<AgentWorkspaceBootstrapResult> {
+export async function ensureTeamIndex(
+  project: ProjectRecord,
+  agentSummaries?: Map<string, string>
+): Promise<AgentWorkspaceBootstrapResult> {
   const result: AgentWorkspaceBootstrapResult = {
     createdFiles: [],
     skippedFiles: []
@@ -390,7 +401,7 @@ export async function ensureTeamIndex(project: ProjectRecord): Promise<AgentWork
 
   const agentIds = project.agentIds ?? [];
   const template = await readOptionalTemplate(project.workspacePath, TEAM_TEMPLATE_FILE);
-  const defaultList = agentIds.map((agentId) => `- [${agentId}](./${agentId}/)`).join("\n");
+  const defaultList = agentIds.map((agentId) => formatTeamAgentLine(agentId, agentSummaries?.get(agentId))).join("\n");
   const spec: AgentFileSpec = {
     relativePath: path.join(AGENTS_DIR, "TEAM.md"),
     overwriteExisting: true,
@@ -399,7 +410,7 @@ export async function ensureTeamIndex(project: ProjectRecord): Promise<AgentWork
         ? renderTemplate(template, {
             AGENT_LIST: defaultList
           })
-        : buildTeamIndexMd(agentIds)
+        : buildTeamIndexMd(agentIds, agentSummaries)
   };
 
   await upsertManagedFile(project.workspacePath, spec, result);
@@ -409,7 +420,8 @@ export async function ensureTeamIndex(project: ProjectRecord): Promise<AgentWork
 export async function ensureAgentWorkspaces(
   project: ProjectRecord,
   agentPrompts: Map<string, string>,
-  requiredAgentIds?: string[]
+  requiredAgentIds?: string[],
+  agentSummaries?: Map<string, string>
 ): Promise<AgentWorkspaceBootstrapResult> {
   const result: AgentWorkspaceBootstrapResult = {
     createdFiles: [],
@@ -484,7 +496,7 @@ export async function ensureAgentWorkspaces(
     }
   }
 
-  await ensureTeamIndex(project);
+  await ensureTeamIndex(project, agentSummaries);
 
   return result;
 }

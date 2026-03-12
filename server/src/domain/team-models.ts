@@ -1,5 +1,7 @@
+import type { ProviderId } from "@autodev/agent-library";
+
 export interface AgentModelConfig {
-  tool: "codex" | "trae" | "minimax";
+  provider_id: ProviderId;
   model: string;
   effort?: "low" | "medium" | "high";
 }

@@ -18,7 +18,6 @@ import {
 import { MCPConnector } from "./mcp/MCPConnector.js";
 import { SessionStorage } from "./storage/SessionStorage.js";
 import { ContextCompressor } from "./compression/ContextCompressor.js";
-import { SkillLoader } from "./skills/SkillLoader.js";
 import type {
   MiniMaxRunOptions,
   MiniMaxRunResult,
@@ -82,7 +81,6 @@ export class MiniMaxAgent {
   private mcpConnector: MCPConnector | null = null;
   private storage: SessionStorage;
   private compressor: ContextCompressor | null = null;
-  private skillLoader: SkillLoader;
   private sessionDir: string;
 
   constructor(options: MiniMaxAgentOptions) {
@@ -95,8 +93,6 @@ export class MiniMaxAgent {
     logger.info(`[MiniMaxAgent] workspaceDir: ${this.config.workspaceDir}`);
 
     this.storage = new SessionStorage(this.config.workspaceDir, options.storageConfig, this.sessionDir);
-
-    this.skillLoader = new SkillLoader();
   }
 
   private generateSessionId(): string {
@@ -198,7 +194,7 @@ export class MiniMaxAgent {
       }
     }
 
-    const systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    const systemPrompt = this.config.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT;
 
     let mcpToolDescriptions = "";
     if (this.mcpConnector) {

@@ -332,10 +332,15 @@ async function resolveTargetSession(
   toRole: string,
   explicitToSessionId?: string
 ): Promise<string> {
-  const configuredTool = project.agentModelConfigs?.[toRole]?.tool;
-  if (configuredTool && configuredTool !== "codex" && configuredTool !== "trae" && configuredTool !== "minimax") {
+  const configuredProviderId = project.agentModelConfigs?.[toRole]?.provider_id;
+  if (
+    configuredProviderId &&
+    configuredProviderId !== "codex" &&
+    configuredProviderId !== "trae" &&
+    configuredProviderId !== "minimax"
+  ) {
     throw new TaskActionError(
-      `SESSION_PROVIDER_NOT_SUPPORTED: role '${toRole}' is configured with unsupported tool '${configuredTool}'`,
+      `SESSION_PROVIDER_NOT_SUPPORTED: role '${toRole}' is configured with unsupported provider '${configuredProviderId}'`,
       "TASK_BINDING_MISMATCH",
       409
     );
@@ -367,13 +372,13 @@ async function resolveTargetSession(
   if (isReservedTargetSessionId(sessionId)) {
     throw new TaskActionError("resolved target session is reserved", "TASK_BINDING_MISMATCH");
   }
-  const toRoleAgentTool = project.agentModelConfigs?.[toRole]?.tool ?? "codex";
+  const toRoleProviderId = project.agentModelConfigs?.[toRole]?.provider_id ?? "minimax";
   await addSession(paths, project.projectId, {
     sessionId,
     role: toRole,
     status: "idle",
     providerSessionId: undefined,
-    provider: toRoleAgentTool as "codex" | "trae" | "minimax"
+    provider: toRoleProviderId
   });
   const mappingError = validateRoleSessionMapWrite(toRole, sessionId);
   if (!mappingError) {

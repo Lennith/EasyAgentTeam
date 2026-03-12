@@ -1,0 +1,48 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "provider-runtime.schema.json",
+  "title": "Provider Runtime Request",
+  "type": "object",
+  "required": ["requestId", "provider", "prompt", "context"],
+  "properties": {
+    "requestId": { "type": "string", "minLength": 1 },
+    "provider": {
+      "type": "object",
+      "required": ["providerId", "model"],
+      "properties": {
+        "providerId": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "effort": { "type": "string", "enum": ["low", "medium", "high"] }
+      },
+      "additionalProperties": false
+    },
+    "prompt": { "type": "string" },
+    "context": {
+      "type": "object",
+      "required": ["contextId", "sessionId", "role", "parts"],
+      "properties": {
+        "contextId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "role": { "type": "string" },
+        "parts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string", "enum": ["text", "image", "audio", "file"] },
+              "text": { "type": "string" },
+              "mimeType": { "type": "string" },
+              "uri": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "maxSteps": { "type": "number" },
+    "tokenLimit": { "type": "number" }
+  },
+  "additionalProperties": false
+}

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import type { ProviderId } from "@autodev/agent-library";
 import type { ProjectPaths, ProjectRecord, ProjectSummary } from "../domain/models.js";
 import { ensureDirectory, ensureFile, readJsonFile, writeJsonFile } from "./file-utils.js";
 import { DISCUSS_HARD_MAX_ROUNDS } from "../services/discuss-policy-service.js";
@@ -39,7 +40,10 @@ interface ProjectOverview extends ProjectSummary {
   routeTable?: Record<string, string[]>;
   taskAssignRouteTable?: Record<string, string[]>;
   routeDiscussRounds?: Record<string, Record<string, number>>;
-  agentModelConfigs?: Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>;
+  agentModelConfigs?: Record<
+    string,
+    { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }
+  >;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
   holdEnabled?: boolean;
@@ -143,15 +147,15 @@ function normalizeRouteDiscussRounds(
 }
 
 function normalizeAgentModelConfigs(
-  raw?: Record<string, { tool: string; model: string; effort?: string }>,
+  raw?: Record<string, { provider_id: string; model: string; effort?: string }>,
   allowedAgents?: string[]
-): Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }> | undefined {
+): Record<string, { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }> | undefined {
   if (!raw || typeof raw !== "object") {
     return undefined;
   }
 
   const allowed = new Set((allowedAgents ?? []).map((item) => normalizeAgentId(item)));
-  const next: Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }> = {};
+  const next: Record<string, { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }> = {};
   
   for (const [agentId, config] of Object.entries(raw)) {
     const normalizedAgentId = normalizeAgentId(agentId);
@@ -164,7 +168,8 @@ function normalizeAgentModelConfigs(
     if (!config || typeof config !== "object") {
       continue;
     }
-    const tool = config.tool === "trae" ? "trae" : config.tool === "minimax" ? "minimax" : "codex";
+    const providerId =
+      config.provider_id === "trae" ? "trae" : config.provider_id === "minimax" ? "minimax" : "codex";
     const model = typeof config.model === "string" ? config.model.trim() : "";
     const effortRaw = typeof config.effort === "string" ? config.effort.trim().toLowerCase() : "";
     const effort = effortRaw === "low" || effortRaw === "medium" || effortRaw === "high"
@@ -172,7 +177,7 @@ function normalizeAgentModelConfigs(
       : undefined;
     
     next[normalizedAgentId] = {
-      tool,
+      provider_id: providerId,
       model,
       effort
     };
@@ -627,7 +632,7 @@ export async function updateProjectRouting(
     agentIds: string[];
     routeTable: Record<string, string[]>;
     routeDiscussRounds?: Record<string, Record<string, number>>;
-    agentModelConfigs?: Record<string, { tool: string; model: string; effort?: string }>;
+    agentModelConfigs?: Record<string, { provider_id: string; model: string; effort?: string }>;
   }
 ): Promise<ProjectRecord> {
   const project = await getProject(dataRoot, projectId);

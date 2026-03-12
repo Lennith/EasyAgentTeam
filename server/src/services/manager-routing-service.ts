@@ -63,13 +63,13 @@ async function getOrCreateSession(
 
   const safeRole = role.replace(/[^a-zA-Z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
   const newSessionId = `session-${safeRole}-${randomUUID().slice(0, 12)}`;
-  const roleAgentTool = project.agentModelConfigs?.[role]?.tool ?? "codex";
+  const roleProviderId = project.agentModelConfigs?.[role]?.provider_id ?? "minimax";
   await addSession(paths, projectId, {
     sessionId: newSessionId,
     role,
     status: "idle",
     providerSessionId: undefined,
-    provider: roleAgentTool as "codex" | "trae" | "minimax"
+    provider: roleProviderId
   });
   return { sessionId: newSessionId, sessionExisted: false };
 }
@@ -103,12 +103,12 @@ export async function deliverManagerMessage(
     });
   } else {
     const fallbackRole = role || "unknown";
-    const fallbackProvider = input.project.agentModelConfigs?.[fallbackRole]?.tool ?? "codex";
+    const fallbackProvider = input.project.agentModelConfigs?.[fallbackRole]?.provider_id ?? "minimax";
     await addSession(input.paths, input.project.projectId, {
       sessionId: targetSessionId,
       role: fallbackRole,
       status: "idle",
-      provider: fallbackProvider as "codex" | "trae" | "minimax",
+      provider: fallbackProvider,
       ...(currentTaskIdForAdd !== undefined ? { currentTaskId: currentTaskIdForAdd } : {})
     });
   }

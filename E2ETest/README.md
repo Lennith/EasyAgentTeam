@@ -28,6 +28,8 @@ Default scenario files:
   Runs the discuss-heavy multi-architect convergence case.
 - `E2ETest/scripts/run-workflow-e2e.ps1`
   Runs workflow-mode lifecycle regression (template -> run -> start -> stop), based on the discuss scenario structure.
+- `E2ETest/scripts/run-skill-import-e2e.ps1`
+  Runs skill import E2E (local skill path import -> skill list -> agent reference -> workflow dispatch evidence).
 - `E2ETest/scripts/run-multi-e2e.ps1`
   Runs multiple projects concurrently (default: chain + discuss + workflow), then runs reminder regression.
 - `E2ETest/scripts/run-reminder-e2e.ps1`
@@ -100,6 +102,14 @@ Run workflow-only setup smoke (no runtime start):
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 `
   -WorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace" `
   -SetupOnly
+```
+
+Run skill import E2E (default opencode path):
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-skill-import-e2e.ps1 `
+  -WorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestSkillImport" `
+  -SkillSourcePath "C:\Users\spiri\.config\opencode\skills\minimax-vision"
 ```
 
 ## Output

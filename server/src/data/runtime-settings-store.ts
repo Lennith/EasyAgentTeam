@@ -39,8 +39,8 @@ interface PatchRuntimeSettingsInput {
   codexCliCommand?: string;
   traeCliCommand?: string;
   theme?: "dark" | "vibrant" | "lively";
-  minimaxApiKey?: string;
-  minimaxApiBase?: string;
+  minimaxApiKey?: string | null;
+  minimaxApiBase?: string | null;
   minimaxModel?: string;
   minimaxSessionDir?: string;
   minimaxMcpServers?: MCPServerConfig[];
@@ -95,13 +95,32 @@ function defaultRuntimeSettings(): RuntimeSettings {
     traeCliCommand: defaultTraeCliCommand(),
     theme: "dark",
     minimaxApiKey: undefined,
-    minimaxApiBase: "https://api.minimax.io",
+    minimaxApiBase: undefined,
     minimaxModel: "MiniMax-M2.5",
     minimaxSessionDir: undefined,
     minimaxMcpServers: [],
     minimaxMaxSteps: 100,
     minimaxTokenLimit: 80000
   };
+}
+
+function hasOwnField<T extends object>(obj: T, key: keyof T): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function resolveOptionalStringPatch<T extends object>(
+  patch: T,
+  key: keyof T,
+  current: string | undefined
+): string | undefined {
+  if (!hasOwnField(patch, key)) {
+    return current;
+  }
+  const raw = (patch as Record<string, unknown>)[String(key)];
+  if (raw === null) {
+    return undefined;
+  }
+  return normalizeOptionalString(raw);
 }
 
 function normalizeCodexCliCommand(raw: unknown, fallback: string): string {
@@ -165,7 +184,7 @@ export async function getRuntimeSettings(dataRoot: string): Promise<RuntimeSetti
     codexCliCommand: normalizeCodexCliCommand(state.codexCliCommand, fallback.codexCliCommand),
     traeCliCommand: normalizeTraeCliCommand(state.traeCliCommand, fallback.traeCliCommand),
     minimaxApiKey: normalizeOptionalString(state.minimaxApiKey),
-    minimaxApiBase: normalizeOptionalString(state.minimaxApiBase) ?? fallback.minimaxApiBase,
+    minimaxApiBase: normalizeOptionalString(state.minimaxApiBase),
     minimaxModel: normalizeOptionalString(state.minimaxModel) ?? fallback.minimaxModel,
     minimaxSessionDir: normalizeOptionalString(state.minimaxSessionDir),
     minimaxMcpServers: normalizeMcpServers(state.minimaxMcpServers) ?? fallback.minimaxMcpServers,
@@ -195,8 +214,8 @@ export async function patchRuntimeSettings(
       current.traeCliCommand
     ),
     theme: normalizeTheme(patch.theme ?? current.theme) ?? "dark",
-    minimaxApiKey: normalizeOptionalString(patch.minimaxApiKey ?? current.minimaxApiKey),
-    minimaxApiBase: normalizeOptionalString(patch.minimaxApiBase ?? current.minimaxApiBase) ?? "https://api.minimax.io",
+    minimaxApiKey: resolveOptionalStringPatch(patch, "minimaxApiKey", current.minimaxApiKey),
+    minimaxApiBase: resolveOptionalStringPatch(patch, "minimaxApiBase", current.minimaxApiBase),
     minimaxModel: normalizeOptionalString(patch.minimaxModel ?? current.minimaxModel) ?? "MiniMax-M2.5",
     minimaxSessionDir: normalizeOptionalString(patch.minimaxSessionDir ?? current.minimaxSessionDir),
     minimaxMcpServers: normalizeMcpServers(patch.minimaxMcpServers ?? current.minimaxMcpServers) ?? [],

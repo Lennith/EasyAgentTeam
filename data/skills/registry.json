@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "updatedAt": "2026-03-11T12:39:31.085Z",
+  "skills": [
+    {
+      "schemaVersion": "1.0",
+      "skillId": "minimax-vision",
+      "name": "minimax-vision",
+      "description": "MiniMax vision MCP tool for image analysis. Use this skill when user asks to analyze, describe, or understand images.",
+      "license": "MIT",
+      "compatibility": "opencode",
+      "sourceType": "opencode",
+      "sourcePath": "C:\\Users\\spiri\\.config\\opencode\\skills\\minimax-vision",
+      "packagePath": "packages/minimax-vision",
+      "entryFile": "SKILL.md",
+      "createdAt": "2026-03-11T09:56:54.704Z",
+      "updatedAt": "2026-03-11T12:39:31.085Z"
+    }
+  ]
+}

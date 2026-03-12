@@ -9,7 +9,7 @@
     "D": "e2e_impl_d"
   },
   "agent_model": {
-    "tool": "minimax",
+    "provider_id": "minimax",
     "model": "MiniMax-M2.5",
     "effort": "high"
   },

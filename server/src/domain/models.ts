@@ -1,3 +1,5 @@
+import type { ProviderId } from "@autodev/agent-library";
+
 export type TaskState =
   | "PLANNED"
   | "READY"
@@ -22,10 +24,7 @@ export interface ProjectRecord {
   routeTable?: Record<string, string[]>;
   taskAssignRouteTable?: Record<string, string[]>;
   routeDiscussRounds?: Record<string, Record<string, number>>;
-  agentModelConfigs?: Record<
-    string,
-    { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }
-  >;
+  agentModelConfigs?: Record<string, { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }>;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
   autoReminderEnabled?: boolean;
@@ -110,7 +109,7 @@ export interface SessionRecord {
   sessionId: string;
   projectId: string;
   role: string;
-  provider: "codex" | "trae" | "minimax";
+  provider: ProviderId;
   providerSessionId?: string;
   status: SessionStatus;
   createdAt: string;
@@ -161,9 +160,11 @@ export interface AgentDefinition {
   agentId: string;
   displayName: string;
   prompt: string;
+  summary?: string;
+  skillList?: string[];
   createdAt: string;
   updatedAt: string;
-  defaultCliTool?: "codex" | "trae" | "minimax";
+  defaultCliTool?: ProviderId;
   defaultModelParams?: Record<string, any>;
   modelSelectionEnabled?: boolean;
 }
@@ -172,6 +173,45 @@ export interface AgentRegistryState {
   schemaVersion: "1.0";
   updatedAt: string;
   agents: AgentDefinition[];
+}
+
+export interface SkillDefinition {
+  schemaVersion: "1.0";
+  skillId: string;
+  name: string;
+  description: string;
+  license: string;
+  compatibility: string;
+  sourceType: "opencode" | "codex" | "local";
+  sourcePath: string;
+  packagePath: string;
+  entryFile: string;
+  warnings?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillRegistryState {
+  schemaVersion: "1.0";
+  updatedAt: string;
+  skills: SkillDefinition[];
+}
+
+export interface SkillListDefinition {
+  schemaVersion: "1.0";
+  listId: string;
+  displayName: string;
+  description?: string;
+  includeAll: boolean;
+  skillIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillListRegistryState {
+  schemaVersion: "1.0";
+  updatedAt: string;
+  lists: SkillListDefinition[];
 }
 
 export interface AgentTemplateDefinition {
@@ -303,6 +343,47 @@ export interface Envelope {
 export interface ManagerToAgentMessage {
   envelope: Envelope;
   body: Record<string, unknown>;
+}
+
+export interface ReminderTaskPayload {
+  task_id: string;
+  state?: string | null;
+  task_kind?: string | null;
+  parent_task_id?: string | null;
+  root_task_id?: string | null;
+  owner_role?: string | null;
+  owner_session?: string | null;
+  priority?: number | null;
+  write_set?: string[];
+  dependencies?: string[];
+  acceptance?: string[];
+  artifacts?: string[];
+}
+
+export interface ReminderOpenTaskTitleItem {
+  task_id: string;
+  title: string;
+}
+
+export interface ReminderPayload {
+  role: string;
+  reminder_mode: ReminderMode;
+  reminder_count: number;
+  open_task_ids: string[];
+  open_task_titles: ReminderOpenTaskTitleItem[];
+  next_reminder_at: string | null;
+}
+
+export interface ReminderMessageBody {
+  [key: string]: unknown;
+  mode: "CHAT";
+  messageType: "MANAGER_MESSAGE";
+  content: string;
+  taskId: string | null;
+  summary: string;
+  task: ReminderTaskPayload | null;
+  reminder: ReminderPayload;
+  taskHint: string | null;
 }
 
 export type EventSource = "manager" | "agent" | "system" | "dashboard";
@@ -698,7 +779,7 @@ export interface WorkflowSessionRecord {
   sessionId: string;
   runId: string;
   role: string;
-  provider: "codex" | "trae" | "minimax";
+  provider: ProviderId;
   providerSessionId?: string;
   status: WorkflowSessionStatus;
   createdAt: string;

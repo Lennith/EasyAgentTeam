@@ -25,11 +25,9 @@ import {
 } from "../data/project-store.js";
 import { addSession, getSession, listSessions, touchSession } from "../data/session-store.js";
 import { getTaskDependencyGateStatus, listRunnableTasksByRole, listTasks, patchTask } from "../data/taskboard-store.js";
-import { runModelForProject } from "./codex-runner.js";
 import {
   cancelMiniMaxRunner,
   isMiniMaxRunnerActive,
-  startMiniMaxForProject,
   unregisterMiniMaxCompletionCallback,
   unregisterMiniMaxWakeUpCallback,
   type MiniMaxRunResultInternal
@@ -63,6 +61,8 @@ import {
   OrchestratorLoopCore,
   runOrchestratorAdapterTick
 } from "./orchestrator-core.js";
+import { buildReminderMessageBody } from "./reminder-message-builder.js";
+import { createProviderRegistry, resolveSessionProviderId } from "./provider-runtime.js";
 
 type DispatchMode = "manual" | "loop";
 
@@ -71,6 +71,7 @@ const MAY_BE_DONE_CHECK_WINDOW_MS = 60 * 60 * 1000;
 
 const INITIAL_REMINDER_WAIT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_REMINDER_WAIT_MS = 60 * 60 * 1000; // 60 minutes
+const providerRegistry = createProviderRegistry();
 
 /**
  * Calculate next reminder time using exponential backoff
@@ -841,6 +842,7 @@ async function dispatchSessionOnce(
   session: SessionRecord,
   input: DispatchProjectInput,
   rolePromptMap: Map<string, string>,
+  roleSummaryMap: Map<string, string>,
   registeredAgentIds: string[]
 ): Promise<SessionDispatchResult> {
   await cleanupCompletedTaskMessages(paths, project.projectId, session.role);
@@ -1099,7 +1101,7 @@ async function dispatchSessionOnce(
   logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=ensureProjectAgentScripts`);
   await ensureProjectAgentScripts(project);
   logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=ensureAgentWorkspaces`);
-  await ensureAgentWorkspaces(project, rolePromptMap, [session.role]);
+  await ensureAgentWorkspaces(project, rolePromptMap, [session.role], roleSummaryMap);
   logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=ensureRolePromptFile`);
   await ensureRolePromptFile(project, session.role);
 
@@ -1125,14 +1127,11 @@ async function dispatchSessionOnce(
     const routingSnapshot = buildProjectRoutingSnapshot(project, session.role, registeredAgentIds);
     const runtimeSettings = await getRuntimeSettings(dataRoot);
     const modelConfig = project.agentModelConfigs?.[session.role];
-    const cliTool = modelConfig?.tool ?? "codex";
-    if (cliTool !== "codex" && cliTool !== "trae" && cliTool !== "minimax") {
-      throw new Error(`SESSION_PROVIDER_NOT_SUPPORTED: role '${session.role}' configured tool '${cliTool}'`);
-    }
+    const providerId = resolveSessionProviderId(project, session.role, "minimax");
     const modelCommand =
-      cliTool === "minimax"
+      providerId === "minimax"
         ? undefined
-        : cliTool === "trae"
+        : providerId === "trae"
           ? runtimeSettings.traeCliCommand
           : runtimeSettings.codexCliCommand;
     const modelParams: Record<string, string> = {};
@@ -1140,9 +1139,9 @@ async function dispatchSessionOnce(
       modelParams.model = modelConfig.model;
     }
     if (modelConfig?.effort) {
-      if (cliTool === "codex") {
+      if (providerId === "codex") {
         modelParams.config = `model_reasoning_effort="${modelConfig.effort}"`;
-      } else if (cliTool === "trae") {
+      } else if (providerId === "trae") {
         modelParams["reasoning-effort"] = modelConfig.effort;
       }
     }
@@ -1167,32 +1166,24 @@ async function dispatchSessionOnce(
     await fs.writeFile(promptFilePath, prompt, "utf-8");
     logger.info(`[dispatchSessionOnce] saved prompt to: ${promptFilePath}`);
 
-    const runBaseInput = {
-      session_id: session.sessionId,
-      agent_role: session.role,
-      task_id: taskId,
-      active_task_title: activeTaskTitle,
-      active_parent_task_id: activeParentTaskId,
-      active_root_task_id: activeRootTaskId,
-      active_request_id: firstMessage.envelope.correlation.request_id,
-      parent_request_id:
-        firstMessage.envelope.correlation.parent_request_id ?? firstMessage.envelope.correlation.request_id,
-      dispatch_id: dispatchId,
-      cli_tool: cliTool,
-      model_command: modelCommand,
-      model_params: Object.keys(modelParams).length > 0 ? modelParams : undefined,
-      prompt
-    };
     const resumeCandidate =
       session.providerSessionId?.trim() || (!isPendingSessionId(session.sessionId) ? session.sessionId : "");
-    const canAttemptResume = cliTool === "codex" && Boolean(resumeCandidate);
+    const canAttemptResume = providerId === "codex" && Boolean(resumeCandidate);
 
-    let run: Awaited<ReturnType<typeof runModelForProject>> | null = null;
+    let run: {
+      runId: string;
+      finishedAt: string;
+      exitCode: number | null;
+      timedOut: boolean;
+      sessionId?: string;
+    } | null = null;
     let runError: unknown = null;
     let resumedFailedAndReset = false;
 
-    if (cliTool === "minimax") {
-      logger.info(`[dispatchSessionOnce] sessionId=${session.sessionId}, phase=startMiniMaxForProject ASYNC`);
+    if (providerId === "minimax") {
+      logger.info(
+        `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=providerRegistry.launchProjectDispatch ASYNC`
+      );
 
       const launchContext: MiniMaxLauncherContext = {
         dataRoot,
@@ -1214,7 +1205,8 @@ async function dispatchSessionOnce(
       }));
       await addPendingMessagesForRole(paths, project.projectId, session.role, pendingMessages);
 
-      const startResult = startMiniMaxForProject(
+      const launchResult = await providerRegistry.launchProjectDispatch(
+        providerId,
         project,
         paths,
         {
@@ -1226,9 +1218,10 @@ async function dispatchSessionOnce(
           activeParentTaskId,
           activeRootTaskId,
           activeRequestId: firstMessage.envelope.correlation.request_id,
+          parentRequestId:
+            firstMessage.envelope.correlation.parent_request_id ?? firstMessage.envelope.correlation.request_id,
           agentRole: session.role,
-          cliTool: "minimax",
-          model: modelConfig?.model,
+          modelCommand,
           modelParams
         },
         runtimeSettings,
@@ -1277,10 +1270,13 @@ async function dispatchSessionOnce(
           }
         }
       );
-      launchContext.runId = startResult.runId;
+      if (launchResult.mode !== "async") {
+        throw new Error(`provider '${providerId}' expected async launch mode for project dispatch`);
+      }
+      launchContext.runId = launchResult.runId;
 
       logger.info(
-        `[dispatchSessionOnce] sessionId=${session.sessionId}, MiniMax started async, runId=${startResult.runId}`
+        `[dispatchSessionOnce] sessionId=${session.sessionId}, MiniMax started async, runId=${launchResult.runId}`
       );
 
       return {
@@ -1290,7 +1286,7 @@ async function dispatchSessionOnce(
         dispatchKind,
         messageId: firstMessage.envelope.message_id,
         requestId: firstMessage.envelope.correlation.request_id,
-        runId: startResult.runId,
+        runId: launchResult.runId,
         exitCode: null,
         timedOut: false,
         taskId
@@ -1305,28 +1301,45 @@ async function dispatchSessionOnce(
       taskId,
       messageId: dispatchKind === "message" ? firstMessage.envelope.message_id : undefined,
       dispatchId,
-      provider: cliTool
+      provider: providerId
     });
 
     logger.info(
-      `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject START, cliTool=${cliTool}`
+      `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=providerRegistry.launchProjectDispatch START, provider=${providerId}`
     );
     try {
-      run = await runModelForProject(
+      const launchResult = await providerRegistry.launchProjectDispatch(
+        providerId,
         project,
         paths,
         {
-          ...runBaseInput,
-          resume_session_id: resumeCandidate
+          sessionId: session.sessionId,
+          prompt,
+          dispatchId,
+          taskId,
+          activeTaskTitle,
+          activeParentTaskId,
+          activeRootTaskId,
+          activeRequestId: firstMessage.envelope.correlation.request_id,
+          parentRequestId:
+            firstMessage.envelope.correlation.parent_request_id ?? firstMessage.envelope.correlation.request_id,
+          agentRole: session.role,
+          modelCommand,
+          modelParams,
+          resumeSessionId: resumeCandidate
         },
         runtimeSettings
       );
+      if (launchResult.mode !== "sync") {
+        throw new Error(`provider '${providerId}' returned async launch mode for sync project dispatch`);
+      }
+      run = launchResult.result;
       logger.info(
-        `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject END, runId=${run?.runId}, exitCode=${run?.exitCode}`
+        `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=providerRegistry.launchProjectDispatch END, runId=${run?.runId}, exitCode=${run?.exitCode}`
       );
     } catch (error) {
       logger.info(
-        `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=runModelForProject ERROR: ${error instanceof Error ? error.message : String(error)}`
+        `[dispatchSessionOnce] sessionId=${session.sessionId}, phase=providerRegistry.launchProjectDispatch ERROR: ${error instanceof Error ? error.message : String(error)}`
       );
       runError = error;
     }
@@ -1368,7 +1381,31 @@ async function dispatchSessionOnce(
       });
 
       try {
-        run = await runModelForProject(project, paths, runBaseInput, runtimeSettings);
+        const launchResult = await providerRegistry.launchProjectDispatch(
+          providerId,
+          project,
+          paths,
+          {
+            sessionId: session.sessionId,
+            prompt,
+            dispatchId,
+            taskId,
+            activeTaskTitle,
+            activeParentTaskId,
+            activeRootTaskId,
+            activeRequestId: firstMessage.envelope.correlation.request_id,
+            parentRequestId:
+              firstMessage.envelope.correlation.parent_request_id ?? firstMessage.envelope.correlation.request_id,
+            agentRole: session.role,
+            modelCommand,
+            modelParams
+          },
+          runtimeSettings
+        );
+        if (launchResult.mode !== "sync") {
+          throw new Error(`provider '${providerId}' returned async launch mode for sync project dispatch`);
+        }
+        run = launchResult.result;
         if (run) {
           latestRunId = run.runId;
         }
@@ -1428,7 +1465,7 @@ async function dispatchSessionOnce(
         runId: run.runId,
         dispatchId,
         providerSessionId: nextProviderSessionId ?? null,
-        provider: cliTool
+        provider: providerId
       });
       if (timeoutResult.escalated) {
         dispatchFailedReason = "runner timeout escalated";
@@ -1444,7 +1481,7 @@ async function dispatchSessionOnce(
         runId: run.runId,
         dispatchId,
         providerSessionId: nextProviderSessionId ?? null,
-        provider: cliTool
+        provider: providerId
       });
     } else {
       const runErrorMessage =
@@ -1460,7 +1497,7 @@ async function dispatchSessionOnce(
         runId: run.runId,
         dispatchId,
         providerSessionId: nextProviderSessionId ?? null,
-        provider: cliTool,
+        provider: providerId,
         error: dispatchFailedReason
       });
     }
@@ -1538,7 +1575,7 @@ async function dispatchSessionOnce(
       messageId: dispatchKind === "message" ? firstMessage.envelope.message_id : undefined,
       runId: latestRunId,
       dispatchId,
-      provider: session.provider ?? "codex",
+      provider: session.provider ?? "minimax",
       error: reason
     });
     await appendEvent(paths, {
@@ -1869,6 +1906,7 @@ export class OrchestratorService {
     session: SessionRecord,
     input: DispatchProjectInput,
     rolePromptMap: Map<string, string>,
+    roleSummaryMap: Map<string, string>,
     registeredAgentIds: string[]
   ): Promise<SessionDispatchResult> {
     const key = this.buildSessionDispatchKey(project.projectId, session.sessionId);
@@ -1895,6 +1933,7 @@ export class OrchestratorService {
         session,
         input,
         rolePromptMap,
+        roleSummaryMap,
         registeredAgentIds
       );
     } finally {
@@ -1996,6 +2035,7 @@ export class OrchestratorService {
       : listSessions(paths, project.projectId));
     const agentList = await listAgents(this.options.dataRoot);
     const rolePromptMap = new Map(agentList.map((item) => [item.agentId, item.prompt]));
+    const roleSummaryMap = new Map(agentList.map((item) => [item.agentId, item.summary ?? ""]));
     const registeredAgentIds = agentList.map((item) => item.agentId);
     if (input.sessionId && selected.length === 0) {
       return {
@@ -2061,13 +2101,13 @@ export class OrchestratorService {
           input.sessionId = activeOwnerSession.sessionId;
         } else {
           const newSessionId = buildPendingSessionId(targetTask.ownerRole);
-          const ownerAgentTool = project.agentModelConfigs?.[targetTask.ownerRole]?.tool ?? "codex";
+          const ownerProviderId = project.agentModelConfigs?.[targetTask.ownerRole]?.provider_id ?? "minimax";
           const created = await addSession(paths, project.projectId, {
             sessionId: newSessionId,
             role: targetTask.ownerRole,
             status: "idle",
             providerSessionId: undefined,
-            provider: ownerAgentTool as "codex" | "trae" | "minimax"
+            provider: ownerProviderId
           });
           await patchTask(paths, project.projectId, targetTask.taskId, {
             ownerSession: created.session.sessionId
@@ -2263,6 +2303,7 @@ export class OrchestratorService {
           taskId: input.taskId
         },
         rolePromptMap,
+        roleSummaryMap,
         registeredAgentIds
       );
       results.push(row);
@@ -2342,7 +2383,7 @@ export class OrchestratorService {
         taskId: session.currentTaskId ?? openDispatch?.event.taskId,
         runId: openRun?.runId ?? openRunId,
         dispatchId: openDispatch?.dispatchId ?? openDispatchId,
-        provider: session.provider ?? "codex"
+        provider: session.provider ?? "minimax"
       });
 
       if (openDispatch) {
@@ -2657,11 +2698,8 @@ export class OrchestratorService {
 
       const reminderRequestId = randomUUID();
       const reminderMessageId = randomUUID();
-      const primaryTaskId = roleOpenTasks[0]?.taskId;
-      const openTaskTitleItems = roleOpenTasks.map((task) => ({
-        task_id: task.taskId,
-        title: task.title
-      }));
+      const primaryTask = roleOpenTasks[0] ?? null;
+      const primaryTaskId = primaryTask?.taskId ?? null;
       const openTaskTitlePreview = roleOpenTasks
         .slice(0, 3)
         .map((task) => `${task.taskId}: ${task.title}`)
@@ -2680,7 +2718,8 @@ export class OrchestratorService {
           intent: "SYSTEM_NOTICE",
           priority: "normal",
           correlation: {
-            request_id: reminderRequestId
+            request_id: reminderRequestId,
+            task_id: primaryTaskId ?? undefined
           },
           accountability: {
             owner_role: role,
@@ -2689,23 +2728,39 @@ export class OrchestratorService {
           },
           dispatch_policy: "fixed_session"
         },
-        body: {
-          mode: "CHAT",
-          messageType: "MANAGER_MESSAGE",
+        body: buildReminderMessageBody({
+          role,
+          reminderMode,
+          reminderCount: reminderState.reminderCount,
+          nextReminderAt: reminderState.nextReminderAt ?? null,
+          openTasks: roleOpenTasks.map((task) => ({
+            taskId: task.taskId,
+            title: task.title
+          })),
           content:
             `Reminder: you have ${roleOpenTasks.length} open task(s) without recent progress. ` +
             (openTaskTitlePreview.length > 0 ? `Open tasks: ${openTaskTitlePreview}. ` : "") +
             `Please update progress and submit TASK_REPORT with results[].outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED for current work.`,
-          reminder: {
-            role,
-            reminder_mode: reminderMode,
-            reminder_count: reminderState.reminderCount,
-            open_task_ids: roleOpenTasks.map((task) => task.taskId),
-            open_task_titles: openTaskTitleItems,
-            next_reminder_at: reminderState.nextReminderAt ?? null
-          },
-          taskHint: primaryTaskId ?? null
-        }
+          primaryTaskId,
+          primarySummary: primaryTask?.lastSummary ?? "",
+          primaryTask:
+            primaryTask === null
+              ? null
+              : {
+                  task_id: primaryTask.taskId,
+                  task_kind: primaryTask.taskKind,
+                  parent_task_id: primaryTask.parentTaskId,
+                  root_task_id: primaryTask.rootTaskId,
+                  state: primaryTask.state,
+                  owner_role: primaryTask.ownerRole,
+                  owner_session: primaryTask.ownerSession ?? null,
+                  priority: primaryTask.priority ?? 0,
+                  write_set: primaryTask.writeSet,
+                  dependencies: primaryTask.dependencies,
+                  acceptance: primaryTask.acceptance,
+                  artifacts: primaryTask.artifacts
+                }
+        })
       };
 
       await appendInboxMessage(paths, role, reminderMessage);
@@ -2723,7 +2778,10 @@ export class OrchestratorService {
           reminderCount: reminderState.reminderCount,
           nextReminderAt: reminderState.nextReminderAt ?? null,
           openTaskIds: roleOpenTasks.map((task) => task.taskId),
-          openTaskTitles: openTaskTitleItems
+          openTaskTitles: roleOpenTasks.map((task) => ({
+            task_id: task.taskId,
+            title: task.title
+          }))
         }
       });
 

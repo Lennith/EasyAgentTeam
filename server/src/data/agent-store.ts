@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { ProviderId } from "@autodev/agent-library";
 import type { AgentDefinition, AgentRegistryState } from "../domain/models.js";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "./file-utils.js";
 
@@ -50,11 +51,13 @@ export async function listAgents(dataRoot: string): Promise<AgentDefinition[]> {
 
 export async function createAgent(
   dataRoot: string,
-  input: { 
-    agentId: string; 
-    displayName?: string; 
+  input: {
+    agentId: string;
+    displayName?: string;
     prompt: string;
-    defaultCliTool?: "codex" | "trae" | "minimax";
+    summary?: string;
+    skillList?: string[];
+    defaultCliTool?: ProviderId;
     defaultModelParams?: Record<string, any>;
     modelSelectionEnabled?: boolean;
   }
@@ -74,6 +77,11 @@ export async function createAgent(
     agentId,
     displayName: input.displayName?.trim() || agentId,
     prompt: input.prompt.trim(),
+    summary: input.summary?.trim() || undefined,
+    skillList:
+      input.skillList
+        ?.map((item) => item.trim())
+        .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index) ?? [],
     createdAt: now,
     updatedAt: now,
     defaultCliTool: input.defaultCliTool,
@@ -90,10 +98,12 @@ export async function createAgent(
 export async function patchAgent(
   dataRoot: string,
   agentIdRaw: string,
-  patch: { 
-    displayName?: string; 
+  patch: {
+    displayName?: string;
     prompt?: string;
-    defaultCliTool?: "codex" | "trae" | "minimax";
+    summary?: string | null;
+    skillList?: string[];
+    defaultCliTool?: ProviderId;
     defaultModelParams?: Record<string, any>;
     modelSelectionEnabled?: boolean;
   }
@@ -108,10 +118,19 @@ export async function patchAgent(
     throw new AgentStoreError("prompt is required", "INVALID_PROMPT");
   }
   const existing = state.agents[idx];
+  const normalizedSkillList =
+    patch.skillList === undefined
+      ? existing.skillList
+      : patch.skillList
+          .map((item) => item.trim())
+          .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
   const next: AgentDefinition = {
     ...existing,
     displayName: patch.displayName?.trim() || existing.displayName,
     prompt: patch.prompt !== undefined ? patch.prompt.trim() : existing.prompt,
+    summary:
+      patch.summary === undefined ? existing.summary : patch.summary === null ? undefined : patch.summary.trim() || undefined,
+    skillList: normalizedSkillList,
     defaultCliTool: patch.defaultCliTool ?? existing.defaultCliTool,
     defaultModelParams: patch.defaultModelParams ?? existing.defaultModelParams,
     modelSelectionEnabled: patch.modelSelectionEnabled ?? existing.modelSelectionEnabled,

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0",
+  "updatedAt": "2026-03-11T12:39:31.136Z",
+  "lists": [
+    {
+      "schemaVersion": "1.0",
+      "listId": "e2e_skill_list",
+      "displayName": "E2E Skill List",
+      "description": "Skill import e2e list",
+      "includeAll": false,
+      "skillIds": [
+        "minimax-vision"
+      ],
+      "createdAt": "2026-03-11T09:56:54.726Z",
+      "updatedAt": "2026-03-11T12:39:31.136Z"
+    }
+  ]
+}

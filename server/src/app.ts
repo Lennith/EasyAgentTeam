@@ -1,5 +1,6 @@
 import express from "express";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { appendEvent, eventsToNdjson, listEvents } from "./data/event-store.js";
 import { logger } from "./utils/logger.js";
@@ -44,6 +45,19 @@ import { listInboxMessages } from "./data/inbox-store.js";
 import { getRuntimeSettings, patchRuntimeSettings } from "./data/runtime-settings-store.js";
 import { createAgent, deleteAgent, listAgents, patchAgent, AgentStoreError } from "./data/agent-store.js";
 import {
+  createSkillList,
+  deleteSkill,
+  deleteSkillList,
+  importSkills,
+  listSkillLists,
+  listSkills,
+  patchSkillList,
+  resolveImportedSkillPromptSegments,
+  resolveSkillIdsForAgent,
+  SkillStoreError,
+  validateSkillListIds
+} from "./data/skill-store.js";
+import {
   AgentTemplateStoreError,
   createCustomAgentTemplate,
   deleteCustomAgentTemplate,
@@ -52,7 +66,12 @@ import {
 } from "./data/agent-template-store.js";
 import { createTeam, deleteTeam, getTeam, listTeams, updateTeam } from "./data/team-store.js";
 import { addSession, getSession, listSessions, SessionStoreError, touchSession } from "./data/session-store.js";
-import { listWorkflowRunEvents, touchWorkflowSession, upsertWorkflowSession } from "./data/workflow-run-store.js";
+import {
+  getWorkflowSession,
+  listWorkflowRunEvents,
+  touchWorkflowSession,
+  upsertWorkflowSession
+} from "./data/workflow-run-store.js";
 import { BASE_PROMPT_TEXT, BASE_PROMPT_VERSION, getBuiltInAgents } from "./services/agent-prompt-service.js";
 import { createOrchestratorService } from "./services/orchestrator-service.js";
 import { applyProjectTemplate } from "./services/project-template-service.js";
@@ -70,13 +89,10 @@ import { buildTaskTreeResponse } from "./services/task-tree-query-service.js";
 import { buildTaskDetailResponse } from "./services/task-detail-query-service.js";
 import { buildWorkflowAgentIOTimeline } from "./services/workflow-agent-io-timeline-service.js";
 import { buildWorkflowTaskDetail, buildWorkflowTaskTreeResponse } from "./services/workflow-task-query-service.js";
-import { createMiniMaxAgent } from "./minimax/index.js";
-import { cancelMiniMaxRunner } from "./services/minimax-runner.js";
 import { createWorkflowOrchestratorService, WorkflowRuntimeError } from "./services/workflow-orchestrator-service.js";
-import {
-  buildWorkflowTeamToolContext,
-  createWorkflowMiniMaxTeamToolBridge
-} from "./services/workflow-minimax-teamtool-bridge.js";
+import { createProviderRegistry, resolveSessionProviderId } from "./services/provider-runtime.js";
+import { createWorkflowToolExecutionAdapter, DefaultToolInjector } from "./services/tool-injector.js";
+import type { ProviderId } from "@autodev/agent-library";
 
 export interface AppOptions {
   dataRoot?: string;
@@ -100,6 +116,24 @@ function readStringField(body: Record<string, unknown>, keys: string[], fallback
     }
   }
   return fallback;
+}
+
+function readNullableStringPatch(body: Record<string, unknown>, keys: string[]): string | null | undefined {
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) {
+      continue;
+    }
+    const value = body[key];
+    if (value === null) {
+      return null;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+    return undefined;
+  }
+  return undefined;
 }
 
 function parseInteger(raw: unknown): number | undefined {
@@ -159,6 +193,52 @@ function readStringMap(raw: unknown): Record<string, string> | undefined {
     return undefined;
   }
   return Object.fromEntries(entries);
+}
+
+function normalizeProviderId(raw: unknown, fallback: ProviderId = "minimax"): ProviderId {
+  if (typeof raw !== "string") {
+    return fallback;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "codex" || normalized === "trae" || normalized === "minimax") {
+    return normalized;
+  }
+  return fallback;
+}
+
+function readProviderIdField(body: Record<string, unknown>, key: string, fallback: ProviderId = "minimax"): ProviderId {
+  const value = body[key];
+  if (typeof value === "string" && value.trim().length > 0) {
+    return normalizeProviderId(value, fallback);
+  }
+  return fallback;
+}
+
+function readAgentModelConfigsField(
+  raw: unknown
+): Record<string, { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }> | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const output: Record<string, { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }> = {};
+  for (const [role, configRaw] of Object.entries(raw as Record<string, unknown>)) {
+    if (!configRaw || typeof configRaw !== "object") {
+      continue;
+    }
+    const config = configRaw as Record<string, unknown>;
+    const model = readStringField(config, ["model"]);
+    if (!model) {
+      continue;
+    }
+    const effortRaw = readStringField(config, ["effort"]);
+    const effort = effortRaw === "low" || effortRaw === "medium" || effortRaw === "high" ? effortRaw : undefined;
+    output[role] = {
+      provider_id: readProviderIdField(config, "provider_id", "minimax"),
+      model,
+      ...(effort ? { effort } : {})
+    };
+  }
+  return Object.keys(output).length > 0 ? output : undefined;
 }
 
 function readRouteTable(raw: unknown): Record<string, string[]> | undefined {
@@ -352,6 +432,34 @@ function applyTemplateVariables(text: string, variables: Record<string, string>)
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_all, key: string) => variables[key] ?? "");
 }
 
+async function ensureWorkflowTeamIndexFile(
+  workspacePath: string,
+  roles: string[],
+  roleSummaryMap: Map<string, string>
+): Promise<void> {
+  const normalizedRoles = Array.from(new Set(roles.map((item) => item.trim()).filter((item) => item.length > 0))).sort(
+    (a, b) => a.localeCompare(b)
+  );
+  const agentsRoot = path.join(workspacePath, "Agents");
+  await fs.mkdir(agentsRoot, { recursive: true });
+  const lines = [
+    "# Team Members",
+    "",
+    "This file lists all team members in this workflow run.",
+    "",
+    "## Active Agents",
+    ...normalizedRoles.map((role) => {
+      const summary = roleSummaryMap.get(role)?.trim();
+      return summary ? `- [${role}](./${role}/) - ${summary}` : `- [${role}](./${role}/)`;
+    }),
+    "",
+    "## Notes",
+    "- Agent registration fields are managed in Agent module.",
+    "- This document is read-only projection for workflow collaboration."
+  ];
+  await fs.writeFile(path.join(agentsRoot, "TEAM.md"), `${lines.join("\n")}\n`, "utf8");
+}
+
 function buildSessionId(role: string): string {
   const safeRole = role.replace(/[^a-zA-Z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
   return `session-${safeRole}-${randomUUID().slice(0, 12)}`;
@@ -433,6 +541,7 @@ export function createApp(options: AppOptions = {}) {
   const dataRoot = resolveDataRoot(options.dataRoot);
   const orchestrator = createOrchestratorService(dataRoot);
   const workflowOrchestrator = createWorkflowOrchestratorService(dataRoot);
+  const providerRegistry = createProviderRegistry();
   orchestrator.start();
   workflowOrchestrator.start();
 
@@ -670,6 +779,10 @@ export function createApp(options: AppOptions = {}) {
         holdEnabled: parseBoolean(body.hold_enabled ?? body.holdEnabled, false),
         reminderMode: parseReminderMode(body.reminder_mode ?? body.reminderMode) ?? "backoff"
       });
+      const agents = await listAgents(dataRoot);
+      const roleSummaryMap = new Map(agents.map((item) => [item.agentId, item.summary ?? ""]));
+      const runRoles = created.tasks.map((task) => task.ownerRole);
+      await ensureWorkflowTeamIndexFile(created.workspacePath, runRoles, roleSummaryMap);
       const autoStart = parseBoolean(body.auto_start ?? body.autoStart, false);
       if (!autoStart) {
         res.status(201).json(created);
@@ -870,7 +983,7 @@ export function createApp(options: AppOptions = {}) {
         sessionId: readStringField(body, ["session_id", "sessionId"]),
         status: readStringField(body, ["status"]),
         providerSessionId: readStringField(body, ["provider_session_id", "providerSessionId"]),
-        provider: readStringField(body, ["provider"]) as "codex" | "trae" | "minimax" | undefined
+        provider: body.provider_id !== undefined ? readProviderIdField(body, "provider_id", "minimax") : undefined
       });
       res
         .status(result.created ? 201 : 200)
@@ -1025,12 +1138,14 @@ export function createApp(options: AppOptions = {}) {
       const body = req.body as Record<string, unknown>;
       const themeRaw = readStringField(body, ["theme"]);
       const theme = themeRaw === "dark" || themeRaw === "vibrant" || themeRaw === "lively" ? themeRaw : undefined;
+      const minimaxApiKeyPatch = readNullableStringPatch(body, ["minimax_api_key", "minimaxApiKey"]);
+      const minimaxApiBasePatch = readNullableStringPatch(body, ["minimax_api_base", "minimaxApiBase"]);
       const updated = await patchRuntimeSettings(dataRoot, {
         codexCliCommand: readStringField(body, ["codex_cli_command", "codexCliCommand"]),
         traeCliCommand: readStringField(body, ["trae_cli_command", "traeCliCommand"]),
         theme,
-        minimaxApiKey: readStringField(body, ["minimax_api_key", "minimaxApiKey"]),
-        minimaxApiBase: readStringField(body, ["minimax_api_base", "minimaxApiBase"]),
+        ...(minimaxApiKeyPatch !== undefined ? { minimaxApiKey: minimaxApiKeyPatch } : {}),
+        ...(minimaxApiBasePatch !== undefined ? { minimaxApiBase: minimaxApiBasePatch } : {}),
         minimaxModel: readStringField(body, ["minimax_model", "minimaxModel"]),
         minimaxSessionDir: readStringField(body, ["minimax_session_dir", "minimaxSessionDir"]),
         minimaxMcpServers: body.minimax_mcp_servers ?? (body.minimaxMcpServers as any),
@@ -1067,7 +1182,17 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/agents", async (_req, res, next) => {
     try {
       const custom = await listAgents(dataRoot);
-      res.status(200).json({ items: custom, total: custom.length });
+      res.status(200).json({
+        items: custom.map((item) => {
+          const { defaultCliTool, skillList, ...rest } = item;
+          return {
+            ...rest,
+            provider_id: defaultCliTool,
+            skill_list: skillList ?? []
+          };
+        }),
+        total: custom.length
+      });
     } catch (error) {
       next(error);
     }
@@ -1170,9 +1295,7 @@ export function createApp(options: AppOptions = {}) {
         routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as
           | Record<string, Record<string, number>>
           | undefined,
-        agentModelConfigs: (body.agent_model_configs ?? body.agentModelConfigs) as
-          | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
-          | undefined
+        agentModelConfigs: readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs)
       });
       res.status(201).json(created);
     } catch (error) {
@@ -1194,9 +1317,7 @@ export function createApp(options: AppOptions = {}) {
         routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as
           | Record<string, Record<string, number>>
           | undefined,
-        agentModelConfigs: (body.agent_model_configs ?? body.agentModelConfigs) as
-          | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
-          | undefined
+        agentModelConfigs: readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs)
       });
       res.status(200).json(updated);
     } catch (error) {
@@ -1232,31 +1353,57 @@ export function createApp(options: AppOptions = {}) {
       const agentId = (body.agent_id ?? body.agentId) as string | undefined;
       const displayName = (body.display_name ?? body.displayName) as string | undefined;
       const prompt = body.prompt as string | undefined;
-      const defaultCliTool = (body.default_cli_tool ?? body.defaultCliTool) as string | undefined;
+      const summary = readStringField(body, ["summary"]);
+      const defaultProviderId = body.provider_id as string | undefined;
       const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as
         | Record<string, any>
         | undefined;
       const modelSelectionEnabled = (body.model_selection_enabled ?? body.modelSelectionEnabled) as boolean | undefined;
+      let skillList: string[] | undefined;
+      if (
+        Object.prototype.hasOwnProperty.call(body, "skill_list") ||
+        Object.prototype.hasOwnProperty.call(body, "skillList")
+      ) {
+        const raw = body.skill_list ?? body.skillList;
+        if (raw === null) {
+          skillList = [];
+        } else if (Array.isArray(raw)) {
+          skillList = raw
+            .map((item) => (typeof item === "string" ? item.trim() : String(item).trim()))
+            .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
+        } else {
+          sendApiError(res, 400, "AGENT_INPUT_INVALID", "skill_list must be an array of list ids");
+          return;
+        }
+      }
       if (!agentId || !prompt) {
         res.status(400).json({ error: "agent_id and prompt are required" });
         return;
+      }
+      if (skillList && skillList.length > 0) {
+        const missing = await validateSkillListIds(dataRoot, skillList);
+        if (missing.length > 0) {
+          sendApiError(res, 400, "AGENT_SKILL_LIST_INVALID", `unknown skill lists: ${missing.join(", ")}`);
+          return;
+        }
       }
       const created = await createAgent(dataRoot, {
         agentId,
         displayName,
         prompt,
+        summary,
+        skillList,
         defaultCliTool:
-          defaultCliTool === "trae"
-            ? "trae"
-            : defaultCliTool === "minimax"
-              ? "minimax"
-              : defaultCliTool === "codex"
-                ? "codex"
-                : undefined,
+          defaultProviderId !== undefined ? readProviderIdField(body, "provider_id", "minimax") : undefined,
         defaultModelParams,
         modelSelectionEnabled
       });
-      res.status(201).json(created);
+      const { defaultCliTool, skillList: createdSkillList, ...rest } = created;
+      res.status(201).json({
+        ...rest,
+        provider_id: defaultCliTool,
+        skill_list: createdSkillList ?? []
+      });
     } catch (error) {
       next(error);
     }
@@ -1266,14 +1413,46 @@ export function createApp(options: AppOptions = {}) {
     try {
       const agentId = req.params.agent_id;
       const body = req.body as Record<string, unknown>;
+      let skillListPatch: string[] | undefined;
+      if (
+        Object.prototype.hasOwnProperty.call(body, "skill_list") ||
+        Object.prototype.hasOwnProperty.call(body, "skillList")
+      ) {
+        const raw = body.skill_list ?? body.skillList;
+        if (raw === null) {
+          skillListPatch = [];
+        } else if (Array.isArray(raw)) {
+          skillListPatch = raw
+            .map((item) => (typeof item === "string" ? item.trim() : String(item).trim()))
+            .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
+        } else {
+          sendApiError(res, 400, "AGENT_INPUT_INVALID", "skill_list must be an array of list ids");
+          return;
+        }
+      }
+      if (skillListPatch && skillListPatch.length > 0) {
+        const missing = await validateSkillListIds(dataRoot, skillListPatch);
+        if (missing.length > 0) {
+          sendApiError(res, 400, "AGENT_SKILL_LIST_INVALID", `unknown skill lists: ${missing.join(", ")}`);
+          return;
+        }
+      }
       const updated = await patchAgent(dataRoot, agentId, {
         displayName: (body.display_name ?? body.displayName) as string | undefined,
         prompt: body.prompt as string | undefined,
-        defaultCliTool: (body.default_cli_tool ?? body.defaultCliTool) as "codex" | "trae" | "minimax" | undefined,
+        summary: readNullableStringPatch(body, ["summary"]),
+        skillList: skillListPatch,
+        defaultCliTool:
+          body.provider_id !== undefined ? readProviderIdField(body, "provider_id", "minimax") : undefined,
         defaultModelParams: (body.default_model_params ?? body.defaultModelParams) as Record<string, any> | undefined,
         modelSelectionEnabled: (body.model_selection_enabled ?? body.modelSelectionEnabled) as boolean | undefined
       });
-      res.status(200).json(updated);
+      const { defaultCliTool, skillList, ...rest } = updated;
+      res.status(200).json({
+        ...rest,
+        provider_id: defaultCliTool,
+        skill_list: skillList ?? []
+      });
     } catch (error) {
       next(error);
     }
@@ -1282,6 +1461,119 @@ export function createApp(options: AppOptions = {}) {
   app.delete("/api/agents/:agent_id", async (req, res, next) => {
     try {
       const removed = await deleteAgent(dataRoot, req.params.agent_id);
+      res.status(200).json(removed);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/skills", async (_req, res, next) => {
+    try {
+      const items = await listSkills(dataRoot);
+      res.status(200).json({ items, total: items.length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/skills/import", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const sourceRaw = body.sources ?? body.paths ?? body.source;
+      const sources = Array.isArray(sourceRaw)
+        ? sourceRaw
+            .map((item) => (typeof item === "string" ? item.trim() : String(item).trim()))
+            .filter((item) => item.length > 0)
+        : typeof sourceRaw === "string" && sourceRaw.trim().length > 0
+          ? [sourceRaw.trim()]
+          : [];
+      if (sources.length === 0) {
+        sendApiError(res, 400, "SKILL_IMPORT_INPUT_INVALID", "sources is required");
+        return;
+      }
+      const recursive = parseBoolean(body.recursive, true);
+      const result = await importSkills(dataRoot, { sources, recursive });
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/skills/:skill_id", async (req, res, next) => {
+    try {
+      const removed = await deleteSkill(dataRoot, req.params.skill_id);
+      res.status(200).json(removed);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/skill-lists", async (_req, res, next) => {
+    try {
+      const items = await listSkillLists(dataRoot);
+      res.status(200).json({ items, total: items.length });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/skill-lists", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const listId = readStringField(body, ["list_id", "listId"]);
+      if (!listId) {
+        sendApiError(res, 400, "SKILL_LIST_INPUT_INVALID", "list_id is required");
+        return;
+      }
+      const created = await createSkillList(dataRoot, {
+        listId,
+        displayName: readStringField(body, ["display_name", "displayName"]),
+        description: readStringField(body, ["description"]),
+        includeAll: parseBoolean(body.include_all ?? body.includeAll, false),
+        skillIds: readStringArray(body.skill_ids ?? body.skillIds)
+      });
+      res.status(201).json(created);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/skill-lists/:list_id", async (req, res, next) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const hasInclude =
+        Object.prototype.hasOwnProperty.call(body, "include_all") ||
+        Object.prototype.hasOwnProperty.call(body, "includeAll");
+      const hasSkillIds =
+        Object.prototype.hasOwnProperty.call(body, "skill_ids") ||
+        Object.prototype.hasOwnProperty.call(body, "skillIds");
+      const updated = await patchSkillList(dataRoot, req.params.list_id, {
+        displayName: (body.display_name ?? body.displayName) as string | undefined,
+        description: readNullableStringPatch(body, ["description"]),
+        includeAll: hasInclude ? parseBoolean(body.include_all ?? body.includeAll, false) : undefined,
+        skillIds: hasSkillIds ? (readStringArray(body.skill_ids ?? body.skillIds) ?? []) : undefined
+      });
+      res.status(200).json(updated);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/skill-lists/:list_id", async (req, res, next) => {
+    try {
+      const listId = req.params.list_id;
+      const agents = await listAgents(dataRoot);
+      const inUseBy = agents.find((agent) => (agent.skillList ?? []).includes(listId));
+      if (inUseBy) {
+        sendApiError(
+          res,
+          409,
+          "SKILL_LIST_IN_USE",
+          `skill list '${listId}' is used by agent '${inUseBy.agentId}' and cannot be deleted`
+        );
+        return;
+      }
+      const removed = await deleteSkillList(dataRoot, listId);
       res.status(200).json(removed);
     } catch (error) {
       next(error);
@@ -1309,7 +1601,7 @@ export function createApp(options: AppOptions = {}) {
       let teamTaskAssignRouteTable: Record<string, string[]> | undefined;
       let teamRouteDiscussRounds: Record<string, Record<string, number>> | undefined;
       let teamAgentModelConfigs:
-        | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
+        | Record<string, { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }>
         | undefined;
 
       if (teamId) {
@@ -1336,9 +1628,7 @@ export function createApp(options: AppOptions = {}) {
           | Record<string, Record<string, number>>
           | undefined) ?? teamRouteDiscussRounds;
       const agentModelConfigs =
-        ((body.agent_model_configs ?? body.agentModelConfigs) as
-          | Record<string, { tool: "codex" | "trae" | "minimax"; model: string; effort?: "low" | "medium" | "high" }>
-          | undefined) ?? teamAgentModelConfigs;
+        readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs) ?? teamAgentModelConfigs;
       const autoDispatchEnabled = parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, true);
       const autoDispatchRemaining = parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining) ?? 5;
       const holdEnabled = parseBoolean(body.hold_enabled ?? body.holdEnabled, false);
@@ -1402,7 +1692,13 @@ export function createApp(options: AppOptions = {}) {
       const scriptBootstrap = await ensureProjectAgentScripts(created.project);
       const agentList = await listAgents(dataRoot);
       const agentPrompts = new Map(agentList.map((item) => [item.agentId, item.prompt]));
-      const agentWorkspaceBootstrap = await ensureAgentWorkspaces(created.project, agentPrompts);
+      const agentSummaries = new Map(agentList.map((item) => [item.agentId, item.summary ?? ""]));
+      const agentWorkspaceBootstrap = await ensureAgentWorkspaces(
+        created.project,
+        agentPrompts,
+        undefined,
+        agentSummaries
+      );
 
       await appendEvent(created.paths, {
         projectId: created.project.projectId,
@@ -1526,9 +1822,7 @@ export function createApp(options: AppOptions = {}) {
       const routeDiscussRounds = (body.route_discuss_rounds ?? body.routeDiscussRounds) as
         | Record<string, Record<string, number>>
         | undefined;
-      const agentModelConfigs = (body.agent_model_configs ?? body.agentModelConfigs) as
-        | Record<string, { tool: string; model: string; effort?: string }>
-        | undefined;
+      const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
       if (!agentIds || !routeTable || typeof routeTable !== "object") {
         res.status(400).json({ error: "agent_ids and route_table are required" });
         return;
@@ -1732,13 +2026,18 @@ export function createApp(options: AppOptions = {}) {
         res.status(400).json({ error: "role is required" });
         return;
       }
-      const configuredTool = project.agentModelConfigs?.[role]?.tool;
-      if (configuredTool && configuredTool !== "codex" && configuredTool !== "trae" && configuredTool !== "minimax") {
+      const configuredProviderId = project.agentModelConfigs?.[role]?.provider_id;
+      if (
+        configuredProviderId &&
+        configuredProviderId !== "codex" &&
+        configuredProviderId !== "trae" &&
+        configuredProviderId !== "minimax"
+      ) {
         sendApiError(
           res,
           409,
           "SESSION_PROVIDER_NOT_SUPPORTED",
-          `role '${role}' is configured with unsupported tool '${configuredTool}'`,
+          `role '${role}' is configured with unsupported provider '${configuredProviderId}'`,
           "Only codex, trae, and minimax providers are supported for session startup."
         );
         return;
@@ -1772,14 +2071,14 @@ export function createApp(options: AppOptions = {}) {
         );
         return;
       }
-      const roleAgentTool = project.agentModelConfigs?.[role]?.tool ?? "codex";
+      const roleProviderId = project.agentModelConfigs?.[role]?.provider_id ?? "minimax";
       const created = await addSession(paths, project.projectId, {
         sessionId: candidateSessionId,
         role,
         status,
         currentTaskId,
         providerSessionId: undefined,
-        provider: roleAgentTool as "codex" | "trae" | "minimax"
+        provider: roleProviderId
       });
       const mappingError = validateRoleSessionMapWrite(created.session.role, created.session.sessionId);
       if (!mappingError) {
@@ -2511,7 +2810,6 @@ export function createApp(options: AppOptions = {}) {
       const project = await getProject(dataRoot, req.params.id);
       const auditDir = path.join(dataRoot, "projects", project.projectId, "collab", "audit");
       const filePath = path.join(auditDir, "agent_output.jsonl");
-      const fs = await import("node:fs/promises");
       try {
         const content = await fs.readFile(filePath, "utf-8");
         res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
@@ -2632,6 +2930,26 @@ export function createApp(options: AppOptions = {}) {
       sendApiError(res, 400, "TEMPLATE_STORE_ERROR", error.message);
       return;
     }
+    if (error instanceof SkillStoreError) {
+      if (error.code === "SKILL_NOT_FOUND") {
+        sendApiError(res, 404, "SKILL_NOT_FOUND", error.message);
+        return;
+      }
+      if (error.code === "SKILL_LIST_NOT_FOUND") {
+        sendApiError(res, 404, "SKILL_LIST_NOT_FOUND", error.message);
+        return;
+      }
+      if (error.code === "SKILL_LIST_EXISTS") {
+        sendApiError(res, 409, "SKILL_LIST_EXISTS", error.message);
+        return;
+      }
+      if (error.code === "INVALID_SKILL_REFERENCE") {
+        sendApiError(res, 400, "INVALID_SKILL_REFERENCE", error.message);
+        return;
+      }
+      sendApiError(res, 400, "SKILL_STORE_ERROR", error.message);
+      return;
+    }
     if (error instanceof TeamToolsTemplateError) {
       sendApiError(
         res,
@@ -2685,80 +3003,59 @@ export function createApp(options: AppOptions = {}) {
         return;
       }
       const settings = await getRuntimeSettings(dataRoot);
-      if (!settings.minimaxApiKey) {
-        sendEvent("error", { message: "MiniMax API key is not configured. Please configure it in Settings." });
-        res.end();
-        return;
-      }
+      const providerId = resolveSessionProviderId(run, role, "minimax");
+      const agents = await listAgents(dataRoot);
+      const roleAgent = agents.find((item) => item.agentId === role);
+      const rolePrompt = roleAgent?.prompt;
+      const skillIds = await resolveSkillIdsForAgent(dataRoot, roleAgent?.skillList);
+      const importedSkillPrompt = await resolveImportedSkillPromptSegments(dataRoot, skillIds);
 
       const chatSessionId = sessionId || `wf-agent-chat-${Date.now()}-${randomUUID().slice(0, 8)}`;
       await upsertWorkflowSession(dataRoot, runId, {
         sessionId: chatSessionId,
         role,
         status: "running",
+        provider: providerId,
         providerSessionId
       });
       const agentWorkspaceDir = path.join(run.workspacePath, "Agents", role);
-      const teamToolContext = buildWorkflowTeamToolContext({
-        dataRoot,
-        run,
-        agentRole: role,
-        sessionId: chatSessionId,
-        applyTaskAction: async (request) =>
-          (await workflowOrchestrator.applyTaskActions(runId, request)) as unknown as Record<string, unknown>,
-        sendRunMessage: async (request) =>
-          (await workflowOrchestrator.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
-      });
-      const teamToolBridge = createWorkflowMiniMaxTeamToolBridge({
-        dataRoot,
-        run,
-        agentRole: role,
-        sessionId: chatSessionId,
-        applyTaskAction: async (request) =>
-          (await workflowOrchestrator.applyTaskActions(runId, request)) as unknown as Record<string, unknown>,
-        sendRunMessage: async (request) =>
-          (await workflowOrchestrator.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
-      });
+      const toolInjection = DefaultToolInjector.build(
+        createWorkflowToolExecutionAdapter({
+          dataRoot,
+          run,
+          agentRole: role,
+          sessionId: chatSessionId,
+          applyTaskAction: async (request) =>
+            (await workflowOrchestrator.applyTaskActions(runId, request)) as unknown as Record<string, unknown>,
+          sendRunMessage: async (request) =>
+            (await workflowOrchestrator.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
+        })
+      );
       sendEvent("session", { sessionId: chatSessionId, providerSessionId });
-
-      const agent = createMiniMaxAgent({
-        config: {
-          apiKey: settings.minimaxApiKey ?? "",
-          apiBase: settings.minimaxApiBase ?? "https://api.minimax.io/v1",
-          model: settings.minimaxModel ?? "MiniMax-Text-01",
-          workspaceDir: agentWorkspaceDir,
-          sessionDir: settings.minimaxSessionDir ?? path.join(run.workspacePath, ".minimax", "sessions"),
-          maxSteps: settings.minimaxMaxSteps ?? 200,
-          tokenLimit: settings.minimaxTokenLimit ?? 180000,
-          enableFileTools: true,
-          enableShell: true,
-          enableNote: true,
-          shellType: "powershell",
-          shellTimeout: settings.minimaxShellTimeout ?? 30000,
-          shellOutputIdleTimeout: settings.minimaxShellOutputIdleTimeout ?? 60000,
-          shellMaxRunTime: settings.minimaxShellMaxRunTime ?? 600000,
-          shellMaxOutputSize: settings.minimaxShellMaxOutputSize ?? 52428800,
-          mcpEnabled: (settings.minimaxMcpServers?.length ?? 0) > 0,
-          mcpServers: settings.minimaxMcpServers ?? [],
-          mcpConnectTimeout: 30000,
-          mcpExecuteTimeout: 60000,
-          additionalWritableDirs: [run.workspacePath],
-          teamToolContext,
-          teamToolBridge,
-          env: {
-            AUTO_DEV_WORKFLOW_RUN_ID: runId,
-            AUTO_DEV_SESSION_ID: chatSessionId,
-            AUTO_DEV_AGENT_ROLE: role,
-            AUTO_DEV_WORKFLOW_ROOT: run.workspacePath,
-            AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
-            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123"
-          }
-        }
-      });
-
-      await agent.runWithResult({
+      await providerRegistry.runSessionWithTools(providerId, settings, {
         prompt,
-        sessionId: providerSessionId || chatSessionId,
+        providerSessionId: providerSessionId || chatSessionId,
+        workspaceDir: agentWorkspaceDir,
+        workspaceRoot: run.workspacePath,
+        role,
+        rolePrompt,
+        skillSegments: importedSkillPrompt.segments,
+        skillIds,
+        contextKind: "workflow_agent_chat",
+        runtimeConstraints: ["Use TASK_CREATE/TASK_DISCUSS_*/TASK_REPORT through TeamTools APIs."],
+        sessionDirFallback: path.join(run.workspacePath, ".minimax", "sessions"),
+        apiBaseFallback: "https://api.minimax.io/v1",
+        modelFallback: "MiniMax-Text-01",
+        teamToolContext: toolInjection.teamToolContext,
+        teamToolBridge: toolInjection.teamToolBridge,
+        env: {
+          AUTO_DEV_WORKFLOW_RUN_ID: runId,
+          AUTO_DEV_SESSION_ID: chatSessionId,
+          AUTO_DEV_AGENT_ROLE: role,
+          AUTO_DEV_WORKFLOW_ROOT: run.workspacePath,
+          AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
+          AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123"
+        },
         callback: {
           onThinking: (thinking: string) => sendEvent("thinking", { thinking }),
           onToolCall: (name: string, args: Record<string, unknown>) => sendEvent("tool_call", { name, args }),
@@ -2784,7 +3081,9 @@ export function createApp(options: AppOptions = {}) {
     const runId = req.params.run_id;
     const sessionId = req.params.sessionId;
     try {
-      const cancelled = cancelMiniMaxRunner(sessionId);
+      const existingSession = await getWorkflowSession(dataRoot, runId, sessionId);
+      const providerId = existingSession?.provider ?? "minimax";
+      const cancelled = providerRegistry.cancelSession(providerId, sessionId);
       await touchWorkflowSession(dataRoot, runId, sessionId, { status: "idle" }).catch(() => {});
       res.json({ success: true, cancelled });
     } catch (error) {
@@ -2833,12 +3132,12 @@ export function createApp(options: AppOptions = {}) {
       const project = await getProject(dataRoot, projectId);
       const paths = await ensureProjectRuntime(dataRoot, projectId);
       const settings = await getRuntimeSettings(dataRoot);
-
-      if (!settings.minimaxApiKey) {
-        sendEvent("error", { message: "MiniMax API key is not configured. Please configure it in Settings." });
-        res.end();
-        return;
-      }
+      const providerId = resolveSessionProviderId(project, role, "minimax");
+      const agents = await listAgents(dataRoot);
+      const roleAgent = agents.find((item) => item.agentId === role);
+      const rolePrompt = roleAgent?.prompt;
+      const skillIds = await resolveSkillIdsForAgent(dataRoot, roleAgent?.skillList);
+      const importedSkillPrompt = await resolveImportedSkillPromptSegments(dataRoot, skillIds);
 
       // Use the sessionId from request if provided, otherwise create new one
       const chatSessionId = sessionId || `agent-chat-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -2846,44 +3145,28 @@ export function createApp(options: AppOptions = {}) {
       const agentWorkspaceDir = path.join(project.workspacePath, "Agents", role);
 
       sendEvent("session", { sessionId: chatSessionId, providerSessionId });
-
-      const agent = createMiniMaxAgent({
-        config: {
-          apiKey: settings.minimaxApiKey ?? "",
-          apiBase: settings.minimaxApiBase ?? "https://api.minimax.io/v1",
-          model: settings.minimaxModel ?? "MiniMax-Text-01",
-          workspaceDir: agentWorkspaceDir,
-          sessionDir: settings.minimaxSessionDir ?? path.join(paths.projectRootDir, ".minimax", "sessions"),
-          maxSteps: settings.minimaxMaxSteps ?? 200,
-          tokenLimit: settings.minimaxTokenLimit ?? 180000,
-          enableFileTools: true,
-          enableShell: true,
-          enableNote: true,
-          shellType: "powershell",
-          shellTimeout: settings.minimaxShellTimeout ?? 30000,
-          shellOutputIdleTimeout: settings.minimaxShellOutputIdleTimeout ?? 60000,
-          shellMaxRunTime: settings.minimaxShellMaxRunTime ?? 600000,
-          shellMaxOutputSize: settings.minimaxShellMaxOutputSize ?? 52428800,
-          mcpEnabled: (settings.minimaxMcpServers?.length ?? 0) > 0,
-          mcpServers: settings.minimaxMcpServers ?? [],
-          mcpConnectTimeout: 30000,
-          mcpExecuteTimeout: 60000,
-          additionalWritableDirs: [project.workspacePath],
-          env: {
-            AUTO_DEV_PROJECT_ID: projectId,
-            AUTO_DEV_SESSION_ID: chatSessionId,
-            AUTO_DEV_AGENT_ROLE: role,
-            AUTO_DEV_PROJECT_ROOT: project.workspacePath,
-            AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
-            AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123"
-          }
-        }
-      });
-
-      // Run with streaming callbacks - pass providerSessionId as sessionId to use existing context
-      await agent.runWithResult({
+      await providerRegistry.runSessionWithTools(providerId, settings, {
         prompt,
-        sessionId: providerSessionId || chatSessionId,
+        providerSessionId: providerSessionId || chatSessionId,
+        workspaceDir: agentWorkspaceDir,
+        workspaceRoot: project.workspacePath,
+        role,
+        rolePrompt,
+        skillSegments: importedSkillPrompt.segments,
+        skillIds,
+        contextKind: "project_agent_chat",
+        runtimeConstraints: ["Use task-actions for coordination changes and progress reporting."],
+        sessionDirFallback: path.join(paths.projectRootDir, ".minimax", "sessions"),
+        apiBaseFallback: "https://api.minimax.io/v1",
+        modelFallback: "MiniMax-Text-01",
+        env: {
+          AUTO_DEV_PROJECT_ID: projectId,
+          AUTO_DEV_SESSION_ID: chatSessionId,
+          AUTO_DEV_AGENT_ROLE: role,
+          AUTO_DEV_PROJECT_ROOT: project.workspacePath,
+          AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
+          AUTO_DEV_MANAGER_URL: process.env.AUTO_DEV_MANAGER_URL ?? "http://127.0.0.1:43123"
+        },
         callback: {
           onThinking: (thinking: string) => {
             sendEvent("thinking", { thinking });
@@ -2921,22 +3204,26 @@ export function createApp(options: AppOptions = {}) {
   // POST /api/projects/:id/agent-chat/:sessionId/interrupt
   app.post("/api/projects/:id/agent-chat/:sessionId/interrupt", async (req, res, next) => {
     const startTime = Date.now();
+    const projectId = req.params.id;
     const sessionId = req.params.sessionId;
 
-    logger.info(`[API] POST /api/projects/${req.params.id}/agent-chat/${sessionId}/interrupt - request received`);
+    logger.info(`[API] POST /api/projects/${projectId}/agent-chat/${sessionId}/interrupt - request received`);
 
     try {
-      const cancelled = cancelMiniMaxRunner(sessionId);
+      const paths = await ensureProjectRuntime(dataRoot, projectId);
+      const existingSession = await getSession(paths, projectId, sessionId);
+      const providerId = existingSession?.provider ?? "minimax";
+      const cancelled = providerRegistry.cancelSession(providerId, sessionId);
       const duration = Date.now() - startTime;
       logger.info(
-        `[API] POST /api/projects/${req.params.id}/agent-chat/${sessionId}/interrupt - completed in ${duration}ms, cancelled=${cancelled}`
+        `[API] POST /api/projects/${projectId}/agent-chat/${sessionId}/interrupt - completed in ${duration}ms, cancelled=${cancelled}`
       );
 
       res.json({ success: true, cancelled });
     } catch (error) {
       const duration = Date.now() - startTime;
       logger.error(
-        `[API] POST /api/projects/${req.params.id}/agent-chat/${sessionId}/interrupt - error after ${duration}ms: ${error}`
+        `[API] POST /api/projects/${projectId}/agent-chat/${sessionId}/interrupt - error after ${duration}ms: ${error}`
       );
       next(error);
     }

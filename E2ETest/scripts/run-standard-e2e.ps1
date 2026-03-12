@@ -34,6 +34,14 @@ $routeTable = $scenario.route_table
 $taskAssignRouteTable = $scenario.task_assign_route_table
 $routeDiscussRounds = $scenario.route_discuss_rounds
 $modelCfg = $scenario.agent_model
+$providerIdRaw = if ($modelCfg.provider_id) { [string]$modelCfg.provider_id } else { [string]$modelCfg.tool }
+$providerId = $providerIdRaw.Trim().ToLower()
+if ([string]::IsNullOrWhiteSpace($providerId)) {
+  $providerId = "minimax"
+}
+if ($providerId -ne "minimax") {
+  throw "This E2E case requires MiniMax provider. scenario.agent_model.provider_id='$providerId'"
+}
 
 $roleA = [string]$roles.A
 $roleB = [string]$roles.B
@@ -91,7 +99,7 @@ foreach ($role in $roleList) {
     agent_id = $role
     display_name = $role
     prompt = (Build-AgentPrompt -Role $role)
-    default_cli_tool = [string]$modelCfg.tool
+    provider_id = $providerId
     default_model_params = @{
       model = [string]$modelCfg.model
       effort = [string]$modelCfg.effort
@@ -122,7 +130,7 @@ Write-Host "== Patch routing model config =="
 $agentModelConfigs = @{}
 foreach ($role in $roleList) {
   $agentModelConfigs[$role] = @{
-    tool = [string]$modelCfg.tool
+    provider_id = $providerId
     model = [string]$modelCfg.model
     effort = [string]$modelCfg.effort
   }
@@ -144,6 +152,13 @@ Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/projects/$projectId/t
 Write-Host "== Create role sessions =="
 foreach ($role in $roleList) {
   Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/sessions" -Body @{ role = $role } -AllowStatus @(200, 201, 409) | Out-Null
+}
+$sessionsVerify = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions" -AllowStatus @(200)
+foreach ($item in @($sessionsVerify.body.items)) {
+  $sessionProvider = [string]$item.provider
+  if ($sessionProvider.Trim().ToLower() -ne "minimax") {
+    throw "Session provider must be minimax. session_id=$($item.sessionId) role=$($item.role) provider=$sessionProvider"
+  }
 }
 
 Write-Host "== Seed dependency test task tree (A -> B placeholder -> B1, and C depends on B) =="

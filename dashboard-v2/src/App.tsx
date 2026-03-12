@@ -20,6 +20,8 @@ import { WorkflowTemplateEditorView } from "@/views/WorkflowTemplateEditorView";
 import { WorkflowRunsView } from "@/views/WorkflowRunsView";
 import { WorkflowRunWizardView } from "@/views/WorkflowRunWizardView";
 import { WorkflowRunWorkspaceView } from "@/views/WorkflowRunWorkspaceView";
+import { SkillsLibraryView } from "@/views/SkillsLibraryView";
+import { SkillListsView } from "@/views/SkillListsView";
 import { projectApi, settingsApi } from "@/services/api";
 import {
   Home,
@@ -32,7 +34,8 @@ import {
   Cpu,
   Zap,
   UserCircle,
-  GitBranch
+  GitBranch,
+  Package
 } from "lucide-react";
 
 export default function App() {
@@ -84,6 +87,7 @@ export default function App() {
     { id: "projects", icon: <FolderKanban size={18} />, label: t.projects },
     { id: "workflow", icon: <GitBranch size={18} />, label: t.workflow },
     { id: "teams", icon: <UserCircle size={18} />, label: t.teams },
+    { id: "skills", icon: <Package size={18} />, label: t.skills },
     { id: "agents", icon: <Users size={18} />, label: t.agents },
     { id: "debug", icon: <Bug size={18} />, label: t.debug },
     { id: "settings", icon: <Settings size={18} />, label: t.settings }
@@ -113,6 +117,11 @@ export default function App() {
     { id: "chat", label: t.chatTimeline },
     { id: "agent-chat", label: t.agentChat },
     { id: "team-config", label: t.teamConfig }
+  ] as const;
+
+  const skillsViews = [
+    { id: "library", label: t.skillLibrary },
+    { id: "lists", label: t.skillLists }
   ] as const;
 
   const projectViews: { id: string; icon: React.ReactNode; label: string }[] = [
@@ -244,6 +253,13 @@ export default function App() {
       return <WorkflowRunsView />;
     }
 
+    if (route.l1 === "skills") {
+      const view = route.view ?? "library";
+      if (view === "library") return <SkillsLibraryView />;
+      if (view === "lists") return <SkillListsView />;
+      return <SkillsLibraryView />;
+    }
+
     if (route.l1 === "debug") {
       const debugView = route.debugView ?? "agent-sessions";
       if (debugView === "agent-sessions") return <DebugAgentSessionsView />;
@@ -317,6 +333,22 @@ export default function App() {
               </a>
             );
           })}
+        </div>
+      );
+    }
+
+    if (route.l1 === "skills") {
+      return (
+        <div className="l2-nav">
+          {skillsViews.map((v) => (
+            <a
+              key={v.id}
+              href={`#/skills/${v.id}`}
+              className={`l2-nav-item ${route.view === v.id || (!route.view && v.id === "library") ? "active" : ""}`}
+            >
+              {v.label}
+            </a>
+          ))}
         </div>
       );
     }

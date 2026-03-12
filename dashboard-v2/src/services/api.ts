@@ -33,7 +33,10 @@ import type {
   WorkflowTaskActionRequest,
   WorkflowTaskActionResult,
   WorkflowOrchestratorStatus,
-  WorkflowSessionRecord
+  WorkflowSessionRecord,
+  SkillDefinition,
+  SkillImportResult,
+  SkillListDefinition
 } from "@/types";
 
 const API_BASE = "/api";
@@ -115,6 +118,37 @@ function mapEventFields(raw: Record<string, unknown>): EventRecord {
     createdAt: (raw.createdAt ?? raw.created_at) as string,
     sessionId: (raw.sessionId ?? raw.session_id) as string | undefined,
     payload: (raw.payload ?? {}) as Record<string, unknown>
+  };
+}
+
+function mapSkillDefinition(raw: Record<string, unknown>): SkillDefinition {
+  return {
+    schemaVersion: (raw.schemaVersion ?? raw.schema_version ?? "1.0") as "1.0",
+    skillId: (raw.skillId ?? raw.skill_id) as string,
+    name: raw.name as string,
+    description: raw.description as string,
+    license: raw.license as string,
+    compatibility: raw.compatibility as string,
+    sourceType: (raw.sourceType ?? raw.source_type) as "opencode" | "codex" | "local",
+    sourcePath: (raw.sourcePath ?? raw.source_path) as string,
+    packagePath: (raw.packagePath ?? raw.package_path) as string,
+    entryFile: (raw.entryFile ?? raw.entry_file ?? "SKILL.md") as string,
+    warnings: raw.warnings as string[] | undefined,
+    createdAt: (raw.createdAt ?? raw.created_at) as string,
+    updatedAt: (raw.updatedAt ?? raw.updated_at) as string
+  };
+}
+
+function mapSkillListDefinition(raw: Record<string, unknown>): SkillListDefinition {
+  return {
+    schemaVersion: (raw.schemaVersion ?? raw.schema_version ?? "1.0") as "1.0",
+    listId: (raw.listId ?? raw.list_id) as string,
+    displayName: (raw.displayName ?? raw.display_name) as string,
+    description: raw.description as string | undefined,
+    includeAll: (raw.includeAll ?? raw.include_all ?? false) as boolean,
+    skillIds: (raw.skillIds ?? raw.skill_ids ?? []) as string[],
+    createdAt: (raw.createdAt ?? raw.created_at) as string,
+    updatedAt: (raw.updatedAt ?? raw.updated_at) as string
   };
 }
 
@@ -368,8 +402,14 @@ export const agentApi = {
           agentId: (raw.agentId ?? raw.agent_id) as string,
           displayName: (raw.displayName ?? raw.display_name) as string,
           prompt: raw.prompt as string,
+          summary: raw.summary as string | undefined,
+          skillList: (raw.skillList ?? raw.skill_list ?? []) as string[],
           updatedAt: (raw.updatedAt ?? raw.updated_at) as string,
-          defaultCliTool: raw.defaultCliTool as "codex" | "trae" | "minimax" | undefined,
+          defaultCliTool: (raw.defaultCliTool ?? raw.default_cli_tool ?? raw.provider_id ?? raw.providerId) as
+            | "codex"
+            | "trae"
+            | "minimax"
+            | undefined,
           defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
           modelSelectionEnabled: raw.modelSelectionEnabled as boolean | undefined,
           createdAt: (raw.createdAt ?? raw.created_at) as string | undefined
@@ -383,8 +423,14 @@ export const agentApi = {
           agentId: (raw.agentId ?? raw.agent_id) as string,
           displayName: (raw.displayName ?? raw.display_name) as string,
           prompt: raw.prompt as string,
+          summary: raw.summary as string | undefined,
+          skillList: (raw.skillList ?? raw.skill_list ?? []) as string[],
           updatedAt: (raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()) as string,
-          defaultCliTool: raw.defaultCliTool as "codex" | "trae" | "minimax" | undefined,
+          defaultCliTool: (raw.defaultCliTool ?? raw.default_cli_tool ?? raw.provider_id ?? raw.providerId) as
+            | "codex"
+            | "trae"
+            | "minimax"
+            | undefined,
           defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
           modelSelectionEnabled: raw.modelSelectionEnabled as boolean | undefined
         }))
@@ -397,8 +443,14 @@ export const agentApi = {
           agentId: (raw.agentId ?? raw.agent_id) as string,
           displayName: (raw.displayName ?? raw.display_name) as string,
           prompt: raw.prompt as string,
+          summary: raw.summary as string | undefined,
+          skillList: (raw.skillList ?? raw.skill_list ?? []) as string[],
           updatedAt: (raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()) as string,
-          defaultCliTool: raw.defaultCliTool as "codex" | "trae" | "minimax" | undefined,
+          defaultCliTool: (raw.defaultCliTool ?? raw.default_cli_tool ?? raw.provider_id ?? raw.providerId) as
+            | "codex"
+            | "trae"
+            | "minimax"
+            | undefined,
           defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
           modelSelectionEnabled: raw.modelSelectionEnabled as boolean | undefined
         }))
@@ -412,7 +464,9 @@ export const agentApi = {
     agent_id: string;
     display_name: string;
     prompt: string;
-    default_cli_tool?: "codex" | "trae" | "minimax";
+    summary?: string;
+    skill_list?: string[];
+    provider_id?: "codex" | "trae" | "minimax";
   }) =>
     fetchJSON<{ agentId: string }>(`${API_BASE}/agents`, {
       method: "POST",
@@ -421,7 +475,13 @@ export const agentApi = {
 
   update: (
     agentId: string,
-    data: { display_name?: string; prompt?: string; default_cli_tool?: "codex" | "trae" | "minimax" }
+    data: {
+      display_name?: string;
+      prompt?: string;
+      summary?: string | null;
+      skill_list?: string[];
+      provider_id?: "codex" | "trae" | "minimax";
+    }
   ) =>
     fetchJSON<{ agentId: string }>(`${API_BASE}/agents/${encodeURIComponent(agentId)}`, {
       method: "PATCH",
@@ -430,6 +490,80 @@ export const agentApi = {
 
   delete: (agentId: string) =>
     fetchJSON<{ success: boolean }>(`${API_BASE}/agents/${encodeURIComponent(agentId)}`, {
+      method: "DELETE"
+    })
+};
+
+export const skillApi = {
+  list: async (): Promise<{ items: SkillDefinition[]; total: number }> => {
+    const data = await fetchJSON<{ items?: Record<string, unknown>[]; total?: number }>(`${API_BASE}/skills`);
+    const items = (data.items ?? []).map(mapSkillDefinition);
+    return { items, total: data.total ?? items.length };
+  },
+
+  import: async (data: { sources: string[]; recursive?: boolean }): Promise<SkillImportResult> => {
+    const payload = await fetchJSON<{
+      imported?: Array<{ skill: Record<string, unknown>; action: "created" | "updated"; warnings?: string[] }>;
+      warnings?: string[];
+    }>(`${API_BASE}/skills/import`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return {
+      imported: (payload.imported ?? []).map((item) => ({
+        skill: mapSkillDefinition(item.skill),
+        action: item.action,
+        warnings: item.warnings ?? []
+      })),
+      warnings: payload.warnings ?? []
+    };
+  },
+
+  delete: (skillId: string) =>
+    fetchJSON<SkillDefinition>(`${API_BASE}/skills/${encodeURIComponent(skillId)}`, {
+      method: "DELETE"
+    })
+};
+
+export const skillListApi = {
+  list: async (): Promise<{ items: SkillListDefinition[]; total: number }> => {
+    const data = await fetchJSON<{ items?: Record<string, unknown>[]; total?: number }>(`${API_BASE}/skill-lists`);
+    const items = (data.items ?? []).map(mapSkillListDefinition);
+    return { items, total: data.total ?? items.length };
+  },
+
+  create: async (data: {
+    list_id: string;
+    display_name?: string;
+    description?: string;
+    include_all?: boolean;
+    skill_ids?: string[];
+  }): Promise<SkillListDefinition> => {
+    const payload = await fetchJSON<Record<string, unknown>>(`${API_BASE}/skill-lists`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return mapSkillListDefinition(payload);
+  },
+
+  update: async (
+    listId: string,
+    data: {
+      display_name?: string;
+      description?: string | null;
+      include_all?: boolean;
+      skill_ids?: string[];
+    }
+  ): Promise<SkillListDefinition> => {
+    const payload = await fetchJSON<Record<string, unknown>>(`${API_BASE}/skill-lists/${encodeURIComponent(listId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
+    return mapSkillListDefinition(payload);
+  },
+
+  delete: (listId: string) =>
+    fetchJSON<SkillListDefinition>(`${API_BASE}/skill-lists/${encodeURIComponent(listId)}`, {
       method: "DELETE"
     })
 };
@@ -618,6 +752,7 @@ export const workflowApi = {
       role: string;
       session_id?: string;
       status?: "running" | "idle" | "blocked" | "dismissed";
+      provider_id?: "codex" | "trae" | "minimax";
       provider?: "codex" | "trae" | "minimax";
       provider_session_id?: string;
     }
@@ -753,8 +888,13 @@ export const orchestratorApi = {
 export const settingsApi = {
   get: () => fetchJSON<RuntimeSettings>(`${API_BASE}/settings`),
 
-  update: (data: Partial<RuntimeSettings>) =>
-    fetchJSON<{ success: boolean }>(`${API_BASE}/settings`, {
+  update: (
+    data: Omit<Partial<RuntimeSettings>, "minimaxApiKey" | "minimaxApiBase"> & {
+      minimaxApiKey?: string | null;
+      minimaxApiBase?: string | null;
+    }
+  ) =>
+    fetchJSON<RuntimeSettings>(`${API_BASE}/settings`, {
       method: "PATCH",
       body: JSON.stringify(data)
     })

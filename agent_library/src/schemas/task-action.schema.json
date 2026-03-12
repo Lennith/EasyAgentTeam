@@ -1,0 +1,51 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task-action.schema.json",
+  "title": "Task Action Payload",
+  "type": "object",
+  "required": ["actionType", "fromAgent", "fromSessionId"],
+  "properties": {
+    "actionType": {
+      "type": "string",
+      "enum": [
+        "TASK_CREATE",
+        "TASK_ASSIGN",
+        "TASK_UPDATE",
+        "TASK_REPORT",
+        "TASK_DISCUSS_REQUEST",
+        "TASK_DISCUSS_REPLY",
+        "TASK_DISCUSS_CLOSED"
+      ]
+    },
+    "fromAgent": { "type": "string", "minLength": 1 },
+    "fromSessionId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string" },
+    "toRole": { "type": "string" },
+    "toSessionId": { "type": "string" },
+    "content": { "type": "string" },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["taskId", "outcome"],
+        "properties": {
+          "taskId": { "type": "string" },
+          "outcome": {
+            "type": "string",
+            "enum": ["IN_PROGRESS", "BLOCKED_DEP", "MAY_BE_DONE", "DONE", "CANCELED"]
+          },
+          "summary": { "type": "string" },
+          "blockers": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "task": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

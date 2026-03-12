@@ -7,7 +7,7 @@
   "workflow_name": "E2E Gesture Workflow Run",
   "primary_goal": "帮我做一个安卓端的手势识别应用",
   "agent_model": {
-    "tool": "minimax",
+    "provider_id": "minimax",
     "model": "MiniMax-M2.5",
     "effort": "high"
   },

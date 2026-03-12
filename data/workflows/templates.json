@@ -1,5 +1,335 @@
 {
   "schemaVersion": "1.0",
-  "updatedAt": "2026-03-07T12:39:14.363Z",
-  "templates": []
+  "updatedAt": "2026-03-12T00:22:09.511Z",
+  "templates": [
+    {
+      "schemaVersion": "1.0",
+      "templateId": "e2e_skill_template",
+      "name": "Skill Import E2E",
+      "description": "E2E workflow for skill import validation",
+      "tasks": [
+        {
+          "taskId": "phase_skill_check",
+          "title": "Run skill check task",
+          "ownerRole": "skill_e2e_agent",
+          "acceptance": [
+            "Dispatch path resolves imported skill and runs once"
+          ],
+          "artifacts": [
+            "docs/e2e/skill-import-check.md"
+          ]
+        }
+      ],
+      "createdAt": "2026-03-11T12:39:31.257Z",
+      "updatedAt": "2026-03-11T12:39:31.257Z"
+    },
+    {
+      "schemaVersion": "1.0",
+      "templateId": "e2e_gesture_workflow_template_v1",
+      "name": "E2E Gesture Workflow Template",
+      "description": "High-level phases only. Real agent autonomous subtask creation.",
+      "tasks": [
+        {
+          "taskId": "wf_plan_master",
+          "title": "Plan Task: global plan, decomposition rules, and collaboration protocol",
+          "ownerRole": "e2e_mgr_rd_lead",
+          "acceptance": [
+            "Define global plan and milestones for Android gesture recognition app.",
+            "Define subtask creation standards (title/dependencies/acceptance/artifacts).",
+            "Define reporting and discuss protocol across roles."
+          ],
+          "artifacts": [
+            "docs/plan/00_master_plan.md"
+          ]
+        },
+        {
+          "taskId": "wf_product_definition",
+          "title": "Define product scope, target users, and MVP boundaries",
+          "ownerRole": "e2e_mgr_product_owner",
+          "dependencies": [
+            "wf_plan_master"
+          ],
+          "acceptance": [
+            "Clarify target users and key scenarios.",
+            "Define MVP features and out-of-scope items."
+          ],
+          "artifacts": [
+            "docs/product/01_product_scope.md"
+          ]
+        },
+        {
+          "taskId": "wf_interaction_design",
+          "title": "Produce interaction flow and key journey decisions",
+          "ownerRole": "e2e_mgr_interaction_designer",
+          "dependencies": [
+            "wf_product_definition"
+          ],
+          "acceptance": [
+            "Cover end-to-end interaction flow and state transitions.",
+            "Include gesture interaction feedback rules."
+          ],
+          "artifacts": [
+            "docs/ux/interaction/01_interaction_flow.md"
+          ]
+        },
+        {
+          "taskId": "wf_ui_design",
+          "title": "Produce UI specification and visual component constraints",
+          "ownerRole": "e2e_mgr_ui_designer",
+          "dependencies": [
+            "wf_interaction_design"
+          ],
+          "acceptance": [
+            "Define key screens and UI component rules.",
+            "Define accessibility and visual consistency baseline."
+          ],
+          "artifacts": [
+            "docs/ux/ui/01_ui_spec.md"
+          ]
+        },
+        {
+          "taskId": "wf_engineering_decomposition",
+          "title": "RD lead decomposes engineering plan and ownership",
+          "ownerRole": "e2e_mgr_rd_lead",
+          "dependencies": [
+            "wf_product_definition",
+            "wf_interaction_design",
+            "wf_ui_design"
+          ],
+          "acceptance": [
+            "Break down Android/ML/QA/Release work packages.",
+            "Include dependency order and integration checkpoints."
+          ],
+          "artifacts": [
+            "docs/engineering/01_dev_breakdown.md"
+          ]
+        },
+        {
+          "taskId": "wf_engineering_execution",
+          "title": "Execute Android implementation and integration contracts",
+          "ownerRole": "e2e_mgr_android_dev",
+          "dependencies": [
+            "wf_engineering_decomposition"
+          ],
+          "acceptance": [
+            "Deliver Android module structure and implementation notes.",
+            "Define integration contract for gesture pipeline."
+          ],
+          "artifacts": [
+            "app/android/README.md",
+            "app/integration/gesture_pipeline_contract.md"
+          ]
+        },
+        {
+          "taskId": "wf_quality_release",
+          "title": "Define quality validation and release runbook",
+          "ownerRole": "e2e_mgr_qa_engineer",
+          "dependencies": [
+            "wf_engineering_execution"
+          ],
+          "acceptance": [
+            "Define test strategy and key acceptance tests.",
+            "Define release steps and rollback strategy."
+          ],
+          "artifacts": [
+            "qa/01_test_plan.md",
+            "release/01_release_runbook.md"
+          ]
+        },
+        {
+          "taskId": "wf_final_delivery",
+          "title": "Prepare final delivery package for stakeholders",
+          "ownerRole": "e2e_mgr_product_owner",
+          "dependencies": [
+            "wf_quality_release"
+          ],
+          "acceptance": [
+            "Summarize final scope, quality status, and release readiness.",
+            "Provide final handoff package with clear next actions."
+          ],
+          "artifacts": [
+            "delivery/01_final_delivery_package.md"
+          ]
+        }
+      ],
+      "routeTable": {
+        "manager": [
+          "e2e_mgr_product_owner",
+          "e2e_mgr_biz_analyst",
+          "e2e_mgr_ux_researcher",
+          "e2e_mgr_interaction_designer",
+          "e2e_mgr_ui_designer",
+          "e2e_mgr_rd_lead",
+          "e2e_mgr_android_dev",
+          "e2e_mgr_ml_engineer",
+          "e2e_mgr_qa_engineer",
+          "e2e_mgr_devops_release"
+        ],
+        "e2e_mgr_product_owner": [
+          "e2e_mgr_biz_analyst",
+          "e2e_mgr_ux_researcher",
+          "e2e_mgr_rd_lead",
+          "e2e_mgr_qa_engineer",
+          "e2e_mgr_devops_release",
+          "manager"
+        ],
+        "e2e_mgr_biz_analyst": [
+          "e2e_mgr_product_owner",
+          "e2e_mgr_ux_researcher",
+          "e2e_mgr_rd_lead",
+          "manager"
+        ],
+        "e2e_mgr_ux_researcher": [
+          "e2e_mgr_biz_analyst",
+          "e2e_mgr_interaction_designer",
+          "e2e_mgr_ui_designer",
+          "e2e_mgr_rd_lead",
+          "manager"
+        ],
+        "e2e_mgr_interaction_designer": [
+          "e2e_mgr_ux_researcher",
+          "e2e_mgr_ui_designer",
+          "e2e_mgr_rd_lead",
+          "e2e_mgr_android_dev",
+          "manager"
+        ],
+        "e2e_mgr_ui_designer": [
+          "e2e_mgr_interaction_designer",
+          "e2e_mgr_rd_lead",
+          "e2e_mgr_android_dev",
+          "manager"
+        ],
+        "e2e_mgr_rd_lead": [
+          "e2e_mgr_product_owner",
+          "e2e_mgr_biz_analyst",
+          "e2e_mgr_ux_researcher",
+          "e2e_mgr_interaction_designer",
+          "e2e_mgr_ui_designer",
+          "e2e_mgr_android_dev",
+          "e2e_mgr_ml_engineer",
+          "e2e_mgr_qa_engineer",
+          "e2e_mgr_devops_release",
+          "manager"
+        ],
+        "e2e_mgr_android_dev": [
+          "e2e_mgr_rd_lead",
+          "e2e_mgr_ml_engineer",
+          "e2e_mgr_qa_engineer",
+          "e2e_mgr_ui_designer",
+          "manager"
+        ],
+        "e2e_mgr_ml_engineer": [
+          "e2e_mgr_rd_lead",
+          "e2e_mgr_android_dev",
+          "e2e_mgr_qa_engineer",
+          "manager"
+        ],
+        "e2e_mgr_qa_engineer": [
+          "e2e_mgr_rd_lead",
+          "e2e_mgr_android_dev",
+          "e2e_mgr_ml_engineer",
+          "e2e_mgr_devops_release",
+          "e2e_mgr_product_owner",
+          "manager"
+        ],
+        "e2e_mgr_devops_release": [
+          "e2e_mgr_rd_lead",
+          "e2e_mgr_qa_engineer",
+          "e2e_mgr_product_owner",
+          "manager"
+        ]
+      },
+      "taskAssignRouteTable": {
+        "e2e_mgr_rd_lead": [
+          "e2e_mgr_android_dev",
+          "e2e_mgr_ml_engineer",
+          "e2e_mgr_qa_engineer",
+          "e2e_mgr_devops_release"
+        ],
+        "e2e_mgr_product_owner": [
+          "e2e_mgr_biz_analyst",
+          "e2e_mgr_ux_researcher",
+          "e2e_mgr_rd_lead"
+        ],
+        "e2e_mgr_ux_researcher": [
+          "e2e_mgr_interaction_designer",
+          "e2e_mgr_ui_designer"
+        ],
+        "e2e_mgr_biz_analyst": [],
+        "e2e_mgr_interaction_designer": [],
+        "e2e_mgr_ui_designer": [],
+        "e2e_mgr_android_dev": [],
+        "e2e_mgr_ml_engineer": [],
+        "e2e_mgr_qa_engineer": [],
+        "e2e_mgr_devops_release": []
+      },
+      "routeDiscussRounds": {
+        "e2e_mgr_product_owner": {
+          "e2e_mgr_biz_analyst": 3,
+          "e2e_mgr_ux_researcher": 3,
+          "e2e_mgr_rd_lead": 4,
+          "e2e_mgr_qa_engineer": 2,
+          "e2e_mgr_devops_release": 2
+        },
+        "e2e_mgr_biz_analyst": {
+          "e2e_mgr_product_owner": 3,
+          "e2e_mgr_ux_researcher": 3,
+          "e2e_mgr_rd_lead": 3
+        },
+        "e2e_mgr_ux_researcher": {
+          "e2e_mgr_biz_analyst": 3,
+          "e2e_mgr_interaction_designer": 3,
+          "e2e_mgr_ui_designer": 3,
+          "e2e_mgr_rd_lead": 3
+        },
+        "e2e_mgr_interaction_designer": {
+          "e2e_mgr_ux_researcher": 3,
+          "e2e_mgr_ui_designer": 3,
+          "e2e_mgr_rd_lead": 3,
+          "e2e_mgr_android_dev": 2
+        },
+        "e2e_mgr_ui_designer": {
+          "e2e_mgr_interaction_designer": 3,
+          "e2e_mgr_rd_lead": 3,
+          "e2e_mgr_android_dev": 2
+        },
+        "e2e_mgr_rd_lead": {
+          "e2e_mgr_product_owner": 4,
+          "e2e_mgr_biz_analyst": 3,
+          "e2e_mgr_ux_researcher": 3,
+          "e2e_mgr_interaction_designer": 3,
+          "e2e_mgr_ui_designer": 3,
+          "e2e_mgr_android_dev": 4,
+          "e2e_mgr_ml_engineer": 3,
+          "e2e_mgr_qa_engineer": 3,
+          "e2e_mgr_devops_release": 2
+        },
+        "e2e_mgr_android_dev": {
+          "e2e_mgr_rd_lead": 4,
+          "e2e_mgr_ml_engineer": 3,
+          "e2e_mgr_qa_engineer": 3,
+          "e2e_mgr_ui_designer": 2
+        },
+        "e2e_mgr_ml_engineer": {
+          "e2e_mgr_rd_lead": 3,
+          "e2e_mgr_android_dev": 3,
+          "e2e_mgr_qa_engineer": 3
+        },
+        "e2e_mgr_qa_engineer": {
+          "e2e_mgr_rd_lead": 3,
+          "e2e_mgr_android_dev": 3,
+          "e2e_mgr_ml_engineer": 3,
+          "e2e_mgr_devops_release": 2,
+          "e2e_mgr_product_owner": 2
+        },
+        "e2e_mgr_devops_release": {
+          "e2e_mgr_rd_lead": 2,
+          "e2e_mgr_qa_engineer": 2,
+          "e2e_mgr_product_owner": 2
+        }
+      },
+      "createdAt": "2026-03-12T00:22:09.511Z",
+      "updatedAt": "2026-03-12T00:22:09.511Z"
+    }
+  ]
 }

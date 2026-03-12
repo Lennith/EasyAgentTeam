@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import type { ProviderId } from "@autodev/agent-library";
 import type {
   WorkflowManagerToAgentMessage,
   WorkflowRunEventRecord,
@@ -179,7 +180,7 @@ export async function upsertWorkflowSession(
     sessionId: string;
     role: string;
     status?: string;
-    provider?: "codex" | "trae" | "minimax";
+    provider?: ProviderId;
     providerSessionId?: string;
     timeoutStreak?: number;
     errorStreak?: number;
@@ -230,7 +231,7 @@ export async function upsertWorkflowSession(
       runId,
       role,
       status: normalizeSessionStatus(input.status),
-      provider: input.provider ?? "codex",
+      provider: input.provider ?? "minimax",
       providerSessionId: input.providerSessionId?.trim() || undefined,
       timeoutStreak: input.timeoutStreak,
       errorStreak: input.errorStreak,
@@ -262,7 +263,7 @@ export async function touchWorkflowSession(
     lastDispatchId?: string | null;
     lastDispatchedMessageId?: string | null;
     providerSessionId?: string | null;
-    provider?: "codex" | "trae" | "minimax" | null;
+    provider?: ProviderId | null;
     timeoutStreak?: number | null;
     errorStreak?: number | null;
     lastFailureAt?: string | null;

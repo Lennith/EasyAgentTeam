@@ -198,23 +198,28 @@ export async function handleManagerMessageSend(
     resolvedSessionId = await resolveUsableSessionIdByRole(dataRoot, project, paths, resolvedToRole);
   }
   if (!resolvedSessionId && resolvedToRole) {
-    const configuredTool = project.agentModelConfigs?.[resolvedToRole]?.tool;
-    if (configuredTool && configuredTool !== "codex" && configuredTool !== "trae" && configuredTool !== "minimax") {
+    const configuredProviderId = project.agentModelConfigs?.[resolvedToRole]?.provider_id;
+    if (
+      configuredProviderId &&
+      configuredProviderId !== "codex" &&
+      configuredProviderId !== "trae" &&
+      configuredProviderId !== "minimax"
+    ) {
       throw new ManagerMessageServiceError(
         409,
         "SESSION_PROVIDER_NOT_SUPPORTED",
-        `role '${resolvedToRole}' is configured with unsupported tool '${configuredTool}'`,
+        `role '${resolvedToRole}' is configured with unsupported provider '${configuredProviderId}'`,
         "Only codex, trae, and minimax providers are supported for session startup."
       );
     }
     resolvedSessionId = buildSessionId(resolvedToRole);
-    const resolvedAgentTool = project.agentModelConfigs?.[resolvedToRole]?.tool ?? "codex";
+    const resolvedProviderId = project.agentModelConfigs?.[resolvedToRole]?.provider_id ?? "minimax";
     await addSession(paths, project.projectId, {
       sessionId: resolvedSessionId,
       role: resolvedToRole,
       status: "idle",
       providerSessionId: undefined,
-      provider: resolvedAgentTool as "codex" | "trae" | "minimax"
+      provider: resolvedProviderId
     });
     const mappingError = validateRoleSessionMapWrite(resolvedToRole, resolvedSessionId);
     if (!mappingError) {

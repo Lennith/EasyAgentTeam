@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
-import type { AgentDefinition, AgentTemplateDefinition } from "@/types";
-import { agentApi, templateApi } from "@/services/api";
+import type { AgentDefinition, AgentTemplateDefinition, SkillListDefinition } from "@/types";
+import { agentApi, templateApi, skillListApi } from "@/services/api";
 import * as mockData from "@/mock/data";
 import { Plus, Save, Trash2, Loader, Edit, Copy, Cpu } from "lucide-react";
 
@@ -18,11 +18,14 @@ export function AgentRegistryView() {
   const { settings } = useSettings();
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [templates, setTemplates] = useState<AgentTemplateDefinition[]>([]);
+  const [skillLists, setSkillLists] = useState<SkillListDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDisplayName, setEditDisplayName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
+  const [editSummary, setEditSummary] = useState("");
+  const [editSkillList, setEditSkillList] = useState<string[]>([]);
   const [editDefaultCliTool, setEditDefaultCliTool] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
@@ -30,8 +33,15 @@ export function AgentRegistryView() {
   const [newAgentId, setNewAgentId] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
   const [newPrompt, setNewPrompt] = useState("");
+  const [newSummary, setNewSummary] = useState("");
+  const [newSkillList, setNewSkillList] = useState<string[]>([]);
   const [newDefaultCliTool, setNewDefaultCliTool] = useState<string>("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+
+  const readSelectedValues = (select: HTMLSelectElement): string[] =>
+    Array.from(select.selectedOptions)
+      .map((option) => option.value)
+      .filter((value, index, list) => value.length > 0 && list.indexOf(value) === index);
 
   useEffect(() => {
     let closed = false;
@@ -39,6 +49,7 @@ export function AgentRegistryView() {
       if (settings.useMockData) {
         if (!closed) {
           setAgents(mockData.mockAgents);
+          setSkillLists(mockData.mockSkillLists);
           setTemplates([
             ...(mockData.mockAgentTemplates.builtInItems ?? []),
             ...(mockData.mockAgentTemplates.customItems ?? [])
@@ -50,9 +61,14 @@ export function AgentRegistryView() {
       }
 
       try {
-        const [agentData, templateData] = await Promise.all([agentApi.list(), templateApi.list()]);
+        const [agentData, templateData, skillListData] = await Promise.all([
+          agentApi.list(),
+          templateApi.list(),
+          skillListApi.list()
+        ]);
         if (!closed) {
           setAgents(agentData.items ?? []);
+          setSkillLists(skillListData.items ?? []);
           setTemplates([...(templateData.builtInItems ?? []), ...(templateData.customItems ?? [])]);
           setError(null);
         }
@@ -74,6 +90,8 @@ export function AgentRegistryView() {
     setEditingId(agent.agentId);
     setEditDisplayName(agent.displayName);
     setEditPrompt(agent.prompt);
+    setEditSummary(agent.summary ?? "");
+    setEditSkillList(agent.skillList ?? []);
     setEditDefaultCliTool(agent.defaultCliTool ?? "");
   };
 
@@ -81,6 +99,8 @@ export function AgentRegistryView() {
     setEditingId(null);
     setEditDisplayName("");
     setEditPrompt("");
+    setEditSummary("");
+    setEditSkillList([]);
     setEditDefaultCliTool("");
   };
 
@@ -93,6 +113,8 @@ export function AgentRegistryView() {
                 ...a,
                 displayName: editDisplayName,
                 prompt: editPrompt,
+                summary: editSummary.trim() || undefined,
+                skillList: editSkillList,
                 defaultCliTool: (editDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
               }
             : a
@@ -107,7 +129,9 @@ export function AgentRegistryView() {
       await agentApi.update(agentId, {
         display_name: editDisplayName,
         prompt: editPrompt,
-        default_cli_tool: (editDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
+        summary: editSummary.trim() || null,
+        skill_list: editSkillList,
+        provider_id: (editDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
       });
       setAgents(
         agents.map((a) =>
@@ -116,6 +140,8 @@ export function AgentRegistryView() {
                 ...a,
                 displayName: editDisplayName,
                 prompt: editPrompt,
+                summary: editSummary.trim() || undefined,
+                skillList: editSkillList,
                 defaultCliTool: (editDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
               }
             : a
@@ -151,6 +177,8 @@ export function AgentRegistryView() {
         agentId: newAgentId,
         displayName: newDisplayName,
         prompt: newPrompt,
+        summary: newSummary.trim() || undefined,
+        skillList: newSkillList,
         updatedAt: new Date().toISOString(),
         defaultCliTool: (newDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
       };
@@ -159,6 +187,8 @@ export function AgentRegistryView() {
       setNewAgentId("");
       setNewDisplayName("");
       setNewPrompt("");
+      setNewSummary("");
+      setNewSkillList([]);
       setNewDefaultCliTool("");
       setSelectedTemplateId("");
       return;
@@ -170,7 +200,9 @@ export function AgentRegistryView() {
         agent_id: newAgentId,
         display_name: newDisplayName,
         prompt: newPrompt,
-        default_cli_tool: (newDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
+        summary: newSummary.trim() || undefined,
+        skill_list: newSkillList,
+        provider_id: (newDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
       });
       const data = await agentApi.list();
       setAgents(data.items ?? []);
@@ -178,6 +210,8 @@ export function AgentRegistryView() {
       setNewAgentId("");
       setNewDisplayName("");
       setNewPrompt("");
+      setNewSummary("");
+      setNewSkillList([]);
       setNewDefaultCliTool("");
       setSelectedTemplateId("");
     } catch (err) {
@@ -200,6 +234,8 @@ export function AgentRegistryView() {
   const copyFromAgent = (agent: AgentDefinition) => {
     setNewPrompt(agent.prompt);
     setNewDisplayName(agent.displayName + " (Copy)");
+    setNewSummary(agent.summary ?? "");
+    setNewSkillList(agent.skillList ?? []);
   };
 
   if (loading) {
@@ -298,6 +334,30 @@ export function AgentRegistryView() {
             />
           </div>
           <div className="form-group">
+            <label>{t.taskSummary}</label>
+            <textarea
+              value={newSummary}
+              onChange={(e) => setNewSummary(e.target.value)}
+              style={{ minHeight: "90px" }}
+              placeholder="Short role summary shown in TEAM.md"
+            />
+          </div>
+          <div className="form-group">
+            <label>Skill Lists</label>
+            <select
+              multiple
+              value={newSkillList}
+              onChange={(e) => setNewSkillList(readSelectedValues(e.target))}
+              style={{ minHeight: "100px" }}
+            >
+              {skillLists.map((list) => (
+                <option key={list.listId} value={list.listId}>
+                  {list.displayName} ({list.listId})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
             <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <Cpu size={14} />
               Default CLI Tool
@@ -329,6 +389,9 @@ export function AgentRegistryView() {
                 setNewAgentId("");
                 setNewDisplayName("");
                 setNewPrompt("");
+                setNewSummary("");
+                setNewSkillList([]);
+                setNewDefaultCliTool("");
                 setSelectedTemplateId("");
               }}
             >
@@ -364,6 +427,29 @@ export function AgentRegistryView() {
                     onChange={(e) => setEditPrompt(e.target.value)}
                     style={{ minHeight: "150px" }}
                   />
+                </div>
+                <div className="form-group">
+                  <label>{t.taskSummary}</label>
+                  <textarea
+                    value={editSummary}
+                    onChange={(e) => setEditSummary(e.target.value)}
+                    style={{ minHeight: "90px" }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Skill Lists</label>
+                  <select
+                    multiple
+                    value={editSkillList}
+                    onChange={(e) => setEditSkillList(readSelectedValues(e.target))}
+                    style={{ minHeight: "100px" }}
+                  >
+                    {skillLists.map((list) => (
+                      <option key={list.listId} value={list.listId}>
+                        {list.displayName} ({list.listId})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="form-group">
                   <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -432,6 +518,20 @@ export function AgentRegistryView() {
                 >
                   {agent.prompt}
                 </pre>
+                {agent.summary && (
+                  <div style={{ marginTop: "8px", fontSize: "13px", color: "var(--text-muted)" }}>{agent.summary}</div>
+                )}
+                <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {(agent.skillList ?? []).length === 0 ? (
+                    <span className="badge badge-neutral">No Skill Lists</span>
+                  ) : (
+                    (agent.skillList ?? []).map((listId) => (
+                      <span key={listId} className="badge badge-neutral">
+                        {listId}
+                      </span>
+                    ))
+                  )}
+                </div>
                 <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--text-muted)" }}>
                   {t.updatedAt}: {new Date(agent.updatedAt).toLocaleString()}
                 </div>
