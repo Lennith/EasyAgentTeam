@@ -59,6 +59,88 @@ $roleByRef = @{
 $workspace = $WorkspaceRoot
 $artifactsBase = Join-Path $workspace "docs\e2e"
 $strictMode = $StrictObserve.IsPresent
+$scriptRunStart = Get-Date
+$script:stabilityFallbackEvents = @()
+$script:stabilityOutDir = $null
+$script:stabilityCaseId = "chain"
+$finalReason = "not_started"
+$pass = $false
+$analysisExit = 1
+
+function Add-StabilityFallbackEvent {
+  param(
+    [string]$Type,
+    [string]$Detail
+  )
+  $script:stabilityFallbackEvents += [pscustomobject]@{
+    type = $Type
+    timestamp = (Get-Date).ToString("o")
+    detail = $Detail
+  }
+}
+
+function Write-StabilityMetrics {
+  param(
+    [string]$OutDir,
+    [string]$CaseId,
+    [datetime]$StartTime,
+    [bool]$FinalPass,
+    [string]$FinalReason,
+    [int]$ExitCode
+  )
+
+  Ensure-Dir -Path $OutDir
+  $eventsPath = Join-Path $OutDir "events.ndjson"
+  $toolFailedTs = @()
+  if (Test-Path -LiteralPath $eventsPath) {
+    foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
+      $trimmed = $line.Trim()
+      if (-not $trimmed) { continue }
+      try {
+        $evt = $trimmed | ConvertFrom-Json
+        $etype = [string]$evt.eventType
+        if ($etype -eq "TEAM_TOOL_FAILED" -or $etype -eq "TOOL_CALL_FAILED" -or $etype -eq "TOOLCALL_FAILED") {
+          $toolFailedTs += [string]$evt.createdAt
+        }
+      } catch {}
+    }
+  }
+
+  $timeoutRecoveredTs = @()
+  if ($FinalPass) {
+    $timeoutRecoveredTs = @($script:stabilityFallbackEvents | ForEach-Object { [string]$_.timestamp })
+  }
+
+  $metrics = [ordered]@{
+    case_id = $CaseId
+    start_time = $StartTime.ToString("o")
+    end_time = (Get-Date).ToString("o")
+    exit_code = $ExitCode
+    final_pass = $FinalPass
+    final_reason = [string]$FinalReason
+    toolcall_failed_count = @($toolFailedTs).Count
+    toolcall_failed_timestamps = @($toolFailedTs)
+    timeout_recovered_count = @($timeoutRecoveredTs).Count
+    timeout_recovered_timestamps = @($timeoutRecoveredTs)
+    fallback_events = @($script:stabilityFallbackEvents)
+  }
+  ($metrics | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath (Join-Path $OutDir "stability_metrics.json") -Encoding UTF8
+  return [pscustomobject]$metrics
+}
+
+trap {
+  $trapOutDir = $script:stabilityOutDir
+  if ([string]::IsNullOrWhiteSpace($trapOutDir)) {
+    $stampTrap = Get-Date -Format "yyyyMMdd_HHmmss"
+    $trapOutDir = Join-Path $artifactsBase "$stampTrap-failed"
+    $script:stabilityOutDir = $trapOutDir
+  }
+  $finalReason = "script_exception"
+  $pass = $false
+  $analysisExit = 1
+  Write-StabilityMetrics -OutDir $trapOutDir -CaseId $script:stabilityCaseId -StartTime $scriptRunStart -FinalPass $false -FinalReason $finalReason -ExitCode 2
+  exit 2
+}
 
 function Build-AgentPrompt {
   param([string]$Role)
@@ -438,7 +520,9 @@ if ($SetupOnly) {
         if (-not $sessionToken -or -not $s.lastActiveAt) { continue }
         $last = [datetime]::Parse($s.lastActiveAt)
         if (((Get-Date).ToUniversalTime() - $last.ToUniversalTime()).TotalMinutes -gt 15) {
+          Add-StabilityFallbackEvent -Type "repair" -Detail ("role={0} session={1}" -f [string]$s.role, [string]$sessionToken)
           Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/sessions/$sessionToken/repair" -Body @{ target_status = "idle" } -AllowStatus @(200, 404, 409) | Out-Null
+          Add-StabilityFallbackEvent -Type "dispatch_nudge" -Detail ("reason=repair role={0}" -f [string]$s.role)
           Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $s.role; force = $false; only_idle = $false } -AllowStatus @(200) | Out-Null
         }
       }
@@ -473,11 +557,13 @@ if ($SetupOnly) {
         total_budget_granted = $totalBudgetGranted
       }
       $topupLog += $entry
+      Add-StabilityFallbackEvent -Type "topup" -Detail ("remaining={0}-> {1}" -f $remaining, $newRemaining)
       Write-Host ("topup applied: count={0} new_remaining={1} total_budget_granted={2}" -f $topupCount, $newRemaining, $totalBudgetGranted)
       Start-Sleep -Seconds $PollSeconds
       continue
     }
     if ((-not $strictMode) -and $openExec.Count -gt 0 -and $noRunningStreak -ge 3) {
+      Add-StabilityFallbackEvent -Type "dispatch_nudge" -Detail ("reason=idle_streak streak={0}" -f $noRunningStreak)
       Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ force = $false; only_idle = $false } -AllowStatus @(200) | Out-Null
       Write-Host ("dispatch nudge applied after idle streak={0}" -f $noRunningStreak)
       $noRunningStreak = 0
@@ -496,6 +582,7 @@ if ($SetupOnly) {
 Write-Host "== Export logs and analyze =="
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $outDir = Join-Path $artifactsBase $stamp
+$script:stabilityOutDir = $outDir
 Ensure-Dir -Path $outDir
 
 & (Join-Path $scriptDir "export-core-logs.ps1") -BaseUrl $BaseUrl -ProjectId $projectId -OutDir $outDir
@@ -539,6 +626,7 @@ $finalRemaining = [int]$finalSettings.body.auto_dispatch_remaining
 $consumed = $totalBudgetGranted - $finalRemaining
 $runningCount = @($finalSessions.body.items | Where-Object { $_.status -eq "running" }).Count
 $openExecCount = @(@($finalTree.body.nodes) | Where-Object { $_.task_kind -eq "EXECUTION" -and @("DONE", "BLOCKED_DEP", "CANCELED") -notcontains $_.state }).Count
+$stabilityMetrics = Write-StabilityMetrics -OutDir $outDir -CaseId $script:stabilityCaseId -StartTime $start -FinalPass $pass -FinalReason $finalReason -ExitCode $(if ($pass -and $analysisExit -eq 0) { 0 } else { 2 })
 
 $summary = @()
 $summary += "# E2E Standard Run Summary"
@@ -561,6 +649,8 @@ $summary += "- auto_dispatch_topup_step: $AutoTopupStep"
 $summary += "- auto_dispatch_topup_count: $topupCount"
 $summary += "- auto_dispatch_topup_max: $MaxTopups"
 $summary += "- auto_dispatch_total_budget_max: $MaxTotalBudget"
+$summary += "- toolcall_failed_count: $($stabilityMetrics.toolcall_failed_count)"
+$summary += "- timeout_recovered_count: $($stabilityMetrics.timeout_recovered_count)"
 $summary += "- running_sessions_final: $runningCount"
 $summary += "- open_execution_tasks_final: $openExecCount"
 $summary += "- artifacts_dir: $outDir"

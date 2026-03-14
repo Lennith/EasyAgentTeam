@@ -55,6 +55,44 @@ pnpm --filter @autodev/server run test -- --test-name-pattern "task report"
 - Prefer adding/adjusting tests with backend behavior changes.
 - Do not commit runtime data/log artifacts under `data/projects/**`, `.minimax/**`, `.trae/**`.
 
+## Release Gate (上线检测)
+
+This is a process control rule in this repository. It is not a product code feature.
+
+- Trigger: release gate starts only when the prompt explicitly asks for `上线检测`.
+- Execution order (mandatory):
+  - Step 1: Run full unit test regression first (`pnpm test` from repo root).
+  - Step 2: Run full E2E regression only if Step 1 passes (aggregate baseline runner: `PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1`).
+- Pass criteria (all required):
+  - Step 1 passed (full unit tests).
+  - Step 2 passed (full E2E).
+  - No unresolved blocking issue in the release conclusion.
+- Push constraint:
+  - Final push to GitHub is not allowed before release gate passes.
+
+### Release QA Report Rule
+
+- Write report only for versions that passed release gate.
+- Report path and filename:
+  - `docs/release_qa_report_YYYYMMDD.md`
+- Same-day behavior:
+  - If multiple release-gate runs happen on the same day, append each run result in time order to the same file.
+  - Do not create a second same-day release QA report file.
+- Non-release or failed release-gate runs:
+  - Do not create this report file.
+
+### Minimum Report Content
+
+Each appended run entry must include:
+
+- Check time
+- Target branch and commit information
+- Unit test command and result
+- Full E2E command and result
+- Blocker check conclusion
+- Final decision (`PASS` or `FAIL`)
+- Evidence paths (key logs and artifact paths)
+
 ## E2E Design Rules
 
 - E2E exists to cover primary product scenarios and their critical acceptance paths, not isolated internal mechanisms.

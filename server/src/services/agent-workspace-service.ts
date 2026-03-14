@@ -9,6 +9,7 @@ const AGENTS_DIR = "Agents";
 const WORKSPACE_TEMPLATE_DIR = path.join("TeamTools", "templates", "agent-workspace");
 const TEAM_TEMPLATE_FILE = path.join(WORKSPACE_TEMPLATE_DIR, "TEAM.md");
 const AGENT_GUIDE_TEMPLATE_FILE = path.join(WORKSPACE_TEMPLATE_DIR, "agent.AGENTS.md");
+const ROOT_AGENTS_TEMPLATE_FILE = path.join(WORKSPACE_TEMPLATE_DIR, "root.AGENTS.md");
 const ROLE_TEMPLATE_FILE = path.join(WORKSPACE_TEMPLATE_DIR, "agent.role.md");
 const PROGRESS_TEMPLATE_FILE = path.join(WORKSPACE_TEMPLATE_DIR, "agent.progress.md");
 
@@ -350,6 +351,31 @@ function buildAgentWorkspaceReadme(role: string): string {
   ].join("\n");
 }
 
+function buildWorkspaceRootAgentsMd(agentIds: string[]): string {
+  const orderedAgents = [...agentIds].sort((a, b) => a.localeCompare(b));
+  const roleLines =
+    orderedAgents.length > 0
+      ? orderedAgents.map((role) => `- \`./Agents/${role}/AGENTS.md\``)
+      : ["- (roles will be created under `./Agents/<role>/AGENTS.md`)"];
+  return [
+    "# TeamWorkSpace AGENTS Guide",
+    "",
+    "This file exists for bootstrap compatibility: some sessions read `./AGENTS.md` on startup.",
+    "",
+    "## Startup",
+    "1. If your role is known, read `./Agents/<your_role>/AGENTS.md` for runtime ToolCall rules.",
+    "2. Read `./Agents/<your_role>/role.md` for role objective and boundaries.",
+    "3. Read `./Agents/TEAM.md` for team roster and ownership.",
+    "",
+    "## Shared Output Paths",
+    "- Docs/plans/reports: `./docs/**`",
+    "- Implementation code: `./src/**`",
+    "",
+    "## Role Workspaces",
+    ...roleLines
+  ].join("\n");
+}
+
 async function upsertManagedFile(
   workspacePath: string,
   spec: AgentFileSpec,
@@ -437,11 +463,24 @@ export async function ensureAgentWorkspaces(
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
   const agentIds = Array.from(new Set(mergedAgentIds));
-  const [agentGuideTemplate, roleTemplate, progressTemplate] = await Promise.all([
+  const [agentGuideTemplate, rootAgentsTemplate, roleTemplate, progressTemplate] = await Promise.all([
     readOptionalTemplate(project.workspacePath, AGENT_GUIDE_TEMPLATE_FILE),
+    readOptionalTemplate(project.workspacePath, ROOT_AGENTS_TEMPLATE_FILE),
     readOptionalTemplate(project.workspacePath, ROLE_TEMPLATE_FILE),
     readOptionalTemplate(project.workspacePath, PROGRESS_TEMPLATE_FILE)
   ]);
+  const rootAgentsSpec: AgentFileSpec = {
+    relativePath: "AGENTS.md",
+    overwriteExisting: false,
+    content:
+      rootAgentsTemplate && rootAgentsTemplate.length > 0
+        ? renderTemplate(rootAgentsTemplate, {
+            ROLE_GUIDE_LIST: agentIds.map((role) => `./Agents/${role}/AGENTS.md`).join("\n")
+          })
+        : buildWorkspaceRootAgentsMd(agentIds)
+  };
+  await upsertManagedFile(project.workspacePath, rootAgentsSpec, result);
+
   for (const role of agentIds) {
     const agentDir = path.join(AGENTS_DIR, role);
     const rolePrompt = agentPrompts.get(role) ?? "";

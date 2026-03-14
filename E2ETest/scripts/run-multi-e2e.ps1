@@ -76,6 +76,8 @@ $strictMode = $StrictObserve.IsPresent -or (-not $LegacyMode.IsPresent)
 Write-Host ("strict_observe={0}" -f $strictMode)
 
 $jobs = @()
+$caseArtifacts = @{}
+$caseExitCodes = @{}
 foreach ($caseId in $selected) {
   $cfg = $caseMap[$caseId]
   $scriptPath = [string]$cfg.script
@@ -144,9 +146,13 @@ $failed = @()
 foreach ($job in $jobs) {
   Wait-Job -Id $job.Id | Out-Null
   $output = @(Receive-Job -Id $job.Id)
+  $exitCode = 0
   if ($output) {
     foreach ($line in @($output)) {
       Write-Host ("[{0}] {1}" -f $job.Name, $line)
+      if ($line -is [string] -and $line -like "artifacts=*") {
+        $caseArtifacts[$job.Name] = ($line -replace "^artifacts=", "").Trim()
+      }
     }
   }
   if ($job.State -ne "Completed") {
@@ -161,9 +167,12 @@ foreach ($job in $jobs) {
   }
   $exitCodeObj = $output | Where-Object { $_ -and $_.PSObject.Properties.Match("exitCode").Count -gt 0 } | Select-Object -Last 1
   if ($exitCodeObj -and [int]$exitCodeObj.exitCode -ne 0) {
+    $exitCode = [int]$exitCodeObj.exitCode
+    $caseExitCodes[$job.Name] = $exitCode
     $failed += $job.Name
     Write-Host ("[failed] case={0} exitCode={1}" -f $job.Name, [int]$exitCodeObj.exitCode)
   } else {
+    $caseExitCodes[$job.Name] = 0
     Write-Host ("[done] case={0}" -f $job.Name)
   }
 }
@@ -171,6 +180,84 @@ foreach ($job in $jobs) {
 foreach ($job in $jobs) {
   Remove-Job -Id $job.Id -Force -ErrorAction SilentlyContinue
 }
+
+function Build-PlaceholderMetrics {
+  param(
+    [string]$CaseId,
+    [int]$ExitCode
+  )
+  return [ordered]@{
+    case_id = $CaseId
+    start_time = ""
+    end_time = (Get-Date).ToString("o")
+    exit_code = $ExitCode
+    final_pass = $false
+    final_reason = "metrics_missing"
+    toolcall_failed_count = 0
+    toolcall_failed_timestamps = @()
+    timeout_recovered_count = 0
+    timeout_recovered_timestamps = @()
+    fallback_events = @()
+    metrics_missing = $true
+  }
+}
+
+$aggregateItems = @()
+$totalsToolFail = 0
+$totalsTimeoutRecovered = 0
+foreach ($caseId in $selected) {
+  $metricsObj = $null
+  $artifactDir = if ($caseArtifacts.ContainsKey($caseId)) { [string]$caseArtifacts[$caseId] } else { "" }
+  $metricsPath = if (-not [string]::IsNullOrWhiteSpace($artifactDir)) { Join-Path $artifactDir "stability_metrics.json" } else { "" }
+  if (-not [string]::IsNullOrWhiteSpace($metricsPath) -and (Test-Path -LiteralPath $metricsPath)) {
+    try {
+      $metricsObj = Get-Content -LiteralPath $metricsPath -Raw | ConvertFrom-Json
+      $metricsObj | Add-Member -NotePropertyName metrics_missing -NotePropertyValue $false -Force
+      $metricsObj | Add-Member -NotePropertyName artifacts_dir -NotePropertyValue $artifactDir -Force
+    } catch {
+      $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.ContainsKey($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
+      $metricsObj.artifacts_dir = $artifactDir
+    }
+  } else {
+    $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.ContainsKey($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
+    $metricsObj.artifacts_dir = $artifactDir
+  }
+
+  $totalsToolFail += [int]$metricsObj.toolcall_failed_count
+  $totalsTimeoutRecovered += [int]$metricsObj.timeout_recovered_count
+  $aggregateItems += $metricsObj
+}
+
+$multiStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$multiOutDir = Join-Path $repoRoot "docs\e2e\multi\$multiStamp"
+[System.IO.Directory]::CreateDirectory($multiOutDir) | Out-Null
+$aggregateJson = [ordered]@{
+  generated_at = (Get-Date).ToString("o")
+  base_url = $BaseUrl
+  selected_cases = $selected
+  totals = @{
+    toolcall_failed_count = $totalsToolFail
+    timeout_recovered_count = $totalsTimeoutRecovered
+  }
+  cases = $aggregateItems
+}
+($aggregateJson | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath (Join-Path $multiOutDir "stability_metrics_all.json") -Encoding UTF8
+
+$md = @()
+$md += "# Multi E2E Stability Metrics"
+$md += ""
+$md += "- generated_at: $((Get-Date).ToString("o"))"
+$md += "- selected_cases: $($selected -join ",")"
+$md += "- total_toolcall_failed_count: $totalsToolFail"
+$md += "- total_timeout_recovered_count: $totalsTimeoutRecovered"
+$md += ""
+$md += "## Cases"
+$md += ""
+foreach ($item in $aggregateItems) {
+  $md += "- case=$($item.case_id) pass=$($item.final_pass) exit_code=$($item.exit_code) toolcall_failed=$($item.toolcall_failed_count) timeout_recovered=$($item.timeout_recovered_count) metrics_missing=$($item.metrics_missing) artifacts_dir=$($item.artifacts_dir)"
+}
+[System.IO.File]::WriteAllLines((Join-Path $multiOutDir "stability_metrics_all.md"), $md, [System.Text.UTF8Encoding]::new($false))
+Write-Host ("multi_stability_metrics_dir={0}" -f $multiOutDir)
 
 if ($failed.Count -gt 0) {
   Write-Host ("== Multi E2E Failed: {0} ==" -f ($failed -join ","))

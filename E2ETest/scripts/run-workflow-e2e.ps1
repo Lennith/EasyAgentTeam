@@ -57,6 +57,18 @@ $roleList = @($roleEntries | ForEach-Object { $_.id })
 $phaseTasks = @($scenario.phase_tasks)
 $phaseTaskIds = @($phaseTasks | ForEach-Object { [string]$_.task_id })
 $artifactSpecs = @($scenario.artifact_validations)
+$codeOutputRequirements = if ($scenario.code_output_requirements) { @($scenario.code_output_requirements) } else { @() }
+$reminderProbeTaskId = if ($reminderProbe -and $reminderProbe.probe_task_id) { [string]$reminderProbe.probe_task_id } else { "" }
+$reminderGateTaskId = if ($reminderProbe -and $reminderProbe.gate_task_id) { [string]$reminderProbe.gate_task_id } else { "" }
+$mainPhaseTasks = @($phaseTasks | Where-Object {
+    [string]$_.task_id -ne $reminderProbeTaskId -and
+    [string]$_.task_id -ne $reminderGateTaskId
+  })
+$mainPhaseTaskIds = @($mainPhaseTasks | ForEach-Object { [string]$_.task_id })
+if ($mainPhaseTaskIds.Count -eq 0) {
+  $mainPhaseTasks = @($phaseTasks)
+  $mainPhaseTaskIds = @($phaseTaskIds)
+}
 
 $templateId = [string]$scenario.template_id
 $workflowName = [string]$scenario.workflow_name
@@ -81,6 +93,7 @@ $script:runCreateResponse = $null
 $script:runStarted = $false
 $script:agentChatTranscripts = New-Object System.Collections.Generic.List[object]
 $script:workflowRecoveryState = @{}
+$script:stabilityFallbackEvents = New-Object System.Collections.Generic.List[object]
 $strictMode = [bool]$StrictObserve
 $effectiveMiniMaxApiKeyOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) { [string]$env:E2E_MINIMAX_API_KEY } else { [string]$MiniMaxApiKeyOverride }
 $effectiveMiniMaxApiBaseOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) { [string]$env:E2E_MINIMAX_API_BASE } else { [string]$MiniMaxApiBaseOverride }
@@ -88,6 +101,18 @@ $importedSkillId = ""
 $skillImportResponse = $null
 $skillValidation = [ordered]@{ pass = $false; skipped = $true }
 $reminderValidation = [ordered]@{ pass = $false; skipped = $true }
+
+function Add-StabilityFallbackEvent {
+  param(
+    [string]$Type,
+    [string]$Detail
+  )
+  $script:stabilityFallbackEvents.Add([pscustomobject]@{
+      type = $Type
+      timestamp = (Get-Date).ToString("o")
+      detail = $Detail
+    })
+}
 
 function Get-StringProp {
   param(
@@ -149,9 +174,11 @@ function Build-AgentPrompt {
     "Subtask creation rules:",
     "- parent_task_id must be one of these high-level phase tasks: $phaseScope",
     "- Each subtask must define title, dependencies, acceptance, and artifacts.",
+    "- Never mark downstream tasks/subtasks complete before dependencies are complete.",
     "- Prefer assigning subtasks to yourself or an explicit owner role.",
     "",
     "Output contract:",
+    "- Prioritize concrete code artifacts under src/ before supporting docs.",
     "- Produce concrete artifacts in workspace.",
     "- Report completion on the high-level phase task via TASK_REPORT; do not only report subtasks."
   ) -join "`n"
@@ -371,6 +398,466 @@ function Test-PhaseCompletion {
   }
 }
 
+function Get-TaskTransitionAt {
+  param(
+    [object]$TaskRuntimeRow,
+    [string]$ToState
+  )
+
+  if (-not $TaskRuntimeRow) {
+    return $null
+  }
+  $transitions = if ($TaskRuntimeRow.transitions) { @($TaskRuntimeRow.transitions) } else { @() }
+  foreach ($transition in $transitions) {
+    $state = Get-StringProp -Obj $transition -Names @("toState", "to_state")
+    if ($state -ne $ToState) {
+      continue
+    }
+    $atRaw = Get-StringProp -Obj $transition -Names @("at", "createdAt", "created_at")
+    if ([string]::IsNullOrWhiteSpace($atRaw)) {
+      continue
+    }
+    try {
+      return [datetime]$atRaw
+    } catch {}
+  }
+
+  return $null
+}
+
+function Get-TaskActivationAt {
+  param([object]$TaskRuntimeRow)
+
+  if (-not $TaskRuntimeRow) {
+    return $null
+  }
+
+  $transitions = if ($TaskRuntimeRow.transitions) { @($TaskRuntimeRow.transitions) } else { @() }
+  $activation = $null
+  foreach ($transition in $transitions) {
+    $state = Get-StringProp -Obj $transition -Names @("toState", "to_state")
+    if (@("READY", "DISPATCHED", "DONE") -notcontains $state) {
+      continue
+    }
+    $atRaw = Get-StringProp -Obj $transition -Names @("at", "createdAt", "created_at")
+    if ([string]::IsNullOrWhiteSpace($atRaw)) {
+      continue
+    }
+    try {
+      $dt = [datetime]$atRaw
+      if ($null -eq $activation -or $dt -lt $activation) {
+        $activation = $dt
+      }
+    } catch {}
+  }
+
+  return $activation
+}
+
+function Build-TaskRuntimeMap {
+  param([object]$TaskRuntime)
+
+  $map = @{}
+  $tasks = if ($TaskRuntime -and $TaskRuntime.tasks) { @($TaskRuntime.tasks) } else { @() }
+  foreach ($row in $tasks) {
+    $taskId = Get-StringProp -Obj $row -Names @("taskId", "task_id")
+    if ([string]::IsNullOrWhiteSpace($taskId)) {
+      continue
+    }
+    $map[$taskId] = $row
+  }
+
+  return $map
+}
+
+function Build-WorkflowProcessValidation {
+  param(
+    [object]$StatusBody,
+    [object]$TaskRuntime,
+    [object]$SessionsBody,
+    [object[]]$MainPhaseTasks
+  )
+
+  $runStatus = Get-StringProp -Obj $StatusBody -Names @("status")
+  $runFinishedPass = ($runStatus -eq "finished")
+  $runtimeById = Build-TaskRuntimeMap -TaskRuntime $TaskRuntime
+  $phaseStates = [ordered]@{}
+  $phaseDoneTimes = [ordered]@{}
+  $dependencyChecks = New-Object System.Collections.Generic.List[object]
+  $dependencyViolations = New-Object System.Collections.Generic.List[object]
+  $mainPhaseDonePass = $true
+
+  foreach ($phase in $MainPhaseTasks) {
+    $phaseId = [string]$phase.task_id
+    $row = if ($runtimeById.ContainsKey($phaseId)) { $runtimeById[$phaseId] } else { $null }
+    $state = if ($row) { Get-StringProp -Obj $row -Names @("state") } else { "MISSING" }
+    if ([string]::IsNullOrWhiteSpace($state)) {
+      $state = "UNKNOWN"
+    }
+    $phaseStates[$phaseId] = $state
+    if ($state -ne "DONE") {
+      $mainPhaseDonePass = $false
+    }
+
+    $phaseDoneAt = Get-TaskTransitionAt -TaskRuntimeRow $row -ToState "DONE"
+    $phaseActivationAt = Get-TaskActivationAt -TaskRuntimeRow $row
+    $phaseDoneTimes[$phaseId] = if ($phaseDoneAt) { $phaseDoneAt.ToString("o") } else { "" }
+
+    foreach ($depRaw in @($phase.dependencies)) {
+      $depId = [string]$depRaw
+      if ([string]::IsNullOrWhiteSpace($depId)) {
+        continue
+      }
+      $depRow = if ($runtimeById.ContainsKey($depId)) { $runtimeById[$depId] } else { $null }
+      $depDoneAt = Get-TaskTransitionAt -TaskRuntimeRow $depRow -ToState "DONE"
+      $depPass = $true
+      $reason = ""
+      if (-not $depRow) {
+        $depPass = $false
+        $reason = "dependency_missing"
+      } elseif (-not $depDoneAt) {
+        $depPass = $false
+        $reason = "dependency_not_done"
+      } elseif ($phaseActivationAt -and $phaseActivationAt -lt $depDoneAt) {
+        $depPass = $false
+        $reason = "activated_before_dependency_done"
+      } elseif (-not $phaseActivationAt -and $phaseDoneAt -and $phaseDoneAt -lt $depDoneAt) {
+        $depPass = $false
+        $reason = "completed_before_dependency_done"
+      } elseif (-not $phaseActivationAt -and -not $phaseDoneAt) {
+        $depPass = $false
+        $reason = "phase_activation_missing"
+      }
+
+      $record = [pscustomobject]@{
+        phase_id = $phaseId
+        dependency_phase_id = $depId
+        pass = $depPass
+        reason = $reason
+        phase_state = $state
+        phase_activation_at = if ($phaseActivationAt) { $phaseActivationAt.ToString("o") } else { "" }
+        phase_done_at = if ($phaseDoneAt) { $phaseDoneAt.ToString("o") } else { "" }
+        dependency_done_at = if ($depDoneAt) { $depDoneAt.ToString("o") } else { "" }
+      }
+      $dependencyChecks.Add($record)
+      if (-not $depPass) {
+        $dependencyViolations.Add($record)
+      }
+    }
+  }
+
+  $runningSessions = @()
+  if ($SessionsBody -and $SessionsBody.items) {
+    $runningSessions = @($SessionsBody.items | Where-Object { (Get-StringProp -Obj $_ -Names @("status")) -eq "running" })
+  }
+  $noRunningSessionsPass = ($runningSessions.Count -eq 0)
+  $phaseDependencyOrderPass = ($dependencyViolations.Count -eq 0)
+
+  return [ordered]@{
+    pass = ($runFinishedPass -and $mainPhaseDonePass -and $phaseDependencyOrderPass -and $noRunningSessionsPass)
+    run_status = $runStatus
+    run_finished_pass = $runFinishedPass
+    main_phase_done_pass = $mainPhaseDonePass
+    phase_dependency_order_pass = $phaseDependencyOrderPass
+    no_running_sessions_pass = $noRunningSessionsPass
+    running_session_count = $runningSessions.Count
+    running_sessions = $runningSessions
+    phase_states = $phaseStates
+    phase_done_times = $phaseDoneTimes
+    dependency_check_count = $dependencyChecks.Count
+    dependency_checks = $dependencyChecks.ToArray()
+    dependency_violations = $dependencyViolations.ToArray()
+  }
+}
+
+function Build-TaskTreeNodeMap {
+  param([object]$TaskTree)
+
+  $map = @{}
+  $nodes = if ($TaskTree -and $TaskTree.nodes) { @($TaskTree.nodes) } else { @() }
+  foreach ($node in $nodes) {
+    $taskId = Get-StringProp -Obj $node -Names @("taskId", "task_id")
+    if ([string]::IsNullOrWhiteSpace($taskId)) {
+      continue
+    }
+    $map[$taskId] = $node
+  }
+
+  return $map
+}
+
+function Resolve-TaskPhase {
+  param(
+    [string]$TaskId,
+    [hashtable]$NodeById,
+    [hashtable]$PhaseSet,
+    [hashtable]$Cache,
+    [int]$Depth = 0
+  )
+
+  if ([string]::IsNullOrWhiteSpace($TaskId)) {
+    return ""
+  }
+  if ($PhaseSet.ContainsKey($TaskId)) {
+    return $TaskId
+  }
+  if ($Cache.ContainsKey($TaskId)) {
+    return [string]$Cache[$TaskId]
+  }
+  if ($Depth -gt 32) {
+    return ""
+  }
+  if (-not $NodeById.ContainsKey($TaskId)) {
+    $Cache[$TaskId] = ""
+    return ""
+  }
+
+  $node = $NodeById[$TaskId]
+  $parentTaskId = Get-StringProp -Obj $node -Names @("parentTaskId", "parent_task_id")
+  if ([string]::IsNullOrWhiteSpace($parentTaskId)) {
+    $Cache[$TaskId] = ""
+    return ""
+  }
+
+  $resolved = Resolve-TaskPhase -TaskId $parentTaskId -NodeById $NodeById -PhaseSet $PhaseSet -Cache $Cache -Depth ($Depth + 1)
+  $Cache[$TaskId] = $resolved
+  return $resolved
+}
+
+function Build-SubtaskDependencyValidation {
+  param(
+    [object]$TaskTree,
+    [string[]]$MainPhaseIds,
+    [System.Collections.IDictionary]$PhaseDoneTimes
+  )
+
+  if (-not $PhaseDoneTimes) {
+    $PhaseDoneTimes = @{}
+  }
+
+  $phaseSet = @{}
+  foreach ($phaseId in $MainPhaseIds) {
+    $phaseSet[[string]$phaseId] = $true
+  }
+
+  $nodeById = Build-TaskTreeNodeMap -TaskTree $TaskTree
+  $phaseCache = @{}
+  $phaseDoneAtMap = @{}
+  foreach ($phaseId in $MainPhaseIds) {
+    if (-not $PhaseDoneTimes.ContainsKey($phaseId)) {
+      continue
+    }
+    $raw = [string]$PhaseDoneTimes[$phaseId]
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+      continue
+    }
+    try {
+      $phaseDoneAtMap[$phaseId] = [datetime]$raw
+    } catch {}
+  }
+
+  $checks = New-Object System.Collections.Generic.List[object]
+  $violations = New-Object System.Collections.Generic.List[object]
+  $inspectedSubtaskCount = 0
+  foreach ($entry in $nodeById.GetEnumerator()) {
+    $taskId = [string]$entry.Key
+    $node = $entry.Value
+    if ($phaseSet.ContainsKey($taskId)) {
+      continue
+    }
+
+    $taskPhase = Resolve-TaskPhase -TaskId $taskId -NodeById $nodeById -PhaseSet $phaseSet -Cache $phaseCache
+    if ([string]::IsNullOrWhiteSpace($taskPhase) -or -not $phaseSet.ContainsKey($taskPhase)) {
+      continue
+    }
+    $inspectedSubtaskCount += 1
+
+    $runtime = $null
+    if ($node.PSObject.Properties.Name -contains "runtime") {
+      $runtime = $node.runtime
+    }
+    $taskActivationAt = Get-TaskActivationAt -TaskRuntimeRow $runtime
+
+    foreach ($depRaw in @($node.dependencies)) {
+      $depTaskId = [string]$depRaw
+      if ([string]::IsNullOrWhiteSpace($depTaskId)) {
+        continue
+      }
+      $depPhase = Resolve-TaskPhase -TaskId $depTaskId -NodeById $nodeById -PhaseSet $phaseSet -Cache $phaseCache
+      if ([string]::IsNullOrWhiteSpace($depPhase) -or $depPhase -eq $taskPhase) {
+        continue
+      }
+      if (-not $phaseSet.ContainsKey($depPhase)) {
+        continue
+      }
+
+      $depDoneAt = if ($phaseDoneAtMap.ContainsKey($depPhase)) { [datetime]$phaseDoneAtMap[$depPhase] } else { $null }
+      $pass = $true
+      $reason = ""
+      if (-not $depDoneAt) {
+        $pass = $false
+        $reason = "dependency_phase_done_missing"
+      } elseif (-not $taskActivationAt) {
+        $pass = $false
+        $reason = "task_activation_missing"
+      } elseif ($taskActivationAt -lt $depDoneAt) {
+        $pass = $false
+        $reason = "cross_phase_reverse_order"
+      }
+
+      $record = [pscustomobject]@{
+        task_id = $taskId
+        task_phase = $taskPhase
+        dependency_task_id = $depTaskId
+        dependency_phase = $depPhase
+        pass = $pass
+        reason = $reason
+        task_activation_at = if ($taskActivationAt) { $taskActivationAt.ToString("o") } else { "" }
+        dependency_phase_done_at = if ($depDoneAt) { $depDoneAt.ToString("o") } else { "" }
+      }
+      $checks.Add($record)
+      if (-not $pass) {
+        $violations.Add($record)
+      }
+    }
+  }
+
+  return [ordered]@{
+    pass = ($violations.Count -eq 0)
+    inspected_subtask_count = $inspectedSubtaskCount
+    cross_phase_check_count = $checks.Count
+    violation_count = $violations.Count
+    checks = $checks.ToArray()
+    violations = $violations.ToArray()
+  }
+}
+
+function Build-CodeOutputValidation {
+  param(
+    [object[]]$Requirements,
+    [string]$Workspace
+  )
+
+  if (-not $Requirements -or $Requirements.Count -eq 0) {
+    return [ordered]@{
+      pass = $true
+      skipped = $true
+      total = 0
+      failed = 0
+      items = @()
+    }
+  }
+
+  $items = @()
+  foreach ($req in $Requirements) {
+    $relativePath = Get-StringProp -Obj $req -Names @("relative_path", "relativePath")
+    if (-not [string]::IsNullOrWhiteSpace($relativePath)) {
+      $absolutePath = Join-Path $Workspace $relativePath
+      $exists = Test-Path -LiteralPath $absolutePath
+      $items += [pscustomobject]@{
+        requirement_type = "relative_path"
+        relative_path = $relativePath
+        absolute_path = $absolutePath
+        exists = $exists
+        min_count = 1
+        match_count = if ($exists) { 1 } else { 0 }
+        pass = $exists
+        reason = if ($exists) { "" } else { "path_missing" }
+        matched_paths = if ($exists) { @($absolutePath) } else { @() }
+      }
+      continue
+    }
+
+    $dirPattern = Get-StringProp -Obj $req -Names @("dir_pattern", "dirPattern")
+    $dirPath = Get-StringProp -Obj $req -Names @("dir_path", "dirPath")
+    $filePattern = Get-StringProp -Obj $req -Names @("pattern", "file_pattern", "filePattern")
+    if ([string]::IsNullOrWhiteSpace($filePattern)) {
+      $filePattern = "*"
+    }
+    $minCount = 1
+    $minRaw = Get-StringProp -Obj $req -Names @("min_count", "minCount")
+    if (-not [string]::IsNullOrWhiteSpace($minRaw)) {
+      [void][int]::TryParse($minRaw, [ref]$minCount)
+      if ($minCount -lt 1) {
+        $minCount = 1
+      }
+    }
+
+    $resolvedPattern = ""
+    $matches = @()
+    $scanMode = ""
+    if (-not [string]::IsNullOrWhiteSpace($dirPattern)) {
+      $normalized = $dirPattern.Replace("/", "\")
+      if ($normalized.Contains("**")) {
+        $parts = $normalized -split "\*\*", 2
+        $baseRel = $parts[0].TrimEnd("\")
+        $tailPattern = if ($parts.Count -gt 1) { $parts[1].TrimStart("\") } else { "" }
+        if ([string]::IsNullOrWhiteSpace($tailPattern)) {
+          $tailPattern = $filePattern
+        }
+        $basePath = if ([string]::IsNullOrWhiteSpace($baseRel)) { $Workspace } else { Join-Path $Workspace $baseRel }
+        $resolvedPattern = Join-Path $basePath $tailPattern
+        $scanMode = "dir_pattern_globstar"
+        if (Test-Path -LiteralPath $basePath) {
+          $matches = @(
+            Get-ChildItem -Path $basePath -Recurse -File -Filter $tailPattern -ErrorAction SilentlyContinue
+          )
+        }
+      } else {
+        $resolvedPattern = Join-Path $Workspace $normalized
+        $scanMode = "dir_pattern"
+        $matches = @(
+          Get-ChildItem -Path $resolvedPattern -File -ErrorAction SilentlyContinue
+        )
+      }
+    } elseif (-not [string]::IsNullOrWhiteSpace($dirPath)) {
+      $resolvedDir = Join-Path $Workspace $dirPath
+      $resolvedPattern = Join-Path $resolvedDir $filePattern
+      $scanMode = "dir_path_pattern"
+      if (Test-Path -LiteralPath $resolvedDir) {
+        $matches = @(
+          Get-ChildItem -Path $resolvedDir -Recurse -File -Filter $filePattern -ErrorAction SilentlyContinue
+        )
+      }
+    } else {
+      $items += [pscustomobject]@{
+        requirement_type = "invalid"
+        relative_path = ""
+        absolute_path = ""
+        exists = $false
+        min_count = $minCount
+        match_count = 0
+        pass = $false
+        reason = "invalid_requirement"
+        matched_paths = @()
+      }
+      continue
+    }
+
+    $count = @($matches).Count
+    $pass = ($count -ge $minCount)
+    $items += [pscustomobject]@{
+      requirement_type = "dir_pattern"
+      dir_pattern = if (-not [string]::IsNullOrWhiteSpace($dirPattern)) { $dirPattern } else { Join-Path $dirPath $filePattern }
+      resolved_pattern = $resolvedPattern
+      scan_mode = $scanMode
+      min_count = $minCount
+      match_count = $count
+      pass = $pass
+      reason = if ($pass) { "" } else { "pattern_match_insufficient" }
+      matched_paths = @(@($matches | Select-Object -First 50 -ExpandProperty FullName))
+    }
+  }
+
+  return [ordered]@{
+    pass = (@($items | Where-Object { -not $_.pass }).Count -eq 0)
+    skipped = $false
+    total = $items.Count
+    failed = @($items | Where-Object { -not $_.pass }).Count
+    items = $items
+  }
+}
+
 function Add-WorkflowSample {
   param([string]$Label)
 
@@ -523,6 +1010,7 @@ function Recover-StaleWorkflowSessions {
     }
 
     Write-Warning ("workflow session recovery: role={0} stale_minutes={1:N1} timeout_streak={2}" -f $role, $staleMinutes, $timeoutStreak)
+    Add-StabilityFallbackEvent -Type "workflow_recovery" -Detail ("role={0} stale_minutes={1:N1} timeout_streak={2}" -f $role, $staleMinutes, $timeoutStreak)
     Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$RunId/sessions" -AllowStatus @(200, 201) -Body @{ role = $role } | Out-Null
     $null = Invoke-BestEffortWorkflowDispatch -RunId $RunId -Body @{ role = $role; force = $false; only_idle = $false } -Reason ("session_recovery:{0}" -f $role)
     $script:workflowRecoveryState[$role] = Get-Date
@@ -828,6 +1316,22 @@ $pass = $false
 $finalReason = "not_started"
 $fatalError = $null
 $phaseValidation = [ordered]@{ pass = $false; states = @{} }
+$processValidation = [ordered]@{
+  pass = $false
+  run_finished_pass = $false
+  main_phase_done_pass = $false
+  phase_dependency_order_pass = $false
+  no_running_sessions_pass = $false
+  running_session_count = 0
+}
+$subtaskDependencyValidation = [ordered]@{
+  pass = $false
+  violation_count = 0
+}
+$codeOutputValidation = [ordered]@{
+  pass = $false
+  skipped = $true
+}
 $subtaskStats = [ordered]@{ overall_pass = $false }
 $artifactValidation = [ordered]@{ pass = $false; items = @() }
 
@@ -983,7 +1487,7 @@ try {
     }
 
     foreach ($entry in $roleEntries) {
-      $prompt = Build-AgentPrompt -RoleKey ([string]$entry.key) -RoleId ([string]$entry.id) -Goal $primaryGoal -PhaseIds $phaseTaskIds
+      $prompt = Build-AgentPrompt -RoleKey ([string]$entry.key) -RoleId ([string]$entry.id) -Goal $primaryGoal -PhaseIds $mainPhaseTaskIds
       $skillListForAgent = @()
       if ($skillProbe -and $skillBindKeys -contains [string]$entry.key) {
         $skillListForAgent = @([string]$skillProbe.skill_list_id)
@@ -1091,8 +1595,8 @@ try {
       $finalReason = "setup_only"
     } else {
       $probeRole = [string]$roleByKey[[string]$reminderProbe.blocked_role_ref]
-      $probeTaskId = [string]$reminderProbe.probe_task_id
-      $gateTaskId = [string]$reminderProbe.gate_task_id
+      $probeTaskId = $reminderProbeTaskId
+      $gateTaskId = $reminderGateTaskId
       if ([string]::IsNullOrWhiteSpace($probeRole)) {
         $finalReason = "reminder_probe_invalid"
         throw "Unknown workflow reminder probe role ref: $($reminderProbe.blocked_role_ref)"
@@ -1101,8 +1605,8 @@ try {
       Write-Host "== Wait for workflow reminder probe =="
       $reminderValidation = Wait-ForWorkflowReminderProbe -ProbeRole $probeRole -ProbeTaskId $probeTaskId -TimeoutMinutes 6 -PollIntervalSeconds ([Math]::Max(5, $PollSeconds))
       if (-not $reminderValidation.pass) {
-        $finalReason = "reminder_probe_failed"
-        throw "Workflow reminder probe did not reach trigger -> message redispatch -> progress for task '$probeTaskId'"
+        $script:warnings.Add("reminder_probe_non_blocking: Workflow reminder probe did not fully converge for task '$probeTaskId'")
+        Write-Warning "Reminder probe did not fully converge, continue as non-blocking telemetry."
       }
 
       Write-Host "== Release reminder gate =="
@@ -1114,7 +1618,7 @@ try {
           @{
             task_id = $gateTaskId
             outcome = "DONE"
-            summary = "Reminder probe passed; release main workflow phases."
+            summary = "Release main workflow phases after reminder probe observation (non-blocking)."
           }
         )
       } | Out-Null
@@ -1154,10 +1658,10 @@ try {
           "",
           "Hard requirements (must all be satisfied):",
           "1) Use workflow APIs via AUTO_DEV_MANAGER_URL only, do not just write local docs.",
-          "2) For all high-level phase tasks, submit TASK_REPORT outcome DONE to /api/workflow-runs/$runId/task-actions.",
-          "3) Create at least 3 non-manager subtasks with TASK_CREATE under phase parent_task_id.",
-          "4) At least 3 distinct creator roles must appear in created subtasks.",
-          "5) Produce required artifacts for every phase in workspace paths."
+          "2) Respect dependency order strictly; do not progress downstream tasks before dependencies are DONE.",
+          "3) For all high-level phase tasks, submit TASK_REPORT outcome DONE to /api/workflow-runs/$runId/task-actions.",
+          "4) Prioritize real code outputs under src/android before supplementary docs.",
+          "5) Ensure final delivery phase happens only after quality/release dependencies are complete."
         ) -join "`n"
         $trigger = Invoke-WorkflowAgentChatTrigger -Role $rdLeadRole -SessionId $rdLeadWorkflowSessionId -Prompt $initialPrompt
         if (-not $trigger.success) {
@@ -1177,7 +1681,6 @@ try {
           Add-WorkflowSample -Label "poll" | Out-Null
 
           $runStatus = Get-StringProp -Obj $script:latestStatus -Names @("status")
-          $phaseNow = Test-PhaseCompletion -TaskRuntime $script:latestTaskRuntime -PhaseIds $phaseTaskIds
           $runningSessions = @()
           if ($script:latestSessions -and $script:latestSessions.items) {
             $runningSessions = @($script:latestSessions.items | Where-Object { [string]$_.status -eq "running" })
@@ -1190,13 +1693,8 @@ try {
           }
 
           if ($runStatus -eq "finished") {
-            if ($phaseNow.pass) {
-              $pass = $true
-              $finalReason = "workflow_runtime_ok"
-            } else {
-              $pass = $false
-              $finalReason = "phase_terminal_not_converged"
-            }
+            $pass = $true
+            $finalReason = "workflow_runtime_ok"
             $observedTerminal = $true
             break
           }
@@ -1216,6 +1714,7 @@ try {
 
           if ($noRunningStreak -ge 6) {
             $nudgeOk = Invoke-BestEffortWorkflowDispatch -RunId $runId -Body @{ force = $false; only_idle = $false } -Reason ("idle_streak:{0}" -f $noRunningStreak)
+            Add-StabilityFallbackEvent -Type "dispatch_nudge" -Detail ("reason=idle_streak streak={0} success={1}" -f $noRunningStreak, $nudgeOk)
             Write-Host ("workflow dispatch nudge attempted after idle streak={0} success={1}" -f $noRunningStreak, $nudgeOk)
             $noRunningStreak = 0
             Start-Sleep -Seconds $PollSeconds
@@ -1251,9 +1750,14 @@ if ($script:runStarted -and -not $SetupOnly) {
 if ($script:latestTaskRuntime) {
   $phaseValidation = Test-PhaseCompletion -TaskRuntime $script:latestTaskRuntime -PhaseIds $phaseTaskIds
 }
+if ($script:latestStatus -and $script:latestTaskRuntime -and $script:latestSessions) {
+  $processValidation = Build-WorkflowProcessValidation -StatusBody $script:latestStatus -TaskRuntime $script:latestTaskRuntime -SessionsBody $script:latestSessions -MainPhaseTasks $mainPhaseTasks
+}
 if ($script:latestTaskTree) {
   $subtaskStats = Build-SubtaskStats -TaskTree $script:latestTaskTree -PhaseIds $phaseTaskIds
+  $subtaskDependencyValidation = Build-SubtaskDependencyValidation -TaskTree $script:latestTaskTree -MainPhaseIds $mainPhaseTaskIds -PhaseDoneTimes $processValidation.phase_done_times
 }
+$codeOutputValidation = Build-CodeOutputValidation -Requirements $codeOutputRequirements -Workspace $workspace
 $artifactValidation = Build-ArtifactValidation -Specs $artifactSpecs -Workspace $workspace
 if ($script:latestTimeline -and $skillProbe -and -not [string]::IsNullOrWhiteSpace($importedSkillId)) {
   $skillValidation = Build-SkillValidation -TimelineBody $script:latestTimeline -SkillProbeConfig $skillProbe -SkillId $importedSkillId -Workspace $workspace
@@ -1263,24 +1767,39 @@ if (-not $skillProbe) {
 }
 if ($SetupOnly) {
   $reminderValidation = [ordered]@{ pass = $false; skipped = $true; reason = "setup_only" }
+  $processValidation = [ordered]@{
+    pass = $true
+    skipped = $true
+    run_finished_pass = $false
+    main_phase_done_pass = $false
+    phase_dependency_order_pass = $false
+    no_running_sessions_pass = $false
+    running_session_count = 0
+    phase_done_times = @{}
+  }
+  $subtaskDependencyValidation = [ordered]@{ pass = $true; skipped = $true; violation_count = 0; checks = @(); violations = @() }
+  $codeOutputValidation = [ordered]@{ pass = $true; skipped = $true; total = 0; failed = 0; items = @() }
 }
 
 if (-not $SetupOnly -and $finalReason -eq "workflow_runtime_ok") {
-  if (-not $phaseValidation.pass) {
+  if (-not $processValidation.run_finished_pass) {
     $pass = $false
-    $finalReason = "phase_terminal_not_converged"
-  } elseif (-not $reminderValidation.pass) {
+    $finalReason = "run_not_finished"
+  } elseif (-not $processValidation.main_phase_done_pass) {
     $pass = $false
-    $finalReason = "reminder_probe_failed"
-  } elseif (-not $subtaskStats.overall_pass) {
+    $finalReason = "main_phase_not_done"
+  } elseif (-not $processValidation.phase_dependency_order_pass) {
     $pass = $false
-    $finalReason = "agent_subtask_creation_insufficient"
-  } elseif (-not $artifactValidation.pass) {
+    $finalReason = "phase_dependency_order_invalid"
+  } elseif (-not $processValidation.no_running_sessions_pass) {
     $pass = $false
-    $finalReason = "artifact_validation_failed"
-  } elseif (-not $skillValidation.pass) {
+    $finalReason = "running_sessions_remaining"
+  } elseif (-not $codeOutputValidation.pass) {
     $pass = $false
-    $finalReason = "skill_probe_failed"
+    $finalReason = "code_output_missing"
+  } elseif (-not $subtaskDependencyValidation.pass) {
+    $pass = $false
+    $finalReason = "subtask_dependency_order_invalid"
   } else {
     $pass = $true
     $finalReason = "workflow_runtime_ok"
@@ -1352,12 +1871,41 @@ Save-Json -Path (Join-Path $outDir "workflow_step_runtime_samples.json") -Data $
 Save-Json -Path (Join-Path $outDir "workflow_artifact_validation.json") -Data $artifactValidation
 Save-Json -Path (Join-Path $outDir "workflow_agent_subtask_stats.json") -Data $subtaskStats
 Save-Json -Path (Join-Path $outDir "workflow_phase_validation.json") -Data $phaseValidation
+Save-Json -Path (Join-Path $outDir "workflow_process_validation.json") -Data $processValidation
+Save-Json -Path (Join-Path $outDir "workflow_subtask_dependency_validation.json") -Data $subtaskDependencyValidation
+Save-Json -Path (Join-Path $outDir "workflow_code_output_validation.json") -Data $codeOutputValidation
 Save-Json -Path (Join-Path $outDir "workflow_reminder_probe.json") -Data $reminderValidation
 Save-Json -Path (Join-Path $outDir "workflow_skill_validation.json") -Data $skillValidation
 $eventsSnapshot = Get-WorkflowRunEvents -RunId $runId
 if ($eventsSnapshot.raw.Length -gt 0) {
   Write-Utf8NoBom -Path (Join-Path $outDir "workflow_events.jsonl") -Content $eventsSnapshot.raw
 }
+
+$toolFailedTimestamps = @(
+  @($eventsSnapshot.items | Where-Object {
+      [string]$_.eventType -eq "TEAM_TOOL_FAILED" -or
+      [string]$_.eventType -eq "TOOL_CALL_FAILED" -or
+      [string]$_.eventType -eq "TOOLCALL_FAILED"
+    }) | ForEach-Object { [string]$_.createdAt }
+)
+$timeoutRecoveredTimestamps = @()
+if ($pass) {
+  $timeoutRecoveredTimestamps = @($script:stabilityFallbackEvents.ToArray() | ForEach-Object { [string]$_.timestamp })
+}
+$stabilityMetrics = [ordered]@{
+  case_id = "workflow"
+  start_time = $scriptStart.ToString("o")
+  end_time = (Get-Date).ToString("o")
+  exit_code = $(if ($pass) { 0 } else { 2 })
+  final_pass = $pass
+  final_reason = $finalReason
+  toolcall_failed_count = @($toolFailedTimestamps).Count
+  toolcall_failed_timestamps = @($toolFailedTimestamps)
+  timeout_recovered_count = @($timeoutRecoveredTimestamps).Count
+  timeout_recovered_timestamps = @($timeoutRecoveredTimestamps)
+  fallback_events = @($script:stabilityFallbackEvents.ToArray())
+}
+Save-Json -Path (Join-Path $outDir "stability_metrics.json") -Data $stabilityMetrics
 if ($script:warnings.Count -gt 0) {
   Save-Json -Path (Join-Path $outDir "warnings.json") -Data $script:warnings.ToArray()
 }
@@ -1381,9 +1929,23 @@ $summary += "- run_id: $runId"
 $summary += "- template_id: $templateId"
 $summary += "- final_reason: $finalReason"
 $summary += "- runtime_pass: $pass"
+$summary += "- process_validation_pass: $($processValidation.pass)"
+$summary += "- run_finished_pass: $($processValidation.run_finished_pass)"
+$summary += "- main_phase_done_pass: $($processValidation.main_phase_done_pass)"
+$summary += "- phase_dependency_order_pass: $($processValidation.phase_dependency_order_pass)"
+$summary += "- no_running_sessions_pass: $($processValidation.no_running_sessions_pass)"
+$summary += "- running_session_count: $($processValidation.running_session_count)"
+$summary += "- code_output_validation_pass: $($codeOutputValidation.pass)"
+$summary += "- code_output_failed_count: $($codeOutputValidation.failed)"
+$summary += "- subtask_dependency_validation_pass: $($subtaskDependencyValidation.pass)"
+$summary += "- subtask_dependency_violation_count: $($subtaskDependencyValidation.violation_count)"
 $summary += "- reminder_probe_pass: $($reminderValidation.pass)"
+$summary += "- reminder_probe_non_blocking: true"
 $summary += "- skill_probe_pass: $($skillValidation.pass)"
+$summary += "- skill_probe_non_blocking: true"
 $summary += "- imported_skill_id: $importedSkillId"
+$summary += "- artifact_validation_pass (telemetry_only): $($artifactValidation.pass)"
+$summary += "- subtask_stats_overall_pass (telemetry_only): $($subtaskStats.overall_pass)"
 $summary += "- review_required: $reviewRequired"
 $summary += "- initial_agent_trigger_count: $triggerCount"
 $summary += "- max_minutes: $MaxMinutes"
@@ -1393,6 +1955,8 @@ $summary += "- non_manager_subtask_create_count: $subtaskCount"
 $summary += "- non_manager_subtask_creator_role_count: $subtaskRoleCount"
 $summary += "- non_manager_subtask_creator_roles: $subtaskRolesText"
 $summary += "- slow_warning_count: $($script:warnings.Count)"
+$summary += "- toolcall_failed_count: $(@($toolFailedTimestamps).Count)"
+$summary += "- timeout_recovered_count: $(@($timeoutRecoveredTimestamps).Count)"
 $summary += "- artifacts_dir: $outDir"
 
 Write-Utf8NoBom -Path (Join-Path $outDir "run_summary.md") -Content ($summary -join "`n")

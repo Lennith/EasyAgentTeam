@@ -35,6 +35,14 @@ export interface MiniMaxAgentOptions {
   storageConfig?: SessionStorageConfig;
 }
 
+function normalizeMaxOutputTokens(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const rounded = Math.floor(value);
+  return rounded > 0 ? rounded : undefined;
+}
+
 function buildDefaultSystemPrompt(): string {
   const runtime = getRuntimePlatformCapabilities();
   const shellNames = runtime.platform === "win32" ? "cmd.exe or PowerShell" : "bash or sh";
@@ -144,7 +152,8 @@ export class MiniMaxAgent {
     this.llmClient = new LLMClient({
       apiKey: this.config.apiKey,
       apiBase: this.config.apiBase,
-      model: this.config.model
+      model: this.config.model,
+      maxTokens: normalizeMaxOutputTokens(this.config.maxOutputTokens)
     });
 
     this.compressor = new ContextCompressor(this.llmClient, 0.3);

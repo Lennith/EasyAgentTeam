@@ -347,6 +347,7 @@ export class MiniMaxRunner {
           sessionDir,
           maxSteps: this.settings.minimaxMaxSteps ?? 200,
           tokenLimit: this.settings.minimaxTokenLimit ?? 180000,
+          maxOutputTokens: this.settings.minimaxMaxOutputTokens ?? 4096,
           enableFileTools: true,
           enableShell: true,
           enableNote: true,

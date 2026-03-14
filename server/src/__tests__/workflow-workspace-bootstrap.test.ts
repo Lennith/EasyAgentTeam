@@ -46,10 +46,13 @@ test("workflow run bootstrap creates agent workspace files with fallback prompt 
     assert.equal(createRun.status, 201);
 
     const roleDir = path.join(workflowWorkspace, "Agents", "custom_dev_role");
+    const rootAgentsMd = await fs.readFile(path.join(workflowWorkspace, "AGENTS.md"), "utf8");
     const agentsMd = await fs.readFile(path.join(roleDir, "AGENTS.md"), "utf8");
     const roleMd = await fs.readFile(path.join(roleDir, "role.md"), "utf8");
     const progressMd = await fs.readFile(path.join(roleDir, "progress.md"), "utf8");
 
+    assert.equal(rootAgentsMd.includes("# TeamWorkSpace AGENTS Guide"), true);
+    assert.equal(rootAgentsMd.includes("./Agents/custom_dev_role/AGENTS.md"), true);
     assert.equal(agentsMd.includes("# AGENTS Runtime Guide"), true);
     assert.equal(roleMd.includes("Role: custom_dev_role"), true);
     assert.equal(progressMd.includes("# Progress - custom_dev_role"), true);

@@ -142,6 +142,7 @@ export interface MiniMaxAgentConfig {
   apiKey: string;
   apiBase: string;
   model: string;
+  maxOutputTokens?: number;
   maxSteps: number;
   tokenLimit: number;
   workspaceDir: string;

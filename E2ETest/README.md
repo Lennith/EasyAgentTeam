@@ -139,7 +139,9 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 
 5. Expected result
 
 - `run_summary.md` includes `runtime_pass=True`
-- outputs include `workflow_phase_validation.json` and `workflow_skill_validation.json`
+- pass gate is process-first: run is `finished`, main phases are `DONE`, phase dependency order is valid, no running sessions remain
+- code output validation passes (`code_output_requirements` in scenario)
+- reminder/skill probes are telemetry-only (non-blocking) and still exported in artifacts
 - timeline and task-runtime terminal states are consistent
 
 6. Common failure points
@@ -213,4 +215,7 @@ Workflow extra outputs:
 - `workflow_skill_validation.json`
 - `workflow_artifact_validation.json`
 - `workflow_phase_validation.json`
+- `workflow_process_validation.json`
+- `workflow_subtask_dependency_validation.json`
+- `workflow_code_output_validation.json`
 - `workflow_agent_subtask_stats.json`

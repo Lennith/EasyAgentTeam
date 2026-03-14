@@ -30,6 +30,7 @@ export interface RuntimeSettings {
   minimaxMcpServers?: MCPServerConfig[];
   minimaxMaxSteps?: number;
   minimaxTokenLimit?: number;
+  minimaxMaxOutputTokens?: number;
   minimaxShellTimeout?: number;
   minimaxShellOutputIdleTimeout?: number;
   minimaxShellMaxRunTime?: number;
@@ -47,6 +48,7 @@ interface PatchRuntimeSettingsInput {
   minimaxMcpServers?: MCPServerConfig[];
   minimaxMaxSteps?: number;
   minimaxTokenLimit?: number;
+  minimaxMaxOutputTokens?: number;
   minimaxShellTimeout?: number;
   minimaxShellOutputIdleTimeout?: number;
   minimaxShellMaxRunTime?: number;
@@ -87,7 +89,8 @@ function defaultRuntimeSettings(): RuntimeSettings {
     minimaxSessionDir: undefined,
     minimaxMcpServers: [],
     minimaxMaxSteps: 100,
-    minimaxTokenLimit: 80000
+    minimaxTokenLimit: 80000,
+    minimaxMaxOutputTokens: 4096
   };
 }
 
@@ -177,6 +180,8 @@ export async function getRuntimeSettings(dataRoot: string): Promise<RuntimeSetti
     minimaxMcpServers: normalizeMcpServers(state.minimaxMcpServers) ?? fallback.minimaxMcpServers,
     minimaxMaxSteps: normalizeOptionalNumber(state.minimaxMaxSteps) ?? fallback.minimaxMaxSteps,
     minimaxTokenLimit: normalizeOptionalNumber(state.minimaxTokenLimit) ?? fallback.minimaxTokenLimit,
+    minimaxMaxOutputTokens:
+      normalizeOptionalNumber(state.minimaxMaxOutputTokens) ?? fallback.minimaxMaxOutputTokens,
     minimaxShellTimeout: normalizeOptionalNumber(state.minimaxShellTimeout),
     minimaxShellOutputIdleTimeout: normalizeOptionalNumber(state.minimaxShellOutputIdleTimeout),
     minimaxShellMaxRunTime: normalizeOptionalNumber(state.minimaxShellMaxRunTime),
@@ -208,6 +213,8 @@ export async function patchRuntimeSettings(
     minimaxMcpServers: normalizeMcpServers(patch.minimaxMcpServers ?? current.minimaxMcpServers) ?? [],
     minimaxMaxSteps: normalizeOptionalNumber(patch.minimaxMaxSteps ?? current.minimaxMaxSteps) ?? 100,
     minimaxTokenLimit: normalizeOptionalNumber(patch.minimaxTokenLimit ?? current.minimaxTokenLimit) ?? 80000,
+    minimaxMaxOutputTokens:
+      normalizeOptionalNumber(patch.minimaxMaxOutputTokens ?? current.minimaxMaxOutputTokens) ?? 4096,
     minimaxShellTimeout: normalizeOptionalNumber(patch.minimaxShellTimeout ?? current.minimaxShellTimeout),
     minimaxShellOutputIdleTimeout: normalizeOptionalNumber(patch.minimaxShellOutputIdleTimeout ?? current.minimaxShellOutputIdleTimeout),
     minimaxShellMaxRunTime: normalizeOptionalNumber(patch.minimaxShellMaxRunTime ?? current.minimaxShellMaxRunTime),

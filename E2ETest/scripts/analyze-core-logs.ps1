@@ -40,8 +40,9 @@ $preGatePath = Join-Path $ArtifactsDir "pre_gate_checks.json"
 $topupLogPath = Join-Path $ArtifactsDir "topup_log.json"
 $reminderPath = Join-Path $ArtifactsDir "reminder_probe.json"
 $runSummaryPath = Join-Path $ArtifactsDir "run_summary.md"
+$stabilityPath = Join-Path $ArtifactsDir "stability_metrics.json"
 
-foreach ($required in @($eventsPath, $treePath, $sessionsPath, $preGatePath, $topupLogPath, $reminderPath)) {
+foreach ($required in @($eventsPath, $treePath, $sessionsPath, $preGatePath, $topupLogPath, $reminderPath, $stabilityPath)) {
   if (-not (Test-Path -LiteralPath $required)) {
     throw "Required artifact not found: $required"
   }
@@ -59,6 +60,7 @@ $sessions = Get-Content -LiteralPath $sessionsPath -Raw | ConvertFrom-Json
 $preGate = Get-Content -LiteralPath $preGatePath -Raw | ConvertFrom-Json
 $topupLog = @((Get-Content -LiteralPath $topupLogPath -Raw | ConvertFrom-Json))
 $reminderResult = Get-Content -LiteralPath $reminderPath -Raw | ConvertFrom-Json
+$stability = Get-Content -LiteralPath $stabilityPath -Raw | ConvertFrom-Json
 
 $finalReason = [string]$FinalReasonHint
 if ([string]::IsNullOrWhiteSpace($finalReason) -and (Test-Path -LiteralPath $runSummaryPath)) {
@@ -146,6 +148,14 @@ $teamToolCalledCount = @($events | Where-Object { $_.eventType -eq "TEAM_TOOL_CA
 $teamToolSucceededCount = @($events | Where-Object { $_.eventType -eq "TEAM_TOOL_SUCCEEDED" }).Count
 $teamToolFailedCount = @($events | Where-Object { $_.eventType -eq "TEAM_TOOL_FAILED" }).Count
 $teamToolSuccessRate = if ($teamToolCalledCount -gt 0) { [math]::Round($teamToolSucceededCount / $teamToolCalledCount, 4) } else { 1.0 }
+$stabilityFields = @("case_id", "start_time", "end_time", "exit_code", "toolcall_failed_count", "toolcall_failed_timestamps", "timeout_recovered_count", "timeout_recovered_timestamps", "fallback_events", "final_pass", "final_reason")
+$stabilityMissing = @()
+foreach ($f in $stabilityFields) {
+  if (-not ($stability.PSObject.Properties.Name -contains $f)) {
+    $stabilityMissing += $f
+  }
+}
+$stabilityComplete = ($stabilityMissing.Count -eq 0)
 
 $checks = @(
   [pscustomobject]@{ Name = "Seed tasks exist"; Pass = $allSeedTasksExist; Detail = "A/B/B1/C + reminder probe/gate exist" },
@@ -162,7 +172,8 @@ $checks = @(
   [pscustomobject]@{ Name = "No list_directory toolcall noise"; Pass = ($listDirectoryCalls -eq 0); Detail = "list_directory_calls=$listDirectoryCalls" },
   [pscustomobject]@{ Name = "Team tool success rate is healthy"; Pass = ($teamToolSuccessRate -ge 0.70); Detail = "team_tool_success_rate=$teamToolSuccessRate threshold=0.70 called=$teamToolCalledCount failed=$teamToolFailedCount" },
   [pscustomobject]@{ Name = "shell_execute ratio is controlled"; Pass = ($shellExecuteRatio -le 0.40); Detail = "shell_execute_calls=$shellExecuteCalls total_tool_calls=$allToolCallCount ratio=$shellExecuteRatio" },
-  [pscustomobject]@{ Name = "Topup run ends with explicit reason"; Pass = $topupReasonExplicit; Detail = "topup_count=$topupCount final_reason=$finalReason" }
+  [pscustomobject]@{ Name = "Topup run ends with explicit reason"; Pass = $topupReasonExplicit; Detail = "topup_count=$topupCount final_reason=$finalReason" },
+  [pscustomobject]@{ Name = "Stability metrics schema is complete"; Pass = $stabilityComplete; Detail = "missing_fields=$($stabilityMissing -join ',')" }
 )
 
 $overallPass = @($checks | Where-Object { -not $_.Pass }).Count -eq 0
@@ -184,6 +195,8 @@ $lines += "- shell_execute_calls: $shellExecuteCalls"
 $lines += "- all_tool_calls: $allToolCallCount"
 $lines += "- shell_execute_ratio: $shellExecuteRatio"
 $lines += "- topup_count: $topupCount"
+$lines += "- stability_toolcall_failed_count: $([int]$stability.toolcall_failed_count)"
+$lines += "- stability_timeout_recovered_count: $([int]$stability.timeout_recovered_count)"
 $lines += "- final_reason: $finalReason"
 $lines += ""
 $lines += "## Checks"

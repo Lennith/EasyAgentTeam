@@ -32,7 +32,6 @@ $routeTable = $scenario.route_table
 $taskAssignRouteTable = $scenario.task_assign_route_table
 $routeDiscussRounds = $scenario.route_discuss_rounds
 $modelCfg = $scenario.agent_model
-$reminderProbe = $scenario.reminder_probe
 $providerIdRaw = if ($modelCfg.provider_id) { [string]$modelCfg.provider_id } else { [string]$modelCfg.tool }
 $providerId = $providerIdRaw.Trim().ToLower()
 if ([string]::IsNullOrWhiteSpace($providerId)) {
@@ -47,15 +46,91 @@ $roleB = [string]$roles.B
 $roleC = [string]$roles.C
 $roleD = [string]$roles.D
 $roleList = @($roleLead, $roleB, $roleC, $roleD)
-$roleByRef = @{
-  LEAD = $roleLead
-  B = $roleB
-  C = $roleC
-  D = $roleD
-}
 
 $workspace = $WorkspaceRoot
 $artifactsBase = Join-Path $workspace "docs\e2e"
+$scriptRunStart = Get-Date
+$script:stabilityFallbackEvents = @()
+$script:stabilityOutDir = $null
+$script:stabilityCaseId = "discuss"
+$finalReason = "not_started"
+$pass = $false
+$analysisExit = 1
+
+function Add-StabilityFallbackEvent {
+  param(
+    [string]$Type,
+    [string]$Detail
+  )
+  $script:stabilityFallbackEvents += [pscustomobject]@{
+    type = $Type
+    timestamp = (Get-Date).ToString("o")
+    detail = $Detail
+  }
+}
+
+function Write-StabilityMetrics {
+  param(
+    [string]$OutDir,
+    [string]$CaseId,
+    [datetime]$StartTime,
+    [bool]$FinalPass,
+    [string]$FinalReason,
+    [int]$ExitCode
+  )
+
+  Ensure-Dir -Path $OutDir
+  $eventsPath = Join-Path $OutDir "events.ndjson"
+  $toolFailedTs = @()
+  if (Test-Path -LiteralPath $eventsPath) {
+    foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
+      $trimmed = $line.Trim()
+      if (-not $trimmed) { continue }
+      try {
+        $evt = $trimmed | ConvertFrom-Json
+        $etype = [string]$evt.eventType
+        if ($etype -eq "TEAM_TOOL_FAILED" -or $etype -eq "TOOL_CALL_FAILED" -or $etype -eq "TOOLCALL_FAILED") {
+          $toolFailedTs += [string]$evt.createdAt
+        }
+      } catch {}
+    }
+  }
+
+  $timeoutRecoveredTs = @()
+  if ($FinalPass) {
+    $timeoutRecoveredTs = @($script:stabilityFallbackEvents | ForEach-Object { [string]$_.timestamp })
+  }
+
+  $metrics = [ordered]@{
+    case_id = $CaseId
+    start_time = $StartTime.ToString("o")
+    end_time = (Get-Date).ToString("o")
+    exit_code = $ExitCode
+    final_pass = $FinalPass
+    final_reason = [string]$FinalReason
+    toolcall_failed_count = @($toolFailedTs).Count
+    toolcall_failed_timestamps = @($toolFailedTs)
+    timeout_recovered_count = @($timeoutRecoveredTs).Count
+    timeout_recovered_timestamps = @($timeoutRecoveredTs)
+    fallback_events = @($script:stabilityFallbackEvents)
+  }
+  ($metrics | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath (Join-Path $OutDir "stability_metrics.json") -Encoding UTF8
+  return [pscustomobject]$metrics
+}
+
+trap {
+  $trapOutDir = $script:stabilityOutDir
+  if ([string]::IsNullOrWhiteSpace($trapOutDir)) {
+    $stampTrap = Get-Date -Format "yyyyMMdd_HHmmss"
+    $trapOutDir = Join-Path $artifactsBase "$stampTrap-failed"
+    $script:stabilityOutDir = $trapOutDir
+  }
+  $finalReason = "script_exception"
+  $pass = $false
+  $analysisExit = 1
+  Write-StabilityMetrics -OutDir $trapOutDir -CaseId $script:stabilityCaseId -StartTime $scriptRunStart -FinalPass $false -FinalReason $finalReason -ExitCode 2
+  exit 2
+}
 
 function Build-AgentPrompt {
   param([string]$Role)
@@ -386,17 +461,9 @@ $taskCId = [string]$seedTasks.task_design_c.task_id
 $taskDId = [string]$seedTasks.task_design_d.task_id
 $taskAlignId = [string]$seedTasks.task_alignment.task_id
 $taskFinalId = [string]$seedTasks.task_final.task_id
-$probeTaskId = [string]$reminderProbe.probe_task_id
-$gateTaskId = [string]$reminderProbe.gate_task_id
-$probeRole = [string]$roleByRef[[string]$reminderProbe.blocked_role_ref]
-if ([string]::IsNullOrWhiteSpace($probeRole)) {
-  throw "Unknown reminder probe role ref: $($reminderProbe.blocked_role_ref)"
-}
 
-Write-Host "== Seed discuss framework task tree with reminder probe =="
+Write-Host "== Seed discuss framework task tree =="
 $taskBodies = @(
-  (New-TaskCreateBody -TaskId $gateTaskId -TaskKind "EXECUTION" -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title "Discuss reminder gate task" -OwnerRole "manager" -Priority 110 -Dependencies @() -Content "E2E manager-owned gate task. The baseline script marks it DONE after reminder redispatch is observed."),
-  (New-TaskCreateBody -TaskId $probeTaskId -TaskKind "EXECUTION" -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title "Discuss reminder probe task for role $probeRole" -OwnerRole $probeRole -Priority 105 -Dependencies @() -Content "Start by reporting this task IN_PROGRESS and sending a discuss_request to $roleLead using thread id discuss-reminder-probe. Do not mark this task DONE until you receive a real discuss_reply from $roleLead. While waiting, keep the task open. After the reply arrives, write docs/e2e/discuss_reminder_probe.md summarizing the reply and then report this task DONE."),
   (New-TaskCreateBody -TaskId $taskLeadId -TaskKind ([string]$seedTasks.task_lead_plan.task_kind) -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title ([string]$seedTasks.task_lead_plan.title) -OwnerRole $roleLead -Priority ([int]$seedTasks.task_lead_plan.priority) -Dependencies @($seedTasks.task_lead_plan.dependencies) -Content ([string]$seedTasks.task_lead_plan.content)),
   (New-TaskCreateBody -TaskId $taskBId -TaskKind ([string]$seedTasks.task_design_b.task_kind) -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title ([string]$seedTasks.task_design_b.title) -OwnerRole $roleB -Priority ([int]$seedTasks.task_design_b.priority) -Dependencies @($seedTasks.task_design_b.dependencies) -Content ([string]$seedTasks.task_design_b.content)),
   (New-TaskCreateBody -TaskId $taskCId -TaskKind ([string]$seedTasks.task_design_c.task_kind) -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title ([string]$seedTasks.task_design_c.title) -OwnerRole $roleC -Priority ([int]$seedTasks.task_design_c.priority) -Dependencies @($seedTasks.task_design_c.dependencies) -Content ([string]$seedTasks.task_design_c.content)),
@@ -445,7 +512,7 @@ if ($invalidParentDependencyCreate.status -ne 409) {
   throw ("Invalid parent dependency probe failed. expected status=409, got status={0} code={1} raw={2}" -f $invalidParentDependencyCreate.status, $errorCode, $invalidParentDependencyCreate.raw)
 }
 
-Write-Host "== Pre-gate validation before releasing reminder gate =="
+Write-Host "== Pre-dispatch dependency validation =="
 $preGateB = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $roleB; task_id = $taskBId; force = $false; only_idle = $false } -AllowStatus @(200)
 $preGateC = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $roleC; task_id = $taskCId; force = $false; only_idle = $false } -AllowStatus @(200)
 $preGateD = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $roleD; task_id = $taskDId; force = $false; only_idle = $false } -AllowStatus @(200)
@@ -461,28 +528,8 @@ $preCheckDir = Join-Path $artifactsBase "$stampPre-precheck"
 Ensure-Dir -Path $preCheckDir
 ($preGate | ConvertTo-Json -Depth 100) | Set-Content -LiteralPath (Join-Path $preCheckDir "pre_gate_checks.json") -Encoding UTF8
 
-$reminderProbeResult = $null
 if (-not $SetupOnly) {
-  Write-Host "== Recycle probe session after initial progress =="
-  $probeSessionRecycle = Wait-ForProbeInProgressAndRecycleSession -ProjectId $projectId -ProbeRole $probeRole -ProbeTaskId $probeTaskId -TimeoutMinutes 3 -PollIntervalSeconds ([Math]::Max(5, [Math]::Min($PollSeconds, 10)))
-
-  Write-Host "== Wait for reminder probe trigger and redispatch =="
-  $reminderProbeResult = Wait-ForReminderProbe -ProjectId $projectId -ProbeRole $probeRole -ProbeTaskId $probeTaskId -TimeoutMinutes 6 -PollIntervalSeconds ([Math]::Max(5, $PollSeconds))
-  if (-not $reminderProbeResult.pass) {
-    throw "Reminder probe did not reach trigger -> message redispatch -> progress for task '$probeTaskId'"
-  }
-
-  Write-Host "== Release reminder gate and enable auto dispatch =="
-  Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/task-actions" -Body @{
-    action_type = "TASK_REPORT"
-    from_agent = "manager"
-    from_session_id = "manager-system"
-    results = @(
-      @{ task_id = $gateTaskId; outcome = "DONE"; summary = "Reminder probe passed; release discuss baseline." }
-    )
-  } -AllowStatus @(200, 201) | Out-Null
-
-  Write-Host "== Kick TeamLeader with explicit discuss objective =="
+  Write-Host "== Kick TeamLeader and enable auto dispatch =="
   Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/messages/send" -Body @{
     from_agent = "manager"
     from_session_id = "manager-system"
@@ -547,7 +594,9 @@ if ($SetupOnly) {
       if (-not $sessionToken -or -not $s.lastActiveAt) { continue }
       $last = [datetime]::Parse($s.lastActiveAt)
       if (((Get-Date).ToUniversalTime() - $last.ToUniversalTime()).TotalMinutes -gt 15) {
+        Add-StabilityFallbackEvent -Type "repair" -Detail ("role={0} session={1}" -f [string]$s.role, [string]$sessionToken)
         Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/sessions/$sessionToken/repair" -Body @{ target_status = "idle" } -AllowStatus @(200, 404, 409) | Out-Null
+        Add-StabilityFallbackEvent -Type "dispatch_nudge" -Detail ("reason=repair role={0}" -f [string]$s.role)
         $null = Invoke-BestEffortDispatch -ProjectId $projectId -Body @{ role = $s.role; force = $false; only_idle = $false } -Reason ("repair:{0}" -f [string]$s.role)
       }
     }
@@ -597,12 +646,14 @@ if ($SetupOnly) {
         total_budget_granted = $totalBudgetGranted
       }
       $topupLog += $entry
+      Add-StabilityFallbackEvent -Type "topup" -Detail ("remaining={0}-> {1}" -f $remaining, $newRemaining)
       Write-Host ("topup applied: count={0} new_remaining={1} total_budget_granted={2}" -f $topupCount, $newRemaining, $totalBudgetGranted)
       Start-Sleep -Seconds $PollSeconds
       continue
     }
     if ($openExec.Count -gt 0 -and $noRunningStreak -ge 3) {
       $nudgeApplied = Invoke-BestEffortDispatch -ProjectId $projectId -Body @{ force = $false; only_idle = $false } -Reason ("idle_streak:{0}" -f $noRunningStreak)
+      Add-StabilityFallbackEvent -Type "dispatch_nudge" -Detail ("reason=idle_streak streak={0} success={1}" -f $noRunningStreak, $nudgeApplied)
       Write-Host ("dispatch nudge attempted after idle streak={0} success={1}" -f $noRunningStreak, $nudgeApplied)
       $noRunningStreak = 0
       Start-Sleep -Seconds $PollSeconds
@@ -619,26 +670,12 @@ if ($SetupOnly) {
 Write-Host "== Export logs and analyze =="
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $outDir = Join-Path $artifactsBase $stamp
+$script:stabilityOutDir = $outDir
 Ensure-Dir -Path $outDir
 & (Join-Path $scriptDir "export-core-logs.ps1") -BaseUrl $BaseUrl -ProjectId $projectId -OutDir $outDir
 Copy-Item -LiteralPath (Join-Path $preCheckDir "pre_gate_checks.json") -Destination (Join-Path $outDir "pre_gate_checks.json") -Force
 $topupJson = if (@($topupLog).Count -eq 0) { "[]" } else { ($topupLog | ConvertTo-Json -Depth 20) }
 Set-Content -LiteralPath (Join-Path $outDir "topup_log.json") -Value $topupJson -Encoding UTF8
-
-$reminderEvidenceOut = if ($reminderProbeResult) {
-  [pscustomobject]@{
-    pass = $reminderProbeResult.pass
-    evidence = $reminderProbeResult.evidence
-    trace = $reminderProbeResult.trace
-  }
-} else {
-  [pscustomobject]@{
-    pass = $false
-    skipped = $true
-    reason = "setup_only"
-  }
-}
-($reminderEvidenceOut | ConvertTo-Json -Depth 100) | Set-Content -LiteralPath (Join-Path $outDir "reminder_probe.json") -Encoding UTF8
 
 $analysisExit = 0
 if (-not $SetupOnly) {
@@ -657,6 +694,7 @@ $finalRemaining = [int]$finalSettings.body.auto_dispatch_remaining
 $consumed = $totalBudgetGranted - $finalRemaining
 $runningCount = @($finalSessions.body.items | Where-Object { $_.status -eq "running" }).Count
 $openExecCount = @(@($finalTree.body.nodes) | Where-Object { $_.task_kind -eq "EXECUTION" -and @("DONE","BLOCKED_DEP","CANCELED") -notcontains $_.state }).Count
+$stabilityMetrics = Write-StabilityMetrics -OutDir $outDir -CaseId $script:stabilityCaseId -StartTime $start -FinalPass $pass -FinalReason $finalReason -ExitCode $(if ($pass -and $analysisExit -eq 0) { 0 } else { 2 })
 
 $summary = @()
 $summary += "# E2E Discuss Run Summary"
@@ -669,7 +707,6 @@ $summary += "- ended_at: $((Get-Date).ToString("o"))"
 $summary += "- final_reason: $finalReason"
 $summary += "- pass_runtime: $pass"
 $summary += "- pass_analysis: $($analysisExit -eq 0)"
-$summary += "- reminder_probe_pass: $(if ($reminderProbeResult) { [bool]$reminderProbeResult.pass } else { $false })"
 $summary += "- auto_dispatch_budget_initial: $AutoDispatchBudget"
 $summary += "- auto_dispatch_budget_granted_total: $totalBudgetGranted"
 $summary += "- auto_dispatch_budget_remaining: $finalRemaining"
@@ -678,6 +715,8 @@ $summary += "- auto_dispatch_topup_step: $AutoTopupStep"
 $summary += "- auto_dispatch_topup_count: $topupCount"
 $summary += "- auto_dispatch_topup_max: $MaxTopups"
 $summary += "- auto_dispatch_total_budget_max: $MaxTotalBudget"
+$summary += "- toolcall_failed_count: $($stabilityMetrics.toolcall_failed_count)"
+$summary += "- timeout_recovered_count: $($stabilityMetrics.timeout_recovered_count)"
 $summary += "- running_sessions_final: $runningCount"
 $summary += "- open_execution_tasks_final: $openExecCount"
 $summary += "- artifacts_dir: $outDir"

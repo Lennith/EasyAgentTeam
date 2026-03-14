@@ -120,11 +120,14 @@ test("project bootstrap creates per-agent AGENTS.md with direct ToolCall guidanc
 
     const agentWorkspaceAgentsPath = path.join(workspacePath, "Agents", "pm_product", "AGENTS.md");
     const agentWorkspaceAgentsContent = await fs.readFile(agentWorkspaceAgentsPath, "utf8");
+    const rootAgentsContent = await fs.readFile(path.join(workspacePath, "AGENTS.md"), "utf8");
     assert.equal(agentWorkspaceAgentsContent.includes("../../TeamTools/TeamToolsList.md"), false);
     assert.equal(agentWorkspaceAgentsContent.includes("task_create_assign"), true);
     assert.equal(agentWorkspaceAgentsContent.includes("task_report_in_progress"), true);
     assert.equal(agentWorkspaceAgentsContent.includes("Error Handling"), true);
     assert.equal(agentWorkspaceAgentsContent.includes("You are running as role"), false);
+    assert.equal(rootAgentsContent.includes("# TeamWorkSpace AGENTS Guide"), true);
+    assert.equal(rootAgentsContent.includes("./Agents/pm_product/AGENTS.md"), true);
 
     const roleMdPath = path.join(workspacePath, "Agents", "pm_product", "role.md");
     const roleMdContent = await fs.readFile(roleMdPath, "utf8");

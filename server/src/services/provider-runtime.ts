@@ -6,7 +6,7 @@ import {
   type MiniMaxRunResultInternal,
   type MiniMaxStartCallbacks
 } from "./minimax-runner.js";
-import { createMiniMaxAgent, type MiniMaxRunResult } from "../minimax/index.js";
+import { createMiniMaxAgent, type MiniMaxAgent, type MiniMaxRunResult } from "../minimax/index.js";
 import type { RuntimeSettings } from "../data/runtime-settings-store.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
 import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/team/types.js";
@@ -137,6 +137,7 @@ class CliProviderRuntime implements ProviderRuntime {
 
 class MiniMaxProviderRuntime implements ProviderRuntime {
   public readonly providerId: ProviderId = "minimax";
+  private readonly activeToolSessions = new Map<string, MiniMaxAgent>();
 
   async launchProjectDispatch(
     project: ProjectRecord,
@@ -201,6 +202,7 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
       skillSegments: injectedSkillSegments
     });
 
+    const sessionKey = input.providerSessionId.trim();
     const agent = createMiniMaxAgent({
       config: {
         apiKey: settings.minimaxApiKey ?? "",
@@ -210,6 +212,7 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
         sessionDir: settings.minimaxSessionDir ?? input.sessionDirFallback,
         maxSteps: settings.minimaxMaxSteps ?? 200,
         tokenLimit: settings.minimaxTokenLimit ?? 180000,
+        maxOutputTokens: settings.minimaxMaxOutputTokens ?? 4096,
         enableFileTools: true,
         enableShell: true,
         enableNote: true,
@@ -230,18 +233,34 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
       }
     });
 
-    return await agent.runWithResult({
-      prompt: input.prompt,
-      sessionId: input.providerSessionId,
-      callback: input.callback
-    });
+    this.activeToolSessions.set(sessionKey, agent);
+    try {
+      return await agent.runWithResult({
+        prompt: input.prompt,
+        sessionId: input.providerSessionId,
+        callback: input.callback
+      });
+    } finally {
+      const active = this.activeToolSessions.get(sessionKey);
+      if (active === agent) {
+        this.activeToolSessions.delete(sessionKey);
+      }
+    }
   }
 
   cancelSession(sessionId: string): boolean {
+    const activeToolSession = this.activeToolSessions.get(sessionId);
+    if (activeToolSession) {
+      activeToolSession.cancel();
+      return true;
+    }
     return cancelMiniMaxRunner(sessionId);
   }
 
   isSessionActive(sessionId: string): boolean {
+    if (this.activeToolSessions.has(sessionId)) {
+      return true;
+    }
     return isMiniMaxRunnerActive(sessionId);
   }
 }

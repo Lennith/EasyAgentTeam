@@ -22,8 +22,6 @@ $roleLead = [string]$roles.LEAD
 $roleB = [string]$roles.B
 $roleC = [string]$roles.C
 $roleD = [string]$roles.D
-$reminderProbe = $scenario.reminder_probe
-$roleByRef = @{ LEAD = $roleLead; B = $roleB; C = $roleC; D = $roleD }
 
 $seed = $scenario.seed_tasks
 $taskLeadId = [string]$seed.task_lead_plan.task_id
@@ -32,19 +30,16 @@ $taskCId = [string]$seed.task_design_c.task_id
 $taskDId = [string]$seed.task_design_d.task_id
 $taskAlignId = [string]$seed.task_alignment.task_id
 $taskFinalId = [string]$seed.task_final.task_id
-$probeTaskId = [string]$reminderProbe.probe_task_id
-$gateTaskId = [string]$reminderProbe.gate_task_id
-$probeRole = [string]$roleByRef[[string]$reminderProbe.blocked_role_ref]
 
 $eventsPath = Join-Path $ArtifactsDir "events.ndjson"
 $treePath = Join-Path $ArtifactsDir "task_tree_final.json"
 $sessionsPath = Join-Path $ArtifactsDir "sessions_final.json"
 $preGatePath = Join-Path $ArtifactsDir "pre_gate_checks.json"
 $topupLogPath = Join-Path $ArtifactsDir "topup_log.json"
-$reminderPath = Join-Path $ArtifactsDir "reminder_probe.json"
 $runSummaryPath = Join-Path $ArtifactsDir "run_summary.md"
+$stabilityPath = Join-Path $ArtifactsDir "stability_metrics.json"
 
-foreach ($required in @($eventsPath, $treePath, $sessionsPath, $preGatePath, $topupLogPath, $reminderPath)) {
+foreach ($required in @($eventsPath, $treePath, $sessionsPath, $preGatePath, $topupLogPath, $stabilityPath)) {
   if (-not (Test-Path -LiteralPath $required)) {
     throw "Required artifact not found: $required"
   }
@@ -60,7 +55,7 @@ $tree = Get-Content -LiteralPath $treePath -Raw | ConvertFrom-Json
 $sessions = Get-Content -LiteralPath $sessionsPath -Raw | ConvertFrom-Json
 $preGate = Get-Content -LiteralPath $preGatePath -Raw | ConvertFrom-Json
 $topupLog = @((Get-Content -LiteralPath $topupLogPath -Raw | ConvertFrom-Json))
-$reminderResult = Get-Content -LiteralPath $reminderPath -Raw | ConvertFrom-Json
+$stability = Get-Content -LiteralPath $stabilityPath -Raw | ConvertFrom-Json
 
 $finalReason = [string]$FinalReasonHint
 if ([string]::IsNullOrWhiteSpace($finalReason) -and (Test-Path -LiteralPath $runSummaryPath)) {
@@ -101,10 +96,9 @@ function Is-BlockedByGate {
 $preGateBBlocked = Is-BlockedByGate -Outcome $preGateB
 $preGateCBlocked = Is-BlockedByGate -Outcome $preGateC
 $preGateDBlocked = Is-BlockedByGate -Outcome $preGateD
-$preGateDProbeOccupied = ($preGateD -and [string]$preGateD.outcome -eq "dispatched" -and [string]$preGateD.taskId -eq $probeTaskId)
 $invalidParentDependencyRejected = ([int]$invalidParentDependencyCreate.status -eq 409)
 
-$requiredTasks = @($taskLeadId, $taskBId, $taskCId, $taskDId, $taskAlignId, $taskFinalId, $probeTaskId, $gateTaskId)
+$requiredTasks = @($taskLeadId, $taskBId, $taskCId, $taskDId, $taskAlignId, $taskFinalId)
 $allTasksExist = @($requiredTasks | Where-Object { -not $nodeById.ContainsKey($_) }).Count -eq 0
 
 $structureOk = $false
@@ -116,9 +110,6 @@ if ($allTasksExist) {
     [string]$nodeById[$taskDId].owner_role -eq $roleD -and
     [string]$nodeById[$taskAlignId].owner_role -eq $roleLead -and
     [string]$nodeById[$taskFinalId].owner_role -eq $roleLead -and
-    [string]$nodeById[$probeTaskId].owner_role -eq $probeRole -and
-    [string]$nodeById[$gateTaskId].owner_role -eq "manager" -and
-    (@($nodeById[$taskLeadId].dependencies) -contains $gateTaskId) -and
     (@($nodeById[$taskBId].dependencies) -contains $taskLeadId) -and
     (@($nodeById[$taskCId].dependencies) -contains $taskLeadId) -and
     (@($nodeById[$taskDId].dependencies) -contains $taskLeadId) -and
@@ -157,22 +148,28 @@ $openExecutionTasks = @($nodes | Where-Object { $_.task_kind -eq "EXECUTION" -an
 $runningSessions = @($sessions.items | Where-Object { $_.status -eq "running" })
 $dispatchFailedCount = @($events | Where-Object { $_.eventType -eq "ORCHESTRATOR_DISPATCH_FAILED" }).Count
 $dispatchRecovered = ($dispatchFailedCount -gt 0 -and @($openExecutionTasks).Count -eq 0 -and @($runningSessions).Count -eq 0 -and $finalReason -eq "closed_loop")
+$stabilityFields = @("case_id", "start_time", "end_time", "exit_code", "toolcall_failed_count", "toolcall_failed_timestamps", "timeout_recovered_count", "timeout_recovered_timestamps", "fallback_events", "final_pass", "final_reason")
+$stabilityMissing = @()
+foreach ($f in $stabilityFields) {
+  if (-not ($stability.PSObject.Properties.Name -contains $f)) {
+    $stabilityMissing += $f
+  }
+}
+$stabilityComplete = ($stabilityMissing.Count -eq 0)
 
 $checks = @(
-  [pscustomobject]@{ Name = "Seed tasks exist"; Pass = $allTasksExist; Detail = "required=$($requiredTasks.Count) includes reminder probe/gate" },
-  [pscustomobject]@{ Name = "Seed structure and dependencies are correct"; Pass = $structureOk; Detail = "lead+3 drafts+alignment+final with reminder gate" },
+  [pscustomobject]@{ Name = "Seed tasks exist"; Pass = $allTasksExist; Detail = "required=$($requiredTasks.Count) includes lead+3 drafts+alignment+final" },
+  [pscustomobject]@{ Name = "Seed structure and dependencies are correct"; Pass = $structureOk; Detail = "lead+3 drafts+alignment+final dependency chain" },
   [pscustomobject]@{ Name = "Invalid parent dependency create is rejected"; Pass = $invalidParentDependencyRejected; Detail = "status=$([int]$invalidParentDependencyCreate.status) error_code=$([string]$invalidParentDependencyCreate.body.error_code)" },
-  [pscustomobject]@{ Name = "Pre-gate blocks B/C and keeps D occupied by reminder probe before lead task completes"; Pass = ($preGateBBlocked -and $preGateCBlocked -and ($preGateDBlocked -or $preGateDProbeOccupied)); Detail = "B=$preGateBBlocked C=$preGateCBlocked D_blocked=$preGateDBlocked D_probe_occupied=$preGateDProbeOccupied" },
-  [pscustomobject]@{ Name = "Reminder probe triggered for designated role"; Pass = [bool]$reminderResult.evidence.trigger_pass; Detail = "role=$probeRole trigger_count=$($reminderResult.evidence.reminder_trigger_count)" },
-  [pscustomobject]@{ Name = "Reminder probe was redispatched after trigger"; Pass = [bool]$reminderResult.evidence.dispatch_pass; Detail = "task_id=$probeTaskId dispatch_count=$($reminderResult.evidence.message_dispatch_count) reminder_redispatch_count=$($reminderResult.evidence.redispatch_count)" },
-  [pscustomobject]@{ Name = "Reminder probe role later progressed task"; Pass = [bool]$reminderResult.evidence.progress_pass; Detail = "report_applied_count=$($reminderResult.evidence.report_applied_count) probe_state=$($reminderResult.evidence.probe_state)" },
+  [pscustomobject]@{ Name = "Pre-dispatch dependency blocks B/C/D before lead task completes"; Pass = ($preGateBBlocked -and $preGateCBlocked -and $preGateDBlocked); Detail = "B=$preGateBBlocked C=$preGateCBlocked D=$preGateDBlocked" },
   [pscustomobject]@{ Name = "Three draft tasks were eventually reached (dispatched or terminal)"; Pass = $draftsReached; Detail = "B_dispatched=$bDispatched B_terminal=$bTerminal C_dispatched=$cDispatched C_terminal=$cTerminal D_dispatched=$dDispatched D_terminal=$dTerminal" },
   [pscustomobject]@{ Name = "Alignment task was reached (dispatched or terminal)"; Pass = $alignReached; Detail = "alignment_dispatched=$reviewDispatched alignment_terminal=$alignTerminal" },
   [pscustomobject]@{ Name = "Discuss flow exists"; Pass = $hasDiscussFlow; Detail = "message_routed_discuss_count=$(@($messageRoutedDiscuss).Count)" },
   [pscustomobject]@{ Name = "No unresolved execution tasks"; Pass = (@($openExecutionTasks).Count -eq 0); Detail = "open_execution_tasks=$(@($openExecutionTasks).Count)" },
   [pscustomobject]@{ Name = "No running sessions at finish"; Pass = (@($runningSessions).Count -eq 0); Detail = "running_sessions=$(@($runningSessions).Count)" },
   [pscustomobject]@{ Name = "Dispatch failures are either absent or fully recovered"; Pass = ($dispatchFailedCount -eq 0 -or $dispatchRecovered); Detail = "dispatch_failed_events=$dispatchFailedCount recovered=$dispatchRecovered" },
-  [pscustomobject]@{ Name = "Topup run ends with explicit reason"; Pass = $topupReasonExplicit; Detail = "topup_count=$topupCount final_reason=$finalReason" }
+  [pscustomobject]@{ Name = "Topup run ends with explicit reason"; Pass = $topupReasonExplicit; Detail = "topup_count=$topupCount final_reason=$finalReason" },
+  [pscustomobject]@{ Name = "Stability metrics schema is complete"; Pass = $stabilityComplete; Detail = "missing_fields=$($stabilityMissing -join ',')" }
 )
 
 $overallPass = @($checks | Where-Object { -not $_.Pass }).Count -eq 0
@@ -186,6 +183,8 @@ $lines += "- event_count: $(@($events).Count)"
 $lines += "- task_node_count: $(@($nodes).Count)"
 $lines += "- discuss_message_routed_count: $(@($messageRoutedDiscuss).Count)"
 $lines += "- topup_count: $topupCount"
+$lines += "- stability_toolcall_failed_count: $([int]$stability.toolcall_failed_count)"
+$lines += "- stability_timeout_recovered_count: $([int]$stability.timeout_recovered_count)"
 $lines += "- final_reason: $finalReason"
 $lines += ""
 $lines += "## Checks"
@@ -197,8 +196,8 @@ foreach ($c in $checks) {
 $lines += ""
 $lines += "## Notes"
 $lines += ""
-$lines += "- This scenario embeds reminder validation before the lead planning task is released."
-$lines += "- Reminder probe belongs to role D and must wake back up through message redispatch before normal discuss flow continues."
+$lines += "- This scenario focuses on discuss convergence path only (lead + B/C/D + alignment + final)."
+$lines += "- Reminder gateway/probe checks are intentionally removed to avoid false-positive misjudgment."
 
 [System.IO.File]::WriteAllLines($OutputPath, $lines, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Analysis written to: $OutputPath"

@@ -1151,6 +1151,7 @@ export function createApp(options: AppOptions = {}) {
         minimaxMcpServers: settings.minimaxMcpServers,
         minimaxMaxSteps: settings.minimaxMaxSteps,
         minimaxTokenLimit: settings.minimaxTokenLimit,
+        minimaxMaxOutputTokens: settings.minimaxMaxOutputTokens,
         hostPlatform: runtime.platform,
         hostPlatformLabel: runtime.label,
         supportedShellTypes: runtime.supportedShells,
@@ -1192,6 +1193,12 @@ export function createApp(options: AppOptions = {}) {
             ? body.minimax_token_limit
             : typeof body.minimaxTokenLimit === "number"
               ? body.minimaxTokenLimit
+              : undefined,
+        minimaxMaxOutputTokens:
+          typeof body.minimax_max_output_tokens === "number"
+            ? body.minimax_max_output_tokens
+            : typeof body.minimaxMaxOutputTokens === "number"
+              ? body.minimaxMaxOutputTokens
               : undefined
       });
       const runtime = getRuntimePlatformCapabilities();
@@ -1206,6 +1213,7 @@ export function createApp(options: AppOptions = {}) {
         minimaxMcpServers: updated.minimaxMcpServers,
         minimaxMaxSteps: updated.minimaxMaxSteps,
         minimaxTokenLimit: updated.minimaxTokenLimit,
+        minimaxMaxOutputTokens: updated.minimaxMaxOutputTokens,
         hostPlatform: runtime.platform,
         hostPlatformLabel: runtime.label,
         supportedShellTypes: runtime.supportedShells,

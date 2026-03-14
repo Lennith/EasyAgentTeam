@@ -487,6 +487,79 @@ export class WorkflowOrchestratorService {
     }
   }
 
+  private recomputeParentTaskStates(run: WorkflowRunRecord, runtime: WorkflowRunRuntimeState): void {
+    const runtimeById = new Map(runtime.tasks.map((task) => [task.taskId, task]));
+    const taskById = new Map(run.tasks.map((task) => [task.taskId, task]));
+    const childrenByParent = new Map<string, WorkflowTaskRuntimeRecord[]>();
+    for (const taskDef of run.tasks) {
+      const parentId = taskDef.parentTaskId?.trim();
+      if (!parentId) {
+        continue;
+      }
+      const childRuntime = runtimeById.get(taskDef.taskId);
+      if (!childRuntime) {
+        continue;
+      }
+      const current = childrenByParent.get(parentId) ?? [];
+      current.push(childRuntime);
+      childrenByParent.set(parentId, current);
+    }
+
+    const depthCache = new Map<string, number>();
+    const depthVisiting = new Set<string>();
+    const resolveDepth = (taskId: string): number => {
+      const cached = depthCache.get(taskId);
+      if (cached !== undefined) {
+        return cached;
+      }
+      if (depthVisiting.has(taskId)) {
+        return 0;
+      }
+      depthVisiting.add(taskId);
+      const task = taskById.get(taskId);
+      const parent = task?.parentTaskId?.trim();
+      const depth = !parent || parent === taskId || !taskById.has(parent) ? 0 : resolveDepth(parent) + 1;
+      depthVisiting.delete(taskId);
+      depthCache.set(taskId, depth);
+      return depth;
+    };
+
+    const parentTaskIds = Array.from(childrenByParent.keys()).sort((a, b) => resolveDepth(b) - resolveDepth(a));
+    for (const parentTaskId of parentTaskIds) {
+      const parentRuntime = runtimeById.get(parentTaskId);
+      if (!parentRuntime) {
+        continue;
+      }
+      const children = childrenByParent.get(parentTaskId) ?? [];
+      if (children.length === 0) {
+        continue;
+      }
+
+      const unresolved = this.collectUnsatisfiedDependencies(run, runtimeById, parentTaskId);
+      let nextState: WorkflowTaskState;
+      if (unresolved.length > 0) {
+        parentRuntime.blockedBy = unresolved;
+        parentRuntime.blockers = unresolved;
+        parentRuntime.blockedReasons = [{ code: "DEP_UNSATISFIED", dependencyTaskIds: unresolved }];
+        nextState = "BLOCKED_DEP";
+      } else if (children.every((child) => child.state === "DONE" || child.state === "CANCELED")) {
+        parentRuntime.blockedBy = [];
+        parentRuntime.blockers = undefined;
+        parentRuntime.blockedReasons = [];
+        nextState = "DONE";
+      } else {
+        parentRuntime.blockedBy = [];
+        parentRuntime.blockers = undefined;
+        parentRuntime.blockedReasons = [];
+        nextState = "IN_PROGRESS";
+      }
+
+      if (parentRuntime.state !== nextState) {
+        this.addTransition(runtime, parentRuntime, nextState);
+      }
+    }
+  }
+
   private async ensureRuntime(run: WorkflowRunRecord): Promise<WorkflowRunRuntimeState> {
     const runtime = run.runtime ?? (await readWorkflowRunTaskRuntimeState(this.dataRoot, run.runId));
     const normalized = runtime?.tasks ? runtime : createInitialRuntime(run);
@@ -517,6 +590,7 @@ export class WorkflowOrchestratorService {
     }
     const nextRuntime: WorkflowRunRuntimeState = { ...normalized, tasks: nextTasks };
     this.reevaluateDependencyGate(run, nextRuntime);
+    this.recomputeParentTaskStates(run, nextRuntime);
     if (changed) {
       await writeWorkflowRunTaskRuntimeState(this.dataRoot, run.runId, nextRuntime);
       await patchWorkflowRun(this.dataRoot, run.runId, { runtime: nextRuntime });
@@ -1482,6 +1556,7 @@ export class WorkflowOrchestratorService {
       });
       const runWithNewTasks: WorkflowRunRecord = { ...run, tasks: nextTasks };
       this.reevaluateDependencyGate(runWithNewTasks, runtime);
+      this.recomputeParentTaskStates(runWithNewTasks, runtime);
       await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
       const updated = await patchWorkflowRun(this.dataRoot, runId, { runtime, tasks: nextTasks });
       appliedTaskIds.push(taskId);
@@ -1556,6 +1631,7 @@ export class WorkflowOrchestratorService {
       }
     }
     this.reevaluateDependencyGate(run, runtime);
+    this.recomputeParentTaskStates(run, runtime);
     const now = new Date().toISOString();
     let nextStatus: WorkflowRunState = run.status;
     if (isRuntimeTerminal(runtime)) {
