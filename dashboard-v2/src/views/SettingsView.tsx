@@ -146,221 +146,225 @@ export function SettingsView() {
 
   if (loading) {
     return (
-      <section>
+      <section style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div className="page-header">
           <h1>{t.settings}</h1>
         </div>
-        <div className="empty-state">
-          <div className="loading-spinner" style={{ margin: "0 auto" }} />
-          <p style={{ marginTop: "16px" }}>{t.loadingSettings}</p>
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto", paddingRight: "4px" }}>
+          <div className="empty-state">
+            <div className="loading-spinner" style={{ margin: "0 auto" }} />
+            <p style={{ marginTop: "16px" }}>{t.loadingSettings}</p>
+          </div>
         </div>
       </section>
     );
   }
 
   return (
-    <section>
+    <section style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div className="page-header">
         <h1>{t.settings}</h1>
       </div>
 
-      {error && <div className="error-message">{error}</div>}
-      {success && <div className="success-message">{success}</div>}
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", paddingRight: "4px" }}>
+        {error && <div className="error-message">{error}</div>}
+        {success && <div className="success-message">{success}</div>}
 
-      <div className="card">
-        <div className="card-header">
-          <h3>Dashboard Settings</h3>
-        </div>
+        <div className="card">
+          <div className="card-header">
+            <h3>Dashboard Settings</h3>
+          </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "16px",
-            background: "var(--bg-elevated)",
-            borderRadius: "8px",
-            marginBottom: "16px"
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {dashboardSettings.useMockData ? (
-              <Database size={20} style={{ color: "var(--accent-warning)" }} />
-            ) : (
-              <Wifi size={20} style={{ color: "var(--accent-success)" }} />
-            )}
-            <div>
-              <div style={{ fontWeight: 500 }}>Data Source</div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                {dashboardSettings.useMockData
-                  ? "Using mock data for preview (no backend required)"
-                  : "Using real backend API data"}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "16px",
+              background: "var(--bg-elevated)",
+              borderRadius: "8px",
+              marginBottom: "16px"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {dashboardSettings.useMockData ? (
+                <Database size={20} style={{ color: "var(--accent-warning)" }} />
+              ) : (
+                <Wifi size={20} style={{ color: "var(--accent-success)" }} />
+              )}
+              <div>
+                <div style={{ fontWeight: 500 }}>Data Source</div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  {dashboardSettings.useMockData
+                    ? "Using mock data for preview (no backend required)"
+                    : "Using real backend API data"}
+                </div>
               </div>
             </div>
-          </div>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              className={`btn ${!dashboardSettings.useMockData ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => updateSettings({ useMockData: false })}
-            >
-              <Wifi size={14} />
-              Live API
-            </button>
-            <button
-              className={`btn ${dashboardSettings.useMockData ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => updateSettings({ useMockData: true })}
-            >
-              <Database size={14} />
-              Mock Data
-            </button>
-          </div>
-        </div>
-
-        {/* Theme Selector */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "16px",
-            background: "var(--bg-surface)",
-            borderRadius: "8px",
-            marginBottom: "16px"
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <Palette size={20} style={{ color: "var(--accent-primary)" }} />
-            <div>
-              <div style={{ fontWeight: 500 }}>Theme</div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Choose your preferred color scheme</div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                className={`btn ${!dashboardSettings.useMockData ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => updateSettings({ useMockData: false })}
+              >
+                <Wifi size={14} />
+                Live API
+              </button>
+              <button
+                className={`btn ${dashboardSettings.useMockData ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => updateSettings({ useMockData: true })}
+              >
+                <Database size={14} />
+                Mock Data
+              </button>
             </div>
           </div>
-          <select
-            value={theme}
-            onChange={(e) => {
-              void onThemeChange(e.target.value as Theme);
+
+          {/* Theme Selector */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "16px",
+              background: "var(--bg-surface)",
+              borderRadius: "8px",
+              marginBottom: "16px"
             }}
-            style={{ width: "auto", minWidth: "150px" }}
           >
-            {THEMES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-          {themeSaving && (
-            <span style={{ marginLeft: "8px", fontSize: "12px", color: "var(--text-muted)" }}>Saving...</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <Palette size={20} style={{ color: "var(--accent-primary)" }} />
+              <div>
+                <div style={{ fontWeight: 500 }}>Theme</div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Choose your preferred color scheme</div>
+              </div>
+            </div>
+            <select
+              value={theme}
+              onChange={(e) => {
+                void onThemeChange(e.target.value as Theme);
+              }}
+              style={{ width: "auto", minWidth: "150px" }}
+            >
+              {THEMES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            {themeSaving && (
+              <span style={{ marginLeft: "8px", fontSize: "12px", color: "var(--text-muted)" }}>Saving...</span>
+            )}
+          </div>
+
+          {dashboardSettings.useMockData && (
+            <div
+              style={{
+                padding: "12px",
+                background: "var(--accent-warning)20",
+                borderRadius: "6px",
+                fontSize: "13px",
+                color: "var(--accent-warning)"
+              }}
+            >
+              ⚠️ Mock data mode is enabled. Some features may not work correctly. Switch to "Live API" when the backend
+              is available.
+            </div>
           )}
         </div>
 
-        {dashboardSettings.useMockData && (
-          <div
-            style={{
-              padding: "12px",
-              background: "var(--accent-warning)20",
-              borderRadius: "6px",
-              fontSize: "13px",
-              color: "var(--accent-warning)"
-            }}
-          >
-            ⚠️ Mock data mode is enabled. Some features may not work correctly. Switch to "Live API" when the backend is
-            available.
+        <div className="card">
+          <div className="card-header">
+            <h3>{t.modelRuntime}</h3>
           </div>
-        )}
-      </div>
 
-      <div className="card">
-        <div className="card-header">
-          <h3>{t.modelRuntime}</h3>
-        </div>
-
-        <div className="form-group">
-          <label>{t.codex}</label>
-          <input value={codexCliCommand} onChange={(e) => setCodexCliCommand(e.target.value)} placeholder="codex" />
-        </div>
-
-        <div className="form-group">
-          <label>{t.trae}</label>
-          <input value={traeCliCommand} onChange={(e) => setTraeCliCommand(e.target.value)} placeholder="trae" />
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h3>MiniMax Agent</h3>
-        </div>
-
-        <div className="form-group">
-          <label>API Key</label>
-          <input
-            type="password"
-            value={minimaxApiKey}
-            onChange={(e) => setMiniMaxApiKey(e.target.value)}
-            placeholder="Enter your MiniMax API key"
-          />
-        </div>
-
-        <div className="form-group">
-          <label>API Base URL</label>
-          <input
-            value={minimaxApiBase}
-            onChange={(e) => setMiniMaxApiBase(e.target.value)}
-            placeholder="https://api.minimax.io"
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Model</label>
-          <select value={minimaxModel} onChange={(e) => setMiniMaxModel(e.target.value)}>
-            {MINIMAX_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-group">
-          <label>Session Directory (optional)</label>
-          <input
-            value={minimaxSessionDir}
-            onChange={(e) => setMiniMaxSessionDir(e.target.value)}
-            placeholder="Leave empty for default (.minimax/sessions)"
-          />
-          <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
-            Default: {".minimax/sessions in project root"}
-          </p>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
           <div className="form-group">
-            <label>Max Steps</label>
+            <label>{t.codex}</label>
+            <input value={codexCliCommand} onChange={(e) => setCodexCliCommand(e.target.value)} placeholder="codex" />
+          </div>
+
+          <div className="form-group">
+            <label>{t.trae}</label>
+            <input value={traeCliCommand} onChange={(e) => setTraeCliCommand(e.target.value)} placeholder="trae" />
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header">
+            <h3>MiniMax Agent</h3>
+          </div>
+
+          <div className="form-group">
+            <label>API Key</label>
             <input
-              type="number"
-              value={minimaxMaxSteps}
-              onChange={(e) => setMiniMaxMaxSteps(parseInt(e.target.value) || 100)}
-              min={1}
-              max={1000}
+              type="password"
+              value={minimaxApiKey}
+              onChange={(e) => setMiniMaxApiKey(e.target.value)}
+              placeholder="Enter your MiniMax API key"
             />
           </div>
 
           <div className="form-group">
-            <label>Token Limit</label>
+            <label>API Base URL</label>
             <input
-              type="number"
-              value={minimaxTokenLimit}
-              onChange={(e) => setMiniMaxTokenLimit(parseInt(e.target.value) || 80000)}
-              min={1000}
-              max={200000}
+              value={minimaxApiBase}
+              onChange={(e) => setMiniMaxApiBase(e.target.value)}
+              placeholder="https://api.minimax.io"
             />
           </div>
-        </div>
-      </div>
 
-      <button className="btn btn-primary" disabled={saving} onClick={onSave} style={{ marginBottom: "24px" }}>
-        {saving ? <Loader size={14} className="loading-spinner" /> : <Save size={14} />}
-        {saving ? t.saving : t.save}
-      </button>
+          <div className="form-group">
+            <label>Model</label>
+            <select value={minimaxModel} onChange={(e) => setMiniMaxModel(e.target.value)}>
+              {MINIMAX_MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Session Directory (optional)</label>
+            <input
+              value={minimaxSessionDir}
+              onChange={(e) => setMiniMaxSessionDir(e.target.value)}
+              placeholder="Leave empty for default (.minimax/sessions)"
+            />
+            <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+              Default: {".minimax/sessions in project root"}
+            </p>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div className="form-group">
+              <label>Max Steps</label>
+              <input
+                type="number"
+                value={minimaxMaxSteps}
+                onChange={(e) => setMiniMaxMaxSteps(parseInt(e.target.value) || 100)}
+                min={1}
+                max={1000}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Token Limit</label>
+              <input
+                type="number"
+                value={minimaxTokenLimit}
+                onChange={(e) => setMiniMaxTokenLimit(parseInt(e.target.value) || 80000)}
+                min={1000}
+                max={200000}
+              />
+            </div>
+          </div>
+        </div>
+
+        <button className="btn btn-primary" disabled={saving} onClick={onSave} style={{ marginBottom: "24px" }}>
+          {saving ? <Loader size={14} className="loading-spinner" /> : <Save size={14} />}
+          {saving ? t.saving : t.save}
+        </button>
+      </div>
     </section>
   );
 }
