@@ -153,7 +153,7 @@ export function SettingsView() {
 
   if (loading) {
     return (
-      <section>
+      <section className="settings-page">
         <div className="page-header">
           <h1>{t.settings}</h1>
         </div>
@@ -166,7 +166,7 @@ export function SettingsView() {
   }
 
   return (
-    <section>
+    <section className="settings-page">
       <div className="page-header">
         <h1>{t.settings}</h1>
       </div>

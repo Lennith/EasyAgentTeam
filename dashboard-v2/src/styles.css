@@ -177,6 +177,12 @@ body {
   overflow: hidden;
 }
 
+.main-content > section.settings-page {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
 .main-content > section > .card[data-scrollable] {
   flex: 1;
   display: flex;
