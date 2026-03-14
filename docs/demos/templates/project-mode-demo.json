@@ -1,0 +1,67 @@
+{
+  "demo_id": "project_mode_demo_v1",
+  "team_id": "demo_team_project_v1",
+  "team_name": "Demo Team Project v1",
+  "project_id": "demo_project_mode_v1",
+  "project_name": "Project Mode Official Demo",
+  "workspace_path": "D:\\AgentWorkSpace\\EasyAgentTeam\\ProjectModeDemo",
+  "agents": [
+    {
+      "agent_id": "demo_lead",
+      "display_name": "Demo Lead",
+      "prompt": "You are the project demo lead. Keep responses concise and focus on task completion evidence.",
+      "provider_id": "minimax",
+      "default_model_params": {
+        "model": "MiniMax-Text-01",
+        "effort": "medium"
+      }
+    },
+    {
+      "agent_id": "demo_worker",
+      "display_name": "Demo Worker",
+      "prompt": "You are the project demo worker. Complete assigned work and report with explicit artifact paths.",
+      "provider_id": "minimax",
+      "default_model_params": {
+        "model": "MiniMax-Text-01",
+        "effort": "medium"
+      }
+    }
+  ],
+  "route_table": {
+    "demo_lead": ["demo_worker"],
+    "demo_worker": ["demo_lead"]
+  },
+  "task_assign_route_table": {
+    "demo_lead": ["demo_worker"],
+    "demo_worker": ["demo_lead"]
+  },
+  "route_discuss_rounds": {
+    "demo_lead": {
+      "demo_worker": 2
+    },
+    "demo_worker": {
+      "demo_lead": 2
+    }
+  },
+  "seed_tasks": [
+    {
+      "task_id": "demo_project_root",
+      "task_kind": "EXECUTION",
+      "title": "Demo Root Task",
+      "owner_role": "demo_lead",
+      "priority": 100,
+      "dependencies": [],
+      "content": "Create a concise demo note in docs/demo/project/notes.md and finish the task."
+    }
+  ],
+  "dispatch_target": {
+    "role": "demo_lead",
+    "task_id": "demo_project_root"
+  },
+  "success_evidence": [
+    "Task tree shows demo_project_root in DONE state",
+    "Project timeline/events contain ORCHESTRATOR_DISPATCH_STARTED",
+    "Project timeline/events contain TASK_REPORT_APPLIED",
+    "Workspace contains docs/demo/project/run_summary.md"
+  ]
+}

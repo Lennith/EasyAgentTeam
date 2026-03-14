@@ -15,7 +15,8 @@ async function main() {
   for (const filename of requiredFiles) {
     const fullPath = path.join(schemaDir, filename);
     const raw = await fs.readFile(fullPath, "utf8");
-    const parsed = JSON.parse(raw);
+    const normalized = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    const parsed = JSON.parse(normalized);
 
     if (parsed.type !== "object") {
       throw new Error(`${filename} must declare object type`);
