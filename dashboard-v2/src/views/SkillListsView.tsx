@@ -4,12 +4,19 @@ import { useSettings } from "@/hooks/useSettings";
 import { skillApi, skillListApi } from "@/services/api";
 import type { SkillDefinition, SkillListDefinition } from "@/types";
 import * as mockData from "@/mock/data";
-import { Edit, Loader, Plus, Save, Trash2, X } from "lucide-react";
+import { Edit, Loader, Plus, Save, Search, Trash2, X } from "lucide-react";
 
-function readSelectedValues(select: HTMLSelectElement): string[] {
-  return Array.from(select.selectedOptions)
-    .map((option) => option.value)
-    .filter((value, index, list) => value.length > 0 && list.indexOf(value) === index);
+function skillMatchesQuery(skill: SkillDefinition, query: string): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return true;
+  }
+  const haystack = [skill.name, skill.skillId, skill.description ?? ""].join(" ").toLowerCase();
+  return haystack.includes(normalizedQuery);
+}
+
+function readSkillLabel(skill: SkillDefinition): string {
+  return `${skill.name} (${skill.skillId})`;
 }
 
 interface EditState {
@@ -18,6 +25,142 @@ interface EditState {
   description: string;
   includeAll: boolean;
   skillIds: string[];
+}
+
+interface SkillPickerProps {
+  skills: SkillDefinition[];
+  selectedSkillIds: string[];
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  onAdd: (skillId: string) => void;
+  onRemove: (skillId: string) => void;
+  disabled: boolean;
+}
+
+function SkillPicker({
+  skills,
+  selectedSkillIds,
+  searchValue,
+  onSearchChange,
+  onAdd,
+  onRemove,
+  disabled
+}: SkillPickerProps) {
+  const selectedSet = new Set(selectedSkillIds);
+  const selectedSkills = selectedSkillIds
+    .map((skillId) => skills.find((item) => item.skillId === skillId))
+    .filter((item): item is SkillDefinition => !!item);
+  const missingSkillIds = selectedSkillIds.filter((skillId) => !skills.some((item) => item.skillId === skillId));
+  const availableSkills = skills.filter(
+    (skill) => !selectedSet.has(skill.skillId) && skillMatchesQuery(skill, searchValue)
+  );
+
+  return (
+    <div className="form-group">
+      <label>Explicit skills</label>
+
+      <div style={{ marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+        <Search size={14} color="var(--text-muted)" />
+        <input
+          value={searchValue}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search library by name, id, or description"
+          disabled={disabled}
+        />
+      </div>
+
+      <div style={{ marginBottom: "8px", fontSize: "12px", color: "var(--text-muted)" }}>
+        {disabled
+          ? "include_all is enabled, explicit skills are optional."
+          : "Click + to add from library, click x to remove selected skills."}
+      </div>
+
+      <div style={{ marginBottom: "10px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+        {selectedSkills.length === 0 && missingSkillIds.length === 0 ? (
+          <span className="badge badge-neutral">No explicit skills selected</span>
+        ) : (
+          <>
+            {selectedSkills.map((skill) => (
+              <span
+                key={skill.skillId}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "4px 8px",
+                  borderRadius: "999px",
+                  background: "var(--bg-primary)",
+                  border: "1px solid var(--border-color)",
+                  fontSize: "12px"
+                }}
+              >
+                {readSkillLabel(skill)}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ padding: "2px 6px" }}
+                  onClick={() => onRemove(skill.skillId)}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+            {missingSkillIds.map((skillId) => (
+              <span key={skillId} className="badge badge-warning">
+                missing: {skillId}
+              </span>
+            ))}
+          </>
+        )}
+      </div>
+
+      <div
+        style={{
+          border: "1px solid var(--border-color)",
+          borderRadius: "8px",
+          maxHeight: "180px",
+          overflowY: "auto",
+          padding: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+          opacity: disabled ? 0.6 : 1
+        }}
+      >
+        {availableSkills.length === 0 ? (
+          <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>No matching skills in library.</div>
+        ) : (
+          availableSkills.map((skill) => (
+            <div
+              key={skill.skillId}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                padding: "6px 8px",
+                background: "var(--bg-elevated)",
+                borderRadius: "6px"
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: "13px", fontWeight: 500 }}>{skill.name}</div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{skill.skillId}</div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onAdd(skill.skillId)}
+                disabled={disabled}
+              >
+                <Plus size={12} />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function SkillListsView() {
@@ -35,6 +178,8 @@ export function SkillListsView() {
   const [newDescription, setNewDescription] = useState("");
   const [newIncludeAll, setNewIncludeAll] = useState(false);
   const [newSkillIds, setNewSkillIds] = useState<string[]>([]);
+  const [newSkillSearch, setNewSkillSearch] = useState("");
+  const [editSkillSearch, setEditSkillSearch] = useState("");
 
   const loadData = async () => {
     setLoading(true);
@@ -65,6 +210,15 @@ export function SkillListsView() {
     setNewDescription("");
     setNewIncludeAll(false);
     setNewSkillIds([]);
+    setNewSkillSearch("");
+  };
+
+  const addCreateSkill = (skillId: string) => {
+    setNewSkillIds((prev) => (prev.includes(skillId) ? prev : [...prev, skillId]));
+  };
+
+  const removeCreateSkill = (skillId: string) => {
+    setNewSkillIds((prev) => prev.filter((item) => item !== skillId));
   };
 
   const handleCreate = async () => {
@@ -128,6 +282,25 @@ export function SkillListsView() {
       includeAll: list.includeAll,
       skillIds: [...list.skillIds]
     });
+    setEditSkillSearch("");
+  };
+
+  const addEditSkill = (skillId: string) => {
+    setEditing((prev) => {
+      if (!prev || prev.skillIds.includes(skillId)) {
+        return prev;
+      }
+      return { ...prev, skillIds: [...prev.skillIds, skillId] };
+    });
+  };
+
+  const removeEditSkill = (skillId: string) => {
+    setEditing((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      return { ...prev, skillIds: prev.skillIds.filter((item) => item !== skillId) };
+    });
   };
 
   const saveEdit = async () => {
@@ -185,7 +358,7 @@ export function SkillListsView() {
   }
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+    <section style={{ display: "flex", flexDirection: "column", gap: "12px", minHeight: 0, overflowY: "auto" }}>
       <div className="page-header">
         <h1>Skill Lists</h1>
       </div>
@@ -214,25 +387,25 @@ export function SkillListsView() {
             style={{ minHeight: "80px" }}
           />
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-          <input type="checkbox" checked={newIncludeAll} onChange={(e) => setNewIncludeAll(e.target.checked)} />
-          include_all (dynamic all imported skills)
-        </label>
         <div className="form-group">
-          <label>Explicit skills</label>
-          <select
-            multiple
-            value={newSkillIds}
-            onChange={(e) => setNewSkillIds(readSelectedValues(e.target))}
-            style={{ minHeight: "120px" }}
-          >
-            {skills.map((skill) => (
-              <option key={skill.skillId} value={skill.skillId}>
-                {skill.name} ({skill.skillId})
-              </option>
-            ))}
-          </select>
+          <label>Scope</label>
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+            <input type="checkbox" checked={newIncludeAll} onChange={(e) => setNewIncludeAll(e.target.checked)} />
+            include_all
+          </label>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            Include all imported skills dynamically. Explicit skills below can still be added manually.
+          </div>
         </div>
+        <SkillPicker
+          skills={skills}
+          selectedSkillIds={newSkillIds}
+          searchValue={newSkillSearch}
+          onSearchChange={setNewSkillSearch}
+          onAdd={addCreateSkill}
+          onRemove={removeCreateSkill}
+          disabled={false}
+        />
         <button className="btn btn-primary" onClick={handleCreate} disabled={saving}>
           {saving ? <Loader size={14} className="loading-spinner" /> : <Plus size={14} />}
           {t.create}
@@ -273,35 +446,41 @@ export function SkillListsView() {
                           style={{ minHeight: "80px" }}
                         />
                       </div>
-                      <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-                        <input
-                          type="checkbox"
-                          checked={editing.includeAll}
-                          onChange={(e) => setEditing({ ...editing, includeAll: e.target.checked })}
-                        />
-                        include_all (dynamic all imported skills)
-                      </label>
                       <div className="form-group">
-                        <label>Explicit skills</label>
-                        <select
-                          multiple
-                          value={editing.skillIds}
-                          onChange={(e) => setEditing({ ...editing, skillIds: readSelectedValues(e.target) })}
-                          style={{ minHeight: "120px" }}
-                        >
-                          {skills.map((skill) => (
-                            <option key={skill.skillId} value={skill.skillId}>
-                              {skill.name} ({skill.skillId})
-                            </option>
-                          ))}
-                        </select>
+                        <label>Scope</label>
+                        <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                          <input
+                            type="checkbox"
+                            checked={editing.includeAll}
+                            onChange={(e) => setEditing({ ...editing, includeAll: e.target.checked })}
+                          />
+                          include_all
+                        </label>
+                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                          Include all imported skills dynamically. Explicit skills below can still be added manually.
+                        </div>
                       </div>
+                      <SkillPicker
+                        skills={skills}
+                        selectedSkillIds={editing.skillIds}
+                        searchValue={editSkillSearch}
+                        onSearchChange={setEditSkillSearch}
+                        onAdd={addEditSkill}
+                        onRemove={removeEditSkill}
+                        disabled={false}
+                      />
                       <div style={{ display: "flex", gap: "8px" }}>
                         <button className="btn btn-primary btn-sm" onClick={saveEdit} disabled={saving}>
                           {saving ? <Loader size={14} className="loading-spinner" /> : <Save size={14} />}
                           {t.save}
                         </button>
-                        <button className="btn btn-secondary btn-sm" onClick={() => setEditing(null)}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => {
+                            setEditing(null);
+                            setEditSkillSearch("");
+                          }}
+                        >
                           <X size={14} />
                           {t.cancel}
                         </button>

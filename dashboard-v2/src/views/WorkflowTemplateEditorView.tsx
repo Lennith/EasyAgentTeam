@@ -167,6 +167,44 @@ function validateTemplate(tasks: EditableWorkflowTask[]): string[] {
   return Array.from(new Set(errors));
 }
 
+function alignRolesToTeamAgents(currentRoles: string[], teamAgentIds: string[]): Map<string, string> {
+  const normalizedTeamAgents = Array.from(
+    new Set(teamAgentIds.map((item) => item.trim()).filter((item) => item.length > 0))
+  );
+  const normalizedRoles = Array.from(
+    new Set(currentRoles.map((item) => item.trim()).filter((item) => item.length > 0))
+  );
+  const mapped = new Map<string, string>();
+  if (normalizedTeamAgents.length === 0 || normalizedRoles.length === 0) {
+    return mapped;
+  }
+
+  const remaining = [...normalizedTeamAgents];
+  for (const role of normalizedRoles) {
+    const exact = normalizedTeamAgents.find((agentId) => agentId.toLowerCase() === role.toLowerCase());
+    if (exact) {
+      mapped.set(role, exact);
+      const idx = remaining.findIndex((item) => item.toLowerCase() === exact.toLowerCase());
+      if (idx >= 0) {
+        remaining.splice(idx, 1);
+      }
+    }
+  }
+
+  let roundRobin = 0;
+  for (const role of normalizedRoles) {
+    if (mapped.has(role)) {
+      continue;
+    }
+    const fallback =
+      remaining.length > 0 ? remaining.shift() : normalizedTeamAgents[roundRobin % normalizedTeamAgents.length];
+    mapped.set(role, fallback as string);
+    roundRobin += 1;
+  }
+
+  return mapped;
+}
+
 function topologicalSortSibling(
   siblings: EditableWorkflowTask[],
   orderMap: Map<string, number>
@@ -374,6 +412,7 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
   const [teamError, setTeamError] = useState<string | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
   const [importingTeam, setImportingTeam] = useState(false);
+  const [activeTeamAgentIds, setActiveTeamAgentIds] = useState<string[]>([]);
 
   const [templateIdInput, setTemplateIdInput] = useState(templateId ?? "");
   const [name, setName] = useState("");
@@ -438,12 +477,40 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
   }, []);
 
   useEffect(() => {
+    let closed = false;
+    async function loadSelectedTeamAgents() {
+      if (!selectedTeamId) {
+        setActiveTeamAgentIds([]);
+        return;
+      }
+      try {
+        const team = await teamApi.get(selectedTeamId);
+        if (closed) {
+          return;
+        }
+        const teamAgentIds = Array.from(
+          new Set((team.agentIds ?? []).map((item) => item.trim()).filter((item) => item.length > 0))
+        );
+        setActiveTeamAgentIds(teamAgentIds);
+      } catch {
+        if (!closed) {
+          setActiveTeamAgentIds([]);
+        }
+      }
+    }
+    loadSelectedTeamAgents();
+    return () => {
+      closed = true;
+    };
+  }, [selectedTeamId]);
+
+  useEffect(() => {
     const currentTemplateId = templateId;
     if (!currentTemplateId) {
       const task: EditableWorkflowTask = {
         taskId: "task_1",
         title: "New workflow task",
-        ownerRole: "PM"
+        ownerRole: ""
       };
       setTasks([task]);
       setSelectedTaskId(task.taskId);
@@ -499,15 +566,30 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
   const roleOptions = useMemo(
     () =>
       Array.from(
-        new Set([...roles, ...registeredAgentIds].map((role) => role.trim()).filter((role) => role.length > 0))
+        new Set(
+          [...roles, ...(activeTeamAgentIds.length > 0 ? activeTeamAgentIds : registeredAgentIds)]
+            .map((role) => role.trim())
+            .filter((role) => role.length > 0)
+        )
       ).sort((a, b) => a.localeCompare(b)),
-    [roles, registeredAgentIds]
+    [roles, activeTeamAgentIds, registeredAgentIds]
   );
   const validationErrors = useMemo(() => validateTemplate(tasks), [tasks]);
   const tree = useMemo(() => buildTree(tasks), [tasks]);
   const registeredRoleSet = useMemo(
     () => new Set(registeredAgentIds.map((agentId) => agentId.toLowerCase())),
     [registeredAgentIds]
+  );
+  const activeTeamRoleSet = useMemo(
+    () => new Set(activeTeamAgentIds.map((agentId) => agentId.toLowerCase())),
+    [activeTeamAgentIds]
+  );
+  const overviewRoles = useMemo(
+    () =>
+      Array.from(
+        new Set([...roles, ...activeTeamAgentIds].map((role) => role.trim()).filter((role) => role.length > 0))
+      ).sort((a, b) => a.localeCompare(b)),
+    [roles, activeTeamAgentIds]
   );
 
   useEffect(() => {
@@ -574,7 +656,7 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
     const task: EditableWorkflowTask = {
       taskId,
       title: "New task",
-      ownerRole: roles[0] ?? "PM",
+      ownerRole: roles[0] ?? activeTeamAgentIds[0] ?? registeredAgentIds[0] ?? "",
       parentTaskId,
       dependencies: undefined,
       writeSet: undefined,
@@ -642,9 +724,31 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
     setImportingTeam(true);
     try {
       const team = await teamApi.get(selectedTeamId);
+      const teamAgentIds = Array.from(
+        new Set((team.agentIds ?? []).map((item) => item.trim()).filter((item) => item.length > 0))
+      );
+      setActiveTeamAgentIds(teamAgentIds);
       setRouteTable(team.routeTable ?? {});
       setTaskAssignRouteTable(team.taskAssignRouteTable ?? {});
       setRouteDiscussRounds(team.routeDiscussRounds ?? {});
+      if (teamAgentIds.length > 0) {
+        const roleMap = alignRolesToTeamAgents(
+          Array.from(new Set(tasks.map((task) => task.ownerRole.trim()).filter((role) => role.length > 0))),
+          teamAgentIds
+        );
+        if (roleMap.size > 0) {
+          setTasks((prev) =>
+            prev.map((task) => {
+              const normalizedRole = task.ownerRole.trim();
+              const mapped = roleMap.get(normalizedRole);
+              if (!mapped || mapped === task.ownerRole) {
+                return task;
+              }
+              return { ...task, ownerRole: mapped };
+            })
+          );
+        }
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import team config");
@@ -801,8 +905,18 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
                 {importingTeam ? "Importing..." : "Import Routing & Assign"}
               </button>
               <p style={{ marginTop: "8px", fontSize: "12px", color: "var(--text-muted)" }}>
-                Importing updates message routing, task assignment, and discuss rounds from the selected team.
+                Importing updates routing/assignment/discuss rounds and rewrites task owner_role to the imported team
+                agents.
               </p>
+              {activeTeamAgentIds.length > 0 && (
+                <div style={{ marginTop: "8px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {activeTeamAgentIds.map((agentId) => (
+                    <span key={agentId} className="badge badge-neutral">
+                      {agentId}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="card" style={{ padding: "12px", marginBottom: 0 }}>
@@ -810,7 +924,7 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
                 <h3>Role-Agent Overview</h3>
               </div>
               {agentLoadError && <div className="error-message">{agentLoadError}</div>}
-              {roles.length === 0 ? (
+              {overviewRoles.length === 0 ? (
                 <p style={{ color: "var(--text-muted)" }}>No roles yet.</p>
               ) : (
                 <div className="table-container">
@@ -819,12 +933,14 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
                       <tr>
                         <th>Role</th>
                         <th>Task Count</th>
-                        <th>Agent Ready</th>
+                        <th>Registered</th>
+                        <th>In Imported Team</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {roles.map((role) => {
+                      {overviewRoles.map((role) => {
                         const ready = registeredRoleSet.has(role.toLowerCase());
+                        const inTeam = activeTeamRoleSet.has(role.toLowerCase());
                         return (
                           <tr key={`role-${role}`}>
                             <td>
@@ -835,6 +951,15 @@ export function WorkflowTemplateEditorView({ templateId }: WorkflowTemplateEdito
                               <span className={`badge ${ready ? "badge-success" : "badge-danger"}`}>
                                 {ready ? "registered" : "missing"}
                               </span>
+                            </td>
+                            <td>
+                              {activeTeamAgentIds.length === 0 ? (
+                                <span className="badge badge-neutral">n/a</span>
+                              ) : (
+                                <span className={`badge ${inTeam ? "badge-success" : "badge-warning"}`}>
+                                  {inTeam ? "in team" : "not in team"}
+                                </span>
+                              )}
                             </td>
                           </tr>
                         );

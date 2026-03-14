@@ -432,32 +432,39 @@ function applyTemplateVariables(text: string, variables: Record<string, string>)
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_all, key: string) => variables[key] ?? "");
 }
 
-async function ensureWorkflowTeamIndexFile(
-  workspacePath: string,
+function buildFallbackRolePrompt(role: string): string {
+  return [
+    `Role: ${role}`,
+    "",
+    "Objective:",
+    "- Execute assigned workflow tasks and deliver file-based outputs in TeamWorkSpace.",
+    "- Report progress and blockers through TASK_REPORT with concrete evidence."
+  ].join("\n");
+}
+
+function buildRolePromptMapForRoles(
   roles: string[],
-  roleSummaryMap: Map<string, string>
-): Promise<void> {
-  const normalizedRoles = Array.from(new Set(roles.map((item) => item.trim()).filter((item) => item.length > 0))).sort(
-    (a, b) => a.localeCompare(b)
-  );
-  const agentsRoot = path.join(workspacePath, "Agents");
-  await fs.mkdir(agentsRoot, { recursive: true });
-  const lines = [
-    "# Team Members",
-    "",
-    "This file lists all team members in this workflow run.",
-    "",
-    "## Active Agents",
-    ...normalizedRoles.map((role) => {
-      const summary = roleSummaryMap.get(role)?.trim();
-      return summary ? `- [${role}](./${role}/) - ${summary}` : `- [${role}](./${role}/)`;
-    }),
-    "",
-    "## Notes",
-    "- Agent registration fields are managed in Agent module.",
-    "- This document is read-only projection for workflow collaboration."
-  ];
-  await fs.writeFile(path.join(agentsRoot, "TEAM.md"), `${lines.join("\n")}\n`, "utf8");
+  agents: Array<{ agentId: string; prompt: string }>
+): Map<string, string> {
+  const promptMap = new Map<string, string>();
+  for (const agent of agents) {
+    const prompt = agent.prompt?.trim();
+    if (prompt) {
+      promptMap.set(agent.agentId, prompt);
+    }
+  }
+  for (const builtIn of getBuiltInAgents()) {
+    const prompt = builtIn.prompt?.trim();
+    if (prompt && !promptMap.has(builtIn.agentId)) {
+      promptMap.set(builtIn.agentId, prompt);
+    }
+  }
+  for (const role of roles) {
+    if (!promptMap.has(role)) {
+      promptMap.set(role, buildFallbackRolePrompt(role));
+    }
+  }
+  return promptMap;
 }
 
 function buildSessionId(role: string): string {
@@ -781,8 +788,24 @@ export function createApp(options: AppOptions = {}) {
       });
       const agents = await listAgents(dataRoot);
       const roleSummaryMap = new Map(agents.map((item) => [item.agentId, item.summary ?? ""]));
-      const runRoles = created.tasks.map((task) => task.ownerRole);
-      await ensureWorkflowTeamIndexFile(created.workspacePath, runRoles, roleSummaryMap);
+      const runRoles = Array.from(
+        new Set(created.tasks.map((task) => task.ownerRole.trim()).filter((item) => item.length > 0))
+      );
+      const rolePromptMap = buildRolePromptMapForRoles(runRoles, agents);
+      await ensureAgentWorkspaces(
+        {
+          schemaVersion: "1.0",
+          projectId: `workflow-${created.runId}`,
+          name: created.name,
+          workspacePath: created.workspacePath,
+          agentIds: runRoles,
+          createdAt: created.createdAt,
+          updatedAt: created.updatedAt
+        },
+        rolePromptMap,
+        runRoles,
+        roleSummaryMap
+      );
       const autoStart = parseBoolean(body.auto_start ?? body.autoStart, false);
       if (!autoStart) {
         res.status(201).json(created);

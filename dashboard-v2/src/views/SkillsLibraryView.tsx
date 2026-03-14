@@ -106,7 +106,7 @@ export function SkillsLibraryView() {
   }
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+    <section style={{ display: "flex", flexDirection: "column", gap: "12px", minHeight: 0, overflowY: "auto" }}>
       <div className="page-header">
         <h1>Skill Library</h1>
         <button className="btn btn-secondary" onClick={loadSkills}>

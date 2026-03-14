@@ -35,6 +35,12 @@
     "e2e_impl_c": { "e2e_lead_a": 3 },
     "e2e_impl_d": { "e2e_lead_a": 3 }
   },
+  "reminder_probe": {
+    "probe_task_id": "task-e2e-reminder-probe",
+    "gate_task_id": "task-e2e-reminder-gate",
+    "blocked_role_ref": "D",
+    "release_after": "first_reminder_dispatch"
+  },
   "seed_tasks": {
     "task_a": {
       "task_id": "task-e2e-A",
@@ -42,7 +48,7 @@
       "owner_role_ref": "A",
       "task_kind": "EXECUTION",
       "priority": 100,
-      "dependencies": [],
+      "dependencies": ["task-e2e-reminder-gate"],
       "content": "Role A executes Task A first."
     },
     "task_b_placeholder": {

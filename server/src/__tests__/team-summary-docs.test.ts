@@ -82,6 +82,13 @@ test("project and workflow TEAM.md consume agent summary with existing links", a
       workflowTeamMd.includes("- [pm_product](./pm_product/) - Owns requirement decomposition and planning decisions."),
       true
     );
+    const workflowRoleMd = await fs.readFile(path.join(workflowWorkspace, "Agents", "pm_product", "role.md"), "utf8");
+    assert.equal(workflowRoleMd.includes("Role: pm_product"), true);
+    const workflowProgressMd = await fs.readFile(
+      path.join(workflowWorkspace, "Agents", "pm_product", "progress.md"),
+      "utf8"
+    );
+    assert.equal(workflowProgressMd.includes("# Progress - pm_product"), true);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

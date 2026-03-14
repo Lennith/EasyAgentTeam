@@ -48,13 +48,19 @@
       "e2e_arch_c": 2
     }
   },
+  "reminder_probe": {
+    "probe_task_id": "task-discuss-reminder-probe",
+    "gate_task_id": "task-discuss-reminder-gate",
+    "blocked_role_ref": "D",
+    "release_after": "first_reminder_dispatch"
+  },
   "seed_tasks": {
     "task_lead_plan": {
       "task_id": "task-discuss-lead-plan",
       "title": "Team lead defines collaboration framework scope",
       "task_kind": "EXECUTION",
       "priority": 100,
-      "dependencies": [],
+      "dependencies": ["task-discuss-reminder-gate"],
       "content": "Define architecture framework boundaries and decomposition criteria."
     },
     "task_design_b": {

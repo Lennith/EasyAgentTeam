@@ -18,6 +18,7 @@ import {
 } from "../data/workflow-run-store.js";
 import { getWorkflowRun, listWorkflowRuns, patchWorkflowRun, WorkflowStoreError } from "../data/workflow-store.js";
 import type {
+  ProjectRecord,
   WorkflowBlockReasonCode,
   WorkflowManagerToAgentMessage,
   ReminderMode,
@@ -32,6 +33,8 @@ import type {
   WorkflowTaskState
 } from "../domain/models.js";
 import { logger } from "../utils/logger.js";
+import { getBuiltInAgents } from "./agent-prompt-service.js";
+import { ensureAgentWorkspaces } from "./agent-workspace-service.js";
 import {
   extractTaskIdFromMessage,
   isRemindableTaskState,
@@ -176,6 +179,41 @@ function buildSessionId(role: string): string {
   return `session-${safeRole}-${randomUUID().slice(0, 12)}`;
 }
 
+function buildFallbackRolePrompt(role: string): string {
+  return [
+    `Role: ${role}`,
+    "",
+    "Objective:",
+    "- Execute assigned workflow tasks and deliver file-based outputs in TeamWorkSpace.",
+    "- Report progress and blockers through TASK_REPORT with concrete evidence."
+  ].join("\n");
+}
+
+function buildRolePromptMapForRoles(
+  roles: string[],
+  agents: Array<{ agentId: string; prompt: string }>
+): Map<string, string> {
+  const promptMap = new Map<string, string>();
+  for (const agent of agents) {
+    const prompt = agent.prompt?.trim();
+    if (prompt) {
+      promptMap.set(agent.agentId, prompt);
+    }
+  }
+  for (const builtIn of getBuiltInAgents()) {
+    const prompt = builtIn.prompt?.trim();
+    if (prompt && !promptMap.has(builtIn.agentId)) {
+      promptMap.set(builtIn.agentId, prompt);
+    }
+  }
+  for (const role of roles) {
+    if (!promptMap.has(role)) {
+      promptMap.set(role, buildFallbackRolePrompt(role));
+    }
+  }
+  return promptMap;
+}
+
 function hasRoutePermission(run: WorkflowRunRecord, fromAgent: string, toRole: string): boolean {
   const table = run.routeTable;
   if (!table || Object.keys(table).length === 0) {
@@ -316,6 +354,59 @@ export class WorkflowOrchestratorService {
 
   private buildRunSessionKey(runId: string, sessionId: string): string {
     return buildOrchestratorContextSessionKey(runId, sessionId);
+  }
+
+  private extractRunIdFromScopedKey(key: string): string {
+    const separator = key.indexOf("::");
+    if (separator <= 0) {
+      return "";
+    }
+    return key.slice(0, separator);
+  }
+
+  private clearRunScopedState(runId: string): void {
+    this.runHoldState.delete(runId);
+    for (const key of Array.from(this.roleReminderState.keys())) {
+      if (this.extractRunIdFromScopedKey(key) === runId) {
+        this.roleReminderState.delete(key);
+      }
+    }
+    for (const key of Array.from(this.sessionHeartbeatThrottle.keys())) {
+      if (this.extractRunIdFromScopedKey(key) === runId) {
+        this.sessionHeartbeatThrottle.delete(key);
+      }
+    }
+    for (const key of Array.from(this.inFlightDispatchSessionKeys)) {
+      if (this.extractRunIdFromScopedKey(key) === runId) {
+        this.inFlightDispatchSessionKeys.delete(key);
+      }
+    }
+  }
+
+  private pruneInactiveRunScopedState(activeRunIds: Set<string>): void {
+    for (const runId of Array.from(this.runHoldState.keys())) {
+      if (!activeRunIds.has(runId)) {
+        this.runHoldState.delete(runId);
+      }
+    }
+    for (const key of Array.from(this.roleReminderState.keys())) {
+      const runId = this.extractRunIdFromScopedKey(key);
+      if (!runId || !activeRunIds.has(runId)) {
+        this.roleReminderState.delete(key);
+      }
+    }
+    for (const key of Array.from(this.sessionHeartbeatThrottle.keys())) {
+      const runId = this.extractRunIdFromScopedKey(key);
+      if (!runId || !activeRunIds.has(runId)) {
+        this.sessionHeartbeatThrottle.delete(key);
+      }
+    }
+    for (const key of Array.from(this.inFlightDispatchSessionKeys)) {
+      const runId = this.extractRunIdFromScopedKey(key);
+      if (!runId || !activeRunIds.has(runId)) {
+        this.inFlightDispatchSessionKeys.delete(key);
+      }
+    }
   }
 
   private async loadRunOrThrow(runId: string): Promise<WorkflowRunRecord> {
@@ -494,8 +585,11 @@ export class WorkflowOrchestratorService {
         : "";
     const task = input.taskId ? input.run.tasks.find((item) => item.taskId === input.taskId) : null;
     const rolePrompt = input.rolePrompt?.trim() ?? "";
+    const agentWorkspace = path.join(input.run.workspacePath, "Agents", input.role);
     return [
       `You are agent role '${input.role}' in workflow run '${input.run.runId}'.`,
+      `TeamWorkSpace=${input.run.workspacePath} (shared workflow root; final deliverables belong here).`,
+      `YourWorkspace=${agentWorkspace} (role-local working directory; do not keep final outputs only here).`,
       `Workflow objective: ${input.run.description ?? input.run.name}`,
       `Dispatch kind: ${input.dispatchKind}.`,
       `Assigned task id: ${input.taskId ?? "(none)"}`,
@@ -508,9 +602,10 @@ export class WorkflowOrchestratorService {
       rolePrompt ? `Role system prompt:\n${rolePrompt}` : "",
       "Execution contract:",
       "1) Execute immediately and produce concrete progress/artifacts.",
-      "2) Use workflow task actions via manager APIs only (TASK_CREATE/TASK_DISCUSS_*/TASK_REPORT).",
-      "3) If blocked, report BLOCKED_DEP with concrete blockers.",
-      "4) On completion, report DONE for the phase task, not only subtasks."
+      "2) Shared deliverables must be written under TeamWorkSpace/docs/** or TeamWorkSpace/src/** (not only inside YourWorkspace).",
+      "3) Use workflow task actions via manager APIs only (TASK_CREATE/TASK_DISCUSS_*/TASK_REPORT).",
+      "4) If blocked, report BLOCKED_DEP with concrete blockers.",
+      "5) On completion, report DONE for the phase task, not only subtasks."
     ]
       .filter((line) => line.length > 0)
       .join("\n\n");
@@ -531,8 +626,27 @@ export class WorkflowOrchestratorService {
     let requestedSkillIds: string[] = [];
     try {
       const agents = await listAgents(this.dataRoot);
+      const runRoles = Array.from(
+        new Set(
+          [...input.run.tasks.map((item) => item.ownerRole), input.role]
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0)
+        )
+      );
+      const rolePromptMap = buildRolePromptMapForRoles(runRoles, agents);
+      const roleSummaryMap = new Map(agents.map((item) => [item.agentId, item.summary ?? ""]));
+      const workspaceProject: ProjectRecord = {
+        schemaVersion: "1.0",
+        projectId: `workflow-${input.run.runId}`,
+        name: input.run.name,
+        workspacePath: input.run.workspacePath,
+        agentIds: runRoles,
+        createdAt: input.run.createdAt,
+        updatedAt: input.run.updatedAt
+      };
+      await ensureAgentWorkspaces(workspaceProject, rolePromptMap, runRoles, roleSummaryMap);
       const roleAgent = agents.find((item) => item.agentId === input.role);
-      const rolePrompt = roleAgent?.prompt;
+      const rolePrompt = rolePromptMap.get(input.role) ?? buildFallbackRolePrompt(input.role);
       requestedSkillIds = await resolveSkillIdsForAgent(this.dataRoot, roleAgent?.skillList);
       const importedSkillPrompt = await resolveImportedSkillPromptSegments(this.dataRoot, requestedSkillIds);
 
@@ -933,6 +1047,8 @@ export class WorkflowOrchestratorService {
 
   private async tickLoop(): Promise<void> {
     const runs = await listWorkflowRuns(this.dataRoot);
+    const runningRunIds = new Set(runs.filter((run) => run.status === "running").map((run) => run.runId));
+    this.pruneInactiveRunScopedState(runningRunIds);
     this.activeRunIds.clear();
     await runOrchestratorAdapterTick({
       listContexts: async () => runs,
@@ -1043,6 +1159,7 @@ export class WorkflowOrchestratorService {
       lastHeartbeatAt: now
     });
     this.activeRunIds.delete(runId);
+    this.clearRunScopedState(runId);
     return {
       runId: updated.runId,
       status: updated.status,

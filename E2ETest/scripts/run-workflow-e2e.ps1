@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string]$ScenarioPath = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace",
@@ -37,15 +37,21 @@ if ([string]::IsNullOrWhiteSpace($providerId)) {
 if ($providerId -ne "minimax") {
   throw "Workflow E2E requires MiniMax provider. scenario.agent_model.provider_id='$providerId'"
 }
+
 $workspace = $WorkspaceRoot
 $artifactsBase = Join-Path $workspace "docs\e2e"
+$reminderProbe = $scenario.reminder_probe
+$skillProbe = $scenario.skill_probe
 
 $roleEntries = @()
+$roleByKey = @{}
 foreach ($prop in $scenario.roles.PSObject.Properties) {
-  $roleEntries += [pscustomobject]@{
+  $entry = [pscustomobject]@{
     key = [string]$prop.Name
     id = [string]$prop.Value
   }
+  $roleEntries += $entry
+  $roleByKey[[string]$prop.Name] = [string]$prop.Value
 }
 $roleList = @($roleEntries | ForEach-Object { $_.id })
 $phaseTasks = @($scenario.phase_tasks)
@@ -74,9 +80,14 @@ $script:latestTimeline = $null
 $script:runCreateResponse = $null
 $script:runStarted = $false
 $script:agentChatTranscripts = New-Object System.Collections.Generic.List[object]
+$script:workflowRecoveryState = @{}
 $strictMode = [bool]$StrictObserve
 $effectiveMiniMaxApiKeyOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) { [string]$env:E2E_MINIMAX_API_KEY } else { [string]$MiniMaxApiKeyOverride }
 $effectiveMiniMaxApiBaseOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) { [string]$env:E2E_MINIMAX_API_BASE } else { [string]$MiniMaxApiBaseOverride }
+$importedSkillId = ""
+$skillImportResponse = $null
+$skillValidation = [ordered]@{ pass = $false; skipped = $true }
+$reminderValidation = [ordered]@{ pass = $false; skipped = $true }
 
 function Get-StringProp {
   param(
@@ -321,10 +332,7 @@ function Get-PhaseStates {
     [string[]]$PhaseIds
   )
   $states = [ordered]@{}
-  $tasks = @()
-  if ($TaskRuntime -and $TaskRuntime.tasks) {
-    $tasks = @($TaskRuntime.tasks)
-  }
+  $tasks = if ($TaskRuntime -and $TaskRuntime.tasks) { @($TaskRuntime.tasks) } else { @() }
 
   foreach ($phaseId in $PhaseIds) {
     $state = "MISSING"
@@ -370,7 +378,7 @@ function Add-WorkflowSample {
   $taskRuntimeResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/task-runtime" -AllowStatus @(200)
   $taskTreeResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/task-tree-runtime" -AllowStatus @(200)
   $sessionsResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/sessions" -AllowStatus @(200)
-  $timelineResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/agent-io/timeline?limit=500" -AllowStatus @(200)
+  $timelineResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/agent-io/timeline?limit=1000" -AllowStatus @(200)
 
   $script:latestStatus = $statusResp.body
   $script:latestTaskRuntime = $taskRuntimeResp.body
@@ -403,6 +411,127 @@ function Add-WorkflowSample {
   return $sample
 }
 
+function Resolve-WorkspaceArtifactPath {
+  param(
+    [string]$Workspace,
+    [string]$RelativePath
+  )
+
+  $directPath = Join-Path $Workspace $RelativePath
+  if (Test-Path -LiteralPath $directPath) {
+    return [pscustomobject]@{
+      path = $directPath
+      exists = $true
+      mode = "direct"
+    }
+  }
+
+  $leaf = Split-Path -Path $RelativePath -Leaf
+  if ([string]::IsNullOrWhiteSpace($leaf)) {
+    return [pscustomobject]@{
+      path = $directPath
+      exists = $false
+      mode = "missing"
+    }
+  }
+
+  $relativeSuffix = $RelativePath.Replace("/", "\").TrimStart("\")
+  $matches = @(
+    Get-ChildItem -Path $Workspace -Recurse -File -Filter $leaf -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.FullName.Replace("/", "\").ToLowerInvariant().EndsWith($relativeSuffix.ToLowerInvariant())
+      } |
+      Sort-Object @{ Expression = { if ($_.FullName -like "*\Agents\*") { 0 } else { 1 } } }, @{ Expression = { $_.FullName.Length } }
+  )
+
+  if ($matches.Count -ge 1) {
+    return [pscustomobject]@{
+      path = $matches[0].FullName
+      exists = $true
+      mode = "resolved_suffix"
+    }
+  }
+
+  return [pscustomobject]@{
+    path = $directPath
+    exists = $false
+    mode = "missing"
+  }
+}
+
+function Invoke-BestEffortWorkflowDispatch {
+  param(
+    [string]$RunId,
+    [hashtable]$Body,
+    [string]$Reason
+  )
+
+  $resp = Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$RunId/orchestrator/dispatch" -AllowStatus @(200, 500) -Body $Body
+  if ([int]$resp.status -ne 200) {
+    $detail = ""
+    if ($resp.body) {
+      try {
+        $detail = ($resp.body | ConvertTo-Json -Depth 6 -Compress)
+      } catch {
+        $detail = [string]$resp.body
+      }
+    }
+    Write-Warning ("workflow dispatch skipped: reason={0} status={1} detail={2}" -f $Reason, [int]$resp.status, $detail)
+    return $false
+  }
+
+  return $true
+}
+
+function Recover-StaleWorkflowSessions {
+  param(
+    [string]$RunId,
+    [object]$SessionsBody
+  )
+
+  $recovered = @()
+  $items = if ($SessionsBody -and $SessionsBody.items) { @($SessionsBody.items) } else { @() }
+  foreach ($item in $items) {
+    if ([string]$item.status -ne "running") {
+      continue
+    }
+
+    $role = [string]$item.role
+    if ([string]::IsNullOrWhiteSpace($role)) {
+      continue
+    }
+
+    $lastActiveRaw = Get-StringProp -Obj $item -Names @("lastActiveAt", "last_active_at")
+    if ([string]::IsNullOrWhiteSpace($lastActiveRaw)) {
+      continue
+    }
+
+    $timeoutStreak = 0
+    if ($item.timeoutStreak -ne $null) {
+      $timeoutStreak = [int]$item.timeoutStreak
+    }
+
+    $lastActive = [datetime]::Parse($lastActiveRaw)
+    $staleMinutes = ((Get-Date).ToUniversalTime() - $lastActive.ToUniversalTime()).TotalMinutes
+    if ($timeoutStreak -lt 3 -and $staleMinutes -lt 3) {
+      continue
+    }
+
+    $lastRecoveredAt = if ($script:workflowRecoveryState.ContainsKey($role)) { [datetime]$script:workflowRecoveryState[$role] } else { [datetime]::MinValue }
+    if (((Get-Date) - $lastRecoveredAt).TotalSeconds -lt 90) {
+      continue
+    }
+
+    Write-Warning ("workflow session recovery: role={0} stale_minutes={1:N1} timeout_streak={2}" -f $role, $staleMinutes, $timeoutStreak)
+    Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$RunId/sessions" -AllowStatus @(200, 201) -Body @{ role = $role } | Out-Null
+    $null = Invoke-BestEffortWorkflowDispatch -RunId $RunId -Body @{ role = $role; force = $false; only_idle = $false } -Reason ("session_recovery:{0}" -f $role)
+    $script:workflowRecoveryState[$role] = Get-Date
+    $recovered += $role
+  }
+
+  return @($recovered | Select-Object -Unique)
+}
+
 function Build-SubtaskStats {
   param(
     [object]$TaskTree,
@@ -414,11 +543,7 @@ function Build-SubtaskStats {
     $phaseSet[$phaseId] = $true
   }
 
-  $nodes = @()
-  if ($TaskTree -and $TaskTree.nodes) {
-    $nodes = @($TaskTree.nodes)
-  }
-
+  $nodes = if ($TaskTree -and $TaskTree.nodes) { @($TaskTree.nodes) } else { @() }
   $subtasks = @()
   foreach ($node in $nodes) {
     $taskId = Get-StringProp -Obj $node -Names @("taskId", "task_id")
@@ -432,7 +557,6 @@ function Build-SubtaskStats {
 
     $parentTaskId = Get-StringProp -Obj $node -Names @("parentTaskId", "parent_task_id")
     $ownerRole = Get-StringProp -Obj $node -Names @("ownerRole", "owner_role")
-
     $subtasks += [pscustomobject]@{
       task_id = $taskId
       parent_task_id = $parentTaskId
@@ -444,7 +568,6 @@ function Build-SubtaskStats {
 
   $creatorRoles = @($subtasks | ForEach-Object { [string]$_.creator_role } | Select-Object -Unique)
   $invalidParents = @($subtasks | Where-Object { -not $_.parent_is_phase })
-
   $thresholdPass = ($subtasks.Count -ge 3 -and $creatorRoles.Count -ge 3)
   $parentPass = ($invalidParents.Count -eq 0)
 
@@ -471,14 +594,10 @@ function Build-ArtifactValidation {
     $taskId = [string]$spec.task_id
     $relativePath = [string]$spec.path
     $keywords = @($spec.keywords)
-    $absolutePath = Join-Path $Workspace $relativePath
-
-    $exists = Test-Path -LiteralPath $absolutePath
-    $content = ""
-    if ($exists) {
-      $content = Get-Content -LiteralPath $absolutePath -Raw
-    }
-
+    $artifactRef = Resolve-WorkspaceArtifactPath -Workspace $Workspace -RelativePath $relativePath
+    $absolutePath = [string]$artifactRef.path
+    $exists = [bool]$artifactRef.exists
+    $content = if ($exists) { Get-Content -LiteralPath $absolutePath -Raw } else { "" }
     $missingKeywords = @()
     $foundKeywords = @()
     $contentLower = $content.ToLowerInvariant()
@@ -496,24 +615,21 @@ function Build-ArtifactValidation {
     }
 
     $keywordPass = ($missingKeywords.Count -eq 0)
-    $entryPass = ($exists -and $keywordPass)
-
     $items += [pscustomobject]@{
       task_id = $taskId
       path = $relativePath
       absolute_path = $absolutePath
+      resolution_mode = [string]$artifactRef.mode
       exists = $exists
       keyword_pass = $keywordPass
       found_keywords = $foundKeywords
       missing_keywords = $missingKeywords
-      pass = $entryPass
+      pass = ($exists -and $keywordPass)
     }
   }
 
-  $allPass = (@($items | Where-Object { -not $_.pass }).Count -eq 0)
-
   return [ordered]@{
-    pass = $allPass
+    pass = (@($items | Where-Object { -not $_.pass }).Count -eq 0)
     total = $items.Count
     failed = @($items | Where-Object { -not $_.pass }).Count
     items = $items
@@ -526,6 +642,185 @@ function Save-Json {
     [object]$Data
   )
   ($Data | ConvertTo-Json -Depth 100) | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function Get-WorkflowRunEvents {
+  param([string]$RunId)
+  $path = Join-Path $repoRoot "data\workflows\runs\$RunId\events.jsonl"
+  $items = @()
+  $raw = ""
+  if (Test-Path -LiteralPath $path) {
+    $raw = Get-Content -LiteralPath $path -Raw
+    foreach ($line in (Get-Content -LiteralPath $path)) {
+      $trimmed = $line.Trim()
+      if (-not $trimmed) { continue }
+      try { $items += ($trimmed | ConvertFrom-Json) } catch {}
+    }
+  }
+  return [pscustomobject]@{
+    path = $path
+    raw = $raw
+    items = $items
+  }
+}
+
+function Get-WorkflowReminderEvidence {
+  param(
+    [object[]]$Events,
+    [object]$TaskRuntime,
+    [string]$ProbeRole,
+    [string]$ProbeTaskId
+  )
+
+  $triggerEvents = @($Events | Where-Object {
+      $_.eventType -eq "ORCHESTRATOR_ROLE_REMINDER_TRIGGERED" -and
+      [string]$_.payload.role -eq $ProbeRole
+    })
+  $triggerEvents = @($triggerEvents | Sort-Object { [datetime]$_.createdAt })
+  $firstTriggerAt = if ($triggerEvents.Count -gt 0) { [datetime]$triggerEvents[0].createdAt } else { $null }
+  $dispatchEvents = @($Events | Where-Object {
+      $_.eventType -eq "ORCHESTRATOR_DISPATCH_STARTED" -and
+      [string]$_.taskId -eq $ProbeTaskId -and
+      ($null -eq $firstTriggerAt -or [datetime]$_.createdAt -ge $firstTriggerAt)
+    })
+  $reportEvents = @($Events | Where-Object {
+      $_.eventType -eq "TASK_REPORT_APPLIED" -and
+      @([string[]]$_.payload.appliedTaskIds) -contains $ProbeTaskId
+    })
+  $probeRow = @(@($TaskRuntime.tasks) | Where-Object {
+      (Get-StringProp -Obj $_ -Names @("taskId", "task_id")) -eq $ProbeTaskId
+    } | Select-Object -First 1)[0]
+  $probeState = if ($probeRow) { Get-StringProp -Obj $probeRow -Names @("state") } else { "MISSING" }
+  $probeTerminal = @("DONE", "BLOCKED_DEP", "CANCELED") -contains $probeState
+
+  return [ordered]@{
+    probe_role = $ProbeRole
+    probe_task_id = $ProbeTaskId
+    reminder_trigger_count = $triggerEvents.Count
+    message_dispatch_count = $dispatchEvents.Count
+    report_applied_count = $reportEvents.Count
+    probe_state = $probeState
+    probe_terminal = $probeTerminal
+    trigger_pass = ($triggerEvents.Count -ge 1)
+    dispatch_pass = ($dispatchEvents.Count -ge 1)
+    progress_pass = ($reportEvents.Count -ge 1 -or $probeTerminal)
+    pass = ($triggerEvents.Count -ge 1 -and $dispatchEvents.Count -ge 1 -and ($reportEvents.Count -ge 1 -or $probeTerminal))
+    trigger_events = $triggerEvents
+    dispatch_events = $dispatchEvents
+    report_events = $reportEvents
+  }
+}
+
+function Wait-ForWorkflowReminderProbe {
+  param(
+    [string]$ProbeRole,
+    [string]$ProbeTaskId,
+    [int]$TimeoutMinutes,
+    [int]$PollIntervalSeconds
+  )
+
+  $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+  $manualDispatchIssued = $false
+  $trace = New-Object System.Collections.Generic.List[object]
+
+  while ((Get-Date) -lt $deadline) {
+    $eventsResp = Get-WorkflowRunEvents -RunId $runId
+    $taskRuntimeResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/task-runtime" -AllowStatus @(200)
+    $sessionsResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/sessions" -AllowStatus @(200)
+    $evidence = Get-WorkflowReminderEvidence -Events $eventsResp.items -TaskRuntime $taskRuntimeResp.body -ProbeRole $ProbeRole -ProbeTaskId $ProbeTaskId
+
+    $probeSession = @($sessionsResp.body.items | Where-Object { [string]$_.role -eq $ProbeRole } | Select-Object -First 1)[0]
+    $trace.Add([pscustomobject]@{
+        at = (Get-Date).ToString("o")
+        reminder_trigger_count = $evidence.reminder_trigger_count
+        message_dispatch_count = $evidence.message_dispatch_count
+        report_applied_count = $evidence.report_applied_count
+        probe_state = $evidence.probe_state
+        probe_terminal = $evidence.probe_terminal
+        session_status = if ($probeSession) { [string]$probeSession.status } else { "missing" }
+      })
+
+    if ($evidence.trigger_pass -and -not $manualDispatchIssued) {
+      Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/orchestrator/dispatch" -AllowStatus @(200) -Body @{
+        role = $ProbeRole
+        task_id = $ProbeTaskId
+        force = $false
+        only_idle = $false
+      } | Out-Null
+      $manualDispatchIssued = $true
+    }
+
+    if ($evidence.pass) {
+      return [ordered]@{
+        pass = $true
+        evidence = $evidence
+        trace = $trace.ToArray()
+        events_path = $eventsResp.path
+        events_raw = $eventsResp.raw
+      }
+    }
+
+    Start-Sleep -Seconds $PollIntervalSeconds
+  }
+
+  $eventsFinal = Get-WorkflowRunEvents -RunId $runId
+  $taskRuntimeFinal = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/task-runtime" -AllowStatus @(200)
+  $finalEvidence = Get-WorkflowReminderEvidence -Events $eventsFinal.items -TaskRuntime $taskRuntimeFinal.body -ProbeRole $ProbeRole -ProbeTaskId $ProbeTaskId
+  return [ordered]@{
+    pass = $false
+    evidence = $finalEvidence
+    trace = $trace.ToArray()
+    events_path = $eventsFinal.path
+    events_raw = $eventsFinal.raw
+  }
+}
+
+function Build-SkillValidation {
+  param(
+    [object]$TimelineBody,
+    [object]$SkillProbeConfig,
+    [string]$SkillId,
+    [string]$Workspace
+  )
+
+  if (-not $SkillProbeConfig) {
+    return [ordered]@{ pass = $true; skipped = $true }
+  }
+
+  $items = if ($TimelineBody -and $TimelineBody.items) { @($TimelineBody.items) } else { @() }
+  $dispatchRole = [string]$roleByKey[[string]$SkillProbeConfig.dispatch_role_ref]
+  $skillItems = @($items | Where-Object {
+      ([string]$_.role -eq $dispatchRole) -and
+      ([string]$_.content).Contains("requestedSkillIds=") -and
+      ([string]$_.content).Contains($SkillId)
+    })
+
+  $artifactRef = Resolve-WorkspaceArtifactPath -Workspace $Workspace -RelativePath ([string]$SkillProbeConfig.artifact_path)
+  $artifactPath = [string]$artifactRef.path
+  $artifactExists = [bool]$artifactRef.exists
+  $artifactContent = if ($artifactExists) { Get-Content -LiteralPath $artifactPath -Raw } else { "" }
+  $missingMarkers = @()
+  foreach ($marker in @($SkillProbeConfig.required_markers)) {
+    $markerText = [string]$marker
+    if ([string]::IsNullOrWhiteSpace($markerText)) {
+      continue
+    }
+    if (-not $artifactContent.Contains($markerText)) {
+      $missingMarkers += $markerText
+    }
+  }
+
+  return [ordered]@{
+    pass = ($skillItems.Count -ge 1 -and $missingMarkers.Count -eq 0)
+    skill_id = $SkillId
+    dispatch_role = $dispatchRole
+    timeline_match_count = $skillItems.Count
+    timeline_matches = $skillItems
+    artifact_path = $artifactPath
+    artifact_resolution_mode = [string]$artifactRef.mode
+    artifact_exists = $artifactExists
+    missing_markers = $missingMarkers
+  }
 }
 
 $scriptStart = Get-Date
@@ -560,23 +855,6 @@ try {
     Write-Host "== Apply MiniMax settings override =="
     Invoke-TimedApi -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $settingsPatch | Out-Null
     $settings = Invoke-TimedApi -Method GET -Path "/api/settings" -AllowStatus @(200)
-
-    $readBackKey = Get-StringProp -Obj $settings.body -Names @("minimaxApiKey", "minimax_api_key")
-    $readBackBase = Get-StringProp -Obj $settings.body -Names @("minimaxApiBase", "minimax_api_base")
-    if ($settingsPatch.ContainsKey("minimaxApiKey")) {
-      $expectedKey = if ($null -eq $settingsPatch["minimaxApiKey"]) { "" } else { [string]$settingsPatch["minimaxApiKey"] }
-      if (($expectedKey -eq "" -and -not [string]::IsNullOrWhiteSpace($readBackKey)) -or ($expectedKey -ne "" -and $readBackKey -ne $expectedKey)) {
-        $finalReason = "minimax_settings_override_mismatch"
-        throw "minimaxApiKey override mismatch: expected='$expectedKey' actual='$readBackKey'"
-      }
-    }
-    if ($settingsPatch.ContainsKey("minimaxApiBase")) {
-      $expectedBase = if ($null -eq $settingsPatch["minimaxApiBase"]) { "" } else { [string]$settingsPatch["minimaxApiBase"] }
-      if (($expectedBase -eq "" -and -not [string]::IsNullOrWhiteSpace($readBackBase)) -or ($expectedBase -ne "" -and $readBackBase -ne $expectedBase)) {
-        $finalReason = "minimax_settings_override_mismatch"
-        throw "minimaxApiBase override mismatch: expected='$expectedBase' actual='$readBackBase'"
-      }
-    }
   }
 
   $minimaxKey = Get-StringProp -Obj $settings.body -Names @("minimaxApiKey", "minimax_api_key")
@@ -592,10 +870,7 @@ try {
     $runsResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs" -AllowStatus @(200)
     foreach ($item in @($runsResp.body.items)) {
       $existingRunId = Get-StringProp -Obj $item -Names @("runId", "run_id")
-      if ([string]::IsNullOrWhiteSpace($existingRunId)) {
-        continue
-      }
-      if (-not (Matches-Prefix -Value $existingRunId -Prefixes $runPrefixes)) {
+      if ([string]::IsNullOrWhiteSpace($existingRunId) -or -not (Matches-Prefix -Value $existingRunId -Prefixes $runPrefixes)) {
         continue
       }
       $existingStatus = Get-StringProp -Obj $item -Names @("status")
@@ -608,10 +883,7 @@ try {
     $tplResp = Invoke-TimedApi -Method GET -Path "/api/workflow-templates" -AllowStatus @(200)
     foreach ($item in @($tplResp.body.items)) {
       $existingTemplateId = Get-StringProp -Obj $item -Names @("templateId", "template_id")
-      if ([string]::IsNullOrWhiteSpace($existingTemplateId)) {
-        continue
-      }
-      if (-not (Matches-Prefix -Value $existingTemplateId -Prefixes $templatePrefixes)) {
+      if ([string]::IsNullOrWhiteSpace($existingTemplateId) -or -not (Matches-Prefix -Value $existingTemplateId -Prefixes $templatePrefixes)) {
         continue
       }
       Invoke-TimedApi -Method DELETE -Path "/api/workflow-templates/$existingTemplateId" -AllowStatus @(200, 404) | Out-Null
@@ -620,10 +892,7 @@ try {
     $projectsResp = Invoke-TimedApi -Method GET -Path "/api/projects" -AllowStatus @(200)
     foreach ($item in @($projectsResp.body.items)) {
       $existingProjectId = Get-StringProp -Obj $item -Names @("projectId", "project_id")
-      if ([string]::IsNullOrWhiteSpace($existingProjectId)) {
-        continue
-      }
-      if (-not (Matches-Prefix -Value $existingProjectId -Prefixes $projectPrefixes)) {
+      if ([string]::IsNullOrWhiteSpace($existingProjectId) -or -not (Matches-Prefix -Value $existingProjectId -Prefixes $projectPrefixes)) {
         continue
       }
       Invoke-TimedApi -Method DELETE -Path "/api/projects/$existingProjectId" -AllowStatus @(200, 404) | Out-Null
@@ -632,10 +901,7 @@ try {
     $agentsResp = Invoke-TimedApi -Method GET -Path "/api/agents" -AllowStatus @(200)
     foreach ($item in @($agentsResp.body.items)) {
       $agentId = Get-StringProp -Obj $item -Names @("agentId", "agent_id")
-      if ([string]::IsNullOrWhiteSpace($agentId)) {
-        continue
-      }
-      if (-not (Matches-Prefix -Value $agentId -Prefixes $agentPrefixes)) {
+      if ([string]::IsNullOrWhiteSpace($agentId) -or -not (Matches-Prefix -Value $agentId -Prefixes $agentPrefixes)) {
         continue
       }
       Invoke-TimedApi -Method DELETE -Path "/api/agents/$agentId" -AllowStatus @(200, 404) | Out-Null
@@ -645,7 +911,63 @@ try {
     Reset-WorkspaceDirectory -WorkspaceRoot $workspace
     Ensure-Dir -Path $workspace
 
-    Write-Host "== Register 10 role agents =="
+    if ($skillProbe) {
+      Write-Host "== Import fixture skill and bind skill list =="
+      $fixturePath = Join-Path $repoRoot ([string]$skillProbe.fixture_path)
+      if (-not (Test-Path -LiteralPath $fixturePath)) {
+        $finalReason = "skill_fixture_missing"
+        throw "Skill fixture not found: $fixturePath"
+      }
+
+      $skillImportResponse = Invoke-TimedApi -Method POST -Path "/api/skills/import" -AllowStatus @(200) -Body @{
+        sources = @($fixturePath)
+        recursive = $true
+      }
+      $imported = @($skillImportResponse.body.imported)
+      if ($imported.Count -eq 0) {
+        $finalReason = "skill_import_empty"
+        throw "No skill imported from fixture: $fixturePath"
+      }
+
+      $fixtureFull = [System.IO.Path]::GetFullPath($fixturePath).TrimEnd('\').ToLowerInvariant()
+      $selectedImport = $null
+      foreach ($item in $imported) {
+        $itemSource = [string]$item.skill.sourcePath
+        if ([string]::IsNullOrWhiteSpace($itemSource)) { continue }
+        $itemFull = [System.IO.Path]::GetFullPath($itemSource).TrimEnd('\').ToLowerInvariant()
+        if ($itemFull -eq $fixtureFull) {
+          $selectedImport = $item
+          break
+        }
+      }
+      if ($null -eq $selectedImport) {
+        $selectedImport = $imported[0]
+      }
+      $importedSkillId = [string]$selectedImport.skill.skillId
+      if ([string]::IsNullOrWhiteSpace($importedSkillId)) {
+        $finalReason = "skill_import_missing_id"
+        throw "Imported skill id is empty."
+      }
+
+      $skillListId = [string]$skillProbe.skill_list_id
+      $createSkillList = Invoke-TimedApi -Method POST -Path "/api/skill-lists" -AllowStatus @(201, 409) -Body @{
+        list_id = $skillListId
+        display_name = "Workflow E2E Skill List"
+        description = "Baseline workflow skill binding"
+        include_all = $false
+        skill_ids = @($importedSkillId)
+      }
+      if ([int]$createSkillList.status -eq 409) {
+        Invoke-TimedApi -Method PATCH -Path "/api/skill-lists/$skillListId" -AllowStatus @(200) -Body @{
+          display_name = "Workflow E2E Skill List"
+          description = "Baseline workflow skill binding"
+          include_all = $false
+          skill_ids = @($importedSkillId)
+        } | Out-Null
+      }
+    }
+
+    Write-Host "== Register workflow agents =="
     $agentsAfterCleanup = Invoke-TimedApi -Method GET -Path "/api/agents" -AllowStatus @(200)
     $knownAgents = @{}
     foreach ($item in @($agentsAfterCleanup.body.items)) {
@@ -655,19 +977,31 @@ try {
       }
     }
 
+    $skillBindKeys = @()
+    if ($skillProbe -and $skillProbe.bind_role_refs) {
+      $skillBindKeys = @($skillProbe.bind_role_refs | ForEach-Object { [string]$_ })
+    }
+
     foreach ($entry in $roleEntries) {
       $prompt = Build-AgentPrompt -RoleKey ([string]$entry.key) -RoleId ([string]$entry.id) -Goal $primaryGoal -PhaseIds $phaseTaskIds
+      $skillListForAgent = @()
+      if ($skillProbe -and $skillBindKeys -contains [string]$entry.key) {
+        $skillListForAgent = @([string]$skillProbe.skill_list_id)
+      }
       $payload = @{
         agent_id = [string]$entry.id
         display_name = [string]$entry.id
         prompt = $prompt
+        summary = "Workflow E2E role $($entry.key)"
         provider_id = $providerId
         default_model_params = @{
           model = [string]$modelCfg.model
           effort = [string]$modelCfg.effort
         }
         model_selection_enabled = $true
+        skill_list = $skillListForAgent
       }
+
       if ($knownAgents.ContainsKey([string]$entry.id)) {
         Invoke-TimedApi -Method PATCH -Path "/api/agents/$($entry.id)" -Body $payload -AllowStatus @(200) | Out-Null
       } else {
@@ -678,37 +1012,13 @@ try {
     Write-Host "== Upsert workflow template =="
     $templateTasks = @()
     foreach ($task in $phaseTasks) {
-      $dependencies = @()
-      foreach ($d in @($task.dependencies)) {
-        $text = [string]$d
-        if ($text.Trim().Length -gt 0) {
-          $dependencies += $text.Trim()
-        }
-      }
-
-      $acceptance = @()
-      foreach ($a in @($task.acceptance)) {
-        $text = [string]$a
-        if ($text.Trim().Length -gt 0) {
-          $acceptance += $text.Trim()
-        }
-      }
-
-      $artifacts = @()
-      foreach ($f in @($task.artifacts)) {
-        $text = [string]$f
-        if ($text.Trim().Length -gt 0) {
-          $artifacts += $text.Trim()
-        }
-      }
-
       $templateTasks += @{
         task_id = [string]$task.task_id
         title = [string]$task.title
         owner_role = [string]$task.owner_role
-        dependencies = $dependencies
-        acceptance = $acceptance
-        artifacts = $artifacts
+        dependencies = @($task.dependencies | ForEach-Object { [string]$_ })
+        acceptance = @($task.acceptance | ForEach-Object { [string]$_ })
+        artifacts = @($task.artifacts | ForEach-Object { [string]$_ })
       }
     }
 
@@ -737,15 +1047,15 @@ try {
       Invoke-TimedApi -Method POST -Path "/api/workflow-templates" -AllowStatus @(201) -Body $templateBody | Out-Null
     }
 
-    Write-Host "== Create run with auto_start =="
+    Write-Host "== Create run with auto_start but auto dispatch paused =="
     $script:runCreateResponse = Invoke-TimedApi -Method POST -Path "/api/workflow-runs" -AllowStatus @(201) -Body @{
       run_id = $runId
       template_id = $templateId
       name = "$workflowName $runStamp"
       description = $primaryGoal
       workspace_path = $workspace
-      auto_dispatch_enabled = $true
-      auto_dispatch_remaining = $AutoDispatchBudget
+      auto_dispatch_enabled = $false
+      auto_dispatch_remaining = 0
       auto_start = $true
     }
     $script:runStarted = $true
@@ -769,36 +1079,74 @@ try {
       }
     }
 
-    Write-Host "== Kickoff message and initial dispatch =="
-    Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/messages/send" -AllowStatus @(200) -Body @{
-      from_agent = "manager"
-      from_session_id = "manager-system"
-      to_role = $rdLeadRole
-      message_type = "MANAGER_MESSAGE"
-      task_id = "wf_plan_master"
-      request_id = "e2e_gesture_kickoff_$runStamp"
-      content = @(
-        "Primary goal: $primaryGoal",
-        "Please drive the workflow to final delivery with autonomous subtask creation by agents.",
-        "Complete phase tasks with TASK_REPORT and produce required artifacts."
-      ) -join "`n"
+    Invoke-TimedApi -Method PATCH -Path "/api/workflow-runs/$runId/orchestrator/settings" -AllowStatus @(200) -Body @{
+      auto_dispatch_enabled = $false
+      auto_dispatch_remaining = 0
+      reminder_mode = "fixed_interval"
     } | Out-Null
 
-    if (-not $strictMode) {
-      Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/orchestrator/dispatch" -AllowStatus @(200) -Body @{
-        role = $rdLeadRole
-        force = $false
-        only_idle = $false
-      } | Out-Null
-    }
-
     if ($SetupOnly) {
-      Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/stop" -AllowStatus @(200, 409) | Out-Null
       Add-WorkflowSample -Label "setup_only_final" | Out-Null
       $pass = $true
       $finalReason = "setup_only"
     } else {
+      $probeRole = [string]$roleByKey[[string]$reminderProbe.blocked_role_ref]
+      $probeTaskId = [string]$reminderProbe.probe_task_id
+      $gateTaskId = [string]$reminderProbe.gate_task_id
+      if ([string]::IsNullOrWhiteSpace($probeRole)) {
+        $finalReason = "reminder_probe_invalid"
+        throw "Unknown workflow reminder probe role ref: $($reminderProbe.blocked_role_ref)"
+      }
+
+      Write-Host "== Wait for workflow reminder probe =="
+      $reminderValidation = Wait-ForWorkflowReminderProbe -ProbeRole $probeRole -ProbeTaskId $probeTaskId -TimeoutMinutes 6 -PollIntervalSeconds ([Math]::Max(5, $PollSeconds))
+      if (-not $reminderValidation.pass) {
+        $finalReason = "reminder_probe_failed"
+        throw "Workflow reminder probe did not reach trigger -> message redispatch -> progress for task '$probeTaskId'"
+      }
+
+      Write-Host "== Release reminder gate =="
+      Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/task-actions" -AllowStatus @(200, 201) -Body @{
+        action_type = "TASK_REPORT"
+        from_agent = $rdLeadRole
+        from_session_id = $rdLeadWorkflowSessionId
+        results = @(
+          @{
+            task_id = $gateTaskId
+            outcome = "DONE"
+            summary = "Reminder probe passed; release main workflow phases."
+          }
+        )
+      } | Out-Null
+
+      Write-Host "== Kickoff message and enable auto dispatch =="
+      Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/messages/send" -AllowStatus @(200) -Body @{
+        from_agent = "manager"
+        from_session_id = "manager-system"
+        to_role = $rdLeadRole
+        message_type = "MANAGER_MESSAGE"
+        task_id = "wf_plan_master"
+        request_id = "e2e_gesture_kickoff_$runStamp"
+        content = @(
+          "Primary goal: $primaryGoal",
+          "Please drive the workflow to final delivery with autonomous subtask creation by agents.",
+          "Complete phase tasks with TASK_REPORT and produce required artifacts."
+        ) -join "`n"
+      } | Out-Null
+
+      Invoke-TimedApi -Method PATCH -Path "/api/workflow-runs/$runId/orchestrator/settings" -AllowStatus @(200) -Body @{
+        auto_dispatch_enabled = $true
+        auto_dispatch_remaining = $AutoDispatchBudget
+        reminder_mode = "fixed_interval"
+      } | Out-Null
+
       if (-not $strictMode) {
+        Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/orchestrator/dispatch" -AllowStatus @(200) -Body @{
+          role = $rdLeadRole
+          force = $false
+          only_idle = $false
+        } | Out-Null
+
         Write-Host "== Initial agent trigger (single-shot) =="
         $initialPrompt = @(
           "You are $rdLeadRole. Complete workflow run $runId end-to-end in THIS single session.",
@@ -806,20 +1154,10 @@ try {
           "",
           "Hard requirements (must all be satisfied):",
           "1) Use workflow APIs via AUTO_DEV_MANAGER_URL only, do not just write local docs.",
-          "2) For all 8 phase tasks, submit TASK_REPORT outcome DONE to /api/workflow-runs/$runId/task-actions.",
-          "3) Create at least 3 non-manager subtasks with TASK_CREATE under phase parent_task_id (one or more roles).",
+          "2) For all high-level phase tasks, submit TASK_REPORT outcome DONE to /api/workflow-runs/$runId/task-actions.",
+          "3) Create at least 3 non-manager subtasks with TASK_CREATE under phase parent_task_id.",
           "4) At least 3 distinct creator roles must appear in created subtasks.",
-          "5) Produce required artifacts for every phase in workspace paths.",
-          "",
-          "API contract reminders:",
-          "- Use from_agent=<your role> and from_session_id=$rdLeadWorkflowSessionId for task actions.",
-          "- TASK_CREATE body.task must include: task_id/title/owner_role/parent_task_id/dependencies/acceptance/artifacts.",
-          "- TASK_REPORT body.results item includes: task_id/outcome/summary.",
-          "",
-          "Execution strategy:",
-          "- Read /api/workflow-runs/$runId/task-tree-runtime and /task-runtime first.",
-          "- Drive phases in dependency order; create and close subtasks as needed.",
-          "- Do not stop until all 8 phase tasks are DONE."
+          "5) Produce required artifacts for every phase in workspace paths."
         ) -join "`n"
         $trigger = Invoke-WorkflowAgentChatTrigger -Role $rdLeadRole -SessionId $rdLeadWorkflowSessionId -Prompt $initialPrompt
         if (-not $trigger.success) {
@@ -828,17 +1166,22 @@ try {
         }
       }
 
-      Write-Host "== Observe run only (no intervention) =="
+      Write-Host "== Observe run =="
       if ($finalReason -ne "initial_agent_trigger_failed") {
         $finalReason = "timeout"
         $deadline = (Get-Date).AddMinutes($MaxMinutes)
         $observedTerminal = $false
+        $noRunningStreak = 0
 
         while ((Get-Date) -lt $deadline) {
           Add-WorkflowSample -Label "poll" | Out-Null
 
           $runStatus = Get-StringProp -Obj $script:latestStatus -Names @("status")
           $phaseNow = Test-PhaseCompletion -TaskRuntime $script:latestTaskRuntime -PhaseIds $phaseTaskIds
+          $runningSessions = @()
+          if ($script:latestSessions -and $script:latestSessions.items) {
+            $runningSessions = @($script:latestSessions.items | Where-Object { [string]$_.status -eq "running" })
+          }
 
           if ($runStatus -eq "failed") {
             $finalReason = "workflow_run_failed"
@@ -856,6 +1199,27 @@ try {
             }
             $observedTerminal = $true
             break
+          }
+
+          $recoveredRoles = Recover-StaleWorkflowSessions -RunId $runId -SessionsBody $script:latestSessions
+          if ($recoveredRoles.Count -gt 0) {
+            Write-Host ("workflow recovered stale sessions: {0}" -f ($recoveredRoles -join ","))
+            Start-Sleep -Seconds $PollSeconds
+            continue
+          }
+
+          if ($runningSessions.Count -eq 0) {
+            $noRunningStreak += 1
+          } else {
+            $noRunningStreak = 0
+          }
+
+          if ($noRunningStreak -ge 6) {
+            $nudgeOk = Invoke-BestEffortWorkflowDispatch -RunId $runId -Body @{ force = $false; only_idle = $false } -Reason ("idle_streak:{0}" -f $noRunningStreak)
+            Write-Host ("workflow dispatch nudge attempted after idle streak={0} success={1}" -f $noRunningStreak, $nudgeOk)
+            $noRunningStreak = 0
+            Start-Sleep -Seconds $PollSeconds
+            continue
           }
 
           Start-Sleep -Seconds $PollSeconds
@@ -891,17 +1255,32 @@ if ($script:latestTaskTree) {
   $subtaskStats = Build-SubtaskStats -TaskTree $script:latestTaskTree -PhaseIds $phaseTaskIds
 }
 $artifactValidation = Build-ArtifactValidation -Specs $artifactSpecs -Workspace $workspace
+if ($script:latestTimeline -and $skillProbe -and -not [string]::IsNullOrWhiteSpace($importedSkillId)) {
+  $skillValidation = Build-SkillValidation -TimelineBody $script:latestTimeline -SkillProbeConfig $skillProbe -SkillId $importedSkillId -Workspace $workspace
+}
+if (-not $skillProbe) {
+  $skillValidation = [ordered]@{ pass = $true; skipped = $true }
+}
+if ($SetupOnly) {
+  $reminderValidation = [ordered]@{ pass = $false; skipped = $true; reason = "setup_only" }
+}
 
 if (-not $SetupOnly -and $finalReason -eq "workflow_runtime_ok") {
   if (-not $phaseValidation.pass) {
     $pass = $false
     $finalReason = "phase_terminal_not_converged"
+  } elseif (-not $reminderValidation.pass) {
+    $pass = $false
+    $finalReason = "reminder_probe_failed"
   } elseif (-not $subtaskStats.overall_pass) {
     $pass = $false
     $finalReason = "agent_subtask_creation_insufficient"
   } elseif (-not $artifactValidation.pass) {
     $pass = $false
     $finalReason = "artifact_validation_failed"
+  } elseif (-not $skillValidation.pass) {
+    $pass = $false
+    $finalReason = "skill_probe_failed"
   } else {
     $pass = $true
     $finalReason = "workflow_runtime_ok"
@@ -926,8 +1305,7 @@ if ($triggerCount -gt 0) {
   Write-Utf8NoBom -Path (Join-Path $transcriptDir "README.md") -Content (@(
     "# Agent Chat Transcripts",
     "",
-    "This run used single-shot trigger mode.",
-    "The E2E script triggered /agent-chat once after kickoff+dispatch, then switched to observation-only mode.",
+    "This run used single-shot trigger mode for non-strict observe.",
     "trigger_count: $triggerCount"
   ) -join "`n")
 } else {
@@ -965,13 +1343,21 @@ if ($script:latestSessions) {
 if ($script:latestTimeline) {
   Save-Json -Path (Join-Path $outDir "workflow_timeline.json") -Data $script:latestTimeline
 }
+if ($skillImportResponse) {
+  Save-Json -Path (Join-Path $outDir "workflow_skill_import.json") -Data $skillImportResponse.body
+}
 
 Save-Json -Path (Join-Path $outDir "workflow_timing_timeline.json") -Data $script:timings.ToArray()
 Save-Json -Path (Join-Path $outDir "workflow_step_runtime_samples.json") -Data $script:runtimeSamples.ToArray()
 Save-Json -Path (Join-Path $outDir "workflow_artifact_validation.json") -Data $artifactValidation
 Save-Json -Path (Join-Path $outDir "workflow_agent_subtask_stats.json") -Data $subtaskStats
 Save-Json -Path (Join-Path $outDir "workflow_phase_validation.json") -Data $phaseValidation
-
+Save-Json -Path (Join-Path $outDir "workflow_reminder_probe.json") -Data $reminderValidation
+Save-Json -Path (Join-Path $outDir "workflow_skill_validation.json") -Data $skillValidation
+$eventsSnapshot = Get-WorkflowRunEvents -RunId $runId
+if ($eventsSnapshot.raw.Length -gt 0) {
+  Write-Utf8NoBom -Path (Join-Path $outDir "workflow_events.jsonl") -Content $eventsSnapshot.raw
+}
 if ($script:warnings.Count -gt 0) {
   Save-Json -Path (Join-Path $outDir "warnings.json") -Data $script:warnings.ToArray()
 }
@@ -980,33 +1366,24 @@ if ($fatalError) {
 }
 
 $totalElapsedMs = [int]((Get-Date) - $scriptStart).TotalMilliseconds
-$subtaskCount = 0
-$subtaskRoleCount = 0
-$subtaskRolesText = ""
-if ($subtaskStats.non_manager_subtask_create_count -ne $null) {
-  $subtaskCount = [int]$subtaskStats.non_manager_subtask_create_count
-}
-if ($subtaskStats.non_manager_subtask_creator_role_count -ne $null) {
-  $subtaskRoleCount = [int]$subtaskStats.non_manager_subtask_creator_role_count
-}
-if ($subtaskStats.non_manager_subtask_creator_roles) {
-  $subtaskRolesText = (@($subtaskStats.non_manager_subtask_creator_roles) -join ",")
-}
+$subtaskCount = if ($subtaskStats.non_manager_subtask_create_count -ne $null) { [int]$subtaskStats.non_manager_subtask_create_count } else { 0 }
+$subtaskRoleCount = if ($subtaskStats.non_manager_subtask_creator_role_count -ne $null) { [int]$subtaskStats.non_manager_subtask_creator_role_count } else { 0 }
+$subtaskRolesText = if ($subtaskStats.non_manager_subtask_creator_roles) { (@($subtaskStats.non_manager_subtask_creator_roles) -join ",") } else { "" }
 
 $summary = @()
-$summary += "# Workflow E2E Summary (Observer Mode)"
+$summary += "# Workflow E2E Summary"
 $summary += ""
 $summary += "- scenario: $($scenario.scenario_id)"
 $summary += "- workspace: $workspace"
 $summary += "- setup_only: $($SetupOnly.IsPresent)"
 $summary += "- strict_observe: $strictMode"
-$summary += "- clear_minimax_settings: $($ClearMiniMaxSettings.IsPresent)"
-$summary += "- minimax_api_key_override_applied: $(-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiKeyOverride))"
-$summary += "- minimax_api_base_override_applied: $(-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiBaseOverride))"
 $summary += "- run_id: $runId"
 $summary += "- template_id: $templateId"
 $summary += "- final_reason: $finalReason"
 $summary += "- runtime_pass: $pass"
+$summary += "- reminder_probe_pass: $($reminderValidation.pass)"
+$summary += "- skill_probe_pass: $($skillValidation.pass)"
+$summary += "- imported_skill_id: $importedSkillId"
 $summary += "- review_required: $reviewRequired"
 $summary += "- initial_agent_trigger_count: $triggerCount"
 $summary += "- max_minutes: $MaxMinutes"

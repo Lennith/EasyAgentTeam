@@ -1,102 +1,90 @@
-# E2E Dispatch Regression (Task-Driven)
+# E2E Baseline Regression
 
-This folder standardizes backend-only end-to-end regression for dispatch behavior.
+This folder contains the primary end-to-end regression baselines for AutoDev orchestration.
 
-## Goal
+## Scope
 
-Validate the full task-driven orchestration loop, not only dependency gating:
+The supported baseline scenarios are only:
 
-1. Manager seeds a fixed dependency structure: `A -> B(manager-created placeholder) -> B1`, and `C depends on B`.
-2. Pre-gate dispatch checks prove blocked tasks are rejected before dependencies are done.
-3. Discuss scenario includes a negative probe: create a task that depends on its parent; backend must reject with `409 TASK_DEPENDENCY_ANCESTOR_FORBIDDEN`.
-4. Auto dispatch then drives the project to closure.
-5. Core logs are exported and analyzed with fixed pass/fail rules.
-6. When auto-dispatch budget is exhausted but work is still open, scripts auto-topup budget and continue until closure (bounded by safety caps).
+- `E2ETest/scripts/run-standard-e2e.ps1`
+- `E2ETest/scripts/run-discuss-e2e.ps1`
+- `E2ETest/scripts/run-workflow-e2e.ps1`
 
-## Scenario
+E2E coverage is scenario-first:
+
+- reminder is validated inside all 3 baseline scenarios
+- skill import and actual skill use are validated inside the workflow baseline
+- mechanism-only reminder/skill scripts are not part of the baseline suite
+
+## Baselines
+
+### Standard
+
+`run-standard-e2e.ps1` validates a seeded dependency chain project.
+
+Coverage:
+
+- manager-seeded dependency structure `A -> B -> B1` and `C depends on B`
+- pre-gate dispatch rejection before dependencies are open
+- embedded reminder probe for the designated blocked role
+- end-to-end project closure
+
+### Discuss
+
+`run-discuss-e2e.ps1` validates multi-agent architecture convergence.
+
+Coverage:
+
+- lead + 3 architect task graph
+- invalid parent-dependency negative probe
+- discuss traffic and convergence
+- embedded reminder probe for the designated blocked role
+- end-to-end project closure
+
+### Workflow
+
+`run-workflow-e2e.ps1` validates workflow-mode orchestration.
+
+Coverage:
+
+- template -> run -> session registration -> orchestrator execution
+- autonomous subtask creation by non-manager roles
+- embedded reminder probe for the designated workflow role
+- skill fixture import through `/api/skills/import`
+- skill-list binding on the configured agent role
+- runtime `requestedSkillIds` evidence
+- artifact marker produced by the imported skill instructions
+
+## Scenarios
 
 Default scenario files:
 
 - `E2ETest/scenarios/a-self-decompose-chain.json`
 - `E2ETest/scenarios/team-discuss-framework.json`
+- `E2ETest/scenarios/workflow-gesture-real-agent.json`
 
-## Scripts
+The scenario files carry embedded probe metadata:
 
-- `E2ETest/scripts/run-standard-e2e.ps1`
-  Runs the full E2E case through backend APIs.
-- `E2ETest/scripts/run-discuss-e2e.ps1`
-  Runs the discuss-heavy multi-architect convergence case.
-- `E2ETest/scripts/run-workflow-e2e.ps1`
-  Runs workflow-mode lifecycle regression (template -> run -> start -> stop), based on the discuss scenario structure.
-- `E2ETest/scripts/run-skill-import-e2e.ps1`
-  Runs skill import E2E (local skill path import -> skill list -> agent reference -> workflow dispatch evidence).
-- `E2ETest/scripts/run-multi-e2e.ps1`
-  Runs multiple projects concurrently (default: chain + discuss + workflow), then runs reminder regression.
-- `E2ETest/scripts/run-reminder-e2e.ps1`
-  Runs reminder-specific regression (fixed interval mode + manual reset recovery).
-- `E2ETest/scripts/export-core-logs.ps1`
-  Exports events/timeline/task-tree/sessions/settings/task-details.
-- `E2ETest/scripts/analyze-core-logs.ps1`
-  Produces a deterministic analysis report from exported logs.
-- `E2ETest/scripts/analyze-discuss-logs.ps1`
-  Produces discuss-case deterministic analysis report.
+- `reminder_probe`
+- `skill_probe` for workflow only
 
 ## Quick Start
 
+Run one baseline:
+
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-discuss-e2e.ps1
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1
 ```
 
-Run all primary projects concurrently (default):
+Run the default baseline suite:
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1
 ```
 
-Before each run, the script fully resets the workspace directory content (project/runtime/docs all removed), then rebuilds from scratch.
-
-After one run finishes, artifacts are preserved (no post-run cleanup).
-
-Default workspaces are:
-
-- `D:\AgentWorkSpace\TestTeam\TestRound20`
-- `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss`
-- `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace`
-- `D:\AgentWorkSpace\TestTeam\TestReminder`
-
-Optional parameters:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1 `
-  -BaseUrl "http://127.0.0.1:43123" `
-  -WorkspaceRoot "D:\AgentWorkSpace\TestTeam\E2ETestRun" `
-  -AutoDispatchBudget 30 `
-  -AutoTopupStep 30 `
-  -MaxTopups 10 `
-  -MaxTotalBudget 330 `
-  -MaxMinutes 75 `
-  -PollSeconds 30
-```
-
-Multi-run configurable case/workspace example:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 `
-  -Cases @("chain","discuss","workflow") `
-  -ChainWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestRound20" `
-  -DiscussWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss" `
-  -WorkflowWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace" `
-  -ReminderWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestReminder" `
-  -RunReminderAfter $true `
-  -AutoDispatchBudget 30 `
-  -AutoTopupStep 30 `
-  -MaxTopups 10 `
-  -MaxTotalBudget 330 `
-  -MaxMinutes 75 `
-  -PollSeconds 30
-```
-
-Run workflow-only setup smoke (no runtime start):
+Workflow setup-only smoke:
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 `
@@ -104,47 +92,75 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 
   -SetupOnly
 ```
 
-Run skill import E2E (default opencode path):
+Before each run, the script fully resets the selected workspace directory and rebuilds the scenario from scratch.
+
+Default workspaces:
+
+- `D:\AgentWorkSpace\TestTeam\TestRound20`
+- `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss`
+- `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace`
+
+## Multi Run
+
+`run-multi-e2e.ps1` defaults to:
+
+- `chain`
+- `discuss`
+- `workflow`
+
+Example:
 
 ```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-skill-import-e2e.ps1 `
-  -WorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestSkillImport" `
-  -SkillSourcePath "C:\Users\spiri\.config\opencode\skills\minimax-vision"
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 `
+  -Cases @("chain","discuss","workflow") `
+  -ChainWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestRound20" `
+  -DiscussWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss" `
+  -WorkflowWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace"
 ```
 
-## Output
+## Artifacts
 
-By default, artifacts are written into:
+Project baselines write artifacts to:
 
 - `<workspace>\docs\e2e\<timestamp>\`
-- workflow script: `<workspace>\docs\e2e\<timestamp>-workflow\`
 
-Key files:
+Workflow baseline writes artifacts to:
 
-- `events.ndjson`
-- `timeline.json`
-- `task_tree_final.json`
-- `sessions_final.json`
-- `orchestrator_settings_final.json`
-- `task_details.json`
-- `topup_log.json`
-- `analysis.md`
+- `<workspace>\docs\e2e\<timestamp>-workflow-observer\`
+
+Common outputs include:
+
 - `run_summary.md`
-- `workflow_block_probe.json` (workflow script)
-- `workflow_timing_timeline.json` (workflow script)
-- `workflow_step_runtime_samples.json` (workflow script)
-- `workflow_block_analysis.md` (workflow script)
+- `events.ndjson` or `workflow_events.jsonl`
+- `task_tree_final.json` or `workflow_task_tree_runtime.json`
+- `sessions_final.json` or `workflow_sessions.json`
+- `analysis.md` for project baselines
+- `reminder_probe.json` or `workflow_reminder_probe.json`
 
-## Pass Criteria (Default)
+Workflow-specific outputs also include:
 
-1. Seeded tasks `A/B/B1/C` exist with correct owners and dependencies.
-2. Pre-gate checks show `B1` and `C` are blocked by dependency gate.
-3. Discuss negative probe (`dependency == parent`) is rejected with `409 TASK_DEPENDENCY_ANCESTOR_FORBIDDEN`.
-4. `B1` and `C` are eventually dispatched later.
-5. No unresolved execution tasks remain.
-6. No session remains in running state at finish.
-7. No `ORCHESTRATOR_DISPATCH_FAILED` event.
-8. `list_directory` tool calls are zero.
-9. Team tool success rate is at least 80%.
-10. `shell_execute` ratio is controlled (<= 40% of all tool calls).
-11. If topup occurred, final reason must be explicit (`closed_loop|max_topups_reached|max_total_budget_reached|timeout`).
+- `workflow_skill_import.json`
+- `workflow_skill_validation.json`
+- `workflow_artifact_validation.json`
+- `workflow_phase_validation.json`
+- `workflow_agent_subtask_stats.json`
+
+## Baseline Pass Rules
+
+### Standard / Discuss
+
+- seeded task graph is correct
+- dependency gate checks reject blocked work before release
+- reminder probe shows `trigger -> message redispatch -> later progress`
+- scenario reaches normal closed-loop completion
+- no unresolved execution tasks remain
+- no sessions remain running at finish
+
+### Workflow
+
+- workflow reaches terminal success with all phase tasks done
+- reminder probe shows `trigger -> message redispatch -> later progress`
+- non-manager subtask creation thresholds pass
+- required artifacts exist and contain expected keywords
+- imported skill is injected at runtime for the configured role
+- imported skill marker appears in the designated artifact

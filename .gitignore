@@ -25,5 +25,12 @@ data/teams/**
 !data/projects/.gitkeep
 .e2e-workspace/
 
+# local-added skill packages (keep local, do not upload)
+data/skills/packages/dpvr-mail-agent/
+data/skills/packages/repo-index-manager/
+data/skills/packages/unzip-zip/
+data/skills/packages/weekly-patch-report/
+data/skills/packages/zentao/
+
 # OS/editor noise
 nul

@@ -1,16 +1,12 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
-  [string[]]$Cases = @("chain", "workflow", "skill"),
-  [bool]$RunReminderAfter = $false,
+  [string[]]$Cases = @("chain", "discuss", "workflow"),
   [string]$ChainScenarioPath = "",
   [string]$DiscussScenarioPath = "",
   [string]$WorkflowScenarioPath = "",
-  [string]$SkillSourcePath = "C:\Users\spiri\.config\opencode\skills\minimax-vision",
   [string]$ChainWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestRound20",
   [string]$DiscussWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss",
   [string]$WorkflowWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace",
-  [string]$SkillWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestSkillImport",
-  [string]$ReminderWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestReminder",
   [int]$AutoDispatchBudget = 30,
   [int]$MaxMinutes = 90,
   [int]$PollSeconds = 5,
@@ -55,18 +51,13 @@ $caseMap = @{
     scenario = $WorkflowScenarioPath
     workspace = $WorkflowWorkspaceRoot
   }
-  "skill" = @{
-    script = Join-Path $scriptDir "run-skill-import-e2e.ps1"
-    scenario = ""
-    workspace = $SkillWorkspaceRoot
-  }
 }
 
 $selected = @()
 foreach ($caseIdRaw in $Cases) {
   $caseId = $caseIdRaw.Trim().ToLower()
   if (-not $caseMap.ContainsKey($caseId)) {
-    throw "Unknown case '$caseId'. Supported: chain, discuss, workflow, skill"
+    throw "Unknown case '$caseId'. Supported: chain, discuss, workflow"
   }
   $selected += $caseId
 }
@@ -74,7 +65,7 @@ if ($selected.Count -eq 0) {
   throw "No cases selected"
 }
 if (($selected -notcontains "workflow") -or (-not ($selected -contains "chain" -or $selected -contains "discuss"))) {
-  throw "run-multi-e2e requires at least one project case (chain/discuss) and workflow case in the same run"
+  throw "run-multi-e2e requires workflow plus at least one project baseline (chain or discuss)"
 }
 
 Write-Host "== Multi E2E Start =="
@@ -107,11 +98,11 @@ foreach ($caseId in $selected) {
       [bool]$SetupOnly,
       [bool]$StrictObserve,
       [string]$CaseId,
-      [string]$SkillSourcePath,
       [string]$MiniMaxApiKeyOverride,
       [string]$MiniMaxApiBaseOverride,
       [bool]$ClearMiniMaxSettings
     )
+
     $args = @(
       "-ExecutionPolicy", "Bypass",
       "-File", $ScriptPath,
@@ -131,7 +122,7 @@ foreach ($caseId in $selected) {
     if ($StrictObserve -and $CaseId -eq "chain") {
       $args += "-StrictObserve"
     }
-  if ($CaseId -eq "workflow") {
+    if ($CaseId -eq "workflow") {
       if (-not [string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) {
         $args += @("-MiniMaxApiKeyOverride", $MiniMaxApiKeyOverride)
       }
@@ -141,23 +132,12 @@ foreach ($caseId in $selected) {
       if ($ClearMiniMaxSettings) {
         $args += "-ClearMiniMaxSettings"
       }
-    } elseif ($CaseId -eq "skill") {
-      $args = @(
-        "-ExecutionPolicy", "Bypass",
-        "-File", $ScriptPath,
-        "-BaseUrl", $BaseUrl,
-        "-WorkspaceRoot", $WorkspaceRoot,
-        "-SkillSourcePath", $SkillSourcePath,
-        "-MaxMinutes", "$MaxMinutes",
-        "-PollSeconds", "$PollSeconds"
-      )
     }
     & powershell @args
-    $code = $LASTEXITCODE
     [pscustomobject]@{
-      exitCode = $code
+      exitCode = $LASTEXITCODE
     }
-  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $AutoTopupStep, $MaxTopups, $MaxTotalBudget, $SetupOnly.IsPresent, $strictMode, $caseId, $SkillSourcePath, $MiniMaxApiKeyOverride, $MiniMaxApiBaseOverride, $ClearMiniMaxSettings.IsPresent
+  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $AutoTopupStep, $MaxTopups, $MaxTotalBudget, $SetupOnly.IsPresent, $strictMode, $caseId, $MiniMaxApiKeyOverride, $MiniMaxApiBaseOverride, $ClearMiniMaxSettings.IsPresent
 }
 
 $failed = @()
@@ -165,7 +145,9 @@ foreach ($job in $jobs) {
   Wait-Job -Id $job.Id | Out-Null
   $output = @(Receive-Job -Id $job.Id)
   if ($output) {
-    foreach ($line in @($output)) { Write-Host ("[{0}] {1}" -f $job.Name, $line) }
+    foreach ($line in @($output)) {
+      Write-Host ("[{0}] {1}" -f $job.Name, $line)
+    }
   }
   if ($job.State -ne "Completed") {
     $failed += $job.Name
@@ -193,23 +175,6 @@ foreach ($job in $jobs) {
 if ($failed.Count -gt 0) {
   Write-Host ("== Multi E2E Failed: {0} ==" -f ($failed -join ","))
   exit 2
-}
-
-if ($RunReminderAfter) {
-  $reminderScript = Join-Path $scriptDir "run-reminder-e2e.ps1"
-  Write-Host "== Running reminder e2e after chain/discuss/workflow =="
-  $reminderArgs = @(
-    "-ExecutionPolicy", "Bypass",
-    "-File", $reminderScript,
-    "-BaseUrl", $BaseUrl,
-    "-WorkspaceRoot", $ReminderWorkspaceRoot,
-    "-AutoDispatchBudget", "$AutoDispatchBudget"
-  )
-  & powershell @reminderArgs
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host ("== Reminder E2E Failed: exitCode={0} ==" -f $LASTEXITCODE)
-    exit 3
-  }
 }
 
 Write-Host "== Multi E2E Passed =="

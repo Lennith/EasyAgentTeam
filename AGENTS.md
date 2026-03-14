@@ -55,6 +55,17 @@ pnpm --filter @autodev/server run test -- --test-name-pattern "task report"
 - Prefer adding/adjusting tests with backend behavior changes.
 - Do not commit runtime data/log artifacts under `data/projects/**`, `.minimax/**`, `.trae/**`.
 
+## E2E Design Rules
+
+- E2E exists to cover primary product scenarios and their critical acceptance paths, not isolated internal mechanisms.
+- Prefer scenario-based E2E cases that exercise complete user-visible flows in `project` or `workflow` runtime.
+- Mechanism checks such as `reminder`, `redispatch`, `repair`, `timeout recovery`, and similar orchestration internals must be asserted inside the relevant primary scenario E2E. Do not add standalone E2E scripts for those mechanisms alone.
+- If a mechanism needs narrow validation, prefer backend/unit/integration tests under `server/src/__tests__/` instead of creating a dedicated E2E case.
+- `skill` capability may justify E2E coverage only when it is part of a full scenario: local import -> skill list binding -> agent execution actually depends on that skill -> scenario outcome validates the skill path. A pure import-or-injection smoke is not a target E2E shape.
+- `run-multi-e2e` should aggregate only primary scenario cases. It must not include mechanism-only runs as default children.
+- E2E scenario additions must declare which primary capability they cover and which existing scenario they cannot be absorbed into.
+- When reviewing E2E scripts, remove or fold cases that only prove internal plumbing without validating a top-level workflow outcome.
+
 ## Fast Start for Agents
 
 - If task is backend behavior: start in `server/src/services/` and related tests in `server/src/__tests__/`.

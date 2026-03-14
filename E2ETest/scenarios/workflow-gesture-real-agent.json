@@ -167,12 +167,42 @@
       "e2e_mgr_product_owner": 2
     }
   },
+  "reminder_probe": {
+    "probe_task_id": "wf_reminder_probe",
+    "gate_task_id": "wf_reminder_gate",
+    "blocked_role_ref": "ui_designer",
+    "release_after": "first_reminder_dispatch"
+  },
+  "skill_probe": {
+    "fixture_path": "E2ETest/fixtures/skills/e2e-ui-skill",
+    "skill_list_id": "e2e_workflow_skill_list",
+    "bind_role_refs": ["ui_designer"],
+    "dispatch_role_ref": "ui_designer",
+    "artifact_path": "docs/ux/ui/01_ui_spec.md",
+    "required_markers": ["E2E_SKILL_MARKER_V1"]
+  },
   "phase_tasks": [
+    {
+      "task_id": "wf_reminder_gate",
+      "title": "Reminder gate phase for baseline verification",
+      "owner_role": "e2e_mgr_rd_lead",
+      "dependencies": [],
+      "artifacts": [],
+      "acceptance": ["Internal gating task released by E2E after reminder redispatch is observed."]
+    },
+    {
+      "task_id": "wf_reminder_probe",
+      "title": "Reminder probe phase validates idle reminder redispatch",
+      "owner_role": "e2e_mgr_ui_designer",
+      "dependencies": [],
+      "artifacts": ["docs/e2e/workflow_reminder_probe.md"],
+      "acceptance": ["Create a small reminder probe artifact and report completion after reminder-driven wake-up."]
+    },
     {
       "task_id": "wf_plan_master",
       "title": "Plan Task: global plan, decomposition rules, and collaboration protocol",
       "owner_role": "e2e_mgr_rd_lead",
-      "dependencies": [],
+      "dependencies": ["wf_reminder_gate"],
       "artifacts": ["docs/plan/00_master_plan.md"],
       "acceptance": [
         "Define global plan and milestones for Android gesture recognition app.",
@@ -271,7 +301,12 @@
     {
       "task_id": "wf_ui_design",
       "path": "docs/ux/ui/01_ui_spec.md",
-      "keywords": ["ui", "screen", "gesture"]
+      "keywords": ["ui", "screen", "gesture", "e2e_skill_marker_v1"]
+    },
+    {
+      "task_id": "wf_reminder_probe",
+      "path": "docs/e2e/workflow_reminder_probe.md",
+      "keywords": ["reminder", "probe", "done"]
     },
     {
       "task_id": "wf_engineering_decomposition",

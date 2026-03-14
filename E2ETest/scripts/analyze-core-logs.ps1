@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory = $true)][string]$ArtifactsDir,
   [string]$ScenarioPath = "",
   [string]$OutputPath = "",
@@ -16,30 +16,36 @@ if (-not $OutputPath) {
   $OutputPath = Join-Path $ArtifactsDir "analysis.md"
 }
 
-$scenario = Get-Content -LiteralPath $ScenarioPath | ConvertFrom-Json
+$scenario = Get-Content -LiteralPath $ScenarioPath -Raw | ConvertFrom-Json
 $roles = $scenario.roles
 $roleA = [string]$roles.A
 $roleB = [string]$roles.B
 $roleC = [string]$roles.C
 $roleD = [string]$roles.D
+$reminderProbe = $scenario.reminder_probe
+$roleByRef = @{ A = $roleA; B = $roleB; C = $roleC; D = $roleD }
 
 $taskAId = [string]$scenario.seed_tasks.task_a.task_id
 $taskBId = [string]$scenario.seed_tasks.task_b_placeholder.task_id
 $taskB1Id = [string]$scenario.seed_tasks.task_b1_child.task_id
 $taskCId = [string]$scenario.seed_tasks.task_c.task_id
+$probeTaskId = [string]$reminderProbe.probe_task_id
+$gateTaskId = [string]$reminderProbe.gate_task_id
+$probeRole = [string]$roleByRef[[string]$reminderProbe.blocked_role_ref]
 
 $eventsPath = Join-Path $ArtifactsDir "events.ndjson"
 $treePath = Join-Path $ArtifactsDir "task_tree_final.json"
 $sessionsPath = Join-Path $ArtifactsDir "sessions_final.json"
 $preGatePath = Join-Path $ArtifactsDir "pre_gate_checks.json"
 $topupLogPath = Join-Path $ArtifactsDir "topup_log.json"
+$reminderPath = Join-Path $ArtifactsDir "reminder_probe.json"
 $runSummaryPath = Join-Path $ArtifactsDir "run_summary.md"
 
-if (-not (Test-Path -LiteralPath $eventsPath)) { throw "events.ndjson not found: $eventsPath" }
-if (-not (Test-Path -LiteralPath $treePath)) { throw "task_tree_final.json not found: $treePath" }
-if (-not (Test-Path -LiteralPath $sessionsPath)) { throw "sessions_final.json not found: $sessionsPath" }
-if (-not (Test-Path -LiteralPath $preGatePath)) { throw "pre_gate_checks.json not found: $preGatePath" }
-if (-not (Test-Path -LiteralPath $topupLogPath)) { throw "topup_log.json not found: $topupLogPath" }
+foreach ($required in @($eventsPath, $treePath, $sessionsPath, $preGatePath, $topupLogPath, $reminderPath)) {
+  if (-not (Test-Path -LiteralPath $required)) {
+    throw "Required artifact not found: $required"
+  }
+}
 
 $events = @()
 foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
@@ -48,10 +54,12 @@ foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
   try { $events += ($trimmed | ConvertFrom-Json) } catch {}
 }
 
-$tree = Get-Content -LiteralPath $treePath | ConvertFrom-Json
-$sessions = Get-Content -LiteralPath $sessionsPath | ConvertFrom-Json
-$preGate = Get-Content -LiteralPath $preGatePath | ConvertFrom-Json
+$tree = Get-Content -LiteralPath $treePath -Raw | ConvertFrom-Json
+$sessions = Get-Content -LiteralPath $sessionsPath -Raw | ConvertFrom-Json
+$preGate = Get-Content -LiteralPath $preGatePath -Raw | ConvertFrom-Json
 $topupLog = @((Get-Content -LiteralPath $topupLogPath -Raw | ConvertFrom-Json))
+$reminderResult = Get-Content -LiteralPath $reminderPath -Raw | ConvertFrom-Json
+
 $finalReason = [string]$FinalReasonHint
 if ([string]::IsNullOrWhiteSpace($finalReason) -and (Test-Path -LiteralPath $runSummaryPath)) {
   $summaryLines = Get-Content -LiteralPath $runSummaryPath
@@ -60,16 +68,15 @@ if ([string]::IsNullOrWhiteSpace($finalReason) -and (Test-Path -LiteralPath $run
     $finalReason = ($finalReasonLine -replace '^- final_reason:\s*', '').Trim()
   }
 }
+
 $topupCount = @($topupLog).Count
 $topupReasonExplicit = if ($topupCount -eq 0) { $true } else { @("closed_loop", "max_topups_reached", "max_total_budget_reached", "timeout") -contains $finalReason }
 $nodes = @($tree.nodes)
 $nodeById = @{}
-foreach ($n in $nodes) { $nodeById[$n.task_id] = $n }
+foreach ($n in $nodes) { $nodeById[[string]$n.task_id] = $n }
 
 function Get-DispatchOutcome {
-  param(
-    [object]$dispatchResponse
-  )
+  param([object]$dispatchResponse)
   if (-not $dispatchResponse) { return $null }
   $results = @($dispatchResponse.results)
   if ($results.Count -eq 0) { return $null }
@@ -83,24 +90,15 @@ $preGateB1Blocked = $false
 $preGateCBlocked = $false
 if ($preGateB1) {
   $reason = [string]$preGateB1.reason
-  $preGateB1Blocked = (
-    $preGateB1.outcome -eq "task_not_found" -and
-    ($reason -like "*dependency gate is closed*" -or $reason -like "*is not runnable for session*")
-  )
+  $preGateB1Blocked = ($preGateB1.outcome -eq "task_not_found" -and ($reason -like "*dependency gate is closed*" -or $reason -like "*is not runnable for session*"))
 }
 if ($preGateC) {
   $reason = [string]$preGateC.reason
-  $preGateCBlocked = (
-    $preGateC.outcome -eq "task_not_found" -and
-    ($reason -like "*dependency gate is closed*" -or $reason -like "*is not runnable for session*")
-  )
+  $preGateCBlocked = ($preGateC.outcome -eq "task_not_found" -and ($reason -like "*dependency gate is closed*" -or $reason -like "*is not runnable for session*"))
 }
 
-$hasTaskA = $nodeById.ContainsKey($taskAId)
-$hasTaskB = $nodeById.ContainsKey($taskBId)
-$hasTaskB1 = $nodeById.ContainsKey($taskB1Id)
-$hasTaskC = $nodeById.ContainsKey($taskCId)
-$allSeedTasksExist = ($hasTaskA -and $hasTaskB -and $hasTaskB1 -and $hasTaskC)
+$requiredIds = @($taskAId, $taskBId, $taskB1Id, $taskCId, $probeTaskId, $gateTaskId)
+$allSeedTasksExist = @($requiredIds | Where-Object { -not $nodeById.ContainsKey($_) }).Count -eq 0
 
 $seedStructureOk = $false
 if ($allSeedTasksExist) {
@@ -108,13 +106,17 @@ if ($allSeedTasksExist) {
   $taskB = $nodeById[$taskBId]
   $taskB1 = $nodeById[$taskB1Id]
   $taskC = $nodeById[$taskCId]
-
+  $probeTask = $nodeById[$probeTaskId]
+  $gateTask = $nodeById[$gateTaskId]
   $seedStructureOk = (
     [string]$taskA.owner_role -eq $roleA -and
     [string]$taskB.owner_role -eq $roleA -and
     [string]$taskB1.owner_role -eq $roleB -and
     [string]$taskB1.parent_task_id -eq $taskBId -and
     [string]$taskC.owner_role -eq $roleC -and
+    [string]$probeTask.owner_role -eq $probeRole -and
+    [string]$gateTask.owner_role -eq "manager" -and
+    (@($taskA.dependencies) -contains $gateTaskId) -and
     (@($taskB.dependencies) -contains $taskAId) -and
     (@($taskC.dependencies) -contains $taskBId)
   )
@@ -125,113 +127,42 @@ $dispatchedTaskIds = @($dispatchStarted | ForEach-Object { $_.taskId } | Where-O
 $b1Dispatched = @($dispatchedTaskIds | Where-Object { $_ -eq $taskB1Id }).Count -gt 0
 $cDispatched = @($dispatchedTaskIds | Where-Object { $_ -eq $taskCId }).Count -gt 0
 $terminalStates = @("DONE", "BLOCKED_DEP", "CANCELED")
-$b1Terminal = $false
-$cTerminal = $false
-if ($nodeById.ContainsKey($taskB1Id)) {
-  $b1Terminal = $terminalStates -contains [string]$nodeById[$taskB1Id].state
-}
-if ($nodeById.ContainsKey($taskCId)) {
-  $cTerminal = $terminalStates -contains [string]$nodeById[$taskCId].state
-}
-$b1Reached = ($b1Dispatched -or $b1Terminal)
-$cReached = ($cDispatched -or $cTerminal)
-$bAndCReached = ($b1Reached -and $cReached)
+$b1Terminal = $nodeById.ContainsKey($taskB1Id) -and $terminalStates -contains [string]$nodeById[$taskB1Id].state
+$cTerminal = $nodeById.ContainsKey($taskCId) -and $terminalStates -contains [string]$nodeById[$taskCId].state
+$bAndCReached = (($b1Dispatched -or $b1Terminal) -and ($cDispatched -or $cTerminal))
 
-$openExecutionTasks = @(
-  $nodes | Where-Object {
-    $_.task_kind -eq "EXECUTION" -and $terminalStates -notcontains $_.state
-  }
-)
+$openExecutionTasks = @($nodes | Where-Object { $_.task_kind -eq "EXECUTION" -and $terminalStates -notcontains $_.state })
 $runningSessions = @($sessions.items | Where-Object { $_.status -eq "running" })
-
 $dispatchFailedCount = @($events | Where-Object { $_.eventType -eq "ORCHESTRATOR_DISPATCH_FAILED" }).Count
 $actionRejectedCount = @($events | Where-Object { $_.eventType -eq "TASK_ACTION_REJECTED" }).Count
 
-$toolCallLogs = @(
-  $events | Where-Object {
-    $_.eventType -eq "MINIMAX_LOG" -and
-    [string]($_.payload.content) -like "[Tool Call]*"
-  }
-)
-$listDirectoryCalls = @(
-  $toolCallLogs | Where-Object { [string]($_.payload.content) -like "[Tool Call] list_directory*" }
-).Count
-$shellExecuteCalls = @(
-  $toolCallLogs | Where-Object { [string]($_.payload.content) -like "[Tool Call] shell_execute*" }
-).Count
+$toolCallLogs = @($events | Where-Object { $_.eventType -eq "MINIMAX_LOG" -and [string]($_.payload.content) -like "[Tool Call]*" })
+$listDirectoryCalls = @($toolCallLogs | Where-Object { [string]($_.payload.content) -like "[Tool Call] list_directory*" }).Count
+$shellExecuteCalls = @($toolCallLogs | Where-Object { [string]($_.payload.content) -like "[Tool Call] shell_execute*" }).Count
 $allToolCallCount = @($toolCallLogs).Count
 $shellExecuteRatio = if ($allToolCallCount -gt 0) { [math]::Round($shellExecuteCalls / $allToolCallCount, 4) } else { 0.0 }
 
 $teamToolCalledCount = @($events | Where-Object { $_.eventType -eq "TEAM_TOOL_CALLED" }).Count
 $teamToolSucceededCount = @($events | Where-Object { $_.eventType -eq "TEAM_TOOL_SUCCEEDED" }).Count
 $teamToolFailedCount = @($events | Where-Object { $_.eventType -eq "TEAM_TOOL_FAILED" }).Count
-$teamToolSuccessRate = if ($teamToolCalledCount -gt 0) {
-  [math]::Round($teamToolSucceededCount / $teamToolCalledCount, 4)
-} else {
-  1.0
-}
+$teamToolSuccessRate = if ($teamToolCalledCount -gt 0) { [math]::Round($teamToolSucceededCount / $teamToolCalledCount, 4) } else { 1.0 }
 
 $checks = @(
-  [pscustomobject]@{
-    Name = "Seed tasks exist"
-    Pass = $allSeedTasksExist
-    Detail = "A=$hasTaskA B=$hasTaskB B1=$hasTaskB1 C=$hasTaskC"
-  },
-  [pscustomobject]@{
-    Name = "Seed dependency structure is correct"
-    Pass = $seedStructureOk
-    Detail = "A->B dependency, B1 child-of-B, C depends on B"
-  },
-  [pscustomobject]@{
-    Name = "Dependency gate blocked B1 before A completion path"
-    Pass = $preGateB1Blocked
-    Detail = "outcome=$($preGateB1.outcome) reason=$([string]$preGateB1.reason)"
-  },
-  [pscustomobject]@{
-    Name = "Dependency gate blocked C before B completion path"
-    Pass = $preGateCBlocked
-    Detail = "outcome=$($preGateC.outcome) reason=$([string]$preGateC.reason)"
-  },
-  [pscustomobject]@{
-    Name = "B1 and C were eventually reached (dispatched or terminal)"
-    Pass = $bAndCReached
-    Detail = "B1_dispatched=$b1Dispatched B1_terminal=$b1Terminal C_dispatched=$cDispatched C_terminal=$cTerminal"
-  },
-  [pscustomobject]@{
-    Name = "No unresolved execution tasks"
-    Pass = (@($openExecutionTasks).Count -eq 0)
-    Detail = "open_execution_tasks=$(@($openExecutionTasks).Count)"
-  },
-  [pscustomobject]@{
-    Name = "No running sessions at finish"
-    Pass = (@($runningSessions).Count -eq 0)
-    Detail = "running_sessions=$(@($runningSessions).Count)"
-  },
-  [pscustomobject]@{
-    Name = "No dispatch failures"
-    Pass = ($dispatchFailedCount -eq 0)
-    Detail = "dispatch_failed_events=$dispatchFailedCount"
-  },
-  [pscustomobject]@{
-    Name = "No list_directory toolcall noise"
-    Pass = ($listDirectoryCalls -eq 0)
-    Detail = "list_directory_calls=$listDirectoryCalls"
-  },
-  [pscustomobject]@{
-    Name = "Team tool success rate is healthy"
-    Pass = ($teamToolSuccessRate -ge 0.70)
-    Detail = "team_tool_success_rate=$teamToolSuccessRate threshold=0.70 called=$teamToolCalledCount failed=$teamToolFailedCount"
-  },
-  [pscustomobject]@{
-    Name = "shell_execute ratio is controlled"
-    Pass = ($shellExecuteRatio -le 0.40)
-    Detail = "shell_execute_calls=$shellExecuteCalls total_tool_calls=$allToolCallCount ratio=$shellExecuteRatio"
-  },
-  [pscustomobject]@{
-    Name = "Topup run ends with explicit reason"
-    Pass = $topupReasonExplicit
-    Detail = "topup_count=$topupCount final_reason=$finalReason"
-  }
+  [pscustomobject]@{ Name = "Seed tasks exist"; Pass = $allSeedTasksExist; Detail = "A/B/B1/C + reminder probe/gate exist" },
+  [pscustomobject]@{ Name = "Seed dependency structure is correct"; Pass = $seedStructureOk; Detail = "A depends on reminder gate; B depends on A; B1 child-of-B; C depends on B" },
+  [pscustomobject]@{ Name = "Dependency gate blocked B1 before A completion path"; Pass = $preGateB1Blocked; Detail = "outcome=$($preGateB1.outcome) reason=$([string]$preGateB1.reason)" },
+  [pscustomobject]@{ Name = "Dependency gate blocked C before B completion path"; Pass = $preGateCBlocked; Detail = "outcome=$($preGateC.outcome) reason=$([string]$preGateC.reason)" },
+  [pscustomobject]@{ Name = "Reminder probe triggered for designated role"; Pass = [bool]$reminderResult.evidence.trigger_pass; Detail = "role=$probeRole trigger_count=$($reminderResult.evidence.reminder_trigger_count)" },
+  [pscustomobject]@{ Name = "Reminder probe was redispatched after trigger"; Pass = [bool]$reminderResult.evidence.dispatch_pass; Detail = "task_id=$probeTaskId dispatch_count=$($reminderResult.evidence.message_dispatch_count) reminder_redispatch_count=$($reminderResult.evidence.redispatch_count)" },
+  [pscustomobject]@{ Name = "Reminder probe role later progressed task"; Pass = [bool]$reminderResult.evidence.progress_pass; Detail = "report_applied_count=$($reminderResult.evidence.report_applied_count) probe_state=$($reminderResult.evidence.probe_state)" },
+  [pscustomobject]@{ Name = "B1 and C were eventually reached (dispatched or terminal)"; Pass = $bAndCReached; Detail = "B1_dispatched=$b1Dispatched B1_terminal=$b1Terminal C_dispatched=$cDispatched C_terminal=$cTerminal" },
+  [pscustomobject]@{ Name = "No unresolved execution tasks"; Pass = (@($openExecutionTasks).Count -eq 0); Detail = "open_execution_tasks=$(@($openExecutionTasks).Count)" },
+  [pscustomobject]@{ Name = "No running sessions at finish"; Pass = (@($runningSessions).Count -eq 0); Detail = "running_sessions=$(@($runningSessions).Count)" },
+  [pscustomobject]@{ Name = "No dispatch failures"; Pass = ($dispatchFailedCount -eq 0); Detail = "dispatch_failed_events=$dispatchFailedCount" },
+  [pscustomobject]@{ Name = "No list_directory toolcall noise"; Pass = ($listDirectoryCalls -eq 0); Detail = "list_directory_calls=$listDirectoryCalls" },
+  [pscustomobject]@{ Name = "Team tool success rate is healthy"; Pass = ($teamToolSuccessRate -ge 0.70); Detail = "team_tool_success_rate=$teamToolSuccessRate threshold=0.70 called=$teamToolCalledCount failed=$teamToolFailedCount" },
+  [pscustomobject]@{ Name = "shell_execute ratio is controlled"; Pass = ($shellExecuteRatio -le 0.40); Detail = "shell_execute_calls=$shellExecuteCalls total_tool_calls=$allToolCallCount ratio=$shellExecuteRatio" },
+  [pscustomobject]@{ Name = "Topup run ends with explicit reason"; Pass = $topupReasonExplicit; Detail = "topup_count=$topupCount final_reason=$finalReason" }
 )
 
 $overallPass = @($checks | Where-Object { -not $_.Pass }).Count -eq 0
@@ -262,22 +193,10 @@ foreach ($c in $checks) {
   $lines += "- [$state] $($c.Name): $($c.Detail)"
 }
 $lines += ""
-$lines += "## Observability Signals"
-$lines += ""
-$lines += "- TASK_ACTION_REJECTED: $actionRejectedCount"
-$lines += "- ORCHESTRATOR_DISPATCH_FAILED: $dispatchFailedCount"
-$lines += "- running_sessions: $(@($runningSessions).Count)"
-$lines += "- open_execution_tasks: $(@($openExecutionTasks).Count)"
-$lines += "- TEAM_TOOL_CALLED: $teamToolCalledCount"
-$lines += "- TEAM_TOOL_SUCCEEDED: $teamToolSucceededCount"
-$lines += "- TEAM_TOOL_FAILED: $teamToolFailedCount"
-$lines += "- MINIMAX list_directory tool calls: $listDirectoryCalls"
-$lines += "- MINIMAX shell_execute ratio: $shellExecuteRatio"
-$lines += ""
 $lines += "## Notes"
 $lines += ""
-$lines += "- This scenario seeds A/B/B1/C structure from manager, then validates dependency gating before auto dispatch."
-$lines += "- Role D remains registered to observe idle behavior and ensure no unexpected dispatch."
+$lines += "- This scenario embeds reminder validation before the main dependency chain is released."
+$lines += "- Role D owns the reminder probe task; manager-owned gate task blocks Task A until reminder redispatch is observed."
 
 [System.IO.File]::WriteAllLines($OutputPath, $lines, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Analysis written to: $OutputPath"
