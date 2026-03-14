@@ -11,6 +11,12 @@ EasyAgentTeam is used to:
 
 Learn more: [docs/what-is-this.md](./docs/what-is-this.md)
 
+## Human User Guide
+
+If your users are ordinary people and mostly rely on Agent to deploy and run the system, start here:
+
+- [Chinese human user guide](./docs/human-user-guide.zh-CN.md)
+
 ## Run It In 5 Minutes
 
 1. Install dependencies.
