@@ -7,7 +7,8 @@ import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
 import { createProject } from "../data/project-store.js";
 import { BASE_PROMPT_TEXT } from "../services/agent-prompt-service.js";
-import { ensureAgentWorkspaces } from "../services/agent-workspace-service.js";
+import { buildAgentWorkspaceAgentsMd, ensureAgentWorkspaces } from "../services/agent-workspace-service.js";
+import { composeSystemPrompt } from "../services/prompt-composer.js";
 
 const TEAM_TOOL_NAMES = [
   "task_create_assign",
@@ -92,4 +93,36 @@ test("agent-visible prompts/doc index use registered TeamTools names consistentl
   assert.equal(orchestratorSource.includes("report_task_* TeamTools"), false);
   assert.equal(orchestratorSource.includes("`discuss_request`, `discuss_reply`, `discuss_close`"), true);
   assert.equal(orchestratorSource.includes("`task_report_in_progress`, `task_report_done`, `task_report_block`"), true);
+});
+
+test("runtime prompt and workspace guide switch by host platform", () => {
+  const windowsPrompt = composeSystemPrompt({
+    providerId: "minimax",
+    hostPlatform: "win32"
+  }).systemPrompt;
+  const linuxPrompt = composeSystemPrompt({
+    providerId: "minimax",
+    hostPlatform: "linux"
+  }).systemPrompt;
+  const macPrompt = composeSystemPrompt({
+    providerId: "minimax",
+    hostPlatform: "darwin"
+  }).systemPrompt;
+
+  assert.equal(windowsPrompt.includes("Use PowerShell/CMD syntax only."), true);
+  assert.equal(windowsPrompt.includes("Do not use bash/sh/zsh syntax."), true);
+  assert.equal(linuxPrompt.includes("Use bash/sh syntax only."), true);
+  assert.equal(linuxPrompt.includes("Do not use PowerShell/CMD syntax."), true);
+  assert.equal(macPrompt.includes("macOS support is design-compatible"), true);
+
+  const windowsGuide = buildAgentWorkspaceAgentsMd("win32");
+  const linuxGuide = buildAgentWorkspaceAgentsMd("linux");
+  const macGuide = buildAgentWorkspaceAgentsMd("darwin");
+
+  assert.equal(windowsGuide.includes("YOUR RUNTIME IS WINDOWS"), true);
+  assert.equal(windowsGuide.includes("Use PowerShell/CMD"), true);
+  assert.equal(linuxGuide.includes("YOUR RUNTIME IS LINUX"), true);
+  assert.equal(linuxGuide.includes("Use POSIX shell commands"), true);
+  assert.equal(macGuide.includes("YOUR RUNTIME IS MACOS"), true);
+  assert.equal(macGuide.includes("design-compatible but not fully validated"), true);
 });

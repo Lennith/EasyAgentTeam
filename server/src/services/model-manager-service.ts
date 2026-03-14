@@ -28,14 +28,10 @@ const DEFAULT_MODELS: Record<ModelInfo["vendor"], ModelInfo[]> = {
     { vendor: "codex", model: "gpt-5", description: "GPT-5 model" }
   ],
   trae: [{ vendor: "trae", model: "trae-1", description: "Trae 1 model" }],
-  minimax: [
-    { vendor: "minimax", model: "MiniMax-M2.5", description: "MiniMax M2.5 model" },
-    { vendor: "minimax", model: "MiniMax-M2", description: "MiniMax M2 model" },
-    { vendor: "minimax", model: "abab6.5-chat", description: "MiniMax abab6.5 chat model" },
-    { vendor: "minimax", model: "abab6.5s-chat", description: "MiniMax abab6.5s chat model" },
-    { vendor: "minimax", model: "abab6-chat", description: "MiniMax abab6 chat model" }
-  ]
+  minimax: []
 };
+
+const DEFAULT_MINIMAX_MODEL = "MiniMax-M2.5-High-speed";
 
 function resolveDataRootFromProjectRoot(projectRootDir: string): string {
   return path.resolve(projectRootDir, "..", "..");
@@ -90,12 +86,22 @@ export class ModelManagerService {
   }
 
   async getAvailableModels(): Promise<ModelListResponse> {
+    const runtimeSettings = await this.loadRuntimeSettings();
     const store = await this.loadModelStore();
     if (store.models.length === 0) {
       return this.refreshModels();
     }
+    const normalized = this.normalizeModelsWithRuntime(store.models, runtimeSettings);
+    if (JSON.stringify(normalized) !== JSON.stringify(store.models)) {
+      const next: ModelStore = {
+        ...store,
+        updatedAt: new Date().toISOString(),
+        models: normalized
+      };
+      await this.saveModelStore(next);
+    }
     return {
-      models: store.models,
+      models: normalized,
       warnings: [],
       source: "cache"
     };
@@ -106,7 +112,7 @@ export class ModelManagerService {
     const warnings: string[] = [];
     const codex = await this.getVendorModels("codex", runtimeSettings.codexCliCommand, warnings);
     const trae = await this.getVendorModels("trae", runtimeSettings.traeCliCommand, warnings);
-    const minimax = DEFAULT_MODELS.minimax;
+    const minimax = this.resolveMiniMaxModels(runtimeSettings);
     const models = [...codex, ...trae, ...minimax];
     const store: ModelStore = {
       schemaVersion: "1.0",
@@ -138,6 +144,29 @@ export class ModelManagerService {
       return DEFAULT_MODELS[vendor];
     }
     return parsed;
+  }
+
+  private resolveMiniMaxModels(runtimeSettings: RuntimeSettings): ModelInfo[] {
+    const configured = runtimeSettings.minimaxModel?.trim();
+    const model = configured && configured.length > 0 ? configured : DEFAULT_MINIMAX_MODEL;
+    return [{ vendor: "minimax", model, description: `MiniMax model: ${model}` }];
+  }
+
+  private normalizeModelsWithRuntime(models: ModelInfo[], runtimeSettings: RuntimeSettings): ModelInfo[] {
+    const deduped = new Map<string, ModelInfo>();
+    for (const model of models) {
+      const key = `${model.vendor}:${model.model}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, model);
+      }
+    }
+    for (const minimaxModel of this.resolveMiniMaxModels(runtimeSettings)) {
+      const key = `${minimaxModel.vendor}:${minimaxModel.model}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, minimaxModel);
+      }
+    }
+    return [...deduped.values()];
   }
 
   private async runModelListCommand(
@@ -189,7 +218,8 @@ export class ModelManagerService {
         schemaVersion: "1.0",
         updatedAt: new Date().toISOString(),
         codexCliCommand: "codex",
-        traeCliCommand: "trae"
+        traeCliCommand: "trae",
+        minimaxModel: DEFAULT_MINIMAX_MODEL
       };
     }
   }

@@ -278,6 +278,13 @@ export interface RuntimeSettings {
   codexCliCommand?: string;
   traeCliCommand?: string;
   theme?: Theme;
+  hostPlatform?: "win32" | "linux" | "darwin";
+  hostPlatformLabel?: string;
+  supportedShellTypes?: Array<"powershell" | "cmd" | "bash" | "sh">;
+  defaultShellType?: "powershell" | "cmd" | "bash" | "sh";
+  codexCliCommandDefault?: string;
+  traeCliCommandDefault?: string;
+  macosUntested?: boolean;
   minimaxApiKey?: string;
   minimaxApiBase?: string;
   minimaxModel?: string;

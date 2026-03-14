@@ -739,7 +739,7 @@ export class WorkflowOrchestratorService {
         runtimeConstraints: ["Report phase completion via TASK_REPORT on the phase task."],
         sessionDirFallback: path.join(input.run.workspacePath, ".minimax", "sessions"),
         apiBaseFallback: "https://api.minimax.io",
-        modelFallback: "MiniMax-M2.5",
+        modelFallback: "MiniMax-M2.5-High-speed",
         teamToolContext: toolInjection.teamToolContext,
         teamToolBridge: toolInjection.teamToolBridge,
         env: {

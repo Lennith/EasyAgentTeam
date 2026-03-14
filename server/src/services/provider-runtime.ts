@@ -13,6 +13,7 @@ import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/
 import type { ProviderId } from "@autodev/agent-library";
 import { composeSystemPrompt } from "./prompt-composer.js";
 import { resolveSkillPromptSegments } from "./skill-catalog.js";
+import { getDefaultShellType } from "../runtime-platform.js";
 
 type ProjectSyncRunResult = ModelRunResult | MiniMaxRunResultInternal;
 
@@ -191,6 +192,7 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
     const injectedSkillSegments = [...(input.skillSegments ?? []), ...skillPrompt.segments];
     const promptCompose = composeSystemPrompt({
       providerId: "minimax",
+      hostPlatform: process.platform,
       role: input.role,
       rolePrompt: input.rolePrompt,
       contextKind: input.contextKind,
@@ -211,7 +213,7 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
         enableFileTools: true,
         enableShell: true,
         enableNote: true,
-        shellType: "powershell",
+        shellType: getDefaultShellType(),
         shellTimeout: settings.minimaxShellTimeout ?? 30000,
         shellOutputIdleTimeout: settings.minimaxShellOutputIdleTimeout ?? 60000,
         shellMaxRunTime: settings.minimaxShellMaxRunTime ?? 600000,

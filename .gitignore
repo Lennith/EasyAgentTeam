@@ -12,6 +12,9 @@ test_report/
 # local model/session caches
 .minimax/
 .trae/
+.opencode/
+.sisyphus/
+server/.trae/
 dashboard-v2/.minimax/
 dashboard-v2/Agents/
 

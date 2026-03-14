@@ -5,6 +5,12 @@ import * as crypto from "crypto";
 import { Tool, successResult, errorResult } from "./Tool.js";
 import type { ToolResult, ShellType, PermissionCheckResult } from "../types.js";
 import { logger } from "../../utils/logger.js";
+import {
+  coerceShellTypeForPlatform,
+  getDefaultShellType,
+  getRuntimePlatformCapabilities,
+  isShellSupportedOnPlatform
+} from "../../runtime-platform.js";
 
 // Process tracking log file path
 function logProcessEvent(event: "spawn" | "kill" | "exit", pid: number, command: string, details?: string): void {
@@ -61,7 +67,7 @@ export class ShellTool extends Tool {
   constructor(options: ShellToolOptions) {
     super();
     this.workspaceDir = options.workspaceDir;
-    this.defaultShell = options.shell ?? "powershell";
+    this.defaultShell = coerceShellTypeForPlatform(options.shell);
     this.defaultTimeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.outputIdleTimeout = options.outputIdleTimeout ?? DEFAULT_OUTPUT_IDLE_TIMEOUT;
     this.maxRunTime = options.maxRunTime ?? DEFAULT_MAX_RUN_TIME;
@@ -76,10 +82,12 @@ export class ShellTool extends Tool {
   }
 
   get description(): string {
-    return "Execute shell commands on Windows (PowerShell or CMD). Use with caution.";
+    const runtime = getRuntimePlatformCapabilities();
+    return `Execute shell commands on ${runtime.label} using ${runtime.supportedShells.join("/")} shells. Use with caution.`;
   }
 
   get parameters(): Record<string, unknown> {
+    const runtime = getRuntimePlatformCapabilities();
     return {
       type: "object",
       properties: {
@@ -89,8 +97,8 @@ export class ShellTool extends Tool {
         },
         shell: {
           type: "string",
-          enum: ["powershell", "cmd"],
-          description: "The shell to use. Default is powershell."
+          enum: runtime.supportedShells,
+          description: `The shell to use. Default is ${this.defaultShell}.`
         },
         timeout: {
           type: "number",
@@ -107,7 +115,14 @@ export class ShellTool extends Tool {
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
     const command = args.command as string;
-    const shell = (args.shell as ShellType) ?? this.defaultShell;
+    const requestedShell = args.shell as ShellType | undefined;
+    if (requestedShell && !isShellSupportedOnPlatform(requestedShell)) {
+      const runtime = getRuntimePlatformCapabilities();
+      return errorResult(
+        `Shell '${requestedShell}' is not available on ${runtime.label}. Supported shells: ${runtime.supportedShells.join(", ")}`
+      );
+    }
+    const shell = coerceShellTypeForPlatform(requestedShell ?? this.defaultShell);
     const timeout = (args.timeout as number) ?? this.defaultTimeout;
     const cwd = this.resolvePath((args.cwd as string) ?? ".");
 
@@ -149,43 +164,56 @@ export class ShellTool extends Tool {
   }
 
   private killProcessTree(pid: number): void {
-    logProcessEvent("kill", pid, "taskkill", "killing process tree");
+    if (process.platform === "win32") {
+      logProcessEvent("kill", pid, "taskkill", "killing process tree");
 
-    const killProc = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
-      windowsHide: true,
-      stdio: "pipe"
-    });
+      const killProc = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "pipe"
+      });
 
-    // Track taskkill process to prevent leak
-    const killPid = killProc.pid;
-    if (killPid) {
-      this.activeProcesses.set(killPid, killProc);
+      const killPid = killProc.pid;
+      if (killPid) {
+        this.activeProcesses.set(killPid, killProc);
+      }
+
+      const killTimeout = setTimeout(() => {
+        if (!killProc.killed) {
+          killProc.kill();
+        }
+      }, 5000);
+
+      killProc.on("error", (err) => {
+        clearTimeout(killTimeout);
+        if (killPid) {
+          this.activeProcesses.delete(killPid);
+        }
+        logger.error(`[ShellTool] Failed to kill process tree ${pid}: ${err.message}`);
+      });
+
+      killProc.on("close", (code) => {
+        clearTimeout(killTimeout);
+        if (killPid) {
+          this.activeProcesses.delete(killPid);
+        }
+        if (code !== 0) {
+          logger.error(`[ShellTool] taskkill for pid ${pid} exited with code ${code}`);
+        }
+      });
+      return;
     }
 
-    // Set timeout to kill taskkill if it hangs
-    const killTimeout = setTimeout(() => {
-      if (!killProc.killed) {
-        killProc.kill();
+    try {
+      logProcessEvent("kill", pid, "process.kill", "killing POSIX process group");
+      process.kill(-pid, "SIGKILL");
+    } catch (err) {
+      logger.error(`[ShellTool] Failed to kill POSIX process group ${pid}: ${(err as Error).message}`);
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // ignore fallback failure
       }
-    }, 5000);
-
-    killProc.on("error", (err) => {
-      clearTimeout(killTimeout);
-      if (killPid) {
-        this.activeProcesses.delete(killPid);
-      }
-      logger.error(`[ShellTool] Failed to kill process tree ${pid}: ${err.message}`);
-    });
-
-    killProc.on("close", (code) => {
-      clearTimeout(killTimeout);
-      if (killPid) {
-        this.activeProcesses.delete(killPid);
-      }
-      if (code !== 0) {
-        logger.error(`[ShellTool] taskkill for pid ${pid} exited with code ${code}`);
-      }
-    });
+    }
   }
 
   private executeCommand(command: string, shell: ShellType, cwd: string, timeout: number): Promise<ToolResult> {
@@ -201,7 +229,7 @@ export class ShellTool extends Tool {
       const startedAt = new Date().toISOString();
 
       const shellArgs = this.getShellArgs(shell, command);
-      const shellCmd = shell === "powershell" ? "powershell.exe" : "cmd.exe";
+      const shellCmd = this.getShellCommand(shell);
 
       const env = {
         ...process.env,
@@ -212,7 +240,8 @@ export class ShellTool extends Tool {
         cwd,
         env,
         shell: false,
-        windowsHide: true
+        windowsHide: process.platform === "win32",
+        detached: process.platform !== "win32"
       });
 
       const pid = proc.pid;
@@ -348,7 +377,7 @@ export class ShellTool extends Tool {
       const proc = this.activeProcesses.get(pid);
       if (proc && !proc.killed) {
         try {
-          proc.kill();
+          this.killProcessTree(pid);
           logProcessEvent("kill", pid, "cleanupAll", "killed by cleanupAll");
         } catch (err) {
           logger.error(`[ShellTool] Failed to kill process ${pid}: ${(err as Error).message}`);
@@ -358,11 +387,33 @@ export class ShellTool extends Tool {
     }
   }
 
+  private getShellCommand(shell: ShellType): string {
+    switch (shell) {
+      case "powershell":
+        return "powershell.exe";
+      case "cmd":
+        return "cmd.exe";
+      case "bash":
+        return "bash";
+      case "sh":
+        return "sh";
+      default:
+        return this.getShellCommand(getDefaultShellType());
+    }
+  }
+
   private getShellArgs(shell: ShellType, command: string): string[] {
-    if (shell === "powershell") {
-      return ["-NoProfile", "-NonInteractive", "-Command", command];
-    } else {
-      return ["/c", command];
+    switch (shell) {
+      case "powershell":
+        return ["-NoProfile", "-NonInteractive", "-Command", command];
+      case "cmd":
+        return ["/c", command];
+      case "bash":
+        return ["-lc", command];
+      case "sh":
+        return ["-c", command];
+      default:
+        return this.getShellArgs(this.defaultShell, command);
     }
   }
 }

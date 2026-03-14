@@ -78,6 +78,7 @@ import { applyProjectTemplate } from "./services/project-template-service.js";
 import { buildAgentIOTimeline } from "./services/agent-io-timeline-service.js";
 import { ensureProjectAgentScripts, TeamToolsTemplateError } from "./services/project-agent-script-service.js";
 import { ensureAgentWorkspaces } from "./services/agent-workspace-service.js";
+import { getRuntimePlatformCapabilities } from "./runtime-platform.js";
 import { buildProjectRoutingSnapshot } from "./services/project-routing-snapshot-service.js";
 import { createModelManagerService } from "./services/model-manager-service.js";
 import { validateRoleSessionMapWrite } from "./services/routing-guard-service.js";
@@ -1138,6 +1139,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/settings", async (_req, res, next) => {
     try {
       const settings = await getRuntimeSettings(dataRoot);
+      const runtime = getRuntimePlatformCapabilities();
       res.status(200).json({
         codexCliCommand: settings.codexCliCommand,
         traeCliCommand: settings.traeCliCommand,
@@ -1149,6 +1151,13 @@ export function createApp(options: AppOptions = {}) {
         minimaxMcpServers: settings.minimaxMcpServers,
         minimaxMaxSteps: settings.minimaxMaxSteps,
         minimaxTokenLimit: settings.minimaxTokenLimit,
+        hostPlatform: runtime.platform,
+        hostPlatformLabel: runtime.label,
+        supportedShellTypes: runtime.supportedShells,
+        defaultShellType: runtime.defaultShell,
+        codexCliCommandDefault: runtime.codexCliCommandDefault,
+        traeCliCommandDefault: runtime.traeCliCommandDefault,
+        macosUntested: runtime.macosUntested,
         updatedAt: settings.updatedAt
       });
     } catch (error) {
@@ -1185,6 +1194,7 @@ export function createApp(options: AppOptions = {}) {
               ? body.minimaxTokenLimit
               : undefined
       });
+      const runtime = getRuntimePlatformCapabilities();
       res.status(200).json({
         codexCliCommand: updated.codexCliCommand,
         traeCliCommand: updated.traeCliCommand,
@@ -1196,6 +1206,13 @@ export function createApp(options: AppOptions = {}) {
         minimaxMcpServers: updated.minimaxMcpServers,
         minimaxMaxSteps: updated.minimaxMaxSteps,
         minimaxTokenLimit: updated.minimaxTokenLimit,
+        hostPlatform: runtime.platform,
+        hostPlatformLabel: runtime.label,
+        supportedShellTypes: runtime.supportedShells,
+        defaultShellType: runtime.defaultShell,
+        codexCliCommandDefault: runtime.codexCliCommandDefault,
+        traeCliCommandDefault: runtime.traeCliCommandDefault,
+        macosUntested: runtime.macosUntested,
         updatedAt: updated.updatedAt
       });
     } catch (error) {
@@ -2001,15 +2018,13 @@ export function createApp(options: AppOptions = {}) {
       const refresh = typeof req.query.refresh === "string" && req.query.refresh === "true";
 
       if (!projectId) {
+        const runtimeSettings = await getRuntimeSettings(dataRoot);
+        const minimaxModel = runtimeSettings.minimaxModel?.trim() || "MiniMax-M2.5-High-speed";
         const defaultModels = [
           { vendor: "codex", model: "gpt-5.3-codex", description: "Codex recommended model" },
           { vendor: "codex", model: "gpt-5", description: "GPT-5 model" },
           { vendor: "trae", model: "trae-1", description: "Trae 1 model" },
-          { vendor: "minimax", model: "MiniMax-M2.5", description: "MiniMax M2.5 model" },
-          { vendor: "minimax", model: "MiniMax-M2", description: "MiniMax M2 model" },
-          { vendor: "minimax", model: "abab6.5-chat", description: "MiniMax abab6.5 chat model" },
-          { vendor: "minimax", model: "abab6.5s-chat", description: "MiniMax abab6.5s chat model" },
-          { vendor: "minimax", model: "abab6-chat", description: "MiniMax abab6 chat model" }
+          { vendor: "minimax", model: minimaxModel, description: `MiniMax model: ${minimaxModel}` }
         ];
         res.status(200).json({
           models: defaultModels,

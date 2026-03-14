@@ -125,7 +125,7 @@ export function SkillsLibraryView() {
             value={sourcesInput}
             onChange={(e) => setSourcesInput(e.target.value)}
             style={{ minHeight: "120px" }}
-            placeholder={"C:\\Users\\spiri\\.config\\opencode\\skills\\minimax-vision"}
+            placeholder={"/path/to/skills/minimax-vision or C:\\Users\\name\\.config\\opencode\\skills\\minimax-vision"}
           />
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>

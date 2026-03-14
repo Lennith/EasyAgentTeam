@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ProjectRecord } from "../domain/models.js";
 import { ensureDirectory } from "../data/file-utils.js";
+import type { HostPlatform } from "../runtime-platform.js";
+import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 
 const AGENTS_DIR = "Agents";
 const WORKSPACE_TEMPLATE_DIR = path.join("TeamTools", "templates", "agent-workspace");
@@ -40,14 +42,13 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
   return template.replace(/\{\{\s*([A-Z0-9_]+)\s*\}\}/g, (_m, keyRaw: string) => vars[keyRaw] ?? "");
 }
 
-function buildAgentWorkspaceAgentsMd(): string {
+export function buildAgentWorkspaceAgentsMd(hostPlatform?: HostPlatform): string {
+  const runtimeGuide = getRuntimePlatformCapabilities(hostPlatform).agentWorkspaceGuide;
   return [
     "# AGENTS Runtime Guide",
     "",
     "## Startup Checklist",
-    "0. YOUR RUNTIME IS WINDOWS. DO NOT USE BASH OR BLOB COMMANDS.",
-    "   - Forbidden: ls, cat, grep, rm, mkdir -p, chmod, touch, cp, mv, find, which, export, source, apt, yum, sudo",
-    "   - Use PowerShell: Get-ChildItem, Get-Content, Select-String, Remove-Item, New-Item, Copy-Item, Move-Item",
+    runtimeGuide,
     "1. Read `./role.md` for your role-specific objective and output contract.",
     "2. Read `./TEAM.md` to understand current team members.",
     "3. Use built-in ToolCalls directly:",

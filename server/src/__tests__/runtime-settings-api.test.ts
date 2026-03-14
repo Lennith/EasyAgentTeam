@@ -22,9 +22,17 @@ test("settings API returns and updates codex cli command", async () => {
   try {
     const initialRes = await fetch(`${baseUrl}/api/settings`);
     assert.equal(initialRes.status, 200);
-    const initialPayload = (await initialRes.json()) as { codexCliCommand?: string };
+    const initialPayload = (await initialRes.json()) as {
+      codexCliCommand?: string;
+      hostPlatform?: string;
+      supportedShellTypes?: string[];
+      defaultShellType?: string;
+    };
     assert.equal(typeof initialPayload.codexCliCommand, "string");
     assert.equal((initialPayload.codexCliCommand ?? "").trim().length > 0, true);
+    assert.equal(["win32", "linux", "darwin"].includes(initialPayload.hostPlatform ?? ""), true);
+    assert.equal(Array.isArray(initialPayload.supportedShellTypes), true);
+    assert.equal(typeof initialPayload.defaultShellType, "string");
 
     const patchRes = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",
@@ -34,8 +42,9 @@ test("settings API returns and updates codex cli command", async () => {
       })
     });
     assert.equal(patchRes.status, 200);
-    const patchPayload = (await patchRes.json()) as { codexCliCommand?: string };
+    const patchPayload = (await patchRes.json()) as { codexCliCommand?: string; hostPlatform?: string };
     assert.equal(patchPayload.codexCliCommand, "codex");
+    assert.equal(["win32", "linux", "darwin"].includes(patchPayload.hostPlatform ?? ""), true);
 
     const afterRes = await fetch(`${baseUrl}/api/settings`);
     assert.equal(afterRes.status, 200);

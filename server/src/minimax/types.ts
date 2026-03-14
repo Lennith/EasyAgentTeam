@@ -1,4 +1,5 @@
 import type { TeamToolBridge, TeamToolExecutionContext } from "./tools/team/types.js";
+import type { ShellType } from "../runtime-platform.js";
 
 export interface LLMProvider {
   type: "anthropic" | "openai";
@@ -151,7 +152,7 @@ export interface MiniMaxAgentConfig {
   enableFileTools: boolean;
   enableShell: boolean;
   enableNote: boolean;
-  shellType: "powershell" | "cmd";
+  shellType: ShellType;
   shellTimeout: number;
   shellOutputIdleTimeout?: number;
   shellMaxRunTime?: number;
@@ -167,7 +168,7 @@ export interface MiniMaxAgentConfig {
   teamToolBridge?: TeamToolBridge;
 }
 
-export type ShellType = "powershell" | "cmd";
+export type { ShellType } from "../runtime-platform.js";
 
 export interface ShellExecuteOptions {
   command: string;

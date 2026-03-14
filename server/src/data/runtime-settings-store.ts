@@ -2,6 +2,7 @@ import path from "node:path";
 import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
 import { ensureDirectory, readJsonFile, writeJsonFile } from "./file-utils.js";
+import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 
 export interface MCPServerConfig {
   name: string;
@@ -66,25 +67,11 @@ async function exists(filePath: string): Promise<boolean> {
 }
 
 function defaultCodexCliCommand(): string {
-  if (process.platform === "win32") {
-    const appData = process.env.APPDATA;
-    if (appData) {
-      const codexCmd = path.join(appData, "npm", "codex.cmd");
-      return codexCmd;
-    }
-  }
-  return "codex";
+  return getRuntimePlatformCapabilities().codexCliCommandDefault;
 }
 
 function defaultTraeCliCommand(): string {
-  if (process.platform === "win32") {
-    const appData = process.env.APPDATA;
-    if (appData) {
-      const traeCmd = path.join(appData, "npm", "trae.cmd");
-      return traeCmd;
-    }
-  }
-  return "trae";
+  return getRuntimePlatformCapabilities().traeCliCommandDefault;
 }
 
 function defaultRuntimeSettings(): RuntimeSettings {
@@ -96,7 +83,7 @@ function defaultRuntimeSettings(): RuntimeSettings {
     theme: "dark",
     minimaxApiKey: undefined,
     minimaxApiBase: undefined,
-    minimaxModel: "MiniMax-M2.5",
+    minimaxModel: "MiniMax-M2.5-High-speed",
     minimaxSessionDir: undefined,
     minimaxMcpServers: [],
     minimaxMaxSteps: 100,
@@ -216,7 +203,7 @@ export async function patchRuntimeSettings(
     theme: normalizeTheme(patch.theme ?? current.theme) ?? "dark",
     minimaxApiKey: resolveOptionalStringPatch(patch, "minimaxApiKey", current.minimaxApiKey),
     minimaxApiBase: resolveOptionalStringPatch(patch, "minimaxApiBase", current.minimaxApiBase),
-    minimaxModel: normalizeOptionalString(patch.minimaxModel ?? current.minimaxModel) ?? "MiniMax-M2.5",
+    minimaxModel: normalizeOptionalString(patch.minimaxModel ?? current.minimaxModel) ?? "MiniMax-M2.5-High-speed",
     minimaxSessionDir: normalizeOptionalString(patch.minimaxSessionDir ?? current.minimaxSessionDir),
     minimaxMcpServers: normalizeMcpServers(patch.minimaxMcpServers ?? current.minimaxMcpServers) ?? [],
     minimaxMaxSteps: normalizeOptionalNumber(patch.minimaxMaxSteps ?? current.minimaxMaxSteps) ?? 100,

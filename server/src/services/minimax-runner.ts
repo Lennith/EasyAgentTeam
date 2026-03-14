@@ -14,6 +14,7 @@ import { listAgents } from "../data/agent-store.js";
 import { resolveImportedSkillPromptSegments, resolveSkillIdsForAgent } from "../data/skill-store.js";
 import { composeSystemPrompt } from "./prompt-composer.js";
 import { resolveSkillPromptSegments } from "./skill-catalog.js";
+import { getDefaultShellType } from "../runtime-platform.js";
 
 const activeRunners = new Map<string, MiniMaxRunner>();
 
@@ -251,7 +252,7 @@ export class MiniMaxRunner {
 
   async run(): Promise<MiniMaxRunResultInternal> {
     const apiKey = this.settings.minimaxApiKey;
-    const model = this.request.model ?? this.settings.minimaxModel ?? "MiniMax-M2.5";
+    const model = this.request.model ?? this.settings.minimaxModel ?? "MiniMax-M2.5-High-speed";
 
     if (!apiKey) {
       const missingKeyError = "MiniMax API key not configured";
@@ -313,6 +314,7 @@ export class MiniMaxRunner {
       });
       const promptCompose = composeSystemPrompt({
         providerId: "minimax",
+        hostPlatform: process.platform,
         role: this.request.agentRole,
         rolePrompt,
         contextKind: "project_dispatch",
@@ -348,7 +350,7 @@ export class MiniMaxRunner {
           enableFileTools: true,
           enableShell: true,
           enableNote: true,
-          shellType: "powershell",
+          shellType: getDefaultShellType(),
           shellTimeout: this.settings.minimaxShellTimeout ?? 30000,
           shellOutputIdleTimeout: this.settings.minimaxShellOutputIdleTimeout ?? 60000,
           shellMaxRunTime: this.settings.minimaxShellMaxRunTime ?? 600000,

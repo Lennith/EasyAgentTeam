@@ -18,6 +18,7 @@ import {
 import { MCPConnector } from "./mcp/MCPConnector.js";
 import { SessionStorage } from "./storage/SessionStorage.js";
 import { ContextCompressor } from "./compression/ContextCompressor.js";
+import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 import type {
   MiniMaxRunOptions,
   MiniMaxRunResult,
@@ -34,43 +35,73 @@ export interface MiniMaxAgentOptions {
   storageConfig?: SessionStorageConfig;
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant with access to file system tools and shell commands.
-## Runtime (Windows ONLY)
-- OS: Windows
-- Shell: cmd.exe or PowerShell
-- NEVER use bash/sh/zsh or any Unix-style commands
-- Use Windows commands only (dir, type, copy, move, del, findstr)
+function buildDefaultSystemPrompt(): string {
+  const runtime = getRuntimePlatformCapabilities();
+  const shellNames = runtime.platform === "win32" ? "cmd.exe or PowerShell" : "bash or sh";
+  const commandGuidance =
+    runtime.platform === "win32"
+      ? [
+          "- Use Windows command syntax (dir, type, copy, move, del, findstr)",
+          "- Use Windows path format (C:\\path\\to\\file)",
+          "- Prefer .bat or .ps1 for scripts"
+        ]
+      : [
+          "- Use POSIX shell commands (ls, cat, cp, mv, rm, grep, find)",
+          "- Use POSIX path format (/path/to/file)",
+          "- Prefer .sh scripts or direct shell commands"
+        ];
+  const guidelines =
+    runtime.platform === "win32"
+      ? [
+          "1. Always assume Windows execution environment",
+          "2. Never produce Unix-style commands even if they appear shorter",
+          "3. Always verify file paths before operations",
+          "4. Use Windows-compatible command syntax",
+          "5. Prefer PowerShell for complex operations",
+          "6. Provide clear explanations of your actions",
+          "7. Ask for clarification when needed"
+        ]
+      : [
+          "1. Always assume POSIX execution environment",
+          "2. Never produce PowerShell/CMD commands",
+          "3. Always verify file paths before operations",
+          "4. Use bash/sh-compatible syntax",
+          "5. Prefer bash for complex operations and sh for fallback compatibility",
+          "6. Provide clear explanations of your actions",
+          "7. Ask for clarification when needed"
+        ];
 
-## Command Rules
-- Execute ONE command per step
-- NEVER use &&, ||, ;, or command chaining
-- Do not assume previous command success
-- Use Windows path format (C:\path\to\file)
-- Prefer .bat or .ps1 for scripts
-
-## Capabilities
-- Read, write, and edit files
-- Execute Windows Powershell and CMD commands
-- Take and manage notes
-
-## TeamWorkSpace Context
-- TeamWorkSpace: The shared project directory (../../ from your workspace)
-- Your Workspace: Your personal working directory (current directory)
-- Shared docs/planning deliverables: <TeamWorkSpace>/docs/**
-- Shared implementation source code: <TeamWorkSpace>/src/**
-
-## Startup Checklist
-Read \`./AGENTS.md\` first for runtime rules and team coordination.
-
-## Guidelines
-1. Always assume Windows execution environment
-2. Never produce Unix-style commands even if they appear shorter
-3. Always verify file paths before operations
-4. Use Windows-compatible command syntax
-5. Prefer PowerShell for complex operations
-6. Provide clear explanations of your actions
-7. Ask for clarification when needed
-`;
+  return [
+    "You are a helpful AI assistant with access to file system tools and shell commands.",
+    `## Runtime (${runtime.label}${runtime.macosUntested ? ", design-compatible" : ""})`,
+    `- OS: ${runtime.label}`,
+    `- Shell: ${shellNames}`,
+    ...runtime.promptBaseline.split("\n"),
+    "",
+    "## Command Rules",
+    "- Execute ONE command per step",
+    "- NEVER use &&, ||, ;, or command chaining",
+    "- Do not assume previous command success",
+    ...commandGuidance,
+    "",
+    "## Capabilities",
+    "- Read, write, and edit files",
+    `- Execute ${runtime.platform === "win32" ? "Windows" : "POSIX"} shell commands`,
+    "- Take and manage notes",
+    "",
+    "## TeamWorkSpace Context",
+    "- TeamWorkSpace: The shared project directory (../../ from your workspace)",
+    "- Your Workspace: Your personal working directory (current directory)",
+    "- Shared docs/planning deliverables: <TeamWorkSpace>/docs/**",
+    "- Shared implementation source code: <TeamWorkSpace>/src/**",
+    "",
+    "## Startup Checklist",
+    "Read `./AGENTS.md` first for runtime rules and team coordination.",
+    "",
+    "## Guidelines",
+    ...guidelines
+  ].join("\n");
+}
 
 export class MiniMaxAgent {
   private config: MiniMaxAgentConfig;
@@ -194,7 +225,7 @@ export class MiniMaxAgent {
       }
     }
 
-    const systemPrompt = this.config.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT;
+    const systemPrompt = this.config.systemPrompt?.trim() || buildDefaultSystemPrompt();
 
     let mcpToolDescriptions = "";
     if (this.mcpConnector) {

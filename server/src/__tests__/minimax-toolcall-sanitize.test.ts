@@ -35,10 +35,77 @@ test("sanitizeMessagesForToolProtocol converts orphan tool_result into TOOLCALL_
 
   const result = sanitizeMessagesForToolProtocol(messages);
   assert.equal(result.correctedCount, 1);
+  assert.equal(result.orphanToolCallFixed, 0);
+  assert.equal(result.orphanToolResultFixed, 1);
   const last = result.messages[result.messages.length - 1];
   assert.equal(last.role, "user");
   assert.equal(typeof last.content, "string");
   assert.equal((last.content as string).includes("[TOOLCALL_FAILED]"), true);
+});
+
+test("sanitizeMessagesForToolProtocol downgrades orphan tool_call while keeping assistant text", () => {
+  const messages: Message[] = [
+    { role: "system", content: "system prompt" },
+    {
+      role: "assistant",
+      content: "I will run a tool now",
+      toolCalls: [
+        {
+          id: "tool-1",
+          type: "function",
+          function: { name: "shell_execute", arguments: { command: "echo ok" } }
+        }
+      ]
+    },
+    { role: "user", content: "next turn without tool result" }
+  ];
+
+  const result = sanitizeMessagesForToolProtocol(messages);
+  assert.equal(result.correctedCount, 1);
+  assert.equal(result.orphanToolCallFixed, 1);
+  assert.equal(result.orphanToolResultFixed, 0);
+  const assistant = result.messages[1];
+  assert.equal(assistant.role, "assistant");
+  assert.equal(assistant.content, "I will run a tool now");
+  assert.equal(assistant.toolCalls, undefined);
+  const note = result.messages[2];
+  assert.equal(note.role, "user");
+  assert.equal(String(note.content).includes("[TOOLCALL_FAILED]"), true);
+});
+
+test("sanitizeMessagesForToolProtocol downgrades multi-tool assistant when only partial results exist", () => {
+  const messages: Message[] = [
+    { role: "system", content: "system prompt" },
+    {
+      role: "assistant",
+      content: "running two tools",
+      toolCalls: [
+        {
+          id: "tool-1",
+          type: "function",
+          function: { name: "read_file", arguments: { path: "a.md" } }
+        },
+        {
+          id: "tool-2",
+          type: "function",
+          function: { name: "write_file", arguments: { path: "b.md", content: "x" } }
+        }
+      ]
+    },
+    { role: "tool", content: "ok", toolCallId: "tool-1", name: "read_file" }
+  ];
+
+  const result = sanitizeMessagesForToolProtocol(messages);
+  assert.equal(result.correctedCount, 2);
+  assert.equal(result.orphanToolCallFixed, 1);
+  assert.equal(result.orphanToolResultFixed, 1);
+  const assistant = result.messages[1];
+  assert.equal(assistant.role, "assistant");
+  assert.equal(assistant.toolCalls, undefined);
+  const noteCount = result.messages.filter(
+    (item) => item.role === "user" && String(item.content).includes("[TOOLCALL_FAILED]")
+  ).length;
+  assert.equal(noteCount, 2);
 });
 
 test("MiniMax 2013 detection and recovery prompt formatting", () => {
@@ -118,7 +185,39 @@ test("sanitize after trim repairs tool_result orphaned by context trimming", () 
   const repaired = sanitizeMessagesForToolProtocol(forcedOrphan);
   const hasToolRole = repaired.messages.some((item) => item.role === "tool");
   assert.equal(hasToolRole, false);
+  assert.equal(repaired.orphanToolResultFixed > 0, true);
   const last = repaired.messages[repaired.messages.length - 1];
   assert.equal(last.role, "user");
   assert.equal(String(last.content).includes("[TOOLCALL_FAILED]"), true);
+});
+
+test("sanitizeMessagesForToolProtocol keeps valid aligned tool sequence unchanged", () => {
+  const messages: Message[] = [
+    { role: "system", content: "system" },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "tool-1",
+          type: "function",
+          function: { name: "read_file", arguments: { path: "a.md" } }
+        },
+        {
+          id: "tool-2",
+          type: "function",
+          function: { name: "write_file", arguments: { path: "b.md", content: "x" } }
+        }
+      ]
+    },
+    { role: "tool", content: "a", toolCallId: "tool-1", name: "read_file" },
+    { role: "tool", content: "b", toolCallId: "tool-2", name: "write_file" },
+    { role: "assistant", content: "done" }
+  ];
+
+  const result = sanitizeMessagesForToolProtocol(messages);
+  assert.equal(result.correctedCount, 0);
+  assert.equal(result.orphanToolCallFixed, 0);
+  assert.equal(result.orphanToolResultFixed, 0);
+  assert.deepEqual(result.messages, messages);
 });

@@ -20,6 +20,8 @@ export interface LLMClientConfig {
 export interface ToolProtocolSanitizeResult {
   messages: Message[];
   correctedCount: number;
+  orphanToolCallFixed: number;
+  orphanToolResultFixed: number;
 }
 
 export interface ContextWindowTrimOptions {
@@ -44,46 +46,127 @@ const DEFAULT_NON_TOOL_MAX_CHARS = 12000;
 
 export function sanitizeMessagesForToolProtocol(messages: Message[]): ToolProtocolSanitizeResult {
   const sanitized: Message[] = [];
-  const pendingToolUseIds = new Set<string>();
   let correctedCount = 0;
+  let orphanToolCallFixed = 0;
+  let orphanToolResultFixed = 0;
 
-  for (const message of messages) {
-    if (message.role === "assistant") {
-      for (const toolCall of message.toolCalls ?? []) {
-        if (toolCall.id && toolCall.id.trim().length > 0) {
-          pendingToolUseIds.add(toolCall.id);
-        }
-      }
-      sanitized.push(message);
-      continue;
+  const toText = (content: Message["content"]): string => {
+    if (typeof content === "string") {
+      return content;
     }
+    return content
+      .map((block) => {
+        if (block.type === "text") {
+          return block.text ?? "";
+        }
+        if (block.type === "tool_result") {
+          return block.content ?? "";
+        }
+        if (block.type === "tool_use") {
+          return JSON.stringify(block.input ?? {});
+        }
+        return "";
+      })
+      .join("\n");
+  };
 
-    if (message.role === "tool") {
-      const toolCallId = message.toolCallId?.trim();
-      if (toolCallId && pendingToolUseIds.has(toolCallId)) {
-        pendingToolUseIds.delete(toolCallId);
+  const truncate = (value: string, limit: number): string =>
+    value.length > limit ? `${value.slice(0, limit)}...(truncated)` : value;
+
+  const buildOrphanToolResultNote = (message: Message): Message => {
+    const content = truncate(toText(message.content), 500);
+    return {
+      role: "user",
+      content:
+        `[TOOLCALL_FAILED] Invalid tool_result without matching tool_use.` +
+        ` tool_call_id=${message.toolCallId?.trim() || "(missing)"}, tool=${message.name ?? "(unknown)"}.` +
+        ` original_content=${content}.` +
+        ` next_action=Issue a fresh tool call and continue.`
+    };
+  };
+
+  const buildOrphanToolCallNote = (toolCalls: ToolCall[], observedToolMessages: number): Message => {
+    const ids = toolCalls
+      .map((toolCall) => toolCall.id?.trim())
+      .filter((id): id is string => Boolean(id))
+      .join(",");
+    return {
+      role: "user",
+      content:
+        `[TOOLCALL_FAILED] assistant tool_use sequence is not followed by aligned tool_result messages.` +
+        ` tool_call_ids=${ids || "(missing)"}, observed_tool_results=${observedToolMessages}.` +
+        ` next_action=Issue fresh tool calls and continue from latest valid state.`
+    };
+  };
+
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.role === "assistant") {
+      const toolCalls = message.toolCalls ?? [];
+      if (toolCalls.length === 0) {
         sanitized.push(message);
         continue;
       }
 
+      const expectedIds = new Set(
+        toolCalls.map((toolCall) => toolCall.id?.trim()).filter((id): id is string => Boolean(id))
+      );
+      const followingTools: Message[] = [];
+      let j = i + 1;
+      while (j < messages.length && messages[j].role === "tool") {
+        followingTools.push(messages[j]);
+        j += 1;
+      }
+
+      const matchedIds = new Set<string>();
+      let validSequence = expectedIds.size === toolCalls.length && followingTools.length >= toolCalls.length;
+      const expectedToolResults = followingTools.slice(0, toolCalls.length);
+      for (const toolMessage of expectedToolResults) {
+        const id = toolMessage.toolCallId?.trim();
+        if (!id || !expectedIds.has(id) || matchedIds.has(id)) {
+          validSequence = false;
+          break;
+        }
+        matchedIds.add(id);
+      }
+      if (matchedIds.size !== expectedIds.size) {
+        validSequence = false;
+      }
+
+      if (validSequence) {
+        sanitized.push(message);
+        sanitized.push(...expectedToolResults);
+        i += expectedToolResults.length;
+        continue;
+      }
+
       correctedCount += 1;
-      const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content);
-      const truncated = content.length > 500 ? `${content.slice(0, 500)}...(truncated)` : content;
+      orphanToolCallFixed += 1;
       sanitized.push({
-        role: "user",
-        content:
-          `[TOOLCALL_FAILED] Invalid tool_result without matching tool_use.` +
-          ` tool_call_id=${toolCallId ?? "(missing)"}, tool=${message.name ?? "(unknown)"}.` +
-          ` original_content=${truncated}.` +
-          ` next_action=Issue a fresh tool call and continue.`
+        ...message,
+        toolCalls: undefined
       });
+      sanitized.push(buildOrphanToolCallNote(toolCalls, followingTools.length));
+      for (const toolMessage of followingTools) {
+        correctedCount += 1;
+        orphanToolResultFixed += 1;
+        sanitized.push(buildOrphanToolResultNote(toolMessage));
+      }
+      i = j - 1;
+      continue;
+    }
+
+    if (message.role === "tool") {
+      correctedCount += 1;
+      orphanToolResultFixed += 1;
+      sanitized.push(buildOrphanToolResultNote(message));
       continue;
     }
 
     sanitized.push(message);
   }
 
-  return { messages: sanitized, correctedCount };
+  return { messages: sanitized, correctedCount, orphanToolCallFixed, orphanToolResultFixed };
 }
 
 export function isMiniMaxToolResultIdNotFoundError(error: unknown): boolean {

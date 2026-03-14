@@ -1,10 +1,7 @@
 import type { ProviderId } from "@autodev/agent-library";
 import { BASE_PROMPT_TEXT } from "./agent-prompt-service.js";
-
-const WINDOWS_RUNTIME_BASELINE = `You are running in a Windows environment.
-- Use PowerShell/CMD syntax only.
-- Do not use bash/sh/zsh syntax.
-- Use absolute or clearly resolvable Windows paths when editing files.`;
+import type { HostPlatform } from "../runtime-platform.js";
+import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 
 const PROVIDER_BASELINES: Record<ProviderId, string> = {
   codex: "Provider policy: Codex CLI runtime. Prefer deterministic, tool-driven execution.",
@@ -22,6 +19,7 @@ const CONTEXT_BASELINES: Record<string, string> = {
 
 export interface PromptComposeInput {
   providerId: ProviderId;
+  hostPlatform?: HostPlatform | NodeJS.Platform;
   role?: string;
   rolePrompt?: string;
   contextKind?: string;
@@ -53,7 +51,7 @@ export function composeSystemPrompt(input: PromptComposeInput): PromptComposeRes
   if (provider) {
     segments.push(provider);
   }
-  const runtime = normalizeSegment(WINDOWS_RUNTIME_BASELINE);
+  const runtime = normalizeSegment(getRuntimePlatformCapabilities(input.hostPlatform).promptBaseline);
   if (runtime) {
     segments.push(runtime);
   }

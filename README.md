@@ -11,6 +11,8 @@ EasyAgentTeam is used to:
 
 Learn more: [docs/what-is-this.md](./docs/what-is-this.md)
 
+Platform notes: [docs/platform-support.md](./docs/platform-support.md)
+
 ## Human User Guide
 
 If your users are ordinary people and mostly rely on Agent to deploy and run the system, start here:
@@ -32,6 +34,8 @@ pnpm dev
 ```
 
 3. In another terminal, run official first-run E2E wrapper.
+
+Note: the main product runtime is cross-platform, but the PowerShell E2E wrappers remain Windows-only for now.
 
 ```powershell
 pnpm e2e:first-run
