@@ -1,32 +1,29 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
-  [string]$WorkspaceRoot = ""
+  [string]$WorkspaceRoot = "D:\\AgentWorkSpace\\TestTeam\\TestRound20"
 )
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDir
-$projectDemoScript = Join-Path $repoRoot "tools\demo\run-project-demo.ps1"
+$standardE2EScript = Join-Path $repoRoot "E2ETest\scripts\run-standard-e2e.ps1"
 
-if (-not (Test-Path -LiteralPath $projectDemoScript)) {
-  throw "Missing script: $projectDemoScript"
+if (-not (Test-Path -LiteralPath $standardE2EScript)) {
+  throw "Missing script: $standardE2EScript"
 }
 
-Write-Host "== First-run quick path =="
-Write-Host "Step 1/5: Ensure backend is running on $BaseUrl"
-Write-Host "Step 2/5: Import project demo"
-Write-Host "Step 3/5: Trigger one dispatch"
-Write-Host "Step 4/5: Apply deterministic TASK_REPORT"
-Write-Host "Step 5/5: Export task-tree/timeline evidence"
+Write-Host "== First-run via official E2E baseline =="
+Write-Host "Step 1/4: Ensure backend is running on $BaseUrl"
+Write-Host "Step 2/4: Seed baseline project scenario"
+Write-Host "Step 3/4: Execute orchestrator dispatch loop"
+Write-Host "Step 4/4: Export task tree/timeline/evidence artifacts"
 
 $args = @(
   "-ExecutionPolicy", "Bypass",
-  "-File", $projectDemoScript,
-  "-BaseUrl", $BaseUrl
+  "-File", $standardE2EScript,
+  "-BaseUrl", $BaseUrl,
+  "-WorkspaceRoot", $WorkspaceRoot
 )
-if (-not [string]::IsNullOrWhiteSpace($WorkspaceRoot)) {
-  $args += @("-WorkspaceRoot", $WorkspaceRoot)
-}
 
 & powershell @args
 $exitCode = $LASTEXITCODE
@@ -37,6 +34,6 @@ if ($exitCode -ne 0) {
 
 Write-Host ""
 Write-Host "First-run success criteria:"
-Write-Host "1) task tree: /api/projects/demo_project_mode_v1/task-tree"
-Write-Host "2) timeline: /api/projects/demo_project_mode_v1/agent-io/timeline?limit=200"
-Write-Host "3) workspace evidence: <workspace>/docs/demo/project/run_summary.md"
+Write-Host "1) run_summary.md contains runtime_pass=true and analysis_pass=true"
+Write-Host "2) artifacts directory contains task_tree_final.json and events.ndjson"
+Write-Host "3) dashboard Projects task-tree and timeline reflect the same terminal state"

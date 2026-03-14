@@ -30,8 +30,8 @@ pnpm gate:standard
 2. Locate failed step log:
 
 - `01_smoke.log`
-- `02_project_demo_e2e.log`
-- `03_workflow_demo_e2e.log`
+- `02_project_core_e2e.log`
+- `03_workflow_core_e2e.log`
 
 3. If E2E failed, open the step artifact directory printed as `artifacts=...` in step log.
 
@@ -41,11 +41,11 @@ pnpm gate:standard
 # smoke
 pnpm test:smoke
 
-# project demo E2E
-pnpm demo:project
+# project core E2E
+pnpm e2e:standard
 
-# workflow demo E2E
-pnpm demo:workflow
+# workflow core E2E
+pnpm e2e:workflow
 ```
 
 5. After single-step pass, rerun full gate:

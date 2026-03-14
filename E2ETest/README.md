@@ -1,90 +1,134 @@
 # E2E Baseline Regression
 
-This folder contains the primary end-to-end regression baselines for AutoDev orchestration.
+This folder is the official scenario entry for orchestration validation, not an auxiliary test set.
 
 ## Scope
 
-The supported baseline scenarios are only:
+Supported baseline scripts:
 
 - `E2ETest/scripts/run-standard-e2e.ps1`
 - `E2ETest/scripts/run-discuss-e2e.ps1`
 - `E2ETest/scripts/run-workflow-e2e.ps1`
 
-E2E coverage is scenario-first:
+Coverage is scenario-first:
 
-- reminder is validated inside all 3 baseline scenarios
-- skill import and actual skill use are validated inside the workflow baseline
-- mechanism-only reminder/skill scripts are not part of the baseline suite
+- reminder behavior is validated inside all three baselines
+- skill import and runtime skill usage are validated inside workflow baseline
+- mechanism-only scripts are intentionally excluded from baseline entry
 
-## Baselines
+## What Each E2E Validates
 
-### Standard
+- `standard`: project dependency-chain orchestration and close-loop completion
+- `discuss`: multi-agent architecture discussion and convergence flow
+- `workflow`: workflow template/run/session orchestration plus skill injection evidence
+- `multi`: aggregate launcher for `standard + discuss + workflow`
 
-`run-standard-e2e.ps1` validates a seeded dependency chain project.
+## E2E Usage Template
 
-Coverage:
+Use the same structure for every scenario:
 
-- manager-seeded dependency structure `A -> B -> B1` and `C depends on B`
-- pre-gate dispatch rejection before dependencies are open
-- embedded reminder probe for the designated blocked role
-- end-to-end project closure
+1. Purpose
+2. Prerequisites
+3. Config to replace
+4. Command
+5. Expected result
+6. Common failure points
 
-### Discuss
+### Standard Baseline (`run-standard-e2e.ps1`)
 
-`run-discuss-e2e.ps1` validates multi-agent architecture convergence.
+1. Purpose
 
-Coverage:
+- Validate project-mode dependency, dispatch, reminder, and close-loop completion.
 
-- lead + 3 architect task graph
-- invalid parent-dependency negative probe
-- discuss traffic and convergence
-- embedded reminder probe for the designated blocked role
-- end-to-end project closure
+2. Prerequisites
 
-### Workflow
+- backend is running and reachable at `BaseUrl`
+- provider setup is available (default scenario uses `minimax`)
 
-`run-workflow-e2e.ps1` validates workflow-mode orchestration.
+3. Config to replace
 
-Coverage:
+- `BaseUrl`
+- `WorkspaceRoot`
+- `ScenarioPath` (if using custom scenario)
+- scenario fields: `agent_model`, `route_table`, `task_assign_route_table`, `route_discuss_rounds`
 
-- template -> run -> session registration -> orchestrator execution
-- autonomous subtask creation by non-manager roles
-- embedded reminder probe for the designated workflow role
-- skill fixture import through `/api/skills/import`
-- skill-list binding on the configured agent role
-- runtime `requestedSkillIds` evidence
-- artifact marker produced by the imported skill instructions
-
-## Scenarios
-
-Default scenario files:
-
-- `E2ETest/scenarios/a-self-decompose-chain.json`
-- `E2ETest/scenarios/team-discuss-framework.json`
-- `E2ETest/scenarios/workflow-gesture-real-agent.json`
-
-The scenario files carry embedded probe metadata:
-
-- `reminder_probe`
-- `skill_probe` for workflow only
-
-## Quick Start
-
-Run one baseline:
+4. Command
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1
+```
+
+5. Expected result
+
+- terminal includes `runtime_pass=True` and `analysis_pass=True`
+- artifacts include `run_summary.md`, `task_tree_final.json`, and `events.ndjson`
+- dashboard `Projects -> task-tree / timeline` matches artifacts
+
+6. Common failure points
+
+- provider is unavailable or key/base/model is not configured
+- workspace path is not writable
+- role/route mismatch in scenario prevents convergence
+
+### Discuss Baseline (`run-discuss-e2e.ps1`)
+
+1. Purpose
+
+- Validate multi-role discussion path, discuss-round policy, and convergence.
+
+2. Prerequisites
+
+- backend and provider are available
+
+3. Config to replace
+
+- `BaseUrl`
+- `WorkspaceRoot`
+- `ScenarioPath`
+- scenario discuss routing and round policy fields
+
+4. Command
+
+```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-discuss-e2e.ps1
+```
+
+5. Expected result
+
+- terminal run closes normally
+- discussion traffic is visible in timeline
+- artifacts include `run_summary.md` and analysis outputs
+
+6. Common failure points
+
+- route/discuss-round policy mismatch
+- provider latency causing timeout
+
+### Workflow Baseline (`run-workflow-e2e.ps1`)
+
+1. Purpose
+
+- Validate workflow end-to-end (`template -> run -> sessions -> dispatch -> convergence`) and skill injection path.
+
+2. Prerequisites
+
+- backend and provider are available
+- if skill probe is enabled, `/api/skills/import` source path is readable
+
+3. Config to replace
+
+- `BaseUrl`
+- `WorkspaceRoot`
+- `ScenarioPath`
+- scenario fields: `agent_model`, route config, `skill_probe`, bound role skill list
+
+4. Command
+
+```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1
 ```
 
-Run the default baseline suite:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1
-```
-
-Workflow setup-only smoke:
+Setup-only smoke:
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 `
@@ -92,75 +136,81 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 
   -SetupOnly
 ```
 
-Before each run, the script fully resets the selected workspace directory and rebuilds the scenario from scratch.
+5. Expected result
 
-Default workspaces:
+- `run_summary.md` includes `runtime_pass=True`
+- outputs include `workflow_phase_validation.json` and `workflow_skill_validation.json`
+- timeline and task-runtime terminal states are consistent
 
-- `D:\AgentWorkSpace\TestTeam\TestRound20`
-- `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss`
-- `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace`
+6. Common failure points
 
-## Multi Run
+- skill import path invalid or bound role mismatch
+- provider setup missing so sessions cannot start
 
-`run-multi-e2e.ps1` defaults to:
+### Multi Baseline (`run-multi-e2e.ps1`)
 
-- `chain`
-- `discuss`
-- `workflow`
+1. Purpose
 
-Example:
+- Run `chain + discuss + workflow` in one command.
+
+2. Prerequisites
+
+- all baseline prerequisites are satisfied
+
+3. Config to replace
+
+- `BaseUrl`
+- each case workspace root
+- optional `Cases` selection
+
+4. Command
 
 ```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 `
-  -Cases @("chain","discuss","workflow") `
-  -ChainWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestRound20" `
-  -DiscussWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss" `
-  -WorkflowWorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace"
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1
 ```
+
+5. Expected result
+
+- all selected cases show `[done]`
+- any case failure returns non-zero for the whole run
+
+6. Common failure points
+
+- one case has provider/path issue and fails aggregate run
+
+## Default Scenarios
+
+- `E2ETest/scenarios/a-self-decompose-chain.json`
+- `E2ETest/scenarios/team-discuss-framework.json`
+- `E2ETest/scenarios/workflow-gesture-real-agent.json`
+
+Scenario files include probe metadata:
+
+- `reminder_probe`
+- `skill_probe` (workflow)
 
 ## Artifacts
 
-Project baselines write artifacts to:
+Project baselines:
 
 - `<workspace>\docs\e2e\<timestamp>\`
 
-Workflow baseline writes artifacts to:
+Workflow baseline:
 
 - `<workspace>\docs\e2e\<timestamp>-workflow-observer\`
 
-Common outputs include:
+Common outputs:
 
 - `run_summary.md`
 - `events.ndjson` or `workflow_events.jsonl`
 - `task_tree_final.json` or `workflow_task_tree_runtime.json`
 - `sessions_final.json` or `workflow_sessions.json`
-- `analysis.md` for project baselines
 - `reminder_probe.json` or `workflow_reminder_probe.json`
 
-Workflow-specific outputs also include:
+Workflow extra outputs:
 
 - `workflow_skill_import.json`
 - `workflow_skill_validation.json`
 - `workflow_artifact_validation.json`
 - `workflow_phase_validation.json`
 - `workflow_agent_subtask_stats.json`
-
-## Baseline Pass Rules
-
-### Standard / Discuss
-
-- seeded task graph is correct
-- dependency gate checks reject blocked work before release
-- reminder probe shows `trigger -> message redispatch -> later progress`
-- scenario reaches normal closed-loop completion
-- no unresolved execution tasks remain
-- no sessions remain running at finish
-
-### Workflow
-
-- workflow reaches terminal success with all phase tasks done
-- reminder probe shows `trigger -> message redispatch -> later progress`
-- non-manager subtask creation thresholds pass
-- required artifacts exist and contain expected keywords
-- imported skill is injected at runtime for the configured role
-- imported skill marker appears in the designated artifact

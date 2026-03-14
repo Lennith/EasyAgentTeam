@@ -22,7 +22,7 @@ Use this page after finishing the 5-minute path.
 - Workflow runtime PRD: `server/docs/PRD_Workflow_Runtime.md`
 - Dashboard API/PRD docs: `dashboard-v2/docs/`
 
-## Demo and Gate Entry
+## E2E and Gate Entry
 
-- Official demos: [docs/demos/README.md](./demos/README.md)
+- Official E2E usage: [E2ETest/README.md](../E2ETest/README.md)
 - Standard gate: [docs/gates/standard-gate-sop.md](./gates/standard-gate-sop.md)

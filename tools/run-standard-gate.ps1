@@ -1,7 +1,7 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
-  [string]$ProjectDemoWorkspaceRoot = "D:\\AgentWorkSpace\\EasyAgentTeam\\GateProjectDemo",
-  [string]$WorkflowDemoWorkspaceRoot = "D:\\AgentWorkSpace\\EasyAgentTeam\\GateWorkflowDemo"
+  [string]$ProjectE2EWorkspaceRoot = "D:\\AgentWorkSpace\\TestTeam\\TestRound20",
+  [string]$WorkflowE2EWorkspaceRoot = "D:\\AgentWorkSpace\\TestTeam\\TestWorkflowSpace"
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,16 +60,16 @@ try {
     pnpm test:smoke
   }
 
-  $steps += Invoke-GateStep -Name "project_demo_e2e" -LogFile (Join-Path $gateOutDir "02_project_demo_e2e.log") -Command {
-    powershell -NoProfile -ExecutionPolicy Bypass -File ".\tools\demo\run-project-demo.ps1" `
+  $steps += Invoke-GateStep -Name "project_core_e2e" -LogFile (Join-Path $gateOutDir "02_project_core_e2e.log") -Command {
+    powershell -NoProfile -ExecutionPolicy Bypass -File ".\E2ETest\scripts\run-standard-e2e.ps1" `
       -BaseUrl $BaseUrl `
-      -WorkspaceRoot $ProjectDemoWorkspaceRoot
+      -WorkspaceRoot $ProjectE2EWorkspaceRoot
   }
 
-  $steps += Invoke-GateStep -Name "workflow_demo_e2e" -LogFile (Join-Path $gateOutDir "03_workflow_demo_e2e.log") -Command {
-    powershell -NoProfile -ExecutionPolicy Bypass -File ".\tools\demo\run-workflow-demo.ps1" `
+  $steps += Invoke-GateStep -Name "workflow_core_e2e" -LogFile (Join-Path $gateOutDir "03_workflow_core_e2e.log") -Command {
+    powershell -NoProfile -ExecutionPolicy Bypass -File ".\E2ETest\scripts\run-workflow-e2e.ps1" `
       -BaseUrl $BaseUrl `
-      -WorkspaceRoot $WorkflowDemoWorkspaceRoot
+      -WorkspaceRoot $WorkflowE2EWorkspaceRoot
   }
 
   $summary = @()

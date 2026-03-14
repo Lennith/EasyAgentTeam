@@ -6,7 +6,7 @@ This documentation is organized for first-time external users:
 2. [Run it in 5 minutes](./run-in-5-minutes.md)
 3. [Architecture / API details](./architecture-and-api.md)
 
-Demo and verification references:
+Verification references:
 
-- [Official demos](./demos/README.md)
+- [E2E usage guide](../E2ETest/README.md)
 - [Standard gate SOP](./gates/standard-gate-sop.md)

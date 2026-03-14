@@ -22,32 +22,32 @@ pnpm i
 pnpm dev
 ```
 
-3. In another terminal, run the first-run demo command.
+3. In another terminal, run the first-run E2E command.
 
 ```powershell
-pnpm demo:first-run
+pnpm e2e:first-run
 ```
 
 ## Expected Evidence
 
 After success, verify:
 
-1. Task tree API has a DONE task:
+1. Task tree API has terminal tasks:
 
 ```text
-GET /api/projects/demo_project_mode_v1/task-tree
+GET /api/projects/:id/task-tree
 ```
 
 2. Timeline API contains dispatch and report behavior:
 
 ```text
-GET /api/projects/demo_project_mode_v1/agent-io/timeline?limit=200
+GET /api/projects/:id/agent-io/timeline?limit=200
 ```
 
 3. Workspace has exported evidence:
 
 ```text
-<workspace>/docs/demo/project/run_summary.md
+<workspace>/docs/e2e/<timestamp>/run_summary.md
 ```
 
 If this path fails, run [standard gate SOP](./gates/standard-gate-sop.md) for diagnostics.
