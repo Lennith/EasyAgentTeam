@@ -68,6 +68,7 @@ type DispatchMode = "manual" | "loop";
 
 const MAY_BE_DONE_DISPATCH_THRESHOLD = 5;
 const MAY_BE_DONE_CHECK_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_SESSION_TERMINATION_TIMEOUT_MS = 1000;
 
 const INITIAL_REMINDER_WAIT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_REMINDER_WAIT_MS = 60 * 60 * 1000; // 60 minutes
@@ -616,6 +617,14 @@ function readPidFromEventPayload(payload: Record<string, unknown>): number | nul
     }
   }
   return null;
+}
+
+function getSessionTerminationTimeoutMs(): number {
+  const raw = Number(process.env.SESSION_PROCESS_TERMINATION_TIMEOUT_MS ?? DEFAULT_SESSION_TERMINATION_TIMEOUT_MS);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return DEFAULT_SESSION_TERMINATION_TIMEOUT_MS;
+  }
+  return Math.floor(raw);
 }
 
 async function ensureRolePromptFile(project: ProjectRecord, role: string): Promise<void> {
@@ -1684,6 +1693,16 @@ export class OrchestratorService {
           windowsHide: true,
           stdio: "pipe"
         });
+        const timeoutMs = getSessionTerminationTimeoutMs();
+        const timeoutTimer = setTimeout(() => {
+          proc.kill();
+          resolve({
+            attempted: true,
+            pid,
+            result: "failed",
+            message: `taskkill timeout after ${timeoutMs}ms`
+          });
+        }, timeoutMs);
         let stdout = "";
         let stderr = "";
         proc.stdout?.on("data", (data) => {
@@ -1693,6 +1712,7 @@ export class OrchestratorService {
           stderr += data.toString();
         });
         proc.on("error", (err) => {
+          clearTimeout(timeoutTimer);
           resolve({
             attempted: true,
             pid,
@@ -1701,6 +1721,7 @@ export class OrchestratorService {
           });
         });
         proc.on("close", (code) => {
+          clearTimeout(timeoutTimer);
           if (code === 0) {
             resolve({
               attempted: true,

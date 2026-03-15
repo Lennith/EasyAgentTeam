@@ -806,6 +806,21 @@ export interface WorkflowSessionsState {
   sessions: WorkflowSessionRecord[];
 }
 
+export interface WorkflowRoleReminderState {
+  role: string;
+  idleSince?: string;
+  reminderCount: number;
+  nextReminderAt?: string;
+  lastRoleState?: RoleRuntimeState;
+}
+
+export interface WorkflowRoleRemindersState {
+  schemaVersion: "1.0";
+  runId: string;
+  updatedAt: string;
+  roleReminders: WorkflowRoleReminderState[];
+}
+
 export type WorkflowEventSource = "manager" | "agent" | "system" | "dashboard";
 
 export interface WorkflowRunEventRecord {

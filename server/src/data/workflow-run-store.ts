@@ -4,6 +4,7 @@ import type { ProviderId } from "@autodev/agent-library";
 import type {
   WorkflowManagerToAgentMessage,
   WorkflowRunEventRecord,
+  WorkflowRoleRemindersState,
   WorkflowRunRuntimeState,
   WorkflowSessionRecord,
   WorkflowSessionsState,
@@ -24,6 +25,7 @@ interface WorkflowRunRuntimePaths {
   tasksFile: string;
   sessionsFile: string;
   eventsFile: string;
+  roleRemindersFile: string;
   inboxDir: string;
   outboxDir: string;
   auditDir: string;
@@ -79,6 +81,7 @@ export function getWorkflowRunRuntimePaths(dataRoot: string, runIdRaw: string): 
     tasksFile: path.join(runRootDir, "tasks.json"),
     sessionsFile: path.join(runRootDir, "sessions.json"),
     eventsFile: path.join(runRootDir, "events.jsonl"),
+    roleRemindersFile: path.join(runRootDir, "role_reminders.json"),
     inboxDir: path.join(runRootDir, "inbox"),
     outboxDir: path.join(runRootDir, "outbox"),
     auditDir: path.join(runRootDir, "audit")
@@ -104,6 +107,15 @@ function defaultSessionsState(runId: string): WorkflowSessionsState {
   };
 }
 
+function defaultRoleRemindersState(runId: string): WorkflowRoleRemindersState {
+  return {
+    schemaVersion: "1.0",
+    runId,
+    updatedAt: new Date().toISOString(),
+    roleReminders: []
+  };
+}
+
 export async function ensureWorkflowRunRuntime(
   dataRoot: string,
   runIdRaw: string,
@@ -118,6 +130,7 @@ export async function ensureWorkflowRunRuntime(
   await ensureFile(paths.tasksFile, `${JSON.stringify(initialRuntime ?? defaultTaskRuntimeState(), null, 2)}\n`);
   await ensureFile(paths.sessionsFile, `${JSON.stringify(defaultSessionsState(runId), null, 2)}\n`);
   await ensureFile(paths.eventsFile, "");
+  await ensureFile(paths.roleRemindersFile, `${JSON.stringify(defaultRoleRemindersState(runId), null, 2)}\n`);
   return paths;
 }
 
