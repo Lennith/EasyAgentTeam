@@ -7,6 +7,8 @@ import { createServer } from "node:http";
 import { createApp } from "../app.js";
 
 test("workflow task runtime API exposes runtime fields, dependency gates, and terminal convergence", async () => {
+  const previousInterval = process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS;
+  process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS = "600";
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-task-runtime-"));
   const dataRoot = path.join(tempRoot, "data");
   const workspaceRoot = path.join(tempRoot, "workspace");
@@ -20,6 +22,29 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     throw new Error("failed to start test server");
   }
   const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  async function readRuntimeStatus() {
+    const runtime = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-runtime`);
+    assert.equal(runtime.status, 200);
+    return (await runtime.json()) as {
+      status: string;
+      active: boolean;
+      counters: { done: number; total: number };
+    };
+  }
+
+  async function waitForRuntimeStatus(status: string, timeoutMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const snapshot = await readRuntimeStatus();
+      if (snapshot.status === status) {
+        return snapshot;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const latest = await readRuntimeStatus();
+    throw new Error(`timeout waiting for runtime status '${status}', latest='${latest.status}'`);
+  }
 
   try {
     const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
@@ -124,17 +149,20 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     });
     assert.equal(reportB.status, 200);
 
-    const runtimeAfterDone = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-runtime`);
-    assert.equal(runtimeAfterDone.status, 200);
-    const donePayload = (await runtimeAfterDone.json()) as {
-      status: string;
-      active: boolean;
-      counters: { done: number; total: number };
-    };
-    assert.equal(donePayload.status, "finished");
-    assert.equal(donePayload.active, false);
+    const donePayload = await readRuntimeStatus();
+    assert.equal(donePayload.status, "running");
+    assert.equal(donePayload.active, true);
     assert.equal(donePayload.counters.done, donePayload.counters.total);
+
+    const finishedPayload = await waitForRuntimeStatus("finished", 8000);
+    assert.equal(finishedPayload.active, false);
+    assert.equal(finishedPayload.counters.done, finishedPayload.counters.total);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    if (previousInterval === undefined) {
+      delete process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS;
+    } else {
+      process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS = previousInterval;
+    }
   }
 });

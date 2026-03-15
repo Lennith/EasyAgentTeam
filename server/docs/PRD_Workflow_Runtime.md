@@ -1,139 +1,263 @@
-# Workflow Runtime 模块 PRD
+﻿# Workflow Runtime 模块 PRD
 
 ## 1. 模块目标
 
-Workflow Runtime 模块负责 workflow run 的运行态模型、状态迁移和可观测接口，覆盖：
+### 模块状态
 
-- workflow run 生命周期（create/start/stop/status）
-- step 运行态（state / blockers / transitions）
-- 依赖门禁（blocked -> ready 解阻传播）
-- workflow task tree + runtime 视图
+- `ACTIVE`
 
-对应源码：
+### 模块职责
+
+Workflow Runtime 负责 workflow run 的运行态管理与编排闭环，覆盖：
+
+- run 生命周期管理（`create/start/stop/status`）
+- task runtime 状态机与依赖门禁
+- 自动/手动调度（含预算、hold、并发保护）
+- 会话超时处理与 reminder 机制
+- 运行态查询与可观测事件输出
+
+### 主要源码
 
 - `server/src/services/workflow-orchestrator-service.ts`
 - `server/src/data/workflow-store.ts`
-- `server/src/app.ts`
+- `server/src/data/workflow-run-store.ts`
 - `server/src/domain/models.ts`
+- `server/src/app.ts`
+
+---
 
 ## 2. 关键模型
 
-### 2.1 Step 状态机
+### 2.1 Run 状态
 
-`WorkflowStepState`:
+`WorkflowRunState`:
 
-- `CREATED`
+- `created`
+- `running`
+- `stopped`
+- `finished`
+- `failed`
+
+说明：
+
+- `GET /api/workflow-runs/:run_id` 会对 `stopped + runtime 全终态` 做派生展示为 `finished`。
+
+### 2.2 Task 状态与上报结果
+
+`WorkflowTaskState`（与 taskboard 状态域对齐）:
+
+- `PLANNED`
 - `READY`
-- `BLOCKED_DEP`
+- `DISPATCHED`
 - `IN_PROGRESS`
+- `BLOCKED_DEP`
+- `MAY_BE_DONE`
 - `DONE`
 - `CANCELED`
-- `FAILED`
 
-### 2.2 Block reason
+`WorkflowTaskOutcome`:
+
+- `IN_PROGRESS`
+- `BLOCKED_DEP`
+- `MAY_BE_DONE`
+- `DONE`
+- `CANCELED`
+
+### 2.3 Runtime 快照
+
+`WorkflowRunRuntimeSnapshot`:
+
+- `runId`
+- `status`
+- `active`
+- `updatedAt`
+- `counters`（`total/planned/ready/dispatched/inProgress/mayBeDone/blocked/done/canceled`）
+- `tasks[]`（含 `state/blockedBy/blockedReasons/transitions/lastSummary`）
+
+### 2.4 阻塞原因
 
 `WorkflowBlockReasonCode`:
 
 - `DEP_UNSATISFIED`
 - `RUN_NOT_RUNNING`
 - `INVALID_TRANSITION`
-- `STEP_NOT_FOUND`
-- `STEP_ALREADY_TERMINAL`
+- `TASK_NOT_FOUND`
+- `TASK_ALREADY_TERMINAL`
 
-### 2.3 运行态快照
+---
 
-`WorkflowRunRuntimeSnapshot`:
+## 3. 编排器运行规则
 
-- `runId`
-- `status` (`created|running|stopped|finished|failed`)
-- `active`
-- `updatedAt`
-- `counters` (`total/ready/blocked/inProgress/done/failed/canceled`)
-- `steps[]`（每步含 state、blockedBy、blockedReasons、lastTransitionAt、transitionCount、transitions）
+### 3.1 Tick 范围
 
-## 3. API 契约
+- 仅处理 `run.status == running` 的 run。
+- 每个 tick 顺序执行：
+  1. 载入 runtime/session
+  2. 处理 running session 超时
+  3. 自动结束窗口判定
+  4. hold 判定
+  5. reminder 与 MAY_BE_DONE 检查
+  6. auto dispatch
 
-### 3.1 Runtime 查询
+### 3.2 依赖与父任务聚合
 
-- `GET /api/workflow-runs/:run_id/step-runtime`
-- `GET /api/workflow-runs/:run_id/task-tree-runtime`
+- 依赖未满足的 task 进入 `BLOCKED_DEP`。
+- 依赖满足后可进入 `READY`。
+- 父任务状态由子任务聚合：
+  - 子任务全 `DONE/CANCELED` => 父任务 `DONE`
+  - 依赖不满足 => 父任务 `BLOCKED_DEP`
+  - 其他情况 => 父任务 `IN_PROGRESS`
 
-返回：
+### 3.3 自动结束策略（稳定窗口）
 
-- run 状态 + active
-- counters
-- step runtime 明细（task-tree-runtime 以节点 `runtime` 字段返回）
+- 手工 `stop`：立即结束 run（状态 `stopped`）。
+- 自动结束：满足以下条件并连续 2 个 tick 后置为 `finished`：
+  - 所有 session 均不在 `running`
+  - 不存在未完成 task
+- 未完成 task 定义：状态不属于 `DONE/CANCELED`（即 `BLOCKED_DEP` 也算未完成）。
+- 若中途条件不满足，稳定窗口计数清零。
 
-### 3.2 Step Action
+### 3.4 调度规则
 
-- `POST /api/workflow-runs/:run_id/step-actions`
+- 调度入口：loop 自动调度 + 手工 dispatch。
+- 关键约束：
+  - `run.status != running` 时，dispatch 返回 `run_not_running`。
+  - loop 模式下，`hold_enabled=true` 时不执行任务调度。
+  - auto dispatch 预算由 `auto_dispatch_enabled + auto_dispatch_remaining` 控制。
+  - session 单飞保护与最大并发数限制同时生效。
 
-请求：
+### 3.5 Reminder 与超时恢复
 
-- `action_type=STEP_REPORT`
-- `from_agent?`
-- `results[]`:
-  - `task_id`
-  - `outcome` (`IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED|FAILED`)
-  - `summary?`
-  - `blockers?[]`
+- Reminder 基于 role 空闲状态和 open task 触发，支持 `backoff/fixed_interval`。
+- running session 超时后触发软恢复；超过阈值可升级为 dismiss。
+- 超时路径会补齐 dispatch/run 闭环事件，保持事件链可回放。
 
-响应：
+---
 
-- `success`
-- `requestId`
-- `partialApplied`
-- `appliedTaskIds`
-- `rejectedResults[]`
-- `snapshot`
+## 4. Task Actions 协议
 
-### 3.3 Run 生命周期
+### 4.1 入口
 
+- `POST /api/workflow-runs/:run_id/task-actions`
+
+支持 `action_type`:
+
+- `TASK_CREATE`
+- `TASK_DISCUSS_REQUEST`
+- `TASK_DISCUSS_REPLY`
+- `TASK_DISCUSS_CLOSED`
+- `TASK_REPORT`
+
+### 4.2 TASK_REPORT 规则
+
+- `results[]` 必填。
+- 仅接受 outcome：`IN_PROGRESS|BLOCKED_DEP|MAY_BE_DONE|DONE|CANCELED`。
+- 非 `manager` 上报时，`from_agent` 必须与 task `ownerRole` 一致。
+- 支持 partial apply，返回：
+  - `appliedTaskIds`
+  - `rejectedResults[]`
+  - `partialApplied`
+- `TASK_REPORT` 仅在 `run=running` 受理；否则返回 `RUN_NOT_RUNNING`。
+
+### 4.3 Runtime 更新
+
+- 每次 action 应用后都会重算依赖门禁与父任务状态。
+- `TASK_REPORT` 成功后写入 `TASK_REPORT_APPLIED` 事件并更新 runtime 快照。
+
+---
+
+## 5. 对外 API 契约
+
+### 5.1 Run 生命周期
+
+- `GET /api/workflow-runs`
+- `POST /api/workflow-runs`
+- `GET /api/workflow-runs/:run_id`
+- `DELETE /api/workflow-runs/:run_id`
 - `POST /api/workflow-runs/:run_id/start`
 - `POST /api/workflow-runs/:run_id/stop`
 - `GET /api/workflow-runs/:run_id/status`
-- `GET /api/workflow-orchestrator/status`
 
-## 4. 行为规则
-
-1. Run create 时初始化 step 为 `CREATED`（缺失 runtime 时懒初始化）。
-2. Run start 时评估依赖：
-   - 依赖满足 -> `READY`
-   - 依赖未满足 -> `BLOCKED_DEP`
-3. Step action 只在 run=`running` 时接受；否则 `RUN_NOT_RUNNING`。
-4. Step 进入终态后触发全图重评估，推进后继解阻。
-5. Run stop 后 active=false，编排器 activeRunIds 移除该 run。
-
-## 5. 错误与边界
-
-- `WORKFLOW_RUN_NOT_FOUND`
-- `WORKFLOW_TEMPLATE_NOT_FOUND`
-- `RUN_NOT_RUNNING`
-- `STEP_NOT_FOUND`
-- `STEP_ALREADY_TERMINAL`
-- `INVALID_TRANSITION`
-
-## 6. 前端集成约定
-
-Workflow 页面默认以 workflow 原生 runtime API 为主，不依赖 project task-tree 作为权威状态源。
-
-推荐轮询：
-
-- `step-runtime/task-tree-runtime`: 5 秒（run=running）
-- run 非 running 时停止轮询并显示静态快照
-
-## 7. 测试覆盖
-
-- `server/src/__tests__/workflow-step-runtime-api.test.ts`
-- `server/src/__tests__/workflow-step-actions.test.ts`
-- `server/src/__tests__/workflow-block-propagation.test.ts`
-
-## API Path Registry (docs:check)
-
-Workflow template endpoints (exact path contract):
+### 5.2 Template 管理
 
 - `GET /api/workflow-templates`
 - `GET /api/workflow-templates/:template_id`
 - `POST /api/workflow-templates`
 - `PATCH /api/workflow-templates/:template_id`
 - `DELETE /api/workflow-templates/:template_id`
+
+### 5.3 Runtime / Tree / Detail
+
+- `GET /api/workflow-runs/:run_id/task-runtime`
+- `GET /api/workflow-runs/:run_id/task-tree-runtime`
+- `GET /api/workflow-runs/:run_id/task-tree`
+- `GET /api/workflow-runs/:run_id/tasks/:task_id/detail`
+
+### 5.4 会话、消息、调度
+
+- `GET /api/workflow-runs/:run_id/sessions`
+- `POST /api/workflow-runs/:run_id/sessions`
+- `POST /api/workflow-runs/:run_id/messages/send`
+- `GET /api/workflow-runs/:run_id/agent-io/timeline`
+- `GET /api/workflow-runs/:run_id/orchestrator/settings`
+- `PATCH /api/workflow-runs/:run_id/orchestrator/settings`
+- `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
+- `GET /api/workflow-orchestrator/status`
+
+### 5.5 退役接口
+
+- `GET /api/workflow-runs/:run_id/step-runtime` -> `410`
+- `POST /api/workflow-runs/:run_id/step-actions` -> `410`
+
+---
+
+## 6. 可观测事件
+
+关键事件族：
+
+- 调度：
+  - `ORCHESTRATOR_DISPATCH_STARTED`
+  - `ORCHESTRATOR_DISPATCH_FINISHED`
+  - `ORCHESTRATOR_DISPATCH_FAILED`
+- task action：
+  - `TASK_ACTION_RECEIVED`
+  - `TASK_REPORT_APPLIED`
+- 结束窗口：
+  - `ORCHESTRATOR_RUN_AUTO_FINISH_WINDOW_TICK`
+  - `ORCHESTRATOR_RUN_AUTO_FINISH_WINDOW_RESET`
+  - `ORCHESTRATOR_RUN_AUTO_FINISHED`
+- 超时与提醒：
+  - `SESSION_HEARTBEAT_TIMEOUT`
+  - `RUNNER_TIMEOUT_SOFT`
+  - `RUNNER_TIMEOUT_ESCALATED`
+  - `ORCHESTRATOR_ROLE_REMINDER_TRIGGERED`
+  - `ORCHESTRATOR_ROLE_REMINDER_REDISPATCH`
+
+---
+
+## 7. 测试覆盖（当前）
+
+- `server/src/__tests__/workflow-task-runtime-api.test.ts`
+- `server/src/__tests__/workflow-task-actions.test.ts`
+- `server/src/__tests__/workflow-block-propagation.test.ts`
+- `server/src/__tests__/workflow-parent-state-align.test.ts`
+- `server/src/__tests__/workflow-session-timeout-recovery.test.ts`
+
+## API Path Registry (docs:check)
+
+Workflow runtime endpoints (exact path contract):
+
+- `GET /api/workflow-orchestrator/status`
+- `GET /api/workflow-templates`
+- `GET /api/workflow-templates/:template_id`
+- `POST /api/workflow-templates`
+- `PATCH /api/workflow-templates/:template_id`
+- `DELETE /api/workflow-templates/:template_id`
+- `GET /api/workflow-runs/:run_id/task-runtime`
+- `GET /api/workflow-runs/:run_id/task-tree-runtime`
+- `GET /api/workflow-runs/:run_id/task-tree`
+- `GET /api/workflow-runs/:run_id/tasks/:task_id/detail`
+- `POST /api/workflow-runs/:run_id/task-actions`
+- `POST /api/workflow-runs/:run_id/start`
+- `POST /api/workflow-runs/:run_id/stop`
+- `GET /api/workflow-runs/:run_id/status`

@@ -7,6 +7,8 @@ import { createServer } from "node:http";
 import { createApp } from "../app.js";
 
 test("workflow dependency propagation moves blocked tasks to READY after dependencies complete", async () => {
+  const previousInterval = process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS;
+  process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS = "600";
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-block-propagation-"));
   const dataRoot = path.join(tempRoot, "data");
   const workspaceRoot = path.join(tempRoot, "workspace");
@@ -30,6 +32,19 @@ test("workflow dependency propagation moves blocked tasks to READY after depende
       tasks: Array<{ taskId: string; state: string; blockedBy: string[] }>;
       counters: { done: number };
     };
+  }
+
+  async function waitForRunStatus(status: string, timeoutMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const snapshot = await taskRuntime();
+      if (snapshot.status === status) {
+        return snapshot;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const latest = await taskRuntime();
+    throw new Error(`timeout waiting for run status '${status}', latest='${latest.status}'`);
   }
 
   async function reportDone(taskIds: string[]) {
@@ -111,9 +126,13 @@ test("workflow dependency propagation moves blocked tasks to READY after depende
     assert.equal(afterAlignment.tasks.find((task) => task.taskId === "task_final")?.state, "READY");
 
     await reportDone(["task_final"]);
-    const finalState = await taskRuntime();
+    const afterFinalReport = await taskRuntime();
+    assert.equal(afterFinalReport.counters.done, 6);
+    assert.equal(afterFinalReport.status, "running");
+    assert.equal(afterFinalReport.active, true);
+
+    const finalState = await waitForRunStatus("finished", 8000);
     assert.equal(finalState.counters.done, 6);
-    assert.equal(finalState.status, "finished");
     assert.equal(finalState.active, false);
 
     const stopAfterFinished = await fetch(`${baseUrl}/api/workflow-runs/block_prop_run_01/stop`, { method: "POST" });
@@ -123,5 +142,10 @@ test("workflow dependency propagation moves blocked tasks to READY after depende
     assert.equal(stopPayload.runtime.active, false);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    if (previousInterval === undefined) {
+      delete process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS;
+    } else {
+      process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS = previousInterval;
+    }
   }
 });

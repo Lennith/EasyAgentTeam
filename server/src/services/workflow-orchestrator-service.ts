@@ -165,6 +165,7 @@ const REPORTABLE_STATES = new Set<WorkflowTaskState>([
 ]);
 const MAY_BE_DONE_DISPATCH_THRESHOLD = 5;
 const MAY_BE_DONE_CHECK_WINDOW_MS = 60 * 60 * 1000;
+const AUTO_FINISH_STABLE_TICKS_REQUIRED = 2;
 const providerRegistry = createProviderRegistry();
 
 function isTerminalState(state: WorkflowTaskState): boolean {
@@ -324,6 +325,7 @@ export class WorkflowOrchestratorService {
   private readonly activeRunIds = new Set<string>();
   private readonly inFlightDispatchSessionKeys = new Set<string>();
   private readonly runHoldState = new Map<string, boolean>();
+  private readonly runAutoFinishStableTicks = new Map<string, number>();
   private readonly sessionHeartbeatThrottle = new Map<string, number>();
 
   constructor(
@@ -353,6 +355,7 @@ export class WorkflowOrchestratorService {
     this.activeRunIds.clear();
     this.inFlightDispatchSessionKeys.clear();
     this.runHoldState.clear();
+    this.runAutoFinishStableTicks.clear();
     this.sessionHeartbeatThrottle.clear();
   }
 
@@ -374,6 +377,7 @@ export class WorkflowOrchestratorService {
 
   private clearRunScopedState(runId: string): void {
     this.runHoldState.delete(runId);
+    this.runAutoFinishStableTicks.delete(runId);
     for (const key of Array.from(this.sessionHeartbeatThrottle.keys())) {
       if (this.extractRunIdFromScopedKey(key) === runId) {
         this.sessionHeartbeatThrottle.delete(key);
@@ -390,6 +394,11 @@ export class WorkflowOrchestratorService {
     for (const runId of Array.from(this.runHoldState.keys())) {
       if (!activeRunIds.has(runId)) {
         this.runHoldState.delete(runId);
+      }
+    }
+    for (const runId of Array.from(this.runAutoFinishStableTicks.keys())) {
+      if (!activeRunIds.has(runId)) {
+        this.runAutoFinishStableTicks.delete(runId);
       }
     }
     for (const key of Array.from(this.sessionHeartbeatThrottle.keys())) {
@@ -1461,6 +1470,82 @@ export class WorkflowOrchestratorService {
     }
   }
 
+  private countUnfinishedTasks(runtime: WorkflowRunRuntimeState): number {
+    return runtime.tasks.reduce((count, task) => (isTerminalState(task.state) ? count : count + 1), 0);
+  }
+
+  private countRunningSessions(sessions: WorkflowSessionRecord[]): number {
+    return sessions.reduce((count, session) => (session.status === "running" ? count + 1 : count), 0);
+  }
+
+  private async checkAndFinalizeRunByStableWindow(
+    run: WorkflowRunRecord,
+    runtime: WorkflowRunRuntimeState,
+    sessions: WorkflowSessionRecord[]
+  ): Promise<boolean> {
+    const unfinishedTaskCount = this.countUnfinishedTasks(runtime);
+    const runningSessionCount = this.countRunningSessions(sessions);
+    const previousStableTicks = this.runAutoFinishStableTicks.get(run.runId) ?? 0;
+    const eligible = unfinishedTaskCount === 0 && runningSessionCount === 0;
+
+    if (!eligible) {
+      if (previousStableTicks > 0) {
+        this.runAutoFinishStableTicks.set(run.runId, 0);
+        await appendWorkflowRunEvent(this.dataRoot, run.runId, {
+          eventType: "ORCHESTRATOR_RUN_AUTO_FINISH_WINDOW_RESET",
+          source: "system",
+          payload: {
+            previousStableTicks,
+            stableTicks: 0,
+            requiredStableTicks: AUTO_FINISH_STABLE_TICKS_REQUIRED,
+            unfinishedTaskCount,
+            runningSessionCount
+          }
+        });
+      }
+      return false;
+    }
+
+    const stableTicks = previousStableTicks + 1;
+    this.runAutoFinishStableTicks.set(run.runId, stableTicks);
+    await appendWorkflowRunEvent(this.dataRoot, run.runId, {
+      eventType: "ORCHESTRATOR_RUN_AUTO_FINISH_WINDOW_TICK",
+      source: "system",
+      payload: {
+        stableTicks,
+        requiredStableTicks: AUTO_FINISH_STABLE_TICKS_REQUIRED,
+        unfinishedTaskCount,
+        runningSessionCount
+      }
+    });
+
+    if (stableTicks < AUTO_FINISH_STABLE_TICKS_REQUIRED) {
+      return false;
+    }
+
+    const now = new Date().toISOString();
+    await patchWorkflowRun(this.dataRoot, run.runId, {
+      runtime,
+      status: "finished",
+      stoppedAt: now,
+      lastHeartbeatAt: now
+    });
+    this.activeRunIds.delete(run.runId);
+    this.clearRunScopedState(run.runId);
+    await appendWorkflowRunEvent(this.dataRoot, run.runId, {
+      eventType: "ORCHESTRATOR_RUN_AUTO_FINISHED",
+      source: "system",
+      payload: {
+        stableTicks,
+        requiredStableTicks: AUTO_FINISH_STABLE_TICKS_REQUIRED,
+        unfinishedTaskCount,
+        runningSessionCount,
+        finishedAt: now
+      }
+    });
+    return true;
+  }
+
   private async tickLoop(): Promise<void> {
     const runs = await listWorkflowRuns(this.dataRoot);
     const runningRunIds = new Set(runs.filter((run) => run.status === "running").map((run) => run.runId));
@@ -1488,6 +1573,9 @@ export class WorkflowOrchestratorService {
         }
 
         await this.markTimedOutSessions(run, sessions);
+        if (await this.checkAndFinalizeRunByStableWindow(run, runtime, sessions)) {
+          return;
+        }
         if (holdEnabled) {
           return;
         }
@@ -1519,6 +1607,7 @@ export class WorkflowOrchestratorService {
       lastHeartbeatAt: now
     });
     this.activeRunIds.add(runId);
+    this.runAutoFinishStableTicks.delete(runId);
     const runtime = await this.ensureRuntime(updated);
     await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
     return {
@@ -1976,17 +2065,10 @@ export class WorkflowOrchestratorService {
     this.reevaluateDependencyGate(run, runtime);
     this.recomputeParentTaskStates(run, runtime);
     const now = new Date().toISOString();
-    let nextStatus: WorkflowRunState = run.status;
-    if (isRuntimeTerminal(runtime)) {
-      nextStatus = "finished";
-      this.activeRunIds.delete(runId);
-    }
     await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
     const updated = await patchWorkflowRun(this.dataRoot, runId, {
       runtime,
-      status: nextStatus,
-      lastHeartbeatAt: now,
-      ...(nextStatus === "finished" ? { stoppedAt: now } : {})
+      lastHeartbeatAt: now
     });
     await appendWorkflowRunEvent(this.dataRoot, runId, {
       eventType: "TASK_REPORT_APPLIED",

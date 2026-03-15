@@ -55,6 +55,15 @@ pnpm --filter @autodev/server run test -- --test-name-pattern "task report"
 - Prefer adding/adjusting tests with backend behavior changes.
 - Do not commit runtime data/log artifacts under `data/projects/**`, `.minimax/**`, `.trae/**`.
 
+## PRD-First Change Control
+
+For any business logic change, update the corresponding module PRD before implementation and keep PRD status markers in sync with execution:
+
+- Before code change: update module PRD first and mark the impacted section as `改动中`.
+- After code is landed: update the same PRD section to `验证中`.
+- After tests pass and behavior is verified: update the PRD section to `实装`.
+- PRD content rule: always overwrite the corresponding old logic with current effective logic; do not keep "delta/change log" style text inside module PRD body.
+
 ## Release Gate (上线检测)
 
 This is a process control rule in this repository. It is not a product code feature.
