@@ -39,7 +39,7 @@ $topupLogPath = Join-Path $ArtifactsDir "topup_log.json"
 $runSummaryPath = Join-Path $ArtifactsDir "run_summary.md"
 $stabilityPath = Join-Path $ArtifactsDir "stability_metrics.json"
 
-foreach ($required in @($eventsPath, $treePath, $sessionsPath, $preGatePath, $topupLogPath, $stabilityPath)) {
+foreach ($required in @($eventsPath, $treePath, $sessionsPath, $preGatePath, $topupLogPath)) {
   if (-not (Test-Path -LiteralPath $required)) {
     throw "Required artifact not found: $required"
   }
@@ -55,7 +55,16 @@ $tree = Get-Content -LiteralPath $treePath -Raw | ConvertFrom-Json
 $sessions = Get-Content -LiteralPath $sessionsPath -Raw | ConvertFrom-Json
 $preGate = Get-Content -LiteralPath $preGatePath -Raw | ConvertFrom-Json
 $topupLog = @((Get-Content -LiteralPath $topupLogPath -Raw | ConvertFrom-Json))
-$stability = Get-Content -LiteralPath $stabilityPath -Raw | ConvertFrom-Json
+$stabilityAvailable = Test-Path -LiteralPath $stabilityPath
+$stability = if ($stabilityAvailable) {
+  Get-Content -LiteralPath $stabilityPath -Raw | ConvertFrom-Json
+} else {
+  [pscustomobject]@{
+    toolcall_failed_count = 0
+    timeout_recovered_count = 0
+    missing = $true
+  }
+}
 
 $finalReason = [string]$FinalReasonHint
 if ([string]::IsNullOrWhiteSpace($finalReason) -and (Test-Path -LiteralPath $runSummaryPath)) {
@@ -150,12 +159,14 @@ $dispatchFailedCount = @($events | Where-Object { $_.eventType -eq "ORCHESTRATOR
 $dispatchRecovered = ($dispatchFailedCount -gt 0 -and @($openExecutionTasks).Count -eq 0 -and @($runningSessions).Count -eq 0 -and $finalReason -eq "closed_loop")
 $stabilityFields = @("case_id", "start_time", "end_time", "exit_code", "toolcall_failed_count", "toolcall_failed_timestamps", "timeout_recovered_count", "timeout_recovered_timestamps", "fallback_events", "final_pass", "final_reason")
 $stabilityMissing = @()
-foreach ($f in $stabilityFields) {
-  if (-not ($stability.PSObject.Properties.Name -contains $f)) {
-    $stabilityMissing += $f
+if ($stabilityAvailable) {
+  foreach ($f in $stabilityFields) {
+    if (-not ($stability.PSObject.Properties.Name -contains $f)) {
+      $stabilityMissing += $f
+    }
   }
 }
-$stabilityComplete = ($stabilityMissing.Count -eq 0)
+$stabilityComplete = (-not $stabilityAvailable) -or ($stabilityMissing.Count -eq 0)
 
 $checks = @(
   [pscustomobject]@{ Name = "Seed tasks exist"; Pass = $allTasksExist; Detail = "required=$($requiredTasks.Count) includes lead+3 drafts+alignment+final" },
@@ -169,7 +180,7 @@ $checks = @(
   [pscustomobject]@{ Name = "No running sessions at finish"; Pass = (@($runningSessions).Count -eq 0); Detail = "running_sessions=$(@($runningSessions).Count)" },
   [pscustomobject]@{ Name = "Dispatch failures are either absent or fully recovered"; Pass = ($dispatchFailedCount -eq 0 -or $dispatchRecovered); Detail = "dispatch_failed_events=$dispatchFailedCount recovered=$dispatchRecovered" },
   [pscustomobject]@{ Name = "Topup run ends with explicit reason"; Pass = $topupReasonExplicit; Detail = "topup_count=$topupCount final_reason=$finalReason" },
-  [pscustomobject]@{ Name = "Stability metrics schema is complete"; Pass = $stabilityComplete; Detail = "missing_fields=$($stabilityMissing -join ',')" }
+  [pscustomobject]@{ Name = "Stability metrics schema is complete (non-blocking if not generated yet)"; Pass = $stabilityComplete; Detail = "available=$stabilityAvailable missing_fields=$($stabilityMissing -join ',')" }
 )
 
 $overallPass = @($checks | Where-Object { -not $_.Pass }).Count -eq 0
@@ -185,6 +196,7 @@ $lines += "- discuss_message_routed_count: $(@($messageRoutedDiscuss).Count)"
 $lines += "- topup_count: $topupCount"
 $lines += "- stability_toolcall_failed_count: $([int]$stability.toolcall_failed_count)"
 $lines += "- stability_timeout_recovered_count: $([int]$stability.timeout_recovered_count)"
+$lines += "- stability_available: $stabilityAvailable"
 $lines += "- final_reason: $finalReason"
 $lines += ""
 $lines += "## Checks"

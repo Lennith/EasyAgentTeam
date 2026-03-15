@@ -1,7 +1,8 @@
 import * as path from "path";
 import * as crypto from "crypto";
+import * as fs from "node:fs/promises";
 import { logger } from "../utils/logger.js";
-import { LLMClient, trimMessagesForContextWindow } from "./llm/LLMClient.js";
+import { LLMClient, trimMessagesForContextWindow, type PreparedMessagesSnapshot } from "./llm/LLMClient.js";
 import { Agent } from "./agent/Agent.js";
 import {
   Tool,
@@ -27,7 +28,8 @@ import type {
   Session,
   Message,
   SessionStorageConfig,
-  MiniMaxAgentConfig
+  MiniMaxAgentConfig,
+  MaxTokensRecoveryEvent
 } from "./types.js";
 
 export interface MiniMaxAgentOptions {
@@ -121,6 +123,7 @@ export class MiniMaxAgent {
   private storage: SessionStorage;
   private compressor: ContextCompressor | null = null;
   private sessionDir: string;
+  private activeSessionIdForLlmSnapshot: string | null = null;
 
   constructor(options: MiniMaxAgentOptions) {
     this.config = options.config;
@@ -144,6 +147,61 @@ export class MiniMaxAgent {
     return /^sess-\d+-[a-f0-9]{8}$/.test(sessionId) || /^[a-zA-Z0-9_-]+$/.test(sessionId);
   }
 
+  private buildErrorFileTimeToken(now: Date): string {
+    return now.toISOString().replace(/[:.]/g, "-");
+  }
+
+  private async persistMaxTokensRecoverySnapshot(
+    sessionId: string,
+    event: MaxTokensRecoveryEvent
+  ): Promise<string | null> {
+    const sessionPath = path.join(this.sessionDir, sessionId);
+    const capturedAt = new Date(event.observedAt);
+    const timestamp = Number.isFinite(capturedAt.getTime()) ? capturedAt : new Date();
+    const filePath = path.join(sessionPath, `max_tokens_error_${this.buildErrorFileTimeToken(timestamp)}.json`);
+    const latestPreparedPath = path.join(sessionPath, "latest_llm_input_messages.json");
+    const payload = {
+      capturedAt: timestamp.toISOString(),
+      finishReason: event.finishReason,
+      usage: event.usage ?? null,
+      step: event.step,
+      attempt: event.attempt,
+      maxAttempts: event.maxAttempts,
+      recovered: event.recovered,
+      continuationInjected: event.continuationInjected,
+      tokenLimit: this.config.tokenLimit,
+      maxOutputTokens: normalizeMaxOutputTokens(this.config.maxOutputTokens) ?? 16384,
+      preCompress: {
+        messageCount: event.preCompressMessageCount,
+        chars: event.preCompressChars
+      },
+      postCompress: {
+        messageCount: event.postCompressMessageCount,
+        chars: event.postCompressChars
+      },
+      compactedToolCallChains: event.compactedToolCallChains,
+      compactedToolMessages: event.compactedToolMessages,
+      compressionMode: event.compressionMode,
+      compressionError: event.compressionError ?? null,
+      llmInputSnapshotPath: latestPreparedPath,
+      llmInputSnapshotExists: false
+    };
+    try {
+      await fs.mkdir(sessionPath, { recursive: true });
+      try {
+        await fs.access(latestPreparedPath);
+        payload.llmInputSnapshotExists = true;
+      } catch {
+        payload.llmInputSnapshotExists = false;
+      }
+      await fs.writeFile(filePath, JSON.stringify(payload, null, 2), "utf-8");
+      return filePath;
+    } catch (error) {
+      logger.warn(`[MiniMaxAgent] Failed to persist max_tokens snapshot for session=${sessionId}: ${String(error)}`);
+      return null;
+    }
+  }
+
   async initialize(callback?: AgentCallback): Promise<void> {
     if (!this.config.apiKey) {
       throw new Error("API key is required. Set it via config.");
@@ -153,7 +211,10 @@ export class MiniMaxAgent {
       apiKey: this.config.apiKey,
       apiBase: this.config.apiBase,
       model: this.config.model,
-      maxTokens: normalizeMaxOutputTokens(this.config.maxOutputTokens)
+      maxTokens: normalizeMaxOutputTokens(this.config.maxOutputTokens),
+      onPreparedMessages: (snapshot) => {
+        void this.persistPreparedMessagesSnapshot(snapshot);
+      }
     });
 
     this.compressor = new ContextCompressor(this.llmClient, 0.3);
@@ -252,7 +313,8 @@ export class MiniMaxAgent {
       tokenLimit: this.config.tokenLimit,
       workspaceDir: this.config.workspaceDir,
       callback,
-      mcpToolDescriptions
+      mcpToolDescriptions,
+      maxTokensRecoveryMaxAttempts: 2
     });
   }
 
@@ -263,6 +325,9 @@ export class MiniMaxAgent {
 
   async runWithResult(options: MiniMaxRunOptions): Promise<MiniMaxRunResult> {
     logger.info(`[MiniMaxAgent] runWithResult called with options.sessionId=${options.sessionId}`);
+    logger.info(
+      `[MiniMaxAgent] token_limit=${this.config.tokenLimit}, max_output_tokens=${normalizeMaxOutputTokens(this.config.maxOutputTokens) ?? 16384}`
+    );
 
     if (!this.agent || !this.llmClient || !this.compressor) {
       await this.initialize(options.callback);
@@ -320,23 +385,50 @@ export class MiniMaxAgent {
       baselineMessageCount = this.agent.getMessages().length;
     }
 
-    if (options.callback) {
-      this.agent.setCallback(options.callback);
-    }
+    const maxTokensEvents: MaxTokensRecoveryEvent[] = [];
+    const baseCallback = options.callback;
+    const runCallback: AgentCallback = {
+      ...baseCallback,
+      onMaxTokensRecovery: async (event) => {
+        const snapshotPath = await this.persistMaxTokensRecoverySnapshot(sessionId, event);
+        event.maxTokensSnapshotPath = snapshotPath;
+        maxTokensEvents.push(event);
+        await Promise.resolve(baseCallback?.onMaxTokensRecovery?.(event));
+      },
+      onComplete: (result, finishReason, meta) => {
+        baseCallback?.onComplete?.(result, finishReason, meta);
+      }
+    };
+    this.agent.setCallback(runCallback);
 
     if (options.workspaceDir) {
       this.agent.setWorkspaceDir(options.workspaceDir);
     }
 
     let result: string;
+    let finishReason: string | undefined;
+    let step: number | undefined;
     let usage = undefined;
+    let recoveredFromMaxTokens = false;
+    let maxTokensRecoveryAttempt = 0;
+    let runMaxTokensEvents: MaxTokensRecoveryEvent[] = [];
 
-    if (options.assert) {
-      result = await this.agent.runWithAssert(options.prompt, options.assert, 3, sessionId);
-    } else {
-      const agentResult = await this.agent.runWithResult(options.prompt, sessionId);
-      result = agentResult.content;
-      usage = agentResult.usage;
+    this.activeSessionIdForLlmSnapshot = sessionId;
+    try {
+      if (options.assert) {
+        result = await this.agent.runWithAssert(options.prompt, options.assert, 3, sessionId);
+      } else {
+        const agentResult = await this.agent.runWithResult(options.prompt, sessionId);
+        result = agentResult.content;
+        finishReason = agentResult.finishReason;
+        step = agentResult.step;
+        usage = agentResult.usage;
+        recoveredFromMaxTokens = agentResult.recoveredFromMaxTokens ?? false;
+        maxTokensRecoveryAttempt = agentResult.maxTokensRecoveryAttempt ?? 0;
+        runMaxTokensEvents = agentResult.maxTokensEvents ?? [];
+      }
+    } finally {
+      this.activeSessionIdForLlmSnapshot = null;
     }
 
     const messages = this.agent.getMessages();
@@ -347,7 +439,6 @@ export class MiniMaxAgent {
       this.storage.appendMessage(sessionId, pmsg);
     }
 
-    const storageConfig = this.storage.getConfig();
     if (this.storage.needsCompression(sessionId)) {
       const allMessages = this.storage.loadMessages(sessionId);
       const compressionResult = await this.compressor.compress(allMessages);
@@ -360,6 +451,10 @@ export class MiniMaxAgent {
         );
       }
     }
+    const effectiveMaxTokensEvents = runMaxTokensEvents.length > 0 ? runMaxTokensEvents : maxTokensEvents;
+    const maxTokensSnapshotPaths = effectiveMaxTokensEvents
+      .map((event) => event.maxTokensSnapshotPath)
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 
     logger.info(`[MiniMaxAgent] runWithResult returning: sessionId=${sessionId}, isNewSession=${isNewSession}`);
 
@@ -367,7 +462,16 @@ export class MiniMaxAgent {
       content: result,
       sessionId,
       isNewSession,
-      usage
+      finishReason,
+      step,
+      usage,
+      recoveredFromMaxTokens,
+      maxTokensRecoveryAttempt,
+      maxTokensEvents: effectiveMaxTokensEvents.length > 0 ? effectiveMaxTokensEvents : undefined,
+      maxTokensSnapshotPath: maxTokensSnapshotPaths[maxTokensSnapshotPaths.length - 1],
+      maxTokensSnapshotPaths: maxTokensSnapshotPaths.length > 0 ? maxTokensSnapshotPaths : undefined,
+      tokenLimit: this.config.tokenLimit,
+      maxOutputTokens: normalizeMaxOutputTokens(this.config.maxOutputTokens) ?? 16384
     };
   }
 
@@ -397,6 +501,27 @@ export class MiniMaxAgent {
 
   getStorage(): SessionStorage {
     return this.storage;
+  }
+
+  private async persistPreparedMessagesSnapshot(snapshot: PreparedMessagesSnapshot): Promise<void> {
+    const sessionId = this.activeSessionIdForLlmSnapshot;
+    if (!sessionId) {
+      return;
+    }
+    const sessionPath = path.join(this.sessionDir, sessionId);
+    const snapshotPath = path.join(sessionPath, "latest_llm_input_messages.json");
+    const payload = {
+      sessionId,
+      ...snapshot
+    };
+    try {
+      await fs.mkdir(sessionPath, { recursive: true });
+      await fs.writeFile(snapshotPath, JSON.stringify(payload, null, 2), "utf-8");
+    } catch (error) {
+      logger.warn(
+        `[MiniMaxAgent] Failed to persist latest_llm_input_messages for session=${sessionId}: ${String(error)}`
+      );
+    }
   }
 
   getSession(sessionId: string): Session | undefined {

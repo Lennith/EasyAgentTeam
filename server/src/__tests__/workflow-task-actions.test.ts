@@ -84,6 +84,32 @@ test("workflow task-actions support create/discuss/report with partial apply and
     assert.equal(createTaskPayload.success, true);
     assert.equal(createTaskPayload.createdTaskId, "task_c");
 
+    const createInvalidRoleTask = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "architect",
+        from_session_id: "session-architect-01",
+        task: {
+          task_id: "task_invalid_role",
+          title: "Task Invalid Role",
+          owner_role: "ghost_role",
+          dependencies: ["task_a"]
+        }
+      })
+    });
+    assert.equal(createInvalidRoleTask.status, 409);
+    const createInvalidRolePayload = (await createInvalidRoleTask.json()) as {
+      error_code?: string;
+      message?: string;
+      hint?: string | null;
+      details?: { owner_role?: string; available_roles?: string[] };
+    };
+    assert.equal(createInvalidRolePayload.error_code, "TASK_OWNER_ROLE_NOT_FOUND");
+    assert.match(String(createInvalidRolePayload.message ?? ""), /ghost_role/);
+    assert.match(String(createInvalidRolePayload.hint ?? ""), /route_targets_get/i);
+
     const discussRequest = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

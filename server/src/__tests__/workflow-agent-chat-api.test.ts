@@ -44,6 +44,23 @@ test("workflow agent-chat SSE endpoint emits stream events and interrupt endpoin
     });
     assert.equal(createRun.status, 201);
 
+    const registerRunSession = await fetch(`${baseUrl}/api/workflow-runs/agent_chat_run_01/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role: "lead",
+        session_id: "wf-orch-session-01",
+        status: "running"
+      })
+    });
+    assert.equal(registerRunSession.status, 201);
+
+    const sessionsBeforeResp = await fetch(`${baseUrl}/api/workflow-runs/agent_chat_run_01/sessions`);
+    assert.equal(sessionsBeforeResp.status, 200);
+    const sessionsBefore = (await sessionsBeforeResp.json()) as { items: Array<{ sessionId: string; status: string }> };
+    const beforeOrchestratorSession = sessionsBefore.items.find((item) => item.sessionId === "wf-orch-session-01");
+    assert.equal(beforeOrchestratorSession?.status, "running");
+
     const sseResp = await fetch(`${baseUrl}/api/workflow-runs/agent_chat_run_01/agent-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -57,6 +74,16 @@ test("workflow agent-chat SSE endpoint emits stream events and interrupt endpoin
     const sseText = await sseResp.text();
     assert.equal(sseText.includes("event: "), true);
     assert.equal(sseText.includes("event: error"), true);
+
+    const sessionsAfterResp = await fetch(`${baseUrl}/api/workflow-runs/agent_chat_run_01/sessions`);
+    assert.equal(sessionsAfterResp.status, 200);
+    const sessionsAfter = (await sessionsAfterResp.json()) as { items: Array<{ sessionId: string; status: string }> };
+    assert.equal(
+      sessionsAfter.items.some((item) => item.sessionId === "wfchat-session-01"),
+      false
+    );
+    const afterOrchestratorSession = sessionsAfter.items.find((item) => item.sessionId === "wf-orch-session-01");
+    assert.equal(afterOrchestratorSession?.status, "running");
 
     const interruptResp = await fetch(
       `${baseUrl}/api/workflow-runs/agent_chat_run_01/agent-chat/wfchat-session-01/interrupt`,

@@ -76,6 +76,13 @@ This is a process control rule in this repository. It is not a product code feat
   - Step 1 passed (full unit tests).
   - Step 2 passed (full E2E).
   - No unresolved blocking issue in the release conclusion.
+- Waiver path (exception, explicit approval required):
+  - If the requester explicitly confirms a release decision based on orchestrator behavior conformance (for example: `编排器符合设计即可发版`), release may proceed before full E2E completion.
+  - This waiver must be recorded in the same-day release QA report with:
+    - approver statement,
+    - current unfinished test scope,
+    - objective evidence paths,
+    - and a clear `PASS by waiver` conclusion.
 - Push constraint:
   - Final push to GitHub is not allowed before release gate passes.
 

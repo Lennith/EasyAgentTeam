@@ -687,6 +687,7 @@ export interface WorkflowRunRecord {
   reminderMode?: ReminderMode;
   createdAt: string;
   updatedAt: string;
+  roleSessionMap?: Record<string, string>;
   startedAt?: string;
   stoppedAt?: string;
   lastHeartbeatAt?: string;

@@ -82,6 +82,7 @@ interface CreateWorkflowRunInput {
   autoDispatchRemaining?: number;
   holdEnabled?: boolean;
   reminderMode?: "backoff" | "fixed_interval";
+  roleSessionMap?: Record<string, string>;
 }
 
 interface PatchWorkflowRunInput {
@@ -96,6 +97,7 @@ interface PatchWorkflowRunInput {
   autoDispatchRemaining?: number;
   holdEnabled?: boolean;
   reminderMode?: "backoff" | "fixed_interval";
+  roleSessionMap?: Record<string, string>;
 }
 
 class WorkflowWriteMutex {
@@ -167,6 +169,19 @@ function normalizeStringMap(raw: Record<string, string> | undefined): Record<str
   const entries = Object.entries(raw)
     .map(([key, value]) => [key.trim(), String(value).trim()] as const)
     .filter(([key, value]) => key.length > 0 && value.length > 0);
+  if (entries.length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(entries);
+}
+
+function normalizeRoleSessionMap(raw: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const entries = Object.entries(raw)
+    .map(([role, sessionId]) => [role.trim(), String(sessionId).trim()] as const)
+    .filter(([role, sessionId]) => role.length > 0 && sessionId.length > 0);
   if (entries.length === 0) {
     return undefined;
   }
@@ -409,6 +424,10 @@ async function normalizeRunRecord(
     reminderMode,
     createdAt,
     updatedAt,
+    roleSessionMap: normalizeRoleSessionMap(
+      (raw.roleSessionMap as Record<string, string> | undefined) ??
+        (raw.role_session_map as Record<string, string> | undefined)
+    ),
     startedAt: typeof raw.startedAt === "string" ? raw.startedAt : undefined,
     stoppedAt: typeof raw.stoppedAt === "string" ? raw.stoppedAt : undefined,
     lastHeartbeatAt: typeof raw.lastHeartbeatAt === "string" ? raw.lastHeartbeatAt : undefined
@@ -722,7 +741,8 @@ export async function createWorkflowRun(dataRoot: string, input: CreateWorkflowR
       holdEnabled: Boolean(input.holdEnabled),
       reminderMode: input.reminderMode === "fixed_interval" ? "fixed_interval" : "backoff",
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      roleSessionMap: normalizeRoleSessionMap(input.roleSessionMap)
     };
     state.runs.push(created);
     state.updatedAt = now;
@@ -782,6 +802,10 @@ export async function patchWorkflowRun(
           : patch.reminderMode === "fixed_interval"
             ? "fixed_interval"
             : "backoff",
+      roleSessionMap:
+        patch.roleSessionMap === undefined
+          ? existing.roleSessionMap
+          : normalizeRoleSessionMap(patch.roleSessionMap),
       updatedAt: now
     };
     state.runs[idx] = next;

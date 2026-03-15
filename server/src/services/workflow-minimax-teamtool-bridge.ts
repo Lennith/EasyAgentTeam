@@ -1,5 +1,5 @@
 import path from "node:path";
-import { listAgents } from "../data/agent-store.js";
+import { listWorkflowSessions } from "../data/workflow-run-store.js";
 import {
   acquireLock,
   createWorkflowRunLockScope,
@@ -18,6 +18,7 @@ import type {
 import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/team/types.js";
 import { resolveDiscussRoundLimit } from "./discuss-policy-service.js";
 import { TeamToolBridgeError } from "./minimax-teamtool-bridge.js";
+import { resolveWorkflowRunRoleScope } from "./workflow-role-scope-service.js";
 
 interface WorkflowTaskActionDefaults {
   agentRole: string;
@@ -242,6 +243,8 @@ function resolveTaskActionNextAction(code: string): string | null {
       return "Fix task action payload (task/report/discuss fields) and retry once.";
     case "TASK_NOT_FOUND":
       return "Re-check task_id/parent_task_id/to_role and retry.";
+    case "TASK_OWNER_ROLE_NOT_FOUND":
+      return "Call route_targets_get first, choose an allowed target role, and retry TASK_CREATE.";
     case "RUN_NOT_RUNNING":
       return "Run is not active. Restart run before sending task actions.";
     case "ROUTE_DENIED":
@@ -451,14 +454,10 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
 
     async getRouteTargets(fromAgent: string): Promise<Record<string, unknown>> {
       const normalizedFrom = fromAgent.trim();
-      const registry = await listAgents(context.dataRoot);
-      const enabledAgents = uniq(
-        registry
-          .map((item) => item.agentId.trim())
-          .filter((item) => item.length > 0)
-          .concat(context.run.tasks.map((task) => task.ownerRole.trim()).filter((item) => item.length > 0))
-      );
-      const enabledSet = new Set(enabledAgents);
+      const sessions = await listWorkflowSessions(context.dataRoot, context.run.runId);
+      const roleScope = resolveWorkflowRunRoleScope(context.run, sessions);
+      const enabledAgents = roleScope.enabledAgents;
+      const enabledSet = roleScope.enabledAgentSet;
       const hasExplicitRouteTable = Boolean(context.run.routeTable && Object.keys(context.run.routeTable).length > 0);
       const explicitTargets = hasExplicitRouteTable ? (context.run.routeTable?.[normalizedFrom] ?? []) : [];
       const allowedTargetIds = hasExplicitRouteTable

@@ -282,6 +282,8 @@ export class MiniMaxRunner {
         dispatchId: this.request.dispatchId ?? null,
         model,
         provider: "minimax",
+        tokenLimit: this.settings.minimaxTokenLimit ?? 180000,
+        maxOutputTokens: this.settings.minimaxMaxOutputTokens ?? 16384,
         resumeSessionId: this.request.resumeSessionId ?? null,
         parentRequestId: this.request.parentRequestId ?? null
       },
@@ -299,6 +301,10 @@ export class MiniMaxRunner {
       );
       await this.appendLog("system", `[MiniMaxRunner] resolved sessionDir: ${sessionDir}`);
       await this.appendLog("system", `[MiniMaxRunner] workingDirectory: ${workingDirectory}`);
+      await this.appendLog(
+        "system",
+        `[MiniMaxRunner] token_limit=${this.settings.minimaxTokenLimit ?? 180000}, max_output_tokens=${this.settings.minimaxMaxOutputTokens ?? 16384}`
+      );
       const agents = await listAgents(this.dataRoot);
       const roleAgent = this.request.agentRole
         ? agents.find((item) => item.agentId === this.request.agentRole)
@@ -347,7 +353,7 @@ export class MiniMaxRunner {
           sessionDir,
           maxSteps: this.settings.minimaxMaxSteps ?? 200,
           tokenLimit: this.settings.minimaxTokenLimit ?? 180000,
-          maxOutputTokens: this.settings.minimaxMaxOutputTokens ?? 4096,
+          maxOutputTokens: this.settings.minimaxMaxOutputTokens ?? 16384,
           enableFileTools: true,
           enableShell: true,
           enableNote: true,

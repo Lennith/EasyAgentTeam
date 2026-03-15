@@ -144,7 +144,7 @@ function isQaRole(role: string): boolean {
   return lower === "qa" || lower === "qa_guard" || lower.startsWith("qa_") || lower.endsWith("_qa");
 }
 
-function buildDefaultRolePrompt(role: string): string {
+export function buildDefaultRolePrompt(role: string): string {
   if (isPlanningRole(role)) {
     return [
       "Role objective:",
@@ -486,10 +486,7 @@ export async function ensureAgentWorkspaces(
     const rolePrompt = agentPrompts.get(role) ?? "";
     const rolePromptTrimmed = rolePrompt.trim();
     const promptMissing = rolePromptTrimmed.length === 0;
-    if (promptMissing) {
-      throw new Error(`[agent-workspace] role prompt missing for role='${role}'. role.md generation blocked.`);
-    }
-    const normalizedRolePrompt = rolePromptTrimmed;
+    const normalizedRolePrompt = promptMissing ? buildDefaultRolePrompt(role) : rolePromptTrimmed;
     const roleBoundary = buildRoleBoundaryLines(role).join("\n");
     const promptIntegrity = promptMissing
       ? "- WARNING: role prompt seed missing in registry for this role. Fallback role template is active."

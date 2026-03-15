@@ -66,12 +66,7 @@ import {
 } from "./data/agent-template-store.js";
 import { createTeam, deleteTeam, getTeam, listTeams, updateTeam } from "./data/team-store.js";
 import { addSession, getSession, listSessions, SessionStoreError, touchSession } from "./data/session-store.js";
-import {
-  getWorkflowSession,
-  listWorkflowRunEvents,
-  touchWorkflowSession,
-  upsertWorkflowSession
-} from "./data/workflow-run-store.js";
+import { listWorkflowRunEvents } from "./data/workflow-run-store.js";
 import { BASE_PROMPT_TEXT, BASE_PROMPT_VERSION, getBuiltInAgents } from "./services/agent-prompt-service.js";
 import { createOrchestratorService } from "./services/orchestrator-service.js";
 import { applyProjectTemplate } from "./services/project-template-service.js";
@@ -2917,7 +2912,14 @@ export function createApp(options: AppOptions = {}) {
       return;
     }
     if (error instanceof WorkflowRuntimeError) {
-      sendApiError(res, error.status, error.code, error.message);
+      sendApiError(
+        res,
+        error.status,
+        error.code,
+        error.message,
+        error.hint,
+        error.details ? { details: error.details } : undefined
+      );
       return;
     }
     if (error instanceof LockStoreError) {
@@ -3057,13 +3059,6 @@ export function createApp(options: AppOptions = {}) {
       const importedSkillPrompt = await resolveImportedSkillPromptSegments(dataRoot, skillIds);
 
       const chatSessionId = sessionId || `wf-agent-chat-${Date.now()}-${randomUUID().slice(0, 8)}`;
-      await upsertWorkflowSession(dataRoot, runId, {
-        sessionId: chatSessionId,
-        role,
-        status: "running",
-        provider: providerId,
-        providerSessionId
-      });
       const agentWorkspaceDir = path.join(run.workspacePath, "Agents", role);
       const toolInjection = DefaultToolInjector.build(
         createWorkflowToolExecutionAdapter({
@@ -3110,11 +3105,16 @@ export function createApp(options: AppOptions = {}) {
           onStep: (step: number, maxSteps: number) => sendEvent("step", { step, maxSteps }),
           onMessage: (agentRole: string, content: string) => sendEvent("message", { role: agentRole, content }),
           onError: (error: Error) => sendEvent("error", { message: error.message }),
-          onComplete: (result: string, finishReason?: string) => sendEvent("complete", { result, finishReason })
+          onComplete: (result: string, finishReason?: string, meta?) =>
+            sendEvent("complete", {
+              result,
+              finishReason,
+              usage: meta?.usage,
+              recoveredFromMaxTokens: meta?.recoveredFromMaxTokens ?? false
+            })
         }
       });
 
-      await touchWorkflowSession(dataRoot, runId, chatSessionId, { status: "idle" }).catch(() => {});
       res.end();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -3124,13 +3124,18 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.post("/api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt", async (req, res, next) => {
-    const runId = req.params.run_id;
     const sessionId = req.params.sessionId;
     try {
-      const existingSession = await getWorkflowSession(dataRoot, runId, sessionId);
-      const providerId = existingSession?.provider ?? "minimax";
-      const cancelled = providerRegistry.cancelSession(providerId, sessionId);
-      await touchWorkflowSession(dataRoot, runId, sessionId, { status: "idle" }).catch(() => {});
+      const body = req.body as Record<string, unknown>;
+      const preferredProviderId = readProviderIdField(body, "provider_id", "minimax");
+      const providerCandidates: ProviderId[] = Array.from(new Set([preferredProviderId, "minimax", "codex", "trae"]));
+      let cancelled = false;
+      for (const providerId of providerCandidates) {
+        if (providerRegistry.cancelSession(providerId, sessionId)) {
+          cancelled = true;
+          break;
+        }
+      }
       res.json({ success: true, cancelled });
     } catch (error) {
       next(error);
@@ -3232,8 +3237,13 @@ export function createApp(options: AppOptions = {}) {
           onError: (error: Error) => {
             sendEvent("error", { message: error.message });
           },
-          onComplete: (result: string, finishReason?: string) => {
-            sendEvent("complete", { result, finishReason });
+          onComplete: (result: string, finishReason?: string, meta?) => {
+            sendEvent("complete", {
+              result,
+              finishReason,
+              usage: meta?.usage,
+              recoveredFromMaxTokens: meta?.recoveredFromMaxTokens ?? false
+            });
           }
         }
       });

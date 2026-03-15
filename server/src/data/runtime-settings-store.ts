@@ -90,7 +90,7 @@ function defaultRuntimeSettings(): RuntimeSettings {
     minimaxMcpServers: [],
     minimaxMaxSteps: 100,
     minimaxTokenLimit: 80000,
-    minimaxMaxOutputTokens: 4096
+    minimaxMaxOutputTokens: 16384
   };
 }
 
@@ -214,7 +214,7 @@ export async function patchRuntimeSettings(
     minimaxMaxSteps: normalizeOptionalNumber(patch.minimaxMaxSteps ?? current.minimaxMaxSteps) ?? 100,
     minimaxTokenLimit: normalizeOptionalNumber(patch.minimaxTokenLimit ?? current.minimaxTokenLimit) ?? 80000,
     minimaxMaxOutputTokens:
-      normalizeOptionalNumber(patch.minimaxMaxOutputTokens ?? current.minimaxMaxOutputTokens) ?? 4096,
+      normalizeOptionalNumber(patch.minimaxMaxOutputTokens ?? current.minimaxMaxOutputTokens) ?? 16384,
     minimaxShellTimeout: normalizeOptionalNumber(patch.minimaxShellTimeout ?? current.minimaxShellTimeout),
     minimaxShellOutputIdleTimeout: normalizeOptionalNumber(patch.minimaxShellOutputIdleTimeout ?? current.minimaxShellOutputIdleTimeout),
     minimaxShellMaxRunTime: normalizeOptionalNumber(patch.minimaxShellMaxRunTime ?? current.minimaxShellMaxRunTime),

@@ -72,7 +72,37 @@ export interface MiniMaxSessionRunInput {
     onStep?: (step: number, maxSteps: number) => void;
     onMessage?: (role: string, content: string) => void;
     onError?: (error: Error) => void;
-    onComplete?: (result: string, finishReason?: string) => void;
+    onMaxTokensRecovery?: (event: {
+      observedAt: string;
+      step: number;
+      attempt: number;
+      maxAttempts: number;
+      recovered: boolean;
+      finishReason: "max_tokens";
+      usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+      preCompressMessageCount: number;
+      preCompressChars: number;
+      postCompressMessageCount: number;
+      postCompressChars: number;
+      compactedToolCallChains: number;
+      compactedToolMessages: number;
+      compressionMode: "llm_compressor" | "deterministic_trim" | "none";
+      compressionError?: string;
+      continuationInjected: boolean;
+      maxTokensSnapshotPath?: string | null;
+    }) => void | Promise<void>;
+    onComplete?: (
+      result: string,
+      finishReason?: string,
+      meta?: {
+        finishReason?: string;
+        usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+        step: number;
+        recoveredFromMaxTokens?: boolean;
+        maxTokensRecoveryAttempt?: number;
+        maxTokensSnapshotPath?: string | null;
+      }
+    ) => void;
   };
 }
 
@@ -212,7 +242,7 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
         sessionDir: settings.minimaxSessionDir ?? input.sessionDirFallback,
         maxSteps: settings.minimaxMaxSteps ?? 200,
         tokenLimit: settings.minimaxTokenLimit ?? 180000,
-        maxOutputTokens: settings.minimaxMaxOutputTokens ?? 4096,
+        maxOutputTokens: settings.minimaxMaxOutputTokens ?? 16384,
         enableFileTools: true,
         enableShell: true,
         enableNote: true,

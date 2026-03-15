@@ -47,6 +47,36 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
+export interface MaxTokensRecoveryEvent {
+  observedAt: string;
+  step: number;
+  attempt: number;
+  maxAttempts: number;
+  recovered: boolean;
+  finishReason: "max_tokens";
+  usage?: TokenUsage;
+  preCompressMessageCount: number;
+  preCompressChars: number;
+  postCompressMessageCount: number;
+  postCompressChars: number;
+  compactedToolCallChains: number;
+  compactedToolMessages: number;
+  compressionMode: "llm_compressor" | "deterministic_trim" | "none";
+  compressionError?: string;
+  continuationInjected: boolean;
+  maxTokensSnapshotPath?: string | null;
+}
+
+export interface AgentCompletionMeta {
+  finishReason?: string;
+  usage?: TokenUsage;
+  step: number;
+  recoveredFromMaxTokens?: boolean;
+  maxTokensRecoveryAttempt?: number;
+  maxTokensEvents?: MaxTokensRecoveryEvent[];
+  maxTokensSnapshotPath?: string | null;
+}
+
 export interface LLMResponse {
   content: string;
   thinking?: string;
@@ -82,7 +112,8 @@ export interface AgentCallback {
     consecutiveFailureCount: number;
     nextAction?: string;
   }) => void;
-  onComplete?: (result: string, finishReason?: string) => void;
+  onMaxTokensRecovery?: (event: MaxTokensRecoveryEvent) => void | Promise<void>;
+  onComplete?: (result: string, finishReason?: string, meta?: AgentCompletionMeta) => void;
 }
 
 export interface MiniMaxRunOptions {
@@ -99,7 +130,16 @@ export interface MiniMaxRunResult {
   content: string;
   sessionId: string;
   isNewSession: boolean;
+  finishReason?: string;
+  step?: number;
   usage?: TokenUsage;
+  recoveredFromMaxTokens?: boolean;
+  maxTokensRecoveryAttempt?: number;
+  maxTokensEvents?: MaxTokensRecoveryEvent[];
+  maxTokensSnapshotPath?: string;
+  maxTokensSnapshotPaths?: string[];
+  tokenLimit?: number;
+  maxOutputTokens?: number;
 }
 
 export interface CreateSessionOptions {

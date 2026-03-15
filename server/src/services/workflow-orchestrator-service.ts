@@ -36,7 +36,7 @@ import type {
   WorkflowTaskState
 } from "../domain/models.js";
 import { logger } from "../utils/logger.js";
-import { ensureAgentWorkspaces } from "./agent-workspace-service.js";
+import { buildDefaultRolePrompt, ensureAgentWorkspaces } from "./agent-workspace-service.js";
 import {
   extractTaskIdFromMessage,
   isRemindableTaskState,
@@ -51,8 +51,10 @@ import {
 } from "./orchestrator-core.js";
 import { buildReminderMessageBody } from "./reminder-message-builder.js";
 import { getTimeoutCooldownMs, getTimeoutEscalationThreshold } from "./session-lifecycle-authority.js";
+import { dumpSessionMessagesOnSoftTimeout } from "./session-timeout-message-dump.js";
 import { createProviderRegistry, resolveSessionProviderId } from "./provider-runtime.js";
 import { createWorkflowToolExecutionAdapter, DefaultToolInjector } from "./tool-injector.js";
+import { resolveWorkflowRunRoleScope } from "./workflow-role-scope-service.js";
 
 export interface WorkflowRunRuntimeStatus {
   runId: string;
@@ -124,7 +126,7 @@ export interface WorkflowDispatchResult {
     dispatchKind?: "task" | "message" | null;
     messageId?: string;
     requestId?: string;
-    outcome: "dispatched" | "no_task" | "session_busy" | "run_not_running" | "invalid_target";
+    outcome: "dispatched" | "no_task" | "session_busy" | "run_not_running" | "invalid_target" | "already_dispatched";
     reason?: string;
   }>;
   dispatchedCount: number;
@@ -134,8 +136,14 @@ export interface WorkflowDispatchResult {
 export class WorkflowRuntimeError extends Error {
   constructor(
     message: string,
-    public readonly code: WorkflowBlockReasonCode | "ROUTE_DENIED" | "MESSAGE_TARGET_REQUIRED",
-    public readonly status: number = 400
+    public readonly code:
+      | WorkflowBlockReasonCode
+      | "ROUTE_DENIED"
+      | "MESSAGE_TARGET_REQUIRED"
+      | "TASK_OWNER_ROLE_NOT_FOUND",
+    public readonly status: number = 400,
+    public readonly hint?: string,
+    public readonly details?: Record<string, unknown>
   ) {
     super(message);
   }
@@ -226,6 +234,29 @@ function findLatestOpenDispatch(
   };
 }
 
+function hasOpenTaskDispatch(events: WorkflowRunEventRecord[], taskId: string, sessionId: string): boolean {
+  const started = new Set<string>();
+  for (const event of events) {
+    if (event.taskId !== taskId || event.sessionId !== sessionId) {
+      continue;
+    }
+    const payload = event.payload as Record<string, unknown>;
+    const dispatchId = readPayloadString(payload, "dispatchId");
+    const dispatchKind = readPayloadString(payload, "dispatchKind");
+    if (!dispatchId || dispatchKind !== "task") {
+      continue;
+    }
+    if (event.eventType === "ORCHESTRATOR_DISPATCH_STARTED") {
+      started.add(dispatchId);
+      continue;
+    }
+    if (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
+      started.delete(dispatchId);
+    }
+  }
+  return started.size > 0;
+}
+
 function createInitialRuntime(run: WorkflowRunRecord): WorkflowRunRuntimeState {
   const now = new Date().toISOString();
   return {
@@ -275,9 +306,10 @@ function isRuntimeTerminal(runtime: WorkflowRunRuntimeState): boolean {
 
 function parseIsoMs(value: string | undefined): number {
   if (!value) {
-    return Number.NaN;
+    return 0;
   }
-  return Date.parse(value);
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function normalizeReminderMode(raw: ReminderMode | undefined): ReminderMode {
@@ -616,85 +648,143 @@ export class WorkflowOrchestratorService {
     };
   }
 
+  private async persistRoleSessionMap(
+    run: WorkflowRunRecord,
+    role: string,
+    sessionId: string | null
+  ): Promise<boolean> {
+    const normalizedRole = role.trim();
+    if (!normalizedRole) {
+      return false;
+    }
+    const current = run.roleSessionMap?.[normalizedRole];
+    if ((sessionId ?? undefined) === current) {
+      return false;
+    }
+    const nextMap = { ...(run.roleSessionMap ?? {}) };
+    if (sessionId) {
+      nextMap[normalizedRole] = sessionId;
+    } else {
+      delete nextMap[normalizedRole];
+    }
+    const normalized = Object.keys(nextMap).length > 0 ? nextMap : undefined;
+    await patchWorkflowRun(this.dataRoot, run.runId, { roleSessionMap: normalized ?? {} });
+    run.roleSessionMap = normalized;
+    return true;
+  }
+
   private async resolveAuthoritativeSession(
     runId: string,
     role: string,
-    sessions: WorkflowSessionRecord[]
+    sessions: WorkflowSessionRecord[],
+    runRecord?: WorkflowRunRecord,
+    reason: string = "workflow_runtime"
   ): Promise<WorkflowSessionRecord | null> {
-    const roleSessions = [...sessions].filter((item) => item.role === role && item.status !== "dismissed");
-    if (roleSessions.length > 0) {
-      const activeRunners = roleSessions
-        .filter((item) => {
-          if (item.status !== "running") {
-            return false;
-          }
-          const providerSessionId = item.providerSessionId?.trim() || item.sessionId;
-          return providerRegistry.isSessionActive(item.provider, providerSessionId);
-        })
-        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-      const winner =
-        activeRunners[0] ??
-        roleSessions.sort((a, b) => {
-          const aRecent = Math.max(parseIsoMs(a.lastActiveAt), parseIsoMs(a.updatedAt), parseIsoMs(a.createdAt));
-          const bRecent = Math.max(parseIsoMs(b.lastActiveAt), parseIsoMs(b.updatedAt), parseIsoMs(b.createdAt));
-          if (aRecent !== bRecent) {
-            return bRecent - aRecent;
-          }
-          return a.sessionId.localeCompare(b.sessionId);
-        })[0];
-      const losers = roleSessions.filter((item) => item.sessionId !== winner.sessionId);
-      if (losers.length > 0) {
-        await appendWorkflowRunEvent(this.dataRoot, runId, {
-          eventType: "ROLE_SESSION_CONFLICT_DETECTED",
-          source: "system",
-          sessionId: winner.sessionId,
-          payload: {
-            role,
-            winnerSessionId: winner.sessionId,
-            loserSessionIds: losers.map((item) => item.sessionId)
-          }
-        });
-        for (const loser of losers) {
-          await touchWorkflowSession(this.dataRoot, runId, loser.sessionId, {
-            status: "dismissed",
-            currentTaskId: null,
-            agentPid: null
-          }).catch(() => {});
-          await appendWorkflowRunEvent(this.dataRoot, runId, {
-            eventType: "DISPATCH_CLOSED_BY_CONFLICT",
-            source: "system",
-            sessionId: loser.sessionId,
-            taskId: loser.currentTaskId,
-            payload: {
-              role,
-              winnerSessionId: winner.sessionId,
-              loserSessionId: loser.sessionId,
-              dispatchId: loser.lastDispatchId ?? null,
-              runId
-            }
-          });
+    const normalizedRole = role.trim();
+    if (!normalizedRole) {
+      return null;
+    }
+    const run = runRecord ?? (await this.loadRunOrThrow(runId));
+    const roleSessions = [...sessions].filter((item) => item.role === normalizedRole && item.status !== "dismissed");
+    const mappedSessionId = run.roleSessionMap?.[normalizedRole];
+    if (roleSessions.length === 0) {
+      if (mappedSessionId) {
+        await this.persistRoleSessionMap(run, normalizedRole, null);
+      }
+      const created = await upsertWorkflowSession(this.dataRoot, runId, {
+        sessionId: buildSessionId(normalizedRole),
+        role: normalizedRole,
+        status: "idle",
+        provider: "minimax"
+      });
+      sessions.push(created.session);
+      await this.persistRoleSessionMap(run, normalizedRole, created.session.sessionId);
+      return created.session;
+    }
+
+    const activeRunners = roleSessions
+      .filter((item) => {
+        if (item.status !== "running") {
+          return false;
         }
+        const providerSessionId = item.providerSessionId?.trim() || item.sessionId;
+        return providerRegistry.isSessionActive(item.provider, providerSessionId);
+      })
+      .sort((a, b) => {
+        const aRecent = Math.max(parseIsoMs(a.lastActiveAt), parseIsoMs(a.updatedAt), parseIsoMs(a.createdAt));
+        const bRecent = Math.max(parseIsoMs(b.lastActiveAt), parseIsoMs(b.updatedAt), parseIsoMs(b.createdAt));
+        if (aRecent !== bRecent) {
+          return bRecent - aRecent;
+        }
+        return a.sessionId.localeCompare(b.sessionId);
+      });
+    const mapped =
+      mappedSessionId && roleSessions.some((item) => item.sessionId === mappedSessionId)
+        ? (roleSessions.find((item) => item.sessionId === mappedSessionId) ?? null)
+        : null;
+    const winner =
+      activeRunners[0] ??
+      mapped ??
+      roleSessions.sort((a, b) => {
+        const aRecent = Math.max(parseIsoMs(a.lastActiveAt), parseIsoMs(a.updatedAt), parseIsoMs(a.createdAt));
+        const bRecent = Math.max(parseIsoMs(b.lastActiveAt), parseIsoMs(b.updatedAt), parseIsoMs(b.createdAt));
+        if (aRecent !== bRecent) {
+          return bRecent - aRecent;
+        }
+        return a.sessionId.localeCompare(b.sessionId);
+      })[0];
+    const losers = roleSessions.filter((item) => item.sessionId !== winner.sessionId);
+    const mapUpdated = await this.persistRoleSessionMap(run, normalizedRole, winner.sessionId);
+
+    if (losers.length > 0) {
+      await appendWorkflowRunEvent(this.dataRoot, runId, {
+        eventType: "ROLE_SESSION_CONFLICT_DETECTED",
+        source: "system",
+        sessionId: winner.sessionId,
+        payload: {
+          role: normalizedRole,
+          reason,
+          winnerSessionId: winner.sessionId,
+          loserSessionIds: losers.map((item) => item.sessionId)
+        }
+      });
+      for (const loser of losers) {
+        await touchWorkflowSession(this.dataRoot, runId, loser.sessionId, {
+          status: "dismissed",
+          currentTaskId: null,
+          agentPid: null
+        }).catch(() => {});
+        loser.status = "dismissed";
         await appendWorkflowRunEvent(this.dataRoot, runId, {
-          eventType: "ROLE_SESSION_CONFLICT_RESOLVED",
+          eventType: "DISPATCH_CLOSED_BY_CONFLICT",
           source: "system",
-          sessionId: winner.sessionId,
+          sessionId: loser.sessionId,
+          taskId: loser.currentTaskId,
           payload: {
-            role,
-            activeSessionId: winner.sessionId,
-            dismissedSessionIds: losers.map((item) => item.sessionId)
+            role: normalizedRole,
+            winnerSessionId: winner.sessionId,
+            loserSessionId: loser.sessionId,
+            dispatchId: loser.lastDispatchId ?? null,
+            runId
           }
         });
       }
-      return (await getWorkflowSession(this.dataRoot, runId, winner.sessionId)) ?? winner;
     }
-    const created = await upsertWorkflowSession(this.dataRoot, runId, {
-      sessionId: buildSessionId(role),
-      role,
-      status: "idle",
-      provider: "minimax"
-    });
-    sessions.push(created.session);
-    return created.session;
+    if (losers.length > 0 || mapUpdated) {
+      await appendWorkflowRunEvent(this.dataRoot, runId, {
+        eventType: "ROLE_SESSION_CONFLICT_RESOLVED",
+        source: "system",
+        sessionId: winner.sessionId,
+        payload: {
+          role: normalizedRole,
+          reason,
+          activeSessionId: winner.sessionId,
+          dismissedSessionIds: losers.map((item) => item.sessionId),
+          roleSessionMapUpdated: mapUpdated
+        }
+      });
+    }
+    return (await getWorkflowSession(this.dataRoot, runId, winner.sessionId)) ?? winner;
   }
 
   private async touchSessionHeartbeat(runId: string, sessionId: string): Promise<void> {
@@ -788,15 +878,14 @@ export class WorkflowOrchestratorService {
       await ensureAgentWorkspaces(workspaceProject, rolePromptMap, runRoles, roleSummaryMap);
       const roleAgent = agents.find((item) => item.agentId === input.role);
       const rolePromptRaw = rolePromptMap.get(input.role);
-      const rolePrompt = rolePromptRaw?.trim() ?? "";
-      if (rolePrompt.length === 0) {
-        throw new Error(`[workflow-orchestrator] role prompt missing for role='${input.role}'`);
-      }
+      const rolePrompt = rolePromptRaw?.trim() || buildDefaultRolePrompt(input.role);
       requestedSkillIds = await resolveSkillIdsForAgent(this.dataRoot, roleAgent?.skillList);
       const importedSkillPrompt = await resolveImportedSkillPromptSegments(this.dataRoot, requestedSkillIds);
 
       const settings = await getRuntimeSettings(this.dataRoot);
       const providerId = input.session.provider ?? resolveSessionProviderId(input.run, input.role, "minimax");
+      const tokenLimit = settings.minimaxTokenLimit ?? 180000;
+      const maxOutputTokens = settings.minimaxMaxOutputTokens ?? 16384;
 
       await appendWorkflowRunEvent(this.dataRoot, runId, {
         eventType: "ORCHESTRATOR_DISPATCH_STARTED",
@@ -809,7 +898,9 @@ export class WorkflowOrchestratorService {
           runId,
           dispatchKind: input.dispatchKind,
           messageId: input.messageId ?? null,
-          requestedSkillIds
+          requestedSkillIds,
+          tokenLimit,
+          maxOutputTokens
         }
       });
 
@@ -870,7 +961,7 @@ export class WorkflowOrchestratorService {
             (await this.sendRunMessage({ runId, ...request })) as unknown as Record<string, unknown>
         })
       );
-      await providerRegistry.runSessionWithTools(providerId, settings, {
+      const dispatchRunResult = await providerRegistry.runSessionWithTools(providerId, settings, {
         prompt,
         providerSessionId,
         workspaceDir: agentWorkspaceDir,
@@ -900,7 +991,26 @@ export class WorkflowOrchestratorService {
           onToolCall: () => void this.touchSessionHeartbeat(runId, input.session.sessionId),
           onToolResult: () => void this.touchSessionHeartbeat(runId, input.session.sessionId),
           onMessage: () => void this.touchSessionHeartbeat(runId, input.session.sessionId),
-          onError: () => void this.touchSessionHeartbeat(runId, input.session.sessionId)
+          onError: () => void this.touchSessionHeartbeat(runId, input.session.sessionId),
+          onMaxTokensRecovery: async (event) => {
+            await this.touchSessionHeartbeat(runId, input.session.sessionId);
+            await appendWorkflowRunEvent(this.dataRoot, runId, {
+              eventType: "MINIMAX_MAX_TOKENS_RECOVERY",
+              source: "system",
+              sessionId: input.session.sessionId,
+              taskId: input.taskId ?? undefined,
+              payload: {
+                requestId: input.requestId,
+                dispatchId: input.dispatchId,
+                runId,
+                dispatchKind: input.dispatchKind,
+                messageId: input.messageId ?? null,
+                tokenLimit,
+                maxOutputTokens,
+                ...event
+              }
+            });
+          }
         }
       });
 
@@ -923,7 +1033,14 @@ export class WorkflowOrchestratorService {
               exitCode: null,
               timedOut: true,
               synthetic: true,
-              reason: "dispatch_timed_out_before_finish"
+              reason: "dispatch_timed_out_before_finish",
+              finishReason: dispatchRunResult.finishReason ?? null,
+              usage: dispatchRunResult.usage ?? null,
+              maxOutputTokens: dispatchRunResult.maxOutputTokens ?? maxOutputTokens,
+              tokenLimit: dispatchRunResult.tokenLimit ?? tokenLimit,
+              maxTokensRecoveryAttempt: dispatchRunResult.maxTokensRecoveryAttempt ?? 0,
+              maxTokensSnapshotPath: dispatchRunResult.maxTokensSnapshotPath ?? null,
+              recoveredFromMaxTokens: dispatchRunResult.recoveredFromMaxTokens ?? false
             }
           });
         }
@@ -955,7 +1072,14 @@ export class WorkflowOrchestratorService {
           runId,
           dispatchKind: input.dispatchKind,
           messageId: input.messageId ?? null,
-          requestedSkillIds
+          requestedSkillIds,
+          finishReason: dispatchRunResult.finishReason ?? null,
+          usage: dispatchRunResult.usage ?? null,
+          maxOutputTokens: dispatchRunResult.maxOutputTokens ?? maxOutputTokens,
+          tokenLimit: dispatchRunResult.tokenLimit ?? tokenLimit,
+          maxTokensRecoveryAttempt: dispatchRunResult.maxTokensRecoveryAttempt ?? 0,
+          maxTokensSnapshotPath: dispatchRunResult.maxTokensSnapshotPath ?? null,
+          recoveredFromMaxTokens: dispatchRunResult.recoveredFromMaxTokens ?? false
         }
       });
     } catch (error) {
@@ -1049,7 +1173,7 @@ export class WorkflowOrchestratorService {
     }
 
     for (const role of Array.from(roleSet).sort((a, b) => a.localeCompare(b))) {
-      const session = await this.resolveAuthoritativeSession(run.runId, role, sessions);
+      const session = await this.resolveAuthoritativeSession(run.runId, role, sessions, run, "reminder");
       const currentRoleState = getRoleState(session);
       const roleOpenTasks = run.tasks
         .flatMap((task) => {
@@ -1379,8 +1503,16 @@ export class WorkflowOrchestratorService {
     const nowMs = Date.now();
     const threshold = getTimeoutEscalationThreshold();
     const cooldownMs = getTimeoutCooldownMs();
+    const settings = await getRuntimeSettings(this.dataRoot);
     const events = await listWorkflowRunEvents(this.dataRoot, run.runId);
-    for (const session of sessions) {
+    const roleCandidates = Array.from(
+      new Set(sessions.filter((session) => session.status !== "dismissed").map((session) => session.role))
+    ).sort((a, b) => a.localeCompare(b));
+    for (const role of roleCandidates) {
+      const session = await this.resolveAuthoritativeSession(run.runId, role, sessions, run, "timeout_check");
+      if (!session) {
+        continue;
+      }
       if (session.status !== "running") {
         continue;
       }
@@ -1413,6 +1545,21 @@ export class WorkflowOrchestratorService {
         agentPid: null,
         lastRunId: run.runId
       }).catch(() => {});
+      const timeoutDump =
+        !escalated && providerId === "minimax"
+          ? await dumpSessionMessagesOnSoftTimeout({
+              workspacePath: run.workspacePath,
+              sessionDir: settings.minimaxSessionDir,
+              sessionId: session.sessionId,
+              providerSessionId: session.providerSessionId,
+              runId: run.runId,
+              role: session.role,
+              provider: providerId,
+              dispatchId,
+              taskId: currentTaskId ?? null,
+              timeoutStreak
+            })
+          : null;
       if (openDispatch) {
         const payload = openDispatch.event.payload as Record<string, unknown>;
         await appendWorkflowRunEvent(this.dataRoot, run.runId, {
@@ -1464,7 +1611,9 @@ export class WorkflowOrchestratorService {
           dispatchId,
           timeoutStreak,
           threshold,
-          cooldownUntil
+          cooldownUntil,
+          timeoutMessageDumpPath: timeoutDump?.filePath ?? null,
+          timeoutMessageCount: timeoutDump?.messageCount ?? null
         }
       });
     }
@@ -1744,14 +1893,18 @@ export class WorkflowOrchestratorService {
       provider?: "codex" | "trae" | "minimax";
     }
   ): Promise<{ session: WorkflowSessionRecord; created: boolean }> {
-    await this.loadRunOrThrow(runId);
-    return upsertWorkflowSession(this.dataRoot, runId, {
+    const run = await this.loadRunOrThrow(runId);
+    const result = await upsertWorkflowSession(this.dataRoot, runId, {
       sessionId: input.sessionId?.trim() || buildSessionId(input.role),
       role: input.role,
       status: input.status,
       provider: input.provider,
       providerSessionId: input.providerSessionId
     });
+    if (result.session.status !== "dismissed") {
+      await this.persistRoleSessionMap(run, input.role, result.session.sessionId);
+    }
+    return result;
   }
 
   async sendRunMessage(input: {
@@ -1791,15 +1944,7 @@ export class WorkflowOrchestratorService {
       if (!session) throw new WorkflowRuntimeError(`session '${toSessionId}' not found`, "TASK_NOT_FOUND", 404);
     } else if (toRole) {
       const sessions = await listWorkflowSessions(this.dataRoot, input.runId);
-      session =
-        [...sessions]
-          .filter((item) => item.role === toRole && item.status !== "dismissed")
-          .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0] ?? null;
-      if (!session) {
-        session = (
-          await upsertWorkflowSession(this.dataRoot, input.runId, { sessionId: buildSessionId(toRole), role: toRole })
-        ).session;
-      }
+      session = await this.resolveAuthoritativeSession(input.runId, toRole, sessions, run, "message_route");
     }
     if (!session) {
       throw new WorkflowRuntimeError("target session cannot be resolved", "MESSAGE_TARGET_REQUIRED", 404);
@@ -1950,11 +2095,26 @@ export class WorkflowOrchestratorService {
       const task = input.task;
       if (!task) throw new WorkflowRuntimeError("task payload is required", "INVALID_TRANSITION", 400);
       const taskId = task.taskId.trim();
+      const ownerRole = task.ownerRole.trim();
       if (!taskId) throw new WorkflowRuntimeError("task.task_id is required", "INVALID_TRANSITION", 400);
       if (run.tasks.some((item) => item.taskId === taskId))
         throw new WorkflowRuntimeError(`task '${taskId}' already exists`, "INVALID_TRANSITION", 409);
-      if (!task.title.trim() || !task.ownerRole.trim())
+      if (!task.title.trim() || !ownerRole)
         throw new WorkflowRuntimeError("task.title and task.owner_role are required", "INVALID_TRANSITION", 400);
+      const sessions = await listWorkflowSessions(this.dataRoot, runId);
+      const roleScope = resolveWorkflowRunRoleScope(run, sessions);
+      if (!roleScope.enabledAgentSet.has(ownerRole)) {
+        throw new WorkflowRuntimeError(
+          `owner_role '${ownerRole}' does not exist in current run roles`,
+          "TASK_OWNER_ROLE_NOT_FOUND",
+          409,
+          "Call route_targets_get first, choose an allowed target role, and retry TASK_CREATE once.",
+          {
+            owner_role: ownerRole,
+            available_roles: roleScope.enabledAgents
+          }
+        );
+      }
       if (task.parentTaskId && !run.tasks.some((item) => item.taskId === task.parentTaskId))
         throw new WorkflowRuntimeError(`parent task '${task.parentTaskId}' not found`, "TASK_NOT_FOUND", 404);
       const dependencies = (task.dependencies ?? []).map((item) => item.trim()).filter((item) => item.length > 0);
@@ -1967,7 +2127,7 @@ export class WorkflowOrchestratorService {
           taskId,
           title: task.title.trim(),
           resolvedTitle: task.title.trim(),
-          ownerRole: task.ownerRole.trim(),
+          ownerRole,
           parentTaskId: task.parentTaskId?.trim() || undefined,
           dependencies,
           acceptance: (task.acceptance ?? []).map((item) => item.trim()).filter((item) => item.length > 0),
@@ -2205,6 +2365,7 @@ export class WorkflowOrchestratorService {
         const roleSet = new Set<string>();
         for (const task of run.tasks) roleSet.add(task.ownerRole);
         for (const s of sessionList) if (s.status !== "dismissed") roleSet.add(s.role);
+        for (const mappedRole of Object.keys(run.roleSessionMap ?? {})) roleSet.add(mappedRole);
         if (role) {
           roleSet.clear();
           roleSet.add(role);
@@ -2223,7 +2384,7 @@ export class WorkflowOrchestratorService {
         let busyFound = false;
 
         for (const roleCandidate of Array.from(roleSet).sort((a, b) => a.localeCompare(b))) {
-          const session = await this.resolveAuthoritativeSession(runId, roleCandidate, sessionList);
+          const session = await this.resolveAuthoritativeSession(runId, roleCandidate, sessionList, run, "dispatch");
           if (!session) {
             continue;
           }
@@ -2333,6 +2494,33 @@ export class WorkflowOrchestratorService {
             reason: "auto dispatch budget exhausted"
           });
           break;
+        }
+
+        if (!force && chosen.dispatchKind === "task" && chosen.taskId) {
+          const dispatchEvents = await listWorkflowRunEvents(this.dataRoot, runId);
+          if (hasOpenTaskDispatch(dispatchEvents, chosen.taskId, chosen.session.sessionId)) {
+            await appendWorkflowRunEvent(this.dataRoot, runId, {
+              eventType: "ORCHESTRATOR_DISPATCH_SKIPPED",
+              source: "system",
+              sessionId: chosen.session.sessionId,
+              taskId: chosen.taskId,
+              payload: {
+                requestId,
+                dispatchKind: chosen.dispatchKind,
+                dispatchSkipReason: "duplicate_open_dispatch"
+              }
+            });
+            results.push({
+              role: chosen.role,
+              sessionId: chosen.session.sessionId,
+              taskId: chosen.taskId,
+              dispatchKind: chosen.dispatchKind,
+              requestId,
+              outcome: "already_dispatched",
+              reason: "duplicate_open_dispatch"
+            });
+            break;
+          }
         }
 
         const sessionKey = this.buildRunSessionKey(runId, chosen.session.sessionId);

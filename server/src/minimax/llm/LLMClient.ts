@@ -15,6 +15,7 @@ export interface LLMClientConfig {
   apiBase: string;
   model: string;
   maxTokens?: number;
+  onPreparedMessages?: (snapshot: PreparedMessagesSnapshot) => void;
 }
 
 export interface ToolProtocolSanitizeResult {
@@ -39,10 +40,50 @@ export interface ContextWindowTrimResult {
   truncatedCount: number;
 }
 
+export interface PreparedMessagesResult {
+  preTrimSanitized: ToolProtocolSanitizeResult;
+  trim: ContextWindowTrimResult;
+  postTrimSanitized: ToolProtocolSanitizeResult;
+}
+
+export interface PreparedMessagesSnapshot {
+  stage: "initial" | "retry_context_window";
+  capturedAt: string;
+  preTrimSanitized: {
+    correctedCount: number;
+    orphanToolCallFixed: number;
+    orphanToolResultFixed: number;
+  };
+  postTrimSanitized: {
+    correctedCount: number;
+    orphanToolCallFixed: number;
+    orphanToolResultFixed: number;
+  };
+  trim: {
+    originalChars: number;
+    trimmedChars: number;
+    removedCount: number;
+    truncatedCount: number;
+  };
+  messages: Message[];
+}
+
 const DEFAULT_CONTEXT_MAX_CHARS = 120000;
 const DEFAULT_KEEP_LATEST_COUNT = 24;
 const DEFAULT_TOOL_MAX_CHARS = 4000;
 const DEFAULT_NON_TOOL_MAX_CHARS = 12000;
+
+export function prepareMessagesForModel(messages: Message[]): PreparedMessagesResult {
+  const preTrimSanitized = sanitizeMessagesForToolProtocol(messages);
+  const trim = trimMessagesForContextWindow(preTrimSanitized.messages);
+  // Trim may break tool_use -> tool_result adjacency; sanitize again after trim.
+  const postTrimSanitized = sanitizeMessagesForToolProtocol(trim.messages);
+  return {
+    preTrimSanitized,
+    trim,
+    postTrimSanitized
+  };
+}
 
 export function sanitizeMessagesForToolProtocol(messages: Message[]): ToolProtocolSanitizeResult {
   const sanitized: Message[] = [];
@@ -334,10 +375,12 @@ export class LLMClient {
   private client: Anthropic;
   private model: string;
   private maxTokens: number;
+  private onPreparedMessages?: (snapshot: PreparedMessagesSnapshot) => void;
 
   constructor(config: LLMClientConfig) {
     this.model = config.model;
-    this.maxTokens = config.maxTokens ?? 4096;
+    this.maxTokens = config.maxTokens ?? 16384;
+    this.onPreparedMessages = config.onPreparedMessages;
 
     let apiBase = config.apiBase.replace(/\/$/, "");
 
@@ -355,11 +398,9 @@ export class LLMClient {
   }
 
   async generate(messages: Message[], tools?: ToolSchema[], systemPrompt?: string): Promise<LLMResponse> {
-    const preTrimSanitized = sanitizeMessagesForToolProtocol(messages);
-    const trimmed = trimMessagesForContextWindow(preTrimSanitized.messages);
-    // Trim may break tool_use -> tool_result adjacency; sanitize again after trim.
-    const postTrimSanitized = sanitizeMessagesForToolProtocol(trimmed.messages);
-    const anthropicMessages = this.convertMessages(postTrimSanitized.messages);
+    const prepared = prepareMessagesForModel(messages);
+    this.emitPreparedMessagesSnapshot("initial", prepared);
+    const anthropicMessages = this.convertMessages(prepared.postTrimSanitized.messages);
 
     const requestParams: Anthropic.Messages.MessageCreateParams = {
       model: this.model,
@@ -387,13 +428,18 @@ export class LLMClient {
         throw error;
       }
 
-      const retryTrimmed = trimMessagesForContextWindow(postTrimSanitized.messages, {
-        maxTotalChars: Math.floor((trimmed.trimmedChars || DEFAULT_CONTEXT_MAX_CHARS) * 0.6),
+      const retryTrimmed = trimMessagesForContextWindow(prepared.postTrimSanitized.messages, {
+        maxTotalChars: Math.floor((prepared.trim.trimmedChars || DEFAULT_CONTEXT_MAX_CHARS) * 0.6),
         keepLatestCount: 12,
         maxToolChars: 2000,
         maxNonToolChars: 6000
       });
       const retrySanitized = sanitizeMessagesForToolProtocol(retryTrimmed.messages);
+      this.emitPreparedMessagesSnapshot("retry_context_window", {
+        preTrimSanitized: prepared.postTrimSanitized,
+        trim: retryTrimmed,
+        postTrimSanitized: retrySanitized
+      });
       const retryMessages = this.convertMessages(retrySanitized.messages);
       const retryRequestParams: Anthropic.Messages.MessageCreateParams = {
         ...requestParams,
@@ -409,11 +455,9 @@ export class LLMClient {
     tools?: ToolSchema[],
     systemPrompt?: string
   ): AsyncGenerator<{ type: string; data: unknown }, LLMResponse, unknown> {
-    const preTrimSanitized = sanitizeMessagesForToolProtocol(messages);
-    const trimmed = trimMessagesForContextWindow(preTrimSanitized.messages);
-    // Trim may break tool_use -> tool_result adjacency; sanitize again after trim.
-    const postTrimSanitized = sanitizeMessagesForToolProtocol(trimmed.messages);
-    const anthropicMessages = this.convertMessages(postTrimSanitized.messages);
+    const prepared = prepareMessagesForModel(messages);
+    this.emitPreparedMessagesSnapshot("initial", prepared);
+    const anthropicMessages = this.convertMessages(prepared.postTrimSanitized.messages);
 
     const requestParams: Anthropic.Messages.MessageCreateParams = {
       model: this.model,
@@ -606,5 +650,35 @@ export class LLMClient {
       finishReason: response.stop_reason ?? "end_turn",
       usage
     };
+  }
+
+  private emitPreparedMessagesSnapshot(
+    stage: "initial" | "retry_context_window",
+    prepared: PreparedMessagesResult
+  ): void {
+    if (!this.onPreparedMessages) {
+      return;
+    }
+    this.onPreparedMessages({
+      stage,
+      capturedAt: new Date().toISOString(),
+      preTrimSanitized: {
+        correctedCount: prepared.preTrimSanitized.correctedCount,
+        orphanToolCallFixed: prepared.preTrimSanitized.orphanToolCallFixed,
+        orphanToolResultFixed: prepared.preTrimSanitized.orphanToolResultFixed
+      },
+      postTrimSanitized: {
+        correctedCount: prepared.postTrimSanitized.correctedCount,
+        orphanToolCallFixed: prepared.postTrimSanitized.orphanToolCallFixed,
+        orphanToolResultFixed: prepared.postTrimSanitized.orphanToolResultFixed
+      },
+      trim: {
+        originalChars: prepared.trim.originalChars,
+        trimmedChars: prepared.trim.trimmedChars,
+        removedCount: prepared.trim.removedCount,
+        truncatedCount: prepared.trim.truncatedCount
+      },
+      messages: prepared.postTrimSanitized.messages
+    });
   }
 }

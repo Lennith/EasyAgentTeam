@@ -1,13 +1,34 @@
 import * as path from "path";
 import * as fs from "fs";
-import { LLMClient, extractMissingToolCallId, isMiniMaxToolResultIdNotFoundError } from "../llm/LLMClient.js";
+import {
+  LLMClient,
+  extractMissingToolCallId,
+  isMiniMaxToolResultIdNotFoundError,
+  trimMessagesForContextWindow
+} from "../llm/LLMClient.js";
 import { ToolRegistry, Tool } from "../tools/index.js";
 import { logger } from "../../utils/logger.js";
-import type { Message, AgentCallback, ToolResult, ToolCall, Session, TokenUsage, LLMResponse } from "../types.js";
+import { ContextCompressor } from "../compression/ContextCompressor.js";
+import type {
+  Message,
+  AgentCallback,
+  ToolResult,
+  ToolCall,
+  Session,
+  TokenUsage,
+  LLMResponse,
+  MaxTokensRecoveryEvent,
+  PersistedMessage
+} from "../types.js";
 
 export interface AgentRunResult {
   content: string;
+  finishReason?: string;
+  step: number;
   usage?: TokenUsage;
+  recoveredFromMaxTokens?: boolean;
+  maxTokensRecoveryAttempt?: number;
+  maxTokensEvents?: MaxTokensRecoveryEvent[];
 }
 
 export interface AgentOptions {
@@ -19,6 +40,7 @@ export interface AgentOptions {
   workspaceDir?: string;
   callback?: AgentCallback;
   mcpToolDescriptions?: string;
+  maxTokensRecoveryMaxAttempts?: number;
 }
 
 export class Agent {
@@ -30,6 +52,8 @@ export class Agent {
   private workspaceDir: string;
   private callback?: AgentCallback;
   private mcpToolDescriptions?: string;
+  private contextCompressor: ContextCompressor;
+  private maxTokensRecoveryMaxAttempts: number;
 
   private messages: Message[] = [];
   private sessionId: string | null = null;
@@ -46,6 +70,8 @@ export class Agent {
     this.workspaceDir = path.resolve(options.workspaceDir ?? "./workspace");
     this.callback = options.callback;
     this.mcpToolDescriptions = options.mcpToolDescriptions;
+    this.contextCompressor = new ContextCompressor(this.llm, 0.35);
+    this.maxTokensRecoveryMaxAttempts = Math.max(0, Math.floor(options.maxTokensRecoveryMaxAttempts ?? 2));
 
     this.ensureWorkspace();
     this.initializeMessages();
@@ -173,6 +199,234 @@ export class Agent {
     ].join("\n");
   }
 
+  private messageTextContent(content: Message["content"]): string {
+    if (typeof content === "string") {
+      return content;
+    }
+    return content
+      .map((block) => {
+        if (block.type === "text") {
+          return block.text ?? "";
+        }
+        if (block.type === "tool_result") {
+          return block.content ?? "";
+        }
+        if (block.type === "tool_use") {
+          return JSON.stringify(block.input ?? {});
+        }
+        return "";
+      })
+      .join("\n");
+  }
+
+  private estimateMessageChars(message: Message): number {
+    const base = this.messageTextContent(message.content).length;
+    const thinking = message.thinking?.length ?? 0;
+    const toolCalls = message.toolCalls ? JSON.stringify(message.toolCalls).length : 0;
+    return base + thinking + toolCalls;
+  }
+
+  private estimateTotalChars(messages: Message[]): number {
+    return messages.reduce((sum, message) => sum + this.estimateMessageChars(message), 0);
+  }
+
+  private truncate(value: string, maxChars: number): string {
+    if (value.length <= maxChars) {
+      return value;
+    }
+    return `${value.slice(0, Math.max(0, maxChars - 18))}...(truncated)`;
+  }
+
+  private compactCompletedToolHistory(messages: Message[]): {
+    messages: Message[];
+    compactedToolCallChains: number;
+    compactedToolMessages: number;
+  } {
+    if (messages.length <= 3) {
+      return { messages: [...messages], compactedToolCallChains: 0, compactedToolMessages: 0 };
+    }
+
+    const hasSystem = messages[0]?.role === "system";
+    const systemMessage = hasSystem ? messages[0] : null;
+    const body = hasSystem ? messages.slice(1) : [...messages];
+    const tailWindow = Math.min(20, body.length);
+    const splitIndex = Math.max(0, body.length - tailWindow);
+    const head = body.slice(0, splitIndex);
+    const tail = body.slice(splitIndex);
+
+    const compactedHead: Message[] = [];
+    const summaries: string[] = [];
+    let compactedToolCallChains = 0;
+    let compactedToolMessages = 0;
+
+    for (let i = 0; i < head.length; i += 1) {
+      const message = head[i];
+      if (message.role !== "assistant" || !message.toolCalls || message.toolCalls.length === 0) {
+        compactedHead.push(message);
+        continue;
+      }
+
+      const expectedToolCalls = message.toolCalls;
+      const expectedIds = new Set(
+        expectedToolCalls.map((toolCall) => toolCall.id?.trim()).filter((id): id is string => Boolean(id))
+      );
+      if (expectedIds.size !== expectedToolCalls.length) {
+        compactedHead.push(message);
+        continue;
+      }
+
+      const alignedResults: Message[] = [];
+      let cursor = i + 1;
+      while (cursor < head.length && head[cursor].role === "tool") {
+        alignedResults.push(head[cursor]);
+        cursor += 1;
+      }
+      if (alignedResults.length < expectedToolCalls.length) {
+        compactedHead.push(message);
+        continue;
+      }
+
+      const matchIds = new Set<string>();
+      let aligned = true;
+      for (const toolMessage of alignedResults.slice(0, expectedToolCalls.length)) {
+        const toolCallId = toolMessage.toolCallId?.trim();
+        if (!toolCallId || !expectedIds.has(toolCallId) || matchIds.has(toolCallId)) {
+          aligned = false;
+          break;
+        }
+        matchIds.add(toolCallId);
+      }
+      if (!aligned || matchIds.size !== expectedIds.size) {
+        compactedHead.push(message);
+        continue;
+      }
+
+      const chainResults = alignedResults.slice(0, expectedToolCalls.length);
+      const resultSummary = chainResults
+        .map((toolMessage) => this.truncate(this.messageTextContent(toolMessage.content).replace(/\s+/g, " "), 100))
+        .join(" | ");
+      const toolNames = expectedToolCalls.map((toolCall) => toolCall.function.name).join(", ");
+      summaries.push(
+        `tools=[${toolNames}] results=${this.truncate(resultSummary.length > 0 ? resultSummary : "(empty)", 220)}`
+      );
+
+      compactedToolCallChains += 1;
+      compactedToolMessages += chainResults.length + 1;
+      i = cursor - 1;
+    }
+
+    if (compactedToolCallChains === 0) {
+      return { messages: [...messages], compactedToolCallChains: 0, compactedToolMessages: 0 };
+    }
+
+    const summaryPreview = summaries.slice(0, 12).join("\n- ");
+    const overflowCount = Math.max(0, summaries.length - 12);
+    const summaryMessage: Message = {
+      role: "user",
+      content:
+        `[TOOL_HISTORY_COMPACTED] compacted_chains=${compactedToolCallChains}, compacted_messages=${compactedToolMessages}\n` +
+        `- ${summaryPreview}\n` +
+        (overflowCount > 0 ? `- ...and ${overflowCount} more compacted chain(s).` : "") +
+        "\nKeep only latest tool protocol details in subsequent reasoning."
+    };
+
+    const nextMessages: Message[] = [];
+    if (systemMessage) {
+      nextMessages.push(systemMessage);
+    }
+    nextMessages.push(...compactedHead, summaryMessage, ...tail);
+    return { messages: nextMessages, compactedToolCallChains, compactedToolMessages };
+  }
+
+  private toPersistedMessages(messages: Message[]): PersistedMessage[] {
+    const now = new Date().toISOString();
+    return messages.map((message, index) => ({
+      id: `msg-${index + 1}`,
+      role: message.role,
+      content: this.messageTextContent(message.content),
+      timestamp: now,
+      thinking: message.thinking,
+      toolCalls: message.toolCalls,
+      toolCallId: message.toolCallId,
+      name: message.name
+    }));
+  }
+
+  private async compressForMaxTokensRecovery(messages: Message[]): Promise<{
+    messages: Message[];
+    compressionMode: "llm_compressor" | "deterministic_trim" | "none";
+    compressionError?: string;
+  }> {
+    if (messages.length <= 2) {
+      return { messages: [...messages], compressionMode: "none" };
+    }
+
+    const hasSystem = messages[0]?.role === "system";
+    const systemMessage = hasSystem ? messages[0] : null;
+    const body = hasSystem ? messages.slice(1) : [...messages];
+    const keepTail = Math.min(16, body.length);
+    const olderMessages = body.slice(0, Math.max(0, body.length - keepTail));
+    const tailMessages = body.slice(Math.max(0, body.length - keepTail));
+
+    if (olderMessages.length > 2) {
+      try {
+        const compressed = await this.contextCompressor.compress(this.toPersistedMessages(olderMessages));
+        if (compressed.success && compressed.compressedContent) {
+          const summaryMessage: Message = {
+            role: "user",
+            content:
+              "[CONTEXT_COMPRESSED] Earlier history summary:\n" +
+              this.truncate(compressed.compressedContent, 10000) +
+              "\nUse this summary as canonical history for older steps."
+          };
+          const nextMessages: Message[] = [];
+          if (systemMessage) {
+            nextMessages.push(systemMessage);
+          }
+          nextMessages.push(summaryMessage, ...tailMessages);
+          return { messages: nextMessages, compressionMode: "llm_compressor" };
+        }
+        return {
+          messages: this.applyDeterministicTrim(messages),
+          compressionMode: "deterministic_trim",
+          compressionError: compressed.error ?? "llm_compressor_returned_empty"
+        };
+      } catch (error) {
+        const err = error instanceof Error ? error.message : String(error);
+        return {
+          messages: this.applyDeterministicTrim(messages),
+          compressionMode: "deterministic_trim",
+          compressionError: err
+        };
+      }
+    }
+
+    return {
+      messages: this.applyDeterministicTrim(messages),
+      compressionMode: "deterministic_trim"
+    };
+  }
+
+  private applyDeterministicTrim(messages: Message[]): Message[] {
+    const trimBudget = Math.max(24000, Math.min(120000, Math.floor(this.tokenLimit * 2)));
+    const trimmed = trimMessagesForContextWindow(messages, {
+      maxTotalChars: trimBudget,
+      keepLatestCount: 16,
+      maxToolChars: 2000,
+      maxNonToolChars: 6000
+    });
+    return trimmed.messages;
+  }
+
+  private buildMaxTokensContinuationPrompt(attempt: number, maxAttempts: number): string {
+    return [
+      "[MAX_TOKENS_RECOVERY]",
+      `continuation_attempt=${attempt}/${maxAttempts}`,
+      "Continue from the latest valid state with concise progress only.",
+      "Do not repeat prior analysis; prioritize next actionable step."
+    ].join("\n");
+  }
+
   async run(prompt: string, sessionId?: string): Promise<string> {
     const result = await this.runWithResult(prompt, sessionId);
     return result.content;
@@ -196,11 +450,14 @@ export class Agent {
     let lastResult = "";
     let lastUsage: TokenUsage | undefined;
     let consecutiveToolCallProtocolFailures = 0;
+    let maxTokensRecoveryAttempt = 0;
+    let recoveredFromMaxTokens = false;
+    const maxTokensEvents: MaxTokensRecoveryEvent[] = [];
 
     try {
       while (step < this.maxSteps) {
         if (this.abortController.signal.aborted) {
-          return { content: "Task cancelled by user.", usage: lastUsage };
+          return { content: "Task cancelled by user.", finishReason: "cancelled", step, usage: lastUsage };
         }
 
         this.callback?.onStep?.(step + 1, this.maxSteps);
@@ -262,14 +519,14 @@ export class Agent {
         }
 
         if (response.content) {
+          lastResult = response.content;
           this.callback?.onMessage?.("assistant", response.content);
         }
 
         if (response.toolCalls && response.toolCalls.length > 0) {
-          lastResult = response.content;
           for (const toolCall of response.toolCalls) {
             if (this.abortController.signal.aborted) {
-              return { content: "Task cancelled by user.", usage: lastUsage };
+              return { content: "Task cancelled by user.", finishReason: "cancelled", step, usage: lastUsage };
             }
             const { name, arguments: args } = toolCall.function;
             this.callback?.onToolCall?.(name, args);
@@ -284,12 +541,93 @@ export class Agent {
             this.messages.push(toolMsg);
           }
         }
-        step++;
-        if (response.finishReason != "tool_use") {
-          // Pass finishReason separately to callback
-          this.callback?.onComplete?.(lastResult, response.finishReason);
-          return { content: response.finishReason + lastResult, usage: lastUsage };
+        const currentStep = step + 1;
+
+        if (response.finishReason === "max_tokens") {
+          const preCompressMessageCount = this.messages.length;
+          const preCompressChars = this.estimateTotalChars(this.messages);
+          const compacted = this.compactCompletedToolHistory(this.messages);
+          this.messages = compacted.messages;
+          const compressed = await this.compressForMaxTokensRecovery(this.messages);
+          this.messages = compressed.messages;
+
+          const attempt = maxTokensRecoveryAttempt + 1;
+          const recovered = attempt <= this.maxTokensRecoveryMaxAttempts;
+          if (recovered) {
+            recoveredFromMaxTokens = true;
+            this.messages.push({
+              role: "user",
+              content: this.buildMaxTokensContinuationPrompt(attempt, this.maxTokensRecoveryMaxAttempts)
+            });
+          }
+
+          const event: MaxTokensRecoveryEvent = {
+            observedAt: new Date().toISOString(),
+            step: currentStep,
+            attempt,
+            maxAttempts: this.maxTokensRecoveryMaxAttempts,
+            recovered,
+            finishReason: "max_tokens",
+            usage: lastUsage,
+            preCompressMessageCount,
+            preCompressChars,
+            postCompressMessageCount: this.messages.length,
+            postCompressChars: this.estimateTotalChars(this.messages),
+            compactedToolCallChains: compacted.compactedToolCallChains,
+            compactedToolMessages: compacted.compactedToolMessages,
+            compressionMode: compressed.compressionMode,
+            compressionError: compressed.compressionError,
+            continuationInjected: recovered
+          };
+          maxTokensEvents.push(event);
+          await Promise.resolve(this.callback?.onMaxTokensRecovery?.(event));
+          maxTokensRecoveryAttempt = attempt;
+          if (recovered) {
+            step = currentStep;
+            continue;
+          }
+
+          this.callback?.onComplete?.(lastResult, response.finishReason, {
+            finishReason: response.finishReason,
+            usage: lastUsage,
+            step: currentStep,
+            recoveredFromMaxTokens,
+            maxTokensRecoveryAttempt,
+            maxTokensEvents,
+            maxTokensSnapshotPath: event.maxTokensSnapshotPath ?? null
+          });
+          return {
+            content: lastResult,
+            finishReason: response.finishReason,
+            step: currentStep,
+            usage: lastUsage,
+            recoveredFromMaxTokens,
+            maxTokensRecoveryAttempt,
+            maxTokensEvents
+          };
         }
+
+        if (response.finishReason != "tool_use") {
+          this.callback?.onComplete?.(lastResult, response.finishReason, {
+            finishReason: response.finishReason,
+            usage: lastUsage,
+            step: currentStep,
+            recoveredFromMaxTokens,
+            maxTokensRecoveryAttempt,
+            maxTokensEvents
+          });
+          return {
+            content: lastResult,
+            finishReason: response.finishReason,
+            step: currentStep,
+            usage: lastUsage,
+            recoveredFromMaxTokens,
+            maxTokensRecoveryAttempt,
+            maxTokensEvents
+          };
+        }
+
+        step = currentStep;
 
         // Log full response to minimax.log for debugging
         logger.minimax(
@@ -308,8 +646,23 @@ export class Agent {
         lastResult = `Task couldn't be completed after ${this.maxSteps} steps.`;
       }
 
-      this.callback?.onComplete?.(lastResult);
-      return { content: lastResult, usage: lastUsage };
+      this.callback?.onComplete?.(lastResult, "max_steps", {
+        finishReason: "max_steps",
+        usage: lastUsage,
+        step,
+        recoveredFromMaxTokens,
+        maxTokensRecoveryAttempt,
+        maxTokensEvents
+      });
+      return {
+        content: lastResult,
+        finishReason: "max_steps",
+        step,
+        usage: lastUsage,
+        recoveredFromMaxTokens,
+        maxTokensRecoveryAttempt,
+        maxTokensEvents
+      };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.callback?.onError?.(err);

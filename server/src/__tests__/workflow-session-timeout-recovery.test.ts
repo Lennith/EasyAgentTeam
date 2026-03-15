@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { createWorkflowRun, createWorkflowTemplate, getWorkflowRun, patchWorkflowRun } from "../data/workflow-store.js";
 import { listWorkflowSessions, upsertWorkflowSession } from "../data/workflow-run-store.js";
@@ -40,6 +40,21 @@ test("workflow timeout uses soft recovery (idle) before escalation", async () =>
       status: "running",
       provider: "minimax"
     });
+    const sessionDir = path.join(tempRoot, ".minimax", "sessions", "wf_timeout_s_lead");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      path.join(sessionDir, "latest_llm_input_messages.json"),
+      JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        stage: "initial",
+        messages: [
+          { role: "system", content: "sys" },
+          { role: "user", content: "u1" },
+          { role: "assistant", content: "a1" }
+        ]
+      }),
+      "utf-8"
+    );
 
     const run = await getWorkflowRun(tempRoot, "wf_timeout_run");
     assert.ok(run);
@@ -61,6 +76,17 @@ test("workflow timeout uses soft recovery (idle) before escalation", async () =>
     assert.equal(session.status, "idle");
     assert.equal(session.timeoutStreak, 1);
     assert.equal(session.lastFailureKind, "timeout");
+
+    const timeoutDumpFiles = (await readdir(sessionDir)).filter((name) => name.startsWith("timeout_error_"));
+    assert.equal(timeoutDumpFiles.length, 1);
+    const timeoutDump = JSON.parse(await readFile(path.join(sessionDir, timeoutDumpFiles[0]), "utf-8")) as {
+      source: string;
+      messageCount: number;
+      messages: Array<{ role: string; content: string }>;
+    };
+    assert.equal(timeoutDump.source, "latest_llm_input_messages");
+    assert.equal(timeoutDump.messageCount, 3);
+    assert.equal(timeoutDump.messages[1]?.content, "u1");
   } finally {
     if (prevTimeout === undefined) delete process.env.WORKFLOW_SESSION_RUNNING_TIMEOUT_MS;
     else process.env.WORKFLOW_SESSION_RUNNING_TIMEOUT_MS = prevTimeout;
