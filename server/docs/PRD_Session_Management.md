@@ -1,5 +1,9 @@
 # Session 管理模块 PRD
 
+## 模块状态
+
+- `实装`
+
 ## 1. 模块目标
 
 ### 模块职责
@@ -16,6 +20,8 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 - `server/src/data/session-store.ts`
 - `server/src/app.ts`（`/api/projects/:id/sessions*`）
 - `server/src/services/orchestrator-service.ts`
+- `server/src/minimax/storage/SessionStorage.ts`
+- `server/src/minimax/index.ts`
 
 ### 解决问题
 
@@ -94,6 +100,12 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 - dismiss：先尝试进程终止，再置 `dismissed`。
 - repair：人工恢复为 `idle/blocked`。
 
+#### 4.4 MiniMax 会话消息有效加载口径
+
+- SummaryMessages apply 后会写入 `summary_anchor` 消息元数据。
+- 会话恢复时按“最新 summary_anchor 及其之后消息”加载有效上下文窗口。
+- 原始历史消息保留用于审计，不做物理删除。
+
 ---
 
 ## 5. 约束条件
@@ -129,3 +141,4 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 - `sessionId`：唯一会话主键（对内对外一致）
 - `providerSessionId`：内部运行态字段（resume 语义）
 - `agentPid`：运行进程 pid（仅 `running` 保留）
+- `summary_anchor`：MiniMax 会话上下文压缩锚点（仅内部消息元数据）

@@ -1,5 +1,9 @@
 ﻿# MiniMax Tools 模块 PRD
 
+## 模块状态
+
+- `实装`
+
 ## 1. 模块目标
 
 ### 模块职责
@@ -41,7 +45,8 @@ MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“
 - `web_fetch`
 - `web_search`
 - `shell_execute`
-- `note`（session note）
+- `session_note`
+- `summary_messages`
 
 > 默认注册中已移除 `list_directory`，用于减少高噪音无效探索。
 
@@ -85,6 +90,7 @@ MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“
 - `activeParentTaskId`
 - `activeRootTaskId`
 - `parentRequestId`
+- `summary_messages` 上下文桥接（checkpoint 查询与 apply 请求登记）
 
 ### 3.2 输出
 
@@ -94,6 +100,28 @@ MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“
   - `message`
   - `next_action`
   - `raw`
+
+#### 3.3 `summary_messages` 工具协议
+
+输入参数：
+
+- `action`: `list | apply`
+- `checkpoint_id`: `string`（`apply` 必填）
+- `summary`: `string`（`apply` 必填）
+- `keep_recent_messages`: `number`（可选，默认 `0`，范围 `0~20`）
+
+行为规则：
+
+- `list`：返回当前 session 的可用 checkpoint 列表（倒序，最多 50 条）。
+- `apply`：只登记一次待应用请求，不在工具执行函数中直接改写对话消息。
+- 待应用请求由 `Agent` 在单轮工具调用批次结束后统一执行，避免破坏 tool_call/tool_result 协议配对。
+
+错误码：
+
+- `CHECKPOINT_NOT_FOUND`
+- `SUMMARY_EMPTY`
+- `INVALID_KEEP_RECENT_MESSAGES`
+- `SUMMARY_APPLY_NOT_AVAILABLE`
 
 ---
 
@@ -119,6 +147,16 @@ MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“
 
 将 service 错误转换为可执行提示（next_action），避免模型盲重试。
 
+#### 4.4 Checkpoint 与消息压缩应用
+
+- 自动打点规则：
+  - 用户输入消息：打 `user_prompt` checkpoint
+  - assistant 发起 tool_calls：打 `assistant_toolcall` checkpoint
+  - summary 锚点消息：打 `summary_anchor` checkpoint
+- `summary_messages.apply` 执行时机：当前 tool batch 结束后统一应用。
+- 改写结果规则：保留系统消息 + checkpoint 之前有效历史 + 可选最近 N 条 + summary anchor。
+- apply 过程中要求保持协议一致性，不允许生成 orphan tool_result。
+
 ---
 
 ## 5. 依赖关系
@@ -142,6 +180,7 @@ MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“
 - MiniMax 文件权限基于项目目录白名单。
 - Team Tools 必须在有效执行上下文下运行（缺 task 上下文需显式报错）。
 - 工具注册必须通过去重策略，避免功能重复。
+- `summary_messages` 默认全环境启用；紧急熔断由环境变量 `AUTO_DEV_SUMMARY_MESSAGES_DISABLE=1` 控制。
 
 ---
 
@@ -171,6 +210,8 @@ MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“
 - `TEAM_TOOL_SUCCEEDED`
 - `TEAM_TOOL_FAILED`
 - `MINIMAX_TOOL_REGISTRATION_SKIPPED_DUPLICATE`
+- `SUMMARY_MESSAGES_APPLY_ACCEPTED`
+- `SUMMARY_MESSAGES_APPLIED`
 
 ---
 
