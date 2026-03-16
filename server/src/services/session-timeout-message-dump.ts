@@ -19,8 +19,149 @@ export interface TimeoutMessageDumpResult {
   messageCount: number;
 }
 
+interface TimeoutDumpTopMessage {
+  index: number;
+  role: string;
+  toolName: string | null;
+  chars: number;
+  preview: string;
+}
+
+interface TimeoutDumpShareEntry {
+  chars: number;
+  pct: number;
+}
+
+interface TimeoutDumpAnalysis {
+  topMessages: TimeoutDumpTopMessage[];
+  roleCharShare: Record<string, TimeoutDumpShareEntry>;
+  toolCharShare: Record<string, TimeoutDumpShareEntry>;
+  fattestTool: { toolName: string; chars: number; pct: number } | null;
+  totalChars: number;
+  toolChars: number;
+  toolCharPct: number;
+}
+
 function buildTimeoutFileTimeToken(now: Date): string {
   return now.toISOString().replace(/[:.]/g, "-");
+}
+
+function stringifyContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (!item || typeof item !== "object") {
+          return "";
+        }
+        const record = item as Record<string, unknown>;
+        const type = typeof record.type === "string" ? record.type : "";
+        if (type === "text") {
+          return typeof record.text === "string" ? record.text : "";
+        }
+        if (type === "tool_result") {
+          return typeof record.content === "string" ? record.content : "";
+        }
+        if (type === "tool_use") {
+          try {
+            return JSON.stringify(record.input ?? {});
+          } catch {
+            return "";
+          }
+        }
+        return "";
+      })
+      .join("\n");
+  }
+  if (content === null || content === undefined) {
+    return "";
+  }
+  if (typeof content === "object") {
+    try {
+      return JSON.stringify(content);
+    } catch {
+      return "";
+    }
+  }
+  return String(content);
+}
+
+function pct(part: number, total: number): number {
+  if (total <= 0) {
+    return 0;
+  }
+  return Number(((part / total) * 100).toFixed(2));
+}
+
+function toPreview(value: string, maxChars: number = 180): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxChars - 15))}...<truncated>`;
+}
+
+function buildTimeoutAnalysis(messages: unknown[]): TimeoutDumpAnalysis {
+  const roleChars = new Map<string, number>();
+  const toolCharsByName = new Map<string, number>();
+  const topCandidates: TimeoutDumpTopMessage[] = [];
+  let totalChars = 0;
+  let toolChars = 0;
+
+  messages.forEach((entry, index) => {
+    const message = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+    const role = typeof message.role === "string" ? message.role : "unknown";
+    const toolNameRaw = typeof message.name === "string" ? message.name.trim() : "";
+    const toolName = toolNameRaw.length > 0 ? toolNameRaw : null;
+    const text = stringifyContent(message.content);
+    const chars = text.length;
+
+    totalChars += chars;
+    roleChars.set(role, (roleChars.get(role) ?? 0) + chars);
+    if (role === "tool") {
+      toolChars += chars;
+      const toolKey = toolName ?? "(unknown_tool)";
+      toolCharsByName.set(toolKey, (toolCharsByName.get(toolKey) ?? 0) + chars);
+    }
+
+    topCandidates.push({
+      index,
+      role,
+      toolName,
+      chars,
+      preview: toPreview(text)
+    });
+  });
+
+  topCandidates.sort((a, b) => b.chars - a.chars);
+  const topMessages = topCandidates.slice(0, 5);
+
+  const roleCharShare: Record<string, TimeoutDumpShareEntry> = {};
+  for (const [role, chars] of roleChars.entries()) {
+    roleCharShare[role] = { chars, pct: pct(chars, totalChars) };
+  }
+
+  const toolCharShare: Record<string, TimeoutDumpShareEntry> = {};
+  let fattestTool: { toolName: string; chars: number; pct: number } | null = null;
+  for (const [toolName, chars] of toolCharsByName.entries()) {
+    const entry = { chars, pct: pct(chars, toolChars) };
+    toolCharShare[toolName] = entry;
+    if (!fattestTool || chars > fattestTool.chars) {
+      fattestTool = { toolName, chars, pct: entry.pct };
+    }
+  }
+
+  return {
+    topMessages,
+    roleCharShare,
+    toolCharShare,
+    fattestTool,
+    totalChars,
+    toolChars,
+    toolCharPct: pct(toolChars, totalChars)
+  };
 }
 
 export async function dumpSessionMessagesOnSoftTimeout(
@@ -59,7 +200,8 @@ export async function dumpSessionMessagesOnSoftTimeout(
     sourceCapturedAt: latestPrepared.capturedAt ?? null,
     sourceStage: latestPrepared.stage ?? null,
     messageCount: messages.length,
-    messages
+    messages,
+    analysis: buildTimeoutAnalysis(messages)
   };
   await fs.mkdir(sessionPath, { recursive: true });
   await fs.writeFile(filePath, JSON.stringify(payload, null, 2), "utf-8");

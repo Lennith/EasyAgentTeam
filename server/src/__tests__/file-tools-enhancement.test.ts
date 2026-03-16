@@ -28,6 +28,37 @@ test("ReadFileTool supports offset and limit line slicing", async () => {
   assert.equal(result.content, "line-2\nline-3");
 });
 
+test("ReadFileTool applies default 200-line limit when limit is omitted", async () => {
+  const workspaceDir = await mkdtemp(path.join(os.tmpdir(), "autodev-read-default-limit-"));
+  const filePath = path.join(workspaceDir, "big.txt");
+  const lines = Array.from({ length: 260 }, (_value, idx) => `line-${idx + 1}`);
+  await writeFile(filePath, lines.join("\n"), "utf-8");
+
+  const tool = new ReadFileTool({ workspaceDir });
+  const result = await tool.execute({ path: "big.txt" });
+  assert.equal(result.success, true);
+  const rows = result.content.split("\n");
+  assert.equal(rows[0], "[READ_FILE_DEFAULT_LIMIT_APPLIED limit=200]");
+  assert.equal(rows.length, 201);
+  assert.equal(rows[1], "line-1");
+  assert.equal(rows[200], "line-200");
+});
+
+test("ReadFileTool respects explicit limit and skips default-limit notice", async () => {
+  const workspaceDir = await mkdtemp(path.join(os.tmpdir(), "autodev-read-explicit-limit-"));
+  const filePath = path.join(workspaceDir, "sample.txt");
+  await writeFile(filePath, ["line-1", "line-2", "line-3", "line-4"].join("\n"), "utf-8");
+
+  const tool = new ReadFileTool({ workspaceDir });
+  const result = await tool.execute({
+    path: "sample.txt",
+    limit: 3
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.content.includes("[READ_FILE_DEFAULT_LIMIT_APPLIED"), false);
+  assert.equal(result.content, "line-1\nline-2\nline-3");
+});
+
 test("GrepTool searches content and returns file:line:text rows", async () => {
   const workspaceDir = await mkdtemp(path.join(os.tmpdir(), "autodev-grep-tool-"));
   const filePath = path.join(workspaceDir, "demo.ts");

@@ -532,6 +532,8 @@ function resolveTaskActionNextAction(code: string): string | null {
       return "Do not resend identical report. Add new progress or report unresolved tasks.";
     case "TASK_STATE_STALE":
       return "Task state is already newer than this transition. Keep same-state report or continue with downstream tasks.";
+    case "TASK_DEPENDENCY_NOT_READY":
+      return "Wait for dependency tasks to reach DONE/CANCELED before reporting IN_PROGRESS/DONE.";
     case "TASK_ACTION_INVALID":
       return "Fix payload schema for selected action_type. For TASK_REPORT, send results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.";
     default:
@@ -2321,7 +2323,7 @@ export function createApp(options: AppOptions = {}) {
         `[API] POST /api/projects/${projectId}/task-actions - error after ${duration}ms: ${error}, body=${JSON.stringify(requestBody)}`
       );
       if (error instanceof TaskActionError) {
-        const nextAction = resolveTaskActionNextAction(error.code);
+        const nextAction = error.hint ?? resolveTaskActionNextAction(error.code);
         res.status(error.status).json({
           error_code: error.code,
           error: {

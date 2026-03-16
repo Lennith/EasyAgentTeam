@@ -40,6 +40,8 @@ function resolveTaskActionNextAction(code: string): string | null {
       return "Do not resend identical report. Add new progress and evidence.";
     case "TASK_STATE_STALE":
       return "Task is already in a newer terminal state. Keep same-state report or continue downstream.";
+    case "TASK_DEPENDENCY_NOT_READY":
+      return "Wait until dependency tasks are DONE/CANCELED, then retry IN_PROGRESS/DONE report.";
     case "TASK_ACTION_INVALID":
       return "Fix payload schema for selected action_type and retry once.";
     default:
@@ -72,7 +74,7 @@ export function createMiniMaxTeamToolBridge(context: TeamToolExecutionContext): 
             error.status,
             error.code,
             error.message,
-            resolveTaskActionNextAction(error.code),
+            error.hint ?? resolveTaskActionNextAction(error.code),
             error.details
           );
         }

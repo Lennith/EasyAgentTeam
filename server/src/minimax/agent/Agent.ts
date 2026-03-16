@@ -44,6 +44,7 @@ export interface AgentOptions {
 }
 
 export class Agent {
+  private static readonly DEFAULT_TOOL_RESULT_CHAR_LIMIT = 4000;
   private llm: LLMClient;
   private tools: ToolRegistry;
   private systemPrompt: string;
@@ -235,6 +236,48 @@ export class Agent {
       return value;
     }
     return `${value.slice(0, Math.max(0, maxChars - 18))}...(truncated)`;
+  }
+
+  private resolveToolResultCharLimit(toolName?: string): number {
+    const normalized = (toolName ?? "").trim().toLowerCase();
+    if (normalized === "read_file") {
+      return 6000;
+    }
+    if (normalized.startsWith("task_report_")) {
+      return 3500;
+    }
+    if (normalized === "lock_manage") {
+      return 1500;
+    }
+    if (
+      normalized === "task_create_assign" ||
+      normalized === "route_targets_get" ||
+      normalized.startsWith("discuss_") ||
+      normalized.startsWith("task_discuss_")
+    ) {
+      return 3000;
+    }
+    return Agent.DEFAULT_TOOL_RESULT_CHAR_LIMIT;
+  }
+
+  private sanitizeToolMessageBeforeAppend(message: Message): Message {
+    if (message.role !== "tool") {
+      return message;
+    }
+    const maxChars = this.resolveToolResultCharLimit(message.name);
+    const original = this.messageTextContent(message.content);
+    if (original.length <= maxChars) {
+      return message;
+    }
+    const normalizedToolName = (message.name ?? "(unknown)").trim() || "(unknown)";
+    const header = `[TOOL_RESULT_TRUNCATED tool=${normalizedToolName} original_chars=${original.length} kept_chars=${maxChars}]`;
+    const bodyBudget = maxChars - header.length - 1;
+    const body = bodyBudget > 0 ? original.slice(0, bodyBudget) : "";
+    const finalContent = body.length > 0 ? `${header}\n${body}` : header.slice(0, maxChars);
+    return {
+      ...message,
+      content: finalContent
+    };
   }
 
   private compactCompletedToolHistory(messages: Message[]): {
@@ -538,7 +581,7 @@ export class Agent {
               toolCallId: toolCall.id,
               name
             };
-            this.messages.push(toolMsg);
+            this.messages.push(this.sanitizeToolMessageBeforeAppend(toolMsg));
           }
         }
         const currentStep = step + 1;

@@ -140,7 +140,8 @@ export class WorkflowRuntimeError extends Error {
       | WorkflowBlockReasonCode
       | "ROUTE_DENIED"
       | "MESSAGE_TARGET_REQUIRED"
-      | "TASK_OWNER_ROLE_NOT_FOUND",
+      | "TASK_OWNER_ROLE_NOT_FOUND"
+      | "TASK_DEPENDENCY_NOT_READY",
     public readonly status: number = 400,
     public readonly hint?: string,
     public readonly details?: Record<string, unknown>
@@ -204,6 +205,20 @@ function readPayloadString(payload: Record<string, unknown>, key: string): strin
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function mergeDependencies(parentDependencies: string[], explicitDependencies: string[]): string[] {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  for (const dep of [...parentDependencies, ...explicitDependencies]) {
+    const normalized = dep.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    merged.push(normalized);
+  }
+  return merged;
 }
 
 function findLatestOpenDispatch(
@@ -806,6 +821,7 @@ export class WorkflowOrchestratorService {
     dispatchKind: "task" | "message";
     message: WorkflowManagerToAgentMessage | null;
     taskState: WorkflowTaskState | null;
+    runtimeTasks: WorkflowTaskRuntimeRecord[];
     rolePrompt?: string;
   }): string {
     const messageType = input.message ? readMessageTypeUpper(input.message) : "TASK_ASSIGNMENT";
@@ -814,6 +830,34 @@ export class WorkflowOrchestratorService {
         ? String((input.message.body as Record<string, unknown>).content)
         : "";
     const task = input.taskId ? input.run.tasks.find((item) => item.taskId === input.taskId) : null;
+    const runtimeById = new Map(input.runtimeTasks.map((item) => [item.taskId, item]));
+    const runTaskById = new Map(input.run.tasks.map((item) => [item.taskId, item]));
+    const focusDependencyIds = task?.dependencies ?? [];
+    const unresolvedFocusDependencies = focusDependencyIds.filter((depId) => {
+      const depRuntime = runtimeById.get(depId);
+      return !depRuntime || (depRuntime.state !== "DONE" && depRuntime.state !== "CANCELED");
+    });
+    const dependencyStatus =
+      focusDependencyIds.length > 0
+        ? focusDependencyIds.map((depId) => `${depId}=${runtimeById.get(depId)?.state ?? "UNKNOWN"}`).join(", ")
+        : "(none)";
+    const visibleRoleTasks = input.runtimeTasks
+      .map((runtimeTask) => ({ runtimeTask, def: runTaskById.get(runtimeTask.taskId) }))
+      .filter((item) => item.def?.ownerRole === input.role);
+    const visibleActionableTasks = visibleRoleTasks
+      .filter(
+        (item) =>
+          item.runtimeTask.state === "READY" ||
+          item.runtimeTask.state === "DISPATCHED" ||
+          item.runtimeTask.state === "IN_PROGRESS" ||
+          item.runtimeTask.state === "MAY_BE_DONE"
+      )
+      .map((item) => `${item.runtimeTask.taskId}(${item.runtimeTask.state})`);
+    const visibleBlockedTasks = visibleRoleTasks
+      .filter((item) => item.runtimeTask.state === "BLOCKED_DEP")
+      .map(
+        (item) => `${item.runtimeTask.taskId}(blocked_by=${(item.runtimeTask.blockedBy ?? []).join("|") || "unknown"})`
+      );
     const rolePrompt = input.rolePrompt?.trim() ?? "";
     const agentWorkspace = path.join(input.run.workspacePath, "Agents", input.role);
     return [
@@ -825,18 +869,26 @@ export class WorkflowOrchestratorService {
       `Dispatch kind: ${input.dispatchKind}.`,
       `Assigned task id: ${input.taskId ?? "(none)"}`,
       `Current task state: ${input.taskState ?? "UNKNOWN"}`,
+      `Focus task id (this turn): ${input.taskId ?? "(none)"}`,
+      `This turn should operate on: ${input.taskId ?? "(none)"} (focus task first).`,
+      `Visible actionable tasks (same role): ${visibleActionableTasks.join(", ") || "(none)"}`,
+      `Visible blocked tasks (same role): ${visibleBlockedTasks.join(", ") || "(none)"}`,
       `Message type: ${messageType}`,
       messageContent ? `Message content:\n${messageContent}` : "Message content: (none)",
       task
-        ? `Task context:\n- title: ${task.resolvedTitle}\n- owner: ${task.ownerRole}\n- parent: ${task.parentTaskId ?? "(none)"}\n- dependencies: ${(task.dependencies ?? []).join(", ") || "(none)"}\n- acceptance: ${(task.acceptance ?? []).join(" | ") || "(none)"}\n- artifacts: ${(task.artifacts ?? []).join(", ") || "(none)"}`
+        ? `Task context:\n- title: ${task.resolvedTitle}\n- owner: ${task.ownerRole}\n- parent: ${task.parentTaskId ?? "(none)"}\n- dependencies: ${focusDependencyIds.join(", ") || "(none)"}\n- dependency_states: ${dependencyStatus}\n- dependencies_ready: ${unresolvedFocusDependencies.length === 0 ? "true" : "false"}\n- unresolved_dependencies: ${unresolvedFocusDependencies.join(", ") || "(none)"}\n- acceptance: ${(task.acceptance ?? []).join(" | ") || "(none)"}\n- artifacts: ${(task.artifacts ?? []).join(", ") || "(none)"}`
         : "Task context: (none)",
       rolePrompt ? `Role system prompt:\n${rolePrompt}` : "",
       "Execution contract:",
       "1) Execute immediately and produce concrete progress/artifacts.",
       "2) Shared deliverables must be written under TeamWorkSpace/docs/** or TeamWorkSpace/src/** (not only inside YourWorkspace).",
       "3) Use workflow task actions via manager APIs only (TASK_CREATE/TASK_DISCUSS_*/TASK_REPORT).",
-      "4) If blocked, report BLOCKED_DEP with concrete blockers.",
-      "5) On completion, report DONE for the phase task, not only subtasks."
+      "4) Focus task first: prioritize this-turn focus task over other visible tasks.",
+      "5) Non-focus task report is allowed only when dependencies are already satisfied; treat it as non-preferred side work.",
+      "6) Never report IN_PROGRESS/DONE/MAY_BE_DONE for tasks whose dependencies are not ready.",
+      "7) If report fails due to dependencies, wait for dependency completion signal/reminder and then retry; retract or downgrade conflicting premature completion claims to draft.",
+      "8) If blocked, report BLOCKED_DEP with concrete blockers.",
+      "9) On completion, report DONE for the phase task, not only subtasks."
     ]
       .filter((line) => line.length > 0)
       .join("\n\n");
@@ -940,6 +992,7 @@ export class WorkflowOrchestratorService {
         dispatchKind: input.dispatchKind,
         message: input.message,
         taskState: runtimeTask?.state ?? null,
+        runtimeTasks: runtime.tasks,
         rolePrompt
       });
 
@@ -2036,6 +2089,24 @@ export class WorkflowOrchestratorService {
     return null;
   }
 
+  private resolveUnreadyDependencyTaskIds(
+    taskDef: WorkflowRunRecord["tasks"][number] | undefined,
+    runtimeByTaskId: Map<string, WorkflowTaskRuntimeRecord>,
+    stateByTaskId?: Map<string, WorkflowTaskState>
+  ): string[] {
+    if (!taskDef) {
+      return [];
+    }
+    const unresolved: string[] = [];
+    for (const depId of taskDef.dependencies ?? []) {
+      const depState = stateByTaskId?.get(depId) ?? runtimeByTaskId.get(depId)?.state;
+      if (depState !== "DONE" && depState !== "CANCELED") {
+        unresolved.push(depId);
+      }
+    }
+    return unresolved;
+  }
+
   async applyTaskActions(
     runId: string,
     input: WorkflowTaskActionRequest
@@ -2117,7 +2188,13 @@ export class WorkflowOrchestratorService {
       }
       if (task.parentTaskId && !run.tasks.some((item) => item.taskId === task.parentTaskId))
         throw new WorkflowRuntimeError(`parent task '${task.parentTaskId}' not found`, "TASK_NOT_FOUND", 404);
-      const dependencies = (task.dependencies ?? []).map((item) => item.trim()).filter((item) => item.length > 0);
+      const parentDependencies = task.parentTaskId
+        ? (run.tasks.find((item) => item.taskId === task.parentTaskId)?.dependencies ?? [])
+        : [];
+      const explicitDependencies = (task.dependencies ?? [])
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      const dependencies = mergeDependencies(parentDependencies, explicitDependencies);
       for (const dep of dependencies)
         if (!run.tasks.some((item) => item.taskId === dep))
           throw new WorkflowRuntimeError(`dependency task '${dep}' not found`, "TASK_NOT_FOUND", 404);
@@ -2167,6 +2244,52 @@ export class WorkflowOrchestratorService {
       throw new WorkflowRuntimeError(`unsupported action_type '${actionType}'`, "INVALID_TRANSITION", 400);
     }
     if (run.status !== "running") throw new WorkflowRuntimeError("run is not running", "RUN_NOT_RUNNING", 409);
+    const predictedStateByTaskId = new Map(runtime.tasks.map((item) => [item.taskId, item.state]));
+    for (const result of input.results ?? []) {
+      const taskDef = runTaskById.get(result.taskId);
+      const runtimeTask = byTask.get(result.taskId);
+      if (!taskDef || !runtimeTask) {
+        continue;
+      }
+      const target = this.parseOutcome(result.outcome);
+      if (!target) {
+        continue;
+      }
+      if (fromAgent !== "manager" && taskDef.ownerRole !== fromAgent) {
+        continue;
+      }
+      const currentState = predictedStateByTaskId.get(result.taskId) ?? runtimeTask.state;
+      if (!REPORTABLE_STATES.has(currentState)) {
+        continue;
+      }
+      if (target !== "BLOCKED_DEP" && target !== "CANCELED") {
+        const unresolvedDependencyTaskIds = this.resolveUnreadyDependencyTaskIds(
+          taskDef,
+          byTask,
+          predictedStateByTaskId
+        );
+        if (unresolvedDependencyTaskIds.length > 0) {
+          const hint =
+            `Task '${result.taskId}' is blocked by dependencies [${unresolvedDependencyTaskIds.join(", ")}]. ` +
+            "Wait until they are DONE/CANCELED before reporting IN_PROGRESS/DONE/MAY_BE_DONE. " +
+            "If you already wrote conflicting completion claims, retract or downgrade them to draft until dependencies are ready.";
+          throw new WorkflowRuntimeError(
+            `task '${result.taskId}' cannot transition to '${target}' before dependencies are ready: ${unresolvedDependencyTaskIds.join(", ")}`,
+            "TASK_DEPENDENCY_NOT_READY",
+            409,
+            hint,
+            {
+              task_id: result.taskId,
+              dependency_task_ids: unresolvedDependencyTaskIds,
+              current_state: currentState,
+              reported_target_state: target,
+              focus_task_id: input.taskId ?? null
+            }
+          );
+        }
+      }
+      predictedStateByTaskId.set(result.taskId, target);
+    }
     for (const result of input.results ?? []) {
       const task = byTask.get(result.taskId);
       if (!task) {

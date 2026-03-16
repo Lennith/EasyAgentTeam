@@ -82,20 +82,29 @@ test("workflow parent task state follows child completion progress", async () =>
     assert.ok(phaseAfterEarlyDone);
     assert.equal(phaseAfterEarlyDone.state, "IN_PROGRESS");
 
-    const completeSubTasks = await fetch(`${baseUrl}/api/workflow-runs/wf_parent_align_run_01/task-actions`, {
+    const completeSubTaskA = await fetch(`${baseUrl}/api/workflow-runs/wf_parent_align_run_01/task-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action_type: "TASK_REPORT",
         from_agent: "lead",
         from_session_id: "session-lead-01",
-        results: [
-          { task_id: "dev_a", outcome: "DONE", summary: "subtask a done" },
-          { task_id: "dev_b", outcome: "DONE", summary: "subtask b done" }
-        ]
+        results: [{ task_id: "dev_a", outcome: "DONE", summary: "subtask a done" }]
       })
     });
-    assert.equal(completeSubTasks.status, 200);
+    assert.equal(completeSubTaskA.status, 200);
+
+    const completeSubTaskB = await fetch(`${baseUrl}/api/workflow-runs/wf_parent_align_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "lead",
+        from_session_id: "session-lead-01",
+        results: [{ task_id: "dev_b", outcome: "DONE", summary: "subtask b done" }]
+      })
+    });
+    assert.equal(completeSubTaskB.status, 200);
 
     const runtimeAfterChildrenDone = await fetch(`${baseUrl}/api/workflow-runs/wf_parent_align_run_01/task-runtime`);
     assert.equal(runtimeAfterChildrenDone.status, 200);

@@ -20,6 +20,8 @@ import { resolveDiscussRoundLimit } from "./discuss-policy-service.js";
 import { TeamToolBridgeError } from "./minimax-teamtool-bridge.js";
 import { resolveWorkflowRunRoleScope } from "./workflow-role-scope-service.js";
 
+export { TeamToolBridgeError } from "./minimax-teamtool-bridge.js";
+
 interface WorkflowTaskActionDefaults {
   agentRole: string;
   sessionId: string;
@@ -245,6 +247,8 @@ function resolveTaskActionNextAction(code: string): string | null {
       return "Re-check task_id/parent_task_id/to_role and retry.";
     case "TASK_OWNER_ROLE_NOT_FOUND":
       return "Call route_targets_get first, choose an allowed target role, and retry TASK_CREATE.";
+    case "TASK_DEPENDENCY_NOT_READY":
+      return "Wait for dependency tasks listed in error.details.dependency_task_ids to reach DONE/CANCELED, then retry.";
     case "RUN_NOT_RUNNING":
       return "Run is not active. Restart run before sending task actions.";
     case "ROUTE_DENIED":
@@ -391,11 +395,12 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
         }
         const status = asStatus((error as { status?: unknown }).status, 500);
         const code = asCode((error as { code?: unknown }).code, "WORKFLOW_TASK_ACTION_BRIDGE_ERROR");
+        const hinted = readString((error as { hint?: unknown }).hint);
         throw new TeamToolBridgeError(
           status,
           code,
           normalizeErrorMessage(error),
-          resolveTaskActionNextAction(code),
+          hinted ?? resolveTaskActionNextAction(code),
           (error as { details?: unknown }).details
         );
       }

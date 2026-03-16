@@ -48,10 +48,12 @@ export class TaskActionError extends Error {
       | "TASK_RESULT_INVALID_TARGET"
       | "TASK_PROGRESS_REQUIRED"
       | "TASK_STATE_STALE"
+      | "TASK_DEPENDENCY_NOT_READY"
       | "TASK_REPORT_NO_STATE_CHANGE"
       | "TASK_NOT_FOUND",
     status?: number,
-    public readonly details?: Record<string, unknown>
+    public readonly details?: Record<string, unknown>,
+    public readonly hint?: string
   ) {
     super(message);
     if (status !== undefined) {
@@ -76,6 +78,7 @@ function getDefaultStatusForCode(code: TaskActionError["code"]): number {
       return 404;
     case "TASK_REPORT_NO_STATE_CHANGE":
     case "TASK_STATE_STALE":
+    case "TASK_DEPENDENCY_NOT_READY":
     case "TASK_BINDING_MISMATCH":
     case "TASK_DEPENDENCY_CYCLE":
     case "TASK_DEPENDENCY_CROSS_ROOT":
@@ -180,6 +183,8 @@ function buildTaskActionRejectedHint(code: TaskActionError["code"]): string | nu
       return "Do not resend identical report. Add new progress/results that change task state, then send once.";
     case "TASK_STATE_STALE":
       return "Task state is already newer than this report transition. Keep same-state report or continue with downstream tasks.";
+    case "TASK_DEPENDENCY_NOT_READY":
+      return "Wait for dependency tasks to reach DONE/CANCELED before reporting IN_PROGRESS/DONE for this task.";
     case "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN":
       return "Dependencies cannot include parent or ancestor task ids. Keep dependency edges only between sibling/peer tasks.";
     default:
@@ -223,6 +228,43 @@ function readStringList(value: unknown): string[] {
     return [];
   }
   return value.map((item) => String(item).trim()).filter((item) => item.length > 0);
+}
+
+function mergeDependencies(parentDependencies: string[], explicitDependencies: string[]): string[] {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  for (const dep of [...parentDependencies, ...explicitDependencies]) {
+    const normalized = dep.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    merged.push(normalized);
+  }
+  return merged;
+}
+
+function resolveUnreadyDependencyTaskIds(
+  task: TaskRecord,
+  byId: Map<string, TaskRecord>,
+  stateByTaskId?: Map<string, TaskState>
+): string[] {
+  const unresolved: string[] = [];
+  for (const depId of task.dependencies ?? []) {
+    const depState = stateByTaskId?.get(depId) ?? byId.get(depId)?.state;
+    if (depState !== "DONE" && depState !== "CANCELED") {
+      unresolved.push(depId);
+    }
+  }
+  return unresolved;
+}
+
+function buildDependencyNotReadyHint(taskId: string, dependencyTaskIds: string[]): string {
+  const deps = dependencyTaskIds.join(", ");
+  return (
+    `Task '${taskId}' cannot be progressed yet. Wait for dependencies [${deps}] to reach DONE/CANCELED. ` +
+    "If you already produced conflicting completion content, retract or downgrade it to draft and retry after dependencies are complete."
+  );
 }
 
 function readNumber(value: unknown): number | undefined {
@@ -559,6 +601,10 @@ export async function handleTaskAction(
         throw new TaskActionError("task assign route denied", "TASK_ROUTE_DENIED");
       }
       const ownerSession = await resolveTargetSession(dataRoot, project, paths, ownerRole, toSessionId);
+      const explicitDependencies = readStringList(actionInput.dependencies);
+      const parentTask = parentTaskId ? await getTask(paths, project.projectId, parentTaskId).catch(() => null) : null;
+      const inheritedDependencies = parentTask?.dependencies ?? [];
+      const effectiveDependencies = mergeDependencies(inheritedDependencies, explicitDependencies);
       const created = await createTask(paths, project.projectId, {
         taskId,
         taskKind: taskKind as any,
@@ -570,7 +616,7 @@ export async function handleTaskAction(
         ownerRole,
         ownerSession,
         priority: Number(actionInput.priority ?? 0),
-        dependencies: readStringList(actionInput.dependencies),
+        dependencies: effectiveDependencies,
         writeSet: readStringList(actionInput.write_set ?? actionInput.writeSet),
         acceptance: readStringList(actionInput.acceptance),
         artifacts: readStringList(actionInput.artifacts),
@@ -873,6 +919,7 @@ export async function handleTaskAction(
       const report = normalizeTaskReport(project.projectId, fromSessionId, fromAgent, actionInput);
       const taskItems = await listTasks(paths, project.projectId);
       const byId = new Map(taskItems.map((task) => [task.taskId, task]));
+      const predictedStateByTaskId = new Map(taskItems.map((task) => [task.taskId, task.state]));
 
       const acceptedResults: TaskReport["results"] = [];
       const rejectedResults: TaskReportRejectedResult[] = [];
@@ -898,18 +945,36 @@ export async function handleTaskAction(
         }
 
         const nextState = result.outcome;
-        if (!isAllowedTaskReportTransition(target.state, nextState)) {
+        const currentState = predictedStateByTaskId.get(target.taskId) ?? target.state;
+        const unresolvedDependencyTaskIds = resolveUnreadyDependencyTaskIds(target, byId, predictedStateByTaskId);
+        const progressOutcome = nextState === "IN_PROGRESS" || nextState === "MAY_BE_DONE" || nextState === "DONE";
+        if (progressOutcome && unresolvedDependencyTaskIds.length > 0) {
+          throw new TaskActionError(
+            `task '${target.taskId}' cannot transition to '${nextState}' before dependencies are ready: ${unresolvedDependencyTaskIds.join(", ")}`,
+            "TASK_DEPENDENCY_NOT_READY",
+            409,
+            {
+              task_id: target.taskId,
+              dependency_task_ids: unresolvedDependencyTaskIds,
+              current_state: currentState,
+              reported_target_state: nextState
+            },
+            buildDependencyNotReadyHint(target.taskId, unresolvedDependencyTaskIds)
+          );
+        }
+        if (!isAllowedTaskReportTransition(currentState, nextState)) {
           rejectedResults.push({
             task_id: result.taskId,
             reason_code: "TASK_STATE_STALE",
-            reason: `stale transition ${target.state} -> ${nextState}`,
-            current_state: target.state,
+            reason: `stale transition ${currentState} -> ${nextState}`,
+            current_state: currentState,
             reported_target_state: nextState
           });
           continue;
         }
 
         acceptedResults.push(result);
+        predictedStateByTaskId.set(target.taskId, nextState);
       }
 
       if (acceptedResults.length === 0) {
@@ -999,7 +1064,7 @@ export async function handleTaskAction(
       }
     }
     if (normalizedError instanceof TaskActionError) {
-      const hint = buildTaskActionRejectedHint(normalizedError.code);
+      const hint = normalizedError.hint ?? buildTaskActionRejectedHint(normalizedError.code);
       await appendEvent(paths, {
         projectId: project.projectId,
         eventType: "TASK_ACTION_REJECTED",

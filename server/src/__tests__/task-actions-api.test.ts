@@ -145,6 +145,59 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     });
     assert.equal(createExec.status, 201);
 
+    const createBaseDependency = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "exec-dep-base",
+        task_kind: "EXECUTION",
+        parent_task_id: "user-root-1",
+        root_task_id: "user-root-1",
+        title: "Base Dependency",
+        owner_role: "dev"
+      })
+    });
+    assert.equal(createBaseDependency.status, 201);
+
+    const createParentTask = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "exec-parent-task",
+        task_kind: "EXECUTION",
+        parent_task_id: "user-root-1",
+        root_task_id: "user-root-1",
+        title: "Parent Task",
+        owner_role: "dev",
+        dependencies: ["exec-dep-base"]
+      })
+    });
+    assert.equal(createParentTask.status, 201);
+
+    const createChildTask = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "exec-child-task",
+        task_kind: "EXECUTION",
+        parent_task_id: "exec-parent-task",
+        root_task_id: "user-root-1",
+        title: "Child Task",
+        owner_role: "dev",
+        dependencies: ["exec-task-1", "exec-dep-base"]
+      })
+    });
+    assert.equal(createChildTask.status, 201);
+
     const createInvalidParentDependency = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -206,7 +259,7 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     const treeRes = await fetch(`${baseUrl}/api/projects/taskactions/task-tree`);
     assert.equal(treeRes.status, 200);
     const tree = (await treeRes.json()) as {
-      nodes: Array<{ task_id: string; task_detail_id?: string; state: string }>;
+      nodes: Array<{ task_id: string; task_detail_id?: string; state: string; dependencies?: string[] }>;
       edges: Array<{ edge_type: string; from_task_id: string; to_task_id: string }>;
     };
     const nodeIds = new Set(tree.nodes.map((item) => item.task_id));
@@ -221,6 +274,9 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     const execNode = tree.nodes.find((item) => item.task_id === "exec-task-1");
     assert.ok(execNode);
     assert.equal(execNode?.task_detail_id, "exec-task-1");
+    const childNode = tree.nodes.find((item) => item.task_id === "exec-child-task");
+    assert.ok(childNode);
+    assert.deepEqual(childNode?.dependencies ?? [], ["exec-dep-base", "exec-task-1"]);
 
     const inProgressAccepted = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
       method: "POST",
@@ -345,6 +401,24 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     });
     assert.equal(createExec2.status, 201);
 
+    const createExec3 = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "exec-task-3",
+        task_kind: "EXECUTION",
+        parent_task_id: "user-root-1",
+        root_task_id: "user-root-1",
+        title: "Third task",
+        owner_role: "dev",
+        dependencies: ["exec-task-2"]
+      })
+    });
+    assert.equal(createExec3.status, 201);
+
     const blockTask2 = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -365,18 +439,60 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     });
     assert.equal(blockTask2.status, 201);
 
-    const doneFromBlockedTask2 = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
+    const reportDependencyNotReady = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action_type: "TASK_REPORT",
         from_agent: "dev",
         from_session_id: devSessionId,
-        summary: "dependency solved",
-        results: [{ task_id: "exec-task-2", outcome: "DONE", summary: "dependency solved" }]
+        summary: "mixed report with unresolved dependency first",
+        results: [
+          { task_id: "exec-task-3", outcome: "DONE", summary: "premature done" },
+          { task_id: "exec-task-2", outcome: "DONE", summary: "done now" }
+        ]
       })
     });
-    assert.equal(doneFromBlockedTask2.status, 201);
+    assert.equal(reportDependencyNotReady.status, 409);
+    const dependencyNotReadyPayload = (await reportDependencyNotReady.json()) as {
+      error_code?: string;
+      error?: { details?: { task_id?: string; dependency_task_ids?: string[] } };
+      hint?: string | null;
+    };
+    assert.equal(dependencyNotReadyPayload.error_code, "TASK_DEPENDENCY_NOT_READY");
+    assert.equal(dependencyNotReadyPayload.error?.details?.task_id, "exec-task-3");
+    assert.deepEqual(dependencyNotReadyPayload.error?.details?.dependency_task_ids ?? [], ["exec-task-2"]);
+    assert.match(String(dependencyNotReadyPayload.hint ?? ""), /Wait for dependenc/i);
+
+    const reportOrderedDependencyResolved = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "dev",
+        from_session_id: devSessionId,
+        summary: "ordered report resolves dependency in same batch",
+        results: [
+          { task_id: "exec-task-2", outcome: "DONE", summary: "dependency solved in same batch" },
+          { task_id: "exec-task-3", outcome: "DONE", summary: "done after dependency solved in same batch" }
+        ]
+      })
+    });
+    assert.equal(reportOrderedDependencyResolved.status, 201);
+
+    const treeAfterOrderedDependencyResolved = await fetch(`${baseUrl}/api/projects/taskactions/task-tree`);
+    assert.equal(treeAfterOrderedDependencyResolved.status, 200);
+    const treeAfterOrderedDependencyResolvedPayload = (await treeAfterOrderedDependencyResolved.json()) as {
+      nodes: Array<{ task_id: string; state: string }>;
+    };
+    const execTask2StateAfterOrdered = treeAfterOrderedDependencyResolvedPayload.nodes.find(
+      (item) => item.task_id === "exec-task-2"
+    )?.state;
+    const execTask3StateAfterOrdered = treeAfterOrderedDependencyResolvedPayload.nodes.find(
+      (item) => item.task_id === "exec-task-3"
+    )?.state;
+    assert.equal(execTask2StateAfterOrdered, "DONE");
+    assert.equal(execTask3StateAfterOrdered, "DONE");
     const timelineRes = await fetch(`${baseUrl}/api/projects/taskactions/agent-io/timeline`);
     assert.equal(timelineRes.status, 200);
     const timeline = (await timelineRes.json()) as {

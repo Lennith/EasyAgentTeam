@@ -83,10 +83,28 @@ test("workflow timeout uses soft recovery (idle) before escalation", async () =>
       source: string;
       messageCount: number;
       messages: Array<{ role: string; content: string }>;
+      analysis?: {
+        topMessages?: Array<{ index: number; role: string; toolName: string | null; chars: number; preview: string }>;
+        roleCharShare?: Record<string, { chars: number; pct: number }>;
+        toolCharShare?: Record<string, { chars: number; pct: number }>;
+        fattestTool?: { toolName: string; chars: number; pct: number } | null;
+        totalChars?: number;
+        toolChars?: number;
+        toolCharPct?: number;
+      };
     };
     assert.equal(timeoutDump.source, "latest_llm_input_messages");
     assert.equal(timeoutDump.messageCount, 3);
     assert.equal(timeoutDump.messages[1]?.content, "u1");
+    assert.ok(timeoutDump.analysis);
+    assert.equal(Array.isArray(timeoutDump.analysis?.topMessages), true);
+    assert.equal((timeoutDump.analysis?.topMessages?.length ?? 0) > 0, true);
+    assert.equal(typeof timeoutDump.analysis?.roleCharShare?.user?.pct, "number");
+    assert.deepEqual(timeoutDump.analysis?.toolCharShare, {});
+    assert.equal(timeoutDump.analysis?.fattestTool ?? null, null);
+    assert.equal(typeof timeoutDump.analysis?.totalChars, "number");
+    assert.equal(timeoutDump.analysis?.toolChars, 0);
+    assert.equal(timeoutDump.analysis?.toolCharPct, 0);
   } finally {
     if (prevTimeout === undefined) delete process.env.WORKFLOW_SESSION_RUNNING_TIMEOUT_MS;
     else process.env.WORKFLOW_SESSION_RUNNING_TIMEOUT_MS = prevTimeout;

@@ -333,7 +333,13 @@ function buildPromptFromMessages(
   session: SessionRecord,
   messages: ManagerToAgentMessage[],
   routingSnapshot: ProjectRoutingSnapshot,
-  taskId: string
+  taskId: string,
+  taskScope: {
+    focusTask: TaskRecord | null;
+    unresolvedDependencyTaskIds: string[];
+    visibleActionableTasks: string[];
+    visibleBlockedTasks: string[];
+  }
 ): string {
   const allowedTargets =
     routingSnapshot.allowedTargets.length > 0
@@ -342,6 +348,7 @@ function buildPromptFromMessages(
   const enabledAgents = routingSnapshot.enabledAgents.length > 0 ? routingSnapshot.enabledAgents.join(", ") : "(none)";
 
   const agentWorkspace = session.role ? `${project.workspacePath}/Agents/${session.role}` : project.workspacePath;
+  const focusTaskId = taskScope.focusTask?.taskId ?? taskId ?? "(none)";
 
   const lines: string[] = [
     `You are role=${session.role}, session=${session.sessionId}.`,
@@ -357,6 +364,12 @@ function buildPromptFromMessages(
     "",
     "## Incoming Messages",
     `task_id: ${taskId}`,
+    `focus_task_id: ${focusTaskId}`,
+    `this_turn_operate_task_id: ${focusTaskId} (focus task first)`,
+    `visible_actionable_tasks: ${taskScope.visibleActionableTasks.join(", ") || "(none)"}`,
+    `visible_blocked_tasks: ${taskScope.visibleBlockedTasks.join(", ") || "(none)"}`,
+    `focus_task_dependencies_ready: ${taskScope.unresolvedDependencyTaskIds.length === 0 ? "true" : "false"}`,
+    `focus_task_unresolved_dependencies: ${taskScope.unresolvedDependencyTaskIds.join(", ") || "(none)"}`,
     `total_messages: ${messages.length}`,
     ""
   ];
@@ -436,6 +449,16 @@ function buildPromptFromMessages(
   );
   lines.push(
     "- task report tool calls are `task_report_in_progress`, `task_report_done`, `task_report_block` (use these for progress/completion)."
+  );
+  lines.push("- focus task first: this turn should operate on the focus task unless you have valid side work.");
+  lines.push(
+    "- non-focus task reporting is allowed only when dependencies are already ready; this is non-preferred compared to focus task."
+  );
+  lines.push(
+    "- never report IN_PROGRESS/DONE/MAY_BE_DONE for dependency-blocked tasks; wait for dependency completion signal/reminder."
+  );
+  lines.push(
+    "- if dependency-related report is rejected, retract or downgrade conflicting premature completion claims to draft and retry later."
   );
 
   return lines.join("\n");
@@ -1158,17 +1181,39 @@ async function dispatchSessionOnce(
     let activeTaskTitle = "";
     let activeParentTaskId = "";
     let activeRootTaskId = "";
-    if (taskId) {
-      const allTasksForContext = await listTasks(paths, project.projectId);
-      const activeTask = allTasksForContext.find((item) => item.taskId === taskId);
-      if (activeTask) {
-        activeTaskTitle = activeTask.title ?? "";
-        activeParentTaskId = activeTask.parentTaskId ?? "";
-        activeRootTaskId = activeTask.rootTaskId ?? "";
-      }
+    const allTasksForContext = await listTasks(paths, project.projectId);
+    const taskById = new Map(allTasksForContext.map((item) => [item.taskId, item]));
+    const activeTask = taskId ? (taskById.get(taskId) ?? null) : null;
+    if (activeTask) {
+      activeTaskTitle = activeTask.title ?? "";
+      activeParentTaskId = activeTask.parentTaskId ?? "";
+      activeRootTaskId = activeTask.rootTaskId ?? "";
     }
+    const unresolvedDependencyTaskIds =
+      activeTask?.dependencies?.filter((depId) => {
+        const depTask = taskById.get(depId);
+        return !depTask || (depTask.state !== "DONE" && depTask.state !== "CANCELED");
+      }) ?? [];
+    const visibleRoleTasks = allTasksForContext.filter((item) => item.ownerRole === session.role);
+    const visibleActionableTasks = visibleRoleTasks
+      .filter(
+        (item) =>
+          item.state === "READY" ||
+          item.state === "DISPATCHED" ||
+          item.state === "IN_PROGRESS" ||
+          item.state === "MAY_BE_DONE"
+      )
+      .map((item) => `${item.taskId}(${item.state})`);
+    const visibleBlockedTasks = visibleRoleTasks
+      .filter((item) => item.state === "BLOCKED_DEP")
+      .map((item) => `${item.taskId}(blocked_by=${(item.dependencies ?? []).join("|") || "unknown"})`);
 
-    const prompt = buildPromptFromMessages(project, session, selectedMessages, routingSnapshot, taskId);
+    const prompt = buildPromptFromMessages(project, session, selectedMessages, routingSnapshot, taskId, {
+      focusTask: activeTask,
+      unresolvedDependencyTaskIds,
+      visibleActionableTasks,
+      visibleBlockedTasks
+    });
 
     const promptFileName = `${startedAt.replace(/[:.]/g, "-")}_${session.sessionId}_${dispatchId}.md`;
     const promptFilePath = path.join(paths.promptsDir, promptFileName);

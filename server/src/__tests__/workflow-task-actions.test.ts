@@ -33,7 +33,8 @@ test("workflow task-actions support create/discuss/report with partial apply and
           architect: ["lead"]
         },
         tasks: [
-          { task_id: "task_a", title: "Task A", owner_role: "lead" },
+          { task_id: "task_dep", title: "Task Dep", owner_role: "lead" },
+          { task_id: "task_a", title: "Task A", owner_role: "lead", dependencies: ["task_dep"] },
           { task_id: "task_b", title: "Task B", owner_role: "architect", dependencies: ["task_a"] }
         ]
       })
@@ -72,7 +73,8 @@ test("workflow task-actions support create/discuss/report with partial apply and
           task_id: "task_c",
           title: "Task C",
           owner_role: "architect",
-          dependencies: ["task_a"]
+          parent_task_id: "task_b",
+          dependencies: ["task_a", "task_dep"]
         }
       })
     });
@@ -83,6 +85,15 @@ test("workflow task-actions support create/discuss/report with partial apply and
     };
     assert.equal(createTaskPayload.success, true);
     assert.equal(createTaskPayload.createdTaskId, "task_c");
+
+    const runtimeTree = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-tree-runtime`);
+    assert.equal(runtimeTree.status, 200);
+    const runtimeTreePayload = (await runtimeTree.json()) as {
+      nodes: Array<{ taskId: string; dependencies?: string[] }>;
+    };
+    const taskCNode = runtimeTreePayload.nodes.find((node) => node.taskId === "task_c");
+    assert.ok(taskCNode);
+    assert.deepEqual(taskCNode?.dependencies ?? [], ["task_a", "task_dep"]);
 
     const createInvalidRoleTask = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
       method: "POST",
@@ -141,6 +152,39 @@ test("workflow task-actions support create/discuss/report with partial apply and
       true
     );
 
+    const dependencyNotReadyReport = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "architect",
+        from_session_id: "session-architect-01",
+        results: [{ task_id: "task_b", outcome: "DONE", summary: "premature done" }]
+      })
+    });
+    assert.equal(dependencyNotReadyReport.status, 409);
+    const dependencyNotReadyPayload = (await dependencyNotReadyReport.json()) as {
+      error_code?: string;
+      error?: { details?: { task_id?: string; dependency_task_ids?: string[] } };
+      hint?: string | null;
+    };
+    assert.equal(dependencyNotReadyPayload.error_code, "TASK_DEPENDENCY_NOT_READY");
+    assert.equal(dependencyNotReadyPayload.error?.details?.task_id, "task_b");
+    assert.deepEqual(dependencyNotReadyPayload.error?.details?.dependency_task_ids ?? [], ["task_a"]);
+    assert.match(String(dependencyNotReadyPayload.hint ?? ""), /Wait until/);
+
+    const blockedDependencyReport = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "architect",
+        from_session_id: "session-architect-01",
+        results: [{ task_id: "task_b", outcome: "BLOCKED_DEP", summary: "waiting task_a", blockers: ["task_a"] }]
+      })
+    });
+    assert.equal(blockedDependencyReport.status, 200);
+
     const partialReport = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -149,7 +193,8 @@ test("workflow task-actions support create/discuss/report with partial apply and
         from_agent: "lead",
         from_session_id: "session-lead-01",
         results: [
-          { task_id: "task_a", outcome: "DONE", summary: "done" },
+          { task_id: "task_dep", outcome: "DONE", summary: "done" },
+          { task_id: "task_a", outcome: "DONE", summary: "done after dependency in same batch" },
           { task_id: "task_missing", outcome: "DONE", summary: "missing" }
         ]
       })
@@ -161,10 +206,22 @@ test("workflow task-actions support create/discuss/report with partial apply and
       rejectedResults: Array<{ taskId: string; reasonCode: string }>;
     };
     assert.equal(partialPayload.partialApplied, true);
-    assert.deepEqual(partialPayload.appliedTaskIds, ["task_a"]);
+    assert.deepEqual(partialPayload.appliedTaskIds, ["task_dep", "task_a"]);
     assert.equal(partialPayload.rejectedResults.length, 1);
     assert.equal(partialPayload.rejectedResults[0].taskId, "task_missing");
     assert.equal(partialPayload.rejectedResults[0].reasonCode, "TASK_NOT_FOUND");
+
+    const completeTaskC = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_REPORT",
+        from_agent: "architect",
+        from_session_id: "session-architect-01",
+        results: [{ task_id: "task_c", outcome: "DONE", summary: "non-focus but dependency-ready completion" }]
+      })
+    });
+    assert.equal(completeTaskC.status, 200);
 
     const crossRoleReport = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
       method: "POST",

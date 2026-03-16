@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string[]]$Cases = @("chain", "discuss", "workflow"),
   [string]$ChainScenarioPath = "",
@@ -56,7 +56,7 @@ $caseMap = @{
 $selected = @()
 foreach ($caseIdRaw in $Cases) {
   $caseId = $caseIdRaw.Trim().ToLower()
-  if (-not $caseMap.ContainsKey($caseId)) {
+  if (-not $caseMap.Contains($caseId)) {
     throw "Unknown case '$caseId'. Supported: chain, discuss, workflow"
   }
   $selected += $caseId
@@ -207,7 +207,7 @@ $totalsToolFail = 0
 $totalsTimeoutRecovered = 0
 foreach ($caseId in $selected) {
   $metricsObj = $null
-  $artifactDir = if ($caseArtifacts.ContainsKey($caseId)) { [string]$caseArtifacts[$caseId] } else { "" }
+  $artifactDir = if ($caseArtifacts.Contains($caseId)) { [string]$caseArtifacts[$caseId] } else { "" }
   $metricsPath = if (-not [string]::IsNullOrWhiteSpace($artifactDir)) { Join-Path $artifactDir "stability_metrics.json" } else { "" }
   if (-not [string]::IsNullOrWhiteSpace($metricsPath) -and (Test-Path -LiteralPath $metricsPath)) {
     try {
@@ -215,11 +215,11 @@ foreach ($caseId in $selected) {
       $metricsObj | Add-Member -NotePropertyName metrics_missing -NotePropertyValue $false -Force
       $metricsObj | Add-Member -NotePropertyName artifacts_dir -NotePropertyValue $artifactDir -Force
     } catch {
-      $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.ContainsKey($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
+      $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.Contains($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
       $metricsObj.artifacts_dir = $artifactDir
     }
   } else {
-    $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.ContainsKey($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
+    $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.Contains($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
     $metricsObj.artifacts_dir = $artifactDir
   }
 
@@ -265,3 +265,4 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "== Multi E2E Passed =="
+

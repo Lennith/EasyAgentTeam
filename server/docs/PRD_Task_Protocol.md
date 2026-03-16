@@ -2,6 +2,10 @@
 
 ## 1. 模块目标
 
+### 模块状态
+
+- `实装`
+
 ### 模块职责
 
 Task 协议模块定义任务驱动协作的统一写入入口、状态机、依赖门禁与任务查询能力。
@@ -19,6 +23,7 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 
 - 统一任务创建/指派/讨论/上报协议
 - 保证依赖关系正确性（含祖先依赖禁用）
+- 防止依赖未满足任务被误上报为推进态，污染运行态时间线与阶段顺序判定
 - 提供可回放的任务树与生命周期详情
 
 ### 业务价值
@@ -93,11 +98,20 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 - runnable 以依赖门禁与状态计算为准。
 - 父任务状态由直接子任务聚合更新。
 
-#### 4.3 TASK_REPORT 授权与部分成功
+#### 4.3 TASK_REPORT 授权与部分成功（状态：实装）
 
 - 上报资格：`owner_role == from_agent` 或 `creator_role == from_agent`。
-- 批量上报逐条校验，允许部分成功。
+- 批量上报逐条校验，常规错误允许部分成功。
+- 依赖门禁为硬约束：当任一 result 试图将依赖未满足任务上报为推进态（`IN_PROGRESS | MAY_BE_DONE | DONE`）时，整次请求直接拒绝（409）。
+- 同批次 `results[]` 采用顺序语义：前序已通过校验并可应用的结果会先更新同批次预测状态，后序 result 的依赖判断基于该预测状态执行。
+- 因此，同批次内若先上报依赖任务 `DONE/CANCELED`，后续依赖该任务的推进态上报可在同一请求内通过门禁。
+- 依赖未满足任务允许上报 `BLOCKED_DEP`。
 - 状态迁移规则：`DONE/CANCELED` 仅允许同状态重复上报，不允许回退。
+- 依赖门禁拒绝返回 `TASK_DEPENDENCY_NOT_READY`，并返回：
+  - `task_id`
+  - `dependency_task_ids`
+  - 任务当前状态与目标状态
+  - 明确等待依赖完成与撤回/降级冲突内容的提示
 - 全部拒绝返回 409（`TASK_RESULT_INVALID_TARGET` 或 `TASK_STATE_STALE`）。
 
 #### 4.4 progress 校验
@@ -136,13 +150,14 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 
 ## 7. 异常与边界
 
-| 场景              | 错误码                               |
-| ----------------- | ------------------------------------ |
-| 祖先依赖非法      | `TASK_DEPENDENCY_ANCESTOR_FORBIDDEN` |
-| 路由越权          | `TASK_ROUTE_DENIED`                  |
-| 上报目标非法      | `TASK_RESULT_INVALID_TARGET`         |
-| 上报状态滞后      | `TASK_STATE_STALE`                   |
-| progress 证据不足 | `TASK_PROGRESS_REQUIRED`             |
+| 场景               | 错误码                               |
+| ------------------ | ------------------------------------ |
+| 祖先依赖非法       | `TASK_DEPENDENCY_ANCESTOR_FORBIDDEN` |
+| 路由越权           | `TASK_ROUTE_DENIED`                  |
+| 上报目标非法       | `TASK_RESULT_INVALID_TARGET`         |
+| 上报状态滞后       | `TASK_STATE_STALE`                   |
+| 依赖未满足推进上报 | `TASK_DEPENDENCY_NOT_READY`          |
+| progress 证据不足  | `TASK_PROGRESS_REQUIRED`             |
 
 ---
 

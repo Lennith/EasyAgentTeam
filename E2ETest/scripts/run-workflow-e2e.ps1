@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string]$ScenarioPath = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace",
@@ -489,7 +489,7 @@ function Build-WorkflowProcessValidation {
 
   foreach ($phase in $MainPhaseTasks) {
     $phaseId = [string]$phase.task_id
-    $row = if ($runtimeById.ContainsKey($phaseId)) { $runtimeById[$phaseId] } else { $null }
+    $row = if ($runtimeById.Contains($phaseId)) { $runtimeById[$phaseId] } else { $null }
     $state = if ($row) { Get-StringProp -Obj $row -Names @("state") } else { "MISSING" }
     if ([string]::IsNullOrWhiteSpace($state)) {
       $state = "UNKNOWN"
@@ -508,7 +508,7 @@ function Build-WorkflowProcessValidation {
       if ([string]::IsNullOrWhiteSpace($depId)) {
         continue
       }
-      $depRow = if ($runtimeById.ContainsKey($depId)) { $runtimeById[$depId] } else { $null }
+      $depRow = if ($runtimeById.Contains($depId)) { $runtimeById[$depId] } else { $null }
       $depDoneAt = Get-TaskTransitionAt -TaskRuntimeRow $depRow -ToState "DONE"
       $depPass = $true
       $reason = ""
@@ -598,16 +598,16 @@ function Resolve-TaskPhase {
   if ([string]::IsNullOrWhiteSpace($TaskId)) {
     return ""
   }
-  if ($PhaseSet.ContainsKey($TaskId)) {
+  if ($PhaseSet.Contains($TaskId)) {
     return $TaskId
   }
-  if ($Cache.ContainsKey($TaskId)) {
+  if ($Cache.Contains($TaskId)) {
     return [string]$Cache[$TaskId]
   }
   if ($Depth -gt 32) {
     return ""
   }
-  if (-not $NodeById.ContainsKey($TaskId)) {
+  if (-not $NodeById.Contains($TaskId)) {
     $Cache[$TaskId] = ""
     return ""
   }
@@ -644,7 +644,7 @@ function Build-SubtaskDependencyValidation {
   $phaseCache = @{}
   $phaseDoneAtMap = @{}
   foreach ($phaseId in $MainPhaseIds) {
-    if (-not $PhaseDoneTimes.ContainsKey($phaseId)) {
+    if (-not $PhaseDoneTimes.Contains($phaseId)) {
       continue
     }
     $raw = [string]$PhaseDoneTimes[$phaseId]
@@ -662,12 +662,12 @@ function Build-SubtaskDependencyValidation {
   foreach ($entry in $nodeById.GetEnumerator()) {
     $taskId = [string]$entry.Key
     $node = $entry.Value
-    if ($phaseSet.ContainsKey($taskId)) {
+    if ($phaseSet.Contains($taskId)) {
       continue
     }
 
     $taskPhase = Resolve-TaskPhase -TaskId $taskId -NodeById $nodeById -PhaseSet $phaseSet -Cache $phaseCache
-    if ([string]::IsNullOrWhiteSpace($taskPhase) -or -not $phaseSet.ContainsKey($taskPhase)) {
+    if ([string]::IsNullOrWhiteSpace($taskPhase) -or -not $phaseSet.Contains($taskPhase)) {
       continue
     }
     $inspectedSubtaskCount += 1
@@ -687,11 +687,11 @@ function Build-SubtaskDependencyValidation {
       if ([string]::IsNullOrWhiteSpace($depPhase) -or $depPhase -eq $taskPhase) {
         continue
       }
-      if (-not $phaseSet.ContainsKey($depPhase)) {
+      if (-not $phaseSet.Contains($depPhase)) {
         continue
       }
 
-      $depDoneAt = if ($phaseDoneAtMap.ContainsKey($depPhase)) { [datetime]$phaseDoneAtMap[$depPhase] } else { $null }
+      $depDoneAt = if ($phaseDoneAtMap.Contains($depPhase)) { [datetime]$phaseDoneAtMap[$depPhase] } else { $null }
       $pass = $true
       $reason = ""
       if (-not $depDoneAt) {
@@ -738,23 +738,24 @@ function Build-CodeOutputValidation {
     [string]$Workspace
   )
 
-  if (-not $Requirements -or $Requirements.Count -eq 0) {
-    return [ordered]@{
-      pass = $true
-      skipped = $true
-      total = 0
-      failed = 0
-      items = @()
-    }
+  $srcPath = Join-Path $Workspace "src"
+  $srcExists = Test-Path -LiteralPath $srcPath -PathType Container
+  $srcFiles = @()
+  if ($srcExists) {
+    $srcFiles = @(
+      Get-ChildItem -Path $srcPath -Recurse -File -ErrorAction SilentlyContinue
+    )
   }
+  $srcFileCount = @($srcFiles).Count
+  $srcPass = $srcExists -and $srcFileCount -gt 0
 
-  $items = @()
-  foreach ($req in $Requirements) {
+  $requirementItems = @()
+  foreach ($req in @($Requirements)) {
     $relativePath = Get-StringProp -Obj $req -Names @("relative_path", "relativePath")
     if (-not [string]::IsNullOrWhiteSpace($relativePath)) {
       $absolutePath = Join-Path $Workspace $relativePath
       $exists = Test-Path -LiteralPath $absolutePath
-      $items += [pscustomobject]@{
+      $requirementItems += [pscustomobject]@{
         requirement_type = "relative_path"
         relative_path = $relativePath
         absolute_path = $absolutePath
@@ -820,7 +821,7 @@ function Build-CodeOutputValidation {
         )
       }
     } else {
-      $items += [pscustomobject]@{
+      $requirementItems += [pscustomobject]@{
         requirement_type = "invalid"
         relative_path = ""
         absolute_path = ""
@@ -836,7 +837,7 @@ function Build-CodeOutputValidation {
 
     $count = @($matches).Count
     $pass = ($count -ge $minCount)
-    $items += [pscustomobject]@{
+    $requirementItems += [pscustomobject]@{
       requirement_type = "dir_pattern"
       dir_pattern = if (-not [string]::IsNullOrWhiteSpace($dirPattern)) { $dirPattern } else { Join-Path $dirPath $filePattern }
       resolved_pattern = $resolvedPattern
@@ -849,12 +850,30 @@ function Build-CodeOutputValidation {
     }
   }
 
+  $requirementFailed = @($requirementItems | Where-Object { -not $_.pass }).Count
   return [ordered]@{
-    pass = (@($items | Where-Object { -not $_.pass }).Count -eq 0)
+    pass = $srcPass
     skipped = $false
-    total = $items.Count
-    failed = @($items | Where-Object { -not $_.pass }).Count
-    items = $items
+    check_mode = "src_non_empty"
+    src_path = $srcPath
+    src_exists = $srcExists
+    src_file_count = $srcFileCount
+    total = 1
+    failed = $(if ($srcPass) { 0 } else { 1 })
+    items = @(
+      [pscustomobject]@{
+        requirement_type = "src_non_empty"
+        src_path = $srcPath
+        src_exists = $srcExists
+        src_file_count = $srcFileCount
+        pass = $srcPass
+        reason = if ($srcPass) { "" } else { "src_empty_or_missing" }
+      }
+    )
+    requirements_telemetry_pass = ($requirementFailed -eq 0)
+    requirements_telemetry_total = $requirementItems.Count
+    requirements_telemetry_failed = $requirementFailed
+    requirements_telemetry_items = $requirementItems
   }
 }
 
@@ -1004,7 +1023,7 @@ function Recover-StaleWorkflowSessions {
       continue
     }
 
-    $lastRecoveredAt = if ($script:workflowRecoveryState.ContainsKey($role)) { [datetime]$script:workflowRecoveryState[$role] } else { [datetime]::MinValue }
+    $lastRecoveredAt = if ($script:workflowRecoveryState.Contains($role)) { [datetime]$script:workflowRecoveryState[$role] } else { [datetime]::MinValue }
     if (((Get-Date) - $lastRecoveredAt).TotalSeconds -lt 90) {
       continue
     }
@@ -1036,7 +1055,7 @@ function Build-SubtaskStats {
   foreach ($node in $nodes) {
     $taskId = Get-StringProp -Obj $node -Names @("taskId", "task_id")
     $creatorRole = Get-StringProp -Obj $node -Names @("creatorRole", "creator_role")
-    if ($phaseSet.ContainsKey($taskId)) {
+    if ($phaseSet.Contains($taskId)) {
       continue
     }
     if ([string]::IsNullOrWhiteSpace($creatorRole) -or $creatorRole -eq "manager") {
@@ -1050,7 +1069,7 @@ function Build-SubtaskStats {
       parent_task_id = $parentTaskId
       creator_role = $creatorRole
       owner_role = $ownerRole
-      parent_is_phase = ($phaseSet.ContainsKey($parentTaskId))
+      parent_is_phase = ($phaseSet.Contains($parentTaskId))
     }
   }
 
@@ -1506,7 +1525,7 @@ try {
         skill_list = $skillListForAgent
       }
 
-      if ($knownAgents.ContainsKey([string]$entry.id)) {
+      if ($knownAgents.Contains([string]$entry.id)) {
         Invoke-TimedApi -Method PATCH -Path "/api/agents/$($entry.id)" -Body $payload -AllowStatus @(200) | Out-Null
       } else {
         Invoke-TimedApi -Method POST -Path "/api/agents" -Body $payload -AllowStatus @(201) | Out-Null
@@ -1971,3 +1990,4 @@ Write-Host "total_elapsed_ms=$totalElapsedMs"
 if (-not $pass) {
   exit 2
 }
+

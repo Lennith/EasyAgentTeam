@@ -16,6 +16,7 @@ test("workflow dispatch prompt includes team/shared workspace contract", async (
       dispatchKind: "task" | "message";
       message: null;
       taskState: "READY" | null;
+      runtimeTasks: Array<{ taskId: string; state: string; blockedBy?: string[] }>;
       rolePrompt?: string;
     }): string;
   };
@@ -45,6 +46,10 @@ test("workflow dispatch prompt includes team/shared workspace contract", async (
     dispatchKind: "task",
     message: null,
     taskState: "READY",
+    runtimeTasks: [
+      { taskId: "task_a", state: "READY", blockedBy: [] },
+      { taskId: "task_blocked", state: "BLOCKED_DEP", blockedBy: ["task_a"] }
+    ],
     rolePrompt: "Role: dev_agent"
   });
 
@@ -54,4 +59,9 @@ test("workflow dispatch prompt includes team/shared workspace contract", async (
     prompt,
     /Shared deliverables must be written under TeamWorkSpace\/docs\/\*\* or TeamWorkSpace\/src\/\*\*/
   );
+  assert.match(prompt, /Focus task id \(this turn\): task_a/);
+  assert.match(prompt, /This turn should operate on: task_a/);
+  assert.match(prompt, /Visible blocked tasks \(same role\):/);
+  assert.match(prompt, /Never report IN_PROGRESS\/DONE\/MAY_BE_DONE for tasks whose dependencies are not ready/);
+  assert.match(prompt, /Non-focus task report is allowed only when dependencies are already satisfied/);
 });

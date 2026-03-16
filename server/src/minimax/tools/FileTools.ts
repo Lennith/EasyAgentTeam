@@ -10,6 +10,8 @@ export interface FileToolsOptions {
 }
 
 export class ReadFileTool extends Tool {
+  private static readonly DEFAULT_LINE_LIMIT = 200;
+  private static readonly DEFAULT_LIMIT_NOTICE = "[READ_FILE_DEFAULT_LIMIT_APPLIED limit=200]";
   private workspaceDir: string;
   private checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
 
@@ -58,7 +60,9 @@ export class ReadFileTool extends Tool {
     const filePath = this.resolvePath(args.path as string);
     const encoding = (args.encoding as BufferEncoding) ?? "utf-8";
     const offset = this.readInteger(args.offset, 0);
-    const limit = this.readInteger(args.limit, undefined);
+    const explicitLimit = this.readInteger(args.limit, undefined);
+    const defaultLimitApplied = explicitLimit === undefined;
+    const effectiveLimit = defaultLimitApplied ? ReadFileTool.DEFAULT_LINE_LIMIT : explicitLimit;
 
     if (this.checkPermission) {
       const perm = this.checkPermission(filePath, "read");
@@ -73,14 +77,16 @@ export class ReadFileTool extends Tool {
 
     try {
       const content = fs.readFileSync(filePath, encoding);
-      if ((offset ?? 0) > 0 || limit !== undefined) {
-        const normalized = content.replace(/\r\n/g, "\n");
-        const lines = normalized.split("\n");
-        const start = Math.max(0, offset ?? 0);
-        const sliced = limit === undefined ? lines.slice(start) : lines.slice(start, start + Math.max(0, limit));
-        return successResult(sliced.join("\n"));
+      const normalized = content.replace(/\r\n/g, "\n");
+      const lines = normalized.split("\n");
+      const start = Math.max(0, offset ?? 0);
+      const sliced =
+        effectiveLimit === undefined ? lines.slice(start) : lines.slice(start, start + Math.max(0, effectiveLimit));
+      const slicedContent = sliced.join("\n");
+      if (defaultLimitApplied) {
+        return successResult(`${ReadFileTool.DEFAULT_LIMIT_NOTICE}\n${slicedContent}`);
       }
-      return successResult(content);
+      return successResult(slicedContent);
     } catch (err) {
       return errorResult(`Failed to read file: ${err}`);
     }
