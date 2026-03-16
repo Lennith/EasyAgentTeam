@@ -72,6 +72,22 @@ export interface MiniMaxSessionRunInput {
     onStep?: (step: number, maxSteps: number) => void;
     onMessage?: (role: string, content: string) => void;
     onError?: (error: Error) => void;
+    onSummaryMessagesAccepted?: (event: {
+      checkpointId: string;
+      keepRecentMessages: number;
+      summaryChars: number;
+      availableCheckpoints: number;
+    }) => void;
+    onSummaryMessagesApplied?: (event: {
+      checkpointId: string;
+      keepRecentMessages: number;
+      summaryChars: number;
+      beforeMessages: number;
+      afterMessages: number;
+      compactedMessages: number;
+      beforeChars: number;
+      afterChars: number;
+    }) => void;
     onMaxTokensRecovery?: (event: {
       observedAt: string;
       step: number;

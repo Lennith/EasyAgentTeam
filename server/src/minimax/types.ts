@@ -16,6 +16,20 @@ export interface ToolCall {
   function: FunctionCall;
 }
 
+export type CheckpointReason = "user_prompt" | "assistant_toolcall" | "summary_anchor";
+
+export interface MessageMetadata {
+  tokenCount?: number;
+  compressed?: boolean;
+  originalSize?: number;
+  compressedSize?: number;
+  checkpointId?: string;
+  checkpointReason?: CheckpointReason;
+  summaryAnchor?: boolean;
+  summaryFromCheckpointId?: string;
+  summaryCompactedMessageCount?: number;
+}
+
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
   content: string | ContentBlock[];
@@ -23,6 +37,7 @@ export interface Message {
   toolCalls?: ToolCall[];
   toolCallId?: string;
   name?: string;
+  metadata?: MessageMetadata;
 }
 
 export interface ContentBlock {
@@ -97,6 +112,39 @@ export interface ToolSchema {
   inputSchema: Record<string, unknown>;
 }
 
+export interface SummaryCheckpoint {
+  checkpointId: string;
+  messageIndex: number;
+  role: Message["role"];
+  reason: CheckpointReason;
+  preview: string;
+}
+
+export interface SummaryApplyRequest {
+  checkpointId: string;
+  summary: string;
+  keepRecentMessages: number;
+  requestedAt: string;
+}
+
+export interface SummaryApplyAcceptedEvent {
+  checkpointId: string;
+  keepRecentMessages: number;
+  summaryChars: number;
+  availableCheckpoints: number;
+}
+
+export interface SummaryApplyAppliedEvent {
+  checkpointId: string;
+  keepRecentMessages: number;
+  summaryChars: number;
+  beforeMessages: number;
+  afterMessages: number;
+  compactedMessages: number;
+  beforeChars: number;
+  afterChars: number;
+}
+
 export interface AgentCallback {
   onThinking?: (thinking: string) => void;
   onToolCall?: (name: string, args: Record<string, unknown>) => void;
@@ -112,6 +160,8 @@ export interface AgentCallback {
     consecutiveFailureCount: number;
     nextAction?: string;
   }) => void;
+  onSummaryMessagesAccepted?: (event: SummaryApplyAcceptedEvent) => void;
+  onSummaryMessagesApplied?: (event: SummaryApplyAppliedEvent) => void;
   onMaxTokensRecovery?: (event: MaxTokensRecoveryEvent) => void | Promise<void>;
   onComplete?: (result: string, finishReason?: string, meta?: AgentCompletionMeta) => void;
 }
@@ -237,12 +287,7 @@ export interface PersistedMessage {
   toolCalls?: ToolCall[];
   toolCallId?: string;
   name?: string;
-  metadata?: {
-    tokenCount?: number;
-    compressed?: boolean;
-    originalSize?: number;
-    compressedSize?: number;
-  };
+  metadata?: MessageMetadata;
 }
 
 export interface SessionMeta {

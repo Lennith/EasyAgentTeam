@@ -6,7 +6,8 @@ import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 const PROVIDER_BASELINES: Record<ProviderId, string> = {
   codex: "Provider policy: Codex CLI runtime. Prefer deterministic, tool-driven execution.",
   trae: "Provider policy: Trae CLI runtime. Keep actions explicit and auditable.",
-  minimax: "Provider policy: MiniMax runtime. Keep tool-call ordering valid and avoid stale tool_result reuse."
+  minimax:
+    "Provider policy: MiniMax runtime. Keep tool-call ordering valid and avoid stale tool_result reuse. Use summary_messages when context noise is high."
 };
 
 const CONTEXT_BASELINES: Record<string, string> = {

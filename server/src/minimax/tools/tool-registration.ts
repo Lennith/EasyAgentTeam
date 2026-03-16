@@ -96,7 +96,10 @@ export function resolveToolCapabilityFamily(name: string): string {
     case "shell_execute":
       return "shell_exec";
     case "note":
+    case "session_note":
       return "note";
+    case "summary_messages":
+      return "summary_messages";
     default:
       return `tool:${normalized}`;
   }

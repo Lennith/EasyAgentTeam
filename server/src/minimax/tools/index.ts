@@ -11,6 +11,12 @@ export {
 } from "./FileTools.js";
 export { ShellTool, createShellTool, type ShellToolOptions } from "./ShellTool.js";
 export { SessionNoteTool, createNoteTool, type NoteToolOptions } from "./NoteTool.js";
+export {
+  SummaryMessagesTool,
+  createSummaryMessagesTool,
+  type SummaryMessagesBridge,
+  type SummaryMessagesToolOptions
+} from "./SummaryMessagesTool.js";
 export { PermissionManager, createPermissionManager } from "./PermissionManager.js";
 export {
   createTeamTools,
