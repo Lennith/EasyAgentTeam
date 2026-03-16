@@ -92,6 +92,7 @@ test("MiniMax registry excludes list_directory and includes team tools when cont
   assert.equal(names.has("grep"), true);
   assert.equal(names.has("web_fetch"), true);
   assert.equal(names.has("web_search"), true);
+  assert.equal(names.has("summary_messages"), true);
   assert.equal(names.has("list_directory"), false);
 
   assert.equal(names.has("task_create_assign"), true);

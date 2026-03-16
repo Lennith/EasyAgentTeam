@@ -40,6 +40,8 @@ test("resolveToolCapabilityFamily maps known names to stable capability families
   assert.equal(resolveToolCapabilityFamily("discuss_request"), "discuss_request");
   assert.equal(resolveToolCapabilityFamily("read_file"), "file_read");
   assert.equal(resolveToolCapabilityFamily("grep"), "file_grep");
+  assert.equal(resolveToolCapabilityFamily("session_note"), "note");
+  assert.equal(resolveToolCapabilityFamily("summary_messages"), "summary_messages");
   assert.equal(resolveToolCapabilityFamily("custom_tool_x"), "tool:custom_tool_x");
 });
 
