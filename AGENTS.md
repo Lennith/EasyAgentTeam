@@ -70,13 +70,14 @@ This is a process control rule in this repository. It is not a product code feat
 
 - Trigger: release gate starts only when the prompt explicitly asks for `上线检测`.
 - Execution order (mandatory):
-  - Step 1: Run full unit test regression first (`pnpm test` from repo root).
-  - Step 2: Verify all commands explicitly listed in `README.md` are runnable in this environment, and run several core E2E baselines with continuous stable execution for 5 minutes as pass threshold.
-  - Step 3: Run full E2E regression only if Step 2 passes (aggregate baseline runner: `PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1`).
+  - **Step 1**: Run full unit test regression first (`pnpm test` from repo root).
+  - **Step 2**: Verify all commands explicitly listed in `README.md` are runnable in this environment, and run `pnpm e2e:first-run` as the 5-minute stability baseline.
+  - **Step 3**: Run full E2E regression only if Step 2 passes (`pnpm e2e:baseline`).
+  - Fail-fast rule: if any test case fails in any step, stop immediately and do not execute any subsequent test commands or steps.
 - Pass criteria (all required):
   - Step 1 passed (full unit tests).
-  - Step 2 passed (README command runnability + several E2E stable for 5 minutes).
-  - Step 3 passed (full E2E).
+  - Step 2 passed (README command runnability + `e2e:first-run` 5-minute baseline).
+  - Step 3 passed (full E2E baseline: chain + discuss + workflow).
   - No unresolved blocking issue in the release conclusion.
 - Waiver path (exception, explicit approval required):
   - If the requester explicitly confirms a release decision based on orchestrator behavior conformance (for example: `编排器符合设计即可发版`), release may proceed before full E2E completion.
@@ -107,8 +108,8 @@ Each appended run entry must include:
 - Target branch and commit information
 - Unit test command and result
 - README command check list and run results
-- E2E commands and 5-minute stability result
-- Full E2E command and result
+- `e2e:first-run` 5-minute stability result
+- Full E2E (`e2e:baseline`) command and result
 - Blocker check conclusion
 - Final decision (`PASS` or `FAIL`)
 - Evidence paths (key logs and artifact paths)

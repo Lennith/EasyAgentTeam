@@ -84,9 +84,22 @@ function Ensure-Dir {
 function Write-Utf8NoBom {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Content
+    [Parameter(Mandatory = $true)][string]$Content,
+    [int]$RetryCount = 10,
+    [int]$RetryDelayMs = 200
   )
-  [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
+  for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+    try {
+      [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
+      return
+    } catch [System.IO.IOException] {
+      if ($attempt -ge $RetryCount) { throw }
+      Start-Sleep -Milliseconds $RetryDelayMs
+    } catch [System.UnauthorizedAccessException] {
+      if ($attempt -ge $RetryCount) { throw }
+      Start-Sleep -Milliseconds $RetryDelayMs
+    }
+  }
 }
 
 function Resolve-WorkspaceRootSafePath {

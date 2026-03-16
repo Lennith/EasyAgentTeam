@@ -3,6 +3,7 @@ import type {
   ProjectPaths,
   ProjectRecord,
   TaskActionResult,
+  TaskRecord,
   TaskReport,
   TaskState,
   ManagerToAgentMessage
@@ -947,7 +948,7 @@ export async function handleTaskAction(
         const nextState = result.outcome;
         const currentState = predictedStateByTaskId.get(target.taskId) ?? target.state;
         const unresolvedDependencyTaskIds = resolveUnreadyDependencyTaskIds(target, byId, predictedStateByTaskId);
-        const progressOutcome = nextState === "IN_PROGRESS" || nextState === "MAY_BE_DONE" || nextState === "DONE";
+        const progressOutcome = nextState === "IN_PROGRESS" || nextState === "DONE";
         if (progressOutcome && unresolvedDependencyTaskIds.length > 0) {
           throw new TaskActionError(
             `task '${target.taskId}' cannot transition to '${nextState}' before dependencies are ready: ${unresolvedDependencyTaskIds.join(", ")}`,

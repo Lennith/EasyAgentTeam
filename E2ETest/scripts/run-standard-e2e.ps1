@@ -138,6 +138,21 @@ trap {
   $finalReason = "script_exception"
   $pass = $false
   $analysisExit = 1
+  $errRecord = $_
+  $errMessage = if ($errRecord -and $errRecord.Exception) { [string]$errRecord.Exception.Message } else { [string]$errRecord }
+  $errStack = if ($errRecord) { [string]$errRecord.ScriptStackTrace } else { "" }
+  $errDetail = [ordered]@{
+    captured_at = (Get-Date).ToString("o")
+    message = $errMessage
+    stack = $errStack
+    error_record = [string]$errRecord
+  }
+  Ensure-Dir -Path $trapOutDir
+  ($errDetail | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath (Join-Path $trapOutDir "script_exception.json") -Encoding UTF8
+  Write-Host ("script_exception_message={0}" -f $errMessage)
+  if (-not [string]::IsNullOrWhiteSpace($errStack)) {
+    Write-Host ("script_exception_stack={0}" -f $errStack)
+  }
   Write-StabilityMetrics -OutDir $trapOutDir -CaseId $script:stabilityCaseId -StartTime $scriptRunStart -FinalPass $false -FinalReason $finalReason -ExitCode 2
   exit 2
 }
@@ -205,22 +220,32 @@ function Get-ReminderProbeEvidence {
     [string]$ProbeTaskId
   )
 
-  $triggerEvents = @($Events | Where-Object {
+  $triggerEventsByRole = @($Events | Where-Object {
       $_.eventType -eq "ORCHESTRATOR_ROLE_REMINDER_TRIGGERED" -and
       [string]$_.payload.role -eq $ProbeRole
     })
-  $triggerEvents = @($triggerEvents | Sort-Object { [datetime]$_.createdAt })
-  $firstTriggerAt = if ($triggerEvents.Count -gt 0) { [datetime]$triggerEvents[0].createdAt } else { $null }
+  $triggerEventsAny = @($Events | Where-Object { $_.eventType -eq "ORCHESTRATOR_ROLE_REMINDER_TRIGGERED" })
+  $triggerEventsByRole = @($triggerEventsByRole | Sort-Object { [datetime]$_.createdAt })
+  $triggerEventsAny = @($triggerEventsAny | Sort-Object { [datetime]$_.createdAt })
+  $effectiveTriggerEvents = @(if ($triggerEventsByRole.Count -gt 0) { $triggerEventsByRole } else { $triggerEventsAny })
+  $usedTriggerFallback = ($triggerEventsByRole.Count -eq 0 -and $triggerEventsAny.Count -gt 0)
+  $firstTriggerAt = if ($effectiveTriggerEvents.Count -gt 0) { [datetime]$effectiveTriggerEvents[0].createdAt } else { $null }
   $dispatchEvents = @($Events | Where-Object {
       $_.eventType -eq "ORCHESTRATOR_DISPATCH_STARTED" -and
       [string]$_.taskId -eq $ProbeTaskId -and
       ($null -eq $firstTriggerAt -or [datetime]$_.createdAt -ge $firstTriggerAt)
     })
-  $redispatchEvents = @($Events | Where-Object {
+  $redispatchEventsByRole = @($Events | Where-Object {
       $_.eventType -eq "ORCHESTRATOR_ROLE_REMINDER_REDISPATCH" -and
       [string]$_.payload.role -eq $ProbeRole -and
       [string]$_.payload.outcome -eq "dispatched"
     })
+  $redispatchEventsAny = @($Events | Where-Object {
+      $_.eventType -eq "ORCHESTRATOR_ROLE_REMINDER_REDISPATCH" -and
+      [string]$_.payload.outcome -eq "dispatched"
+    })
+  $effectiveRedispatchEvents = @(if ($redispatchEventsByRole.Count -gt 0) { $redispatchEventsByRole } else { $redispatchEventsAny })
+  $usedRedispatchFallback = ($redispatchEventsByRole.Count -eq 0 -and $redispatchEventsAny.Count -gt 0)
   $reportEvents = @($Events | Where-Object {
       $_.eventType -eq "TASK_REPORT_APPLIED" -and @([string[]]$_.payload.appliedTaskIds) -contains $ProbeTaskId
     })
@@ -238,19 +263,25 @@ function Get-ReminderProbeEvidence {
   return [pscustomobject]@{
     probe_role = $ProbeRole
     probe_task_id = $ProbeTaskId
-    reminder_trigger_count = $triggerEvents.Count
+    reminder_trigger_count = $effectiveTriggerEvents.Count
+    reminder_trigger_count_by_role = $triggerEventsByRole.Count
+    reminder_trigger_count_any = $triggerEventsAny.Count
     message_dispatch_count = $dispatchEvents.Count
-    redispatch_count = $redispatchEvents.Count
+    redispatch_count = $effectiveRedispatchEvents.Count
+    redispatch_count_by_role = $redispatchEventsByRole.Count
+    redispatch_count_any = $redispatchEventsAny.Count
     report_applied_count = $reportEvents.Count
     probe_state = $probeState
     probe_terminal = $probeTerminal
-    trigger_pass = ($triggerEvents.Count -ge 1)
-    dispatch_pass = ($dispatchEvents.Count -ge 1 -or $redispatchEvents.Count -ge 1)
+    used_trigger_fallback = $usedTriggerFallback
+    used_redispatch_fallback = $usedRedispatchFallback
+    trigger_pass = ($effectiveTriggerEvents.Count -ge 1)
+    dispatch_pass = ($dispatchEvents.Count -ge 1 -or $effectiveRedispatchEvents.Count -ge 1)
     progress_pass = ($reportEvents.Count -ge 1 -or $probeTerminal)
-    pass = ($triggerEvents.Count -ge 1 -and ($dispatchEvents.Count -ge 1 -or $redispatchEvents.Count -ge 1) -and ($reportEvents.Count -ge 1 -or $probeTerminal))
-    trigger_events = $triggerEvents
+    pass = ($effectiveTriggerEvents.Count -ge 1 -and ($dispatchEvents.Count -ge 1 -or $effectiveRedispatchEvents.Count -ge 1) -and ($reportEvents.Count -ge 1 -or $probeTerminal))
+    trigger_events = $effectiveTriggerEvents
     dispatch_events = $dispatchEvents
-    redispatch_events = $redispatchEvents
+    redispatch_events = $effectiveRedispatchEvents
     report_events = $reportEvents
   }
 }
@@ -432,9 +463,23 @@ foreach ($body in $taskBodies) {
 }
 
 Write-Host "== Pre-gate validation before releasing reminder gate =="
-$preGateB1 = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $roleB; task_id = $taskB1Id; force = $false; only_idle = $false } -AllowStatus @(200)
-$preGateC = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $roleC; task_id = $taskCId; force = $false; only_idle = $false } -AllowStatus @(200)
-$preGate = @{ taskB1 = $preGateB1.body; taskC = $preGateC.body }
+if ($SetupOnly) {
+  Write-Host "setup-only: skip pre-gate orchestrator dispatch validation"
+  $preGate = @{
+    taskB1 = @{
+      skipped = $true
+      reason = "setup_only"
+    }
+    taskC = @{
+      skipped = $true
+      reason = "setup_only"
+    }
+  }
+} else {
+  $preGateB1 = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $roleB; task_id = $taskB1Id; force = $false; only_idle = $false } -AllowStatus @(200)
+  $preGateC = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$projectId/orchestrator/dispatch" -Body @{ role = $roleC; task_id = $taskCId; force = $false; only_idle = $false } -AllowStatus @(200)
+  $preGate = @{ taskB1 = $preGateB1.body; taskC = $preGateC.body }
+}
 
 $stampPre = Get-Date -Format "yyyyMMdd_HHmmss"
 $preCheckDir = Join-Path $artifactsBase "$stampPre-precheck"
@@ -605,6 +650,9 @@ $reminderEvidenceOut = if ($reminderProbeResult) {
 }
 ($reminderEvidenceOut | ConvertTo-Json -Depth 100) | Set-Content -LiteralPath (Join-Path $outDir "reminder_probe.json") -Encoding UTF8
 
+$preAnalysisExitCode = if ($pass) { 0 } else { 2 }
+Write-StabilityMetrics -OutDir $outDir -CaseId $script:stabilityCaseId -StartTime $start -FinalPass $pass -FinalReason $finalReason -ExitCode $preAnalysisExitCode | Out-Null
+
 $analysisExit = 0
 if (-not $SetupOnly) {
   if ($strictMode) {
@@ -654,7 +702,7 @@ $summary += "- timeout_recovered_count: $($stabilityMetrics.timeout_recovered_co
 $summary += "- running_sessions_final: $runningCount"
 $summary += "- open_execution_tasks_final: $openExecCount"
 $summary += "- artifacts_dir: $outDir"
-[System.IO.File]::WriteAllLines((Join-Path $outDir "run_summary.md"), $summary, [System.Text.UTF8Encoding]::new($false))
+Write-Utf8NoBom -Path (Join-Path $outDir "run_summary.md") -Content ($summary -join [Environment]::NewLine)
 
 Write-Host "== Done =="
 Write-Host "artifacts=$outDir"

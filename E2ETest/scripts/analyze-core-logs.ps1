@@ -9,6 +9,28 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 
+function Write-Utf8NoBomWithRetry {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][AllowEmptyString()][string[]]$Lines,
+    [int]$RetryCount = 10,
+    [int]$RetryDelayMs = 200
+  )
+  $content = $Lines -join [Environment]::NewLine
+  for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+    try {
+      [System.IO.File]::WriteAllText($Path, $content, [System.Text.UTF8Encoding]::new($false))
+      return
+    } catch [System.IO.IOException] {
+      if ($attempt -ge $RetryCount) { throw }
+      Start-Sleep -Milliseconds $RetryDelayMs
+    } catch [System.UnauthorizedAccessException] {
+      if ($attempt -ge $RetryCount) { throw }
+      Start-Sleep -Milliseconds $RetryDelayMs
+    }
+  }
+}
+
 if (-not $ScenarioPath) {
   $ScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\a-self-decompose-chain.json"
 }
@@ -211,7 +233,7 @@ $lines += ""
 $lines += "- This scenario embeds reminder validation before the main dependency chain is released."
 $lines += "- Role D owns the reminder probe task; manager-owned gate task blocks Task A until reminder redispatch is observed."
 
-[System.IO.File]::WriteAllLines($OutputPath, $lines, [System.Text.UTF8Encoding]::new($false))
+Write-Utf8NoBomWithRetry -Path $OutputPath -Lines $lines
 Write-Host "Analysis written to: $OutputPath"
 if (-not $overallPass) {
   exit 2
