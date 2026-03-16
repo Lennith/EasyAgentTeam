@@ -4,6 +4,7 @@ import {
   LLMClient,
   extractMissingToolCallId,
   isMiniMaxToolResultIdNotFoundError,
+  sanitizeMessagesForToolProtocol,
   trimMessagesForContextWindow
 } from "../llm/LLMClient.js";
 import { ToolRegistry, Tool } from "../tools/index.js";
@@ -18,7 +19,9 @@ import type {
   TokenUsage,
   LLMResponse,
   MaxTokensRecoveryEvent,
-  PersistedMessage
+  PersistedMessage,
+  SummaryApplyRequest,
+  SummaryCheckpoint
 } from "../types.js";
 
 export interface AgentRunResult {
@@ -45,6 +48,7 @@ export interface AgentOptions {
 
 export class Agent {
   private static readonly DEFAULT_TOOL_RESULT_CHAR_LIMIT = 4000;
+  private static readonly DEFAULT_SUMMARY_CHECKPOINT_LIMIT = 50;
   private llm: LLMClient;
   private tools: ToolRegistry;
   private systemPrompt: string;
@@ -61,6 +65,8 @@ export class Agent {
   private isRunning: boolean = false;
   private abortController: AbortController | null = null;
   private lastUsage: TokenUsage | undefined;
+  private checkpointCounter = 0;
+  private pendingSummaryApplyRequest: SummaryApplyRequest | null = null;
 
   constructor(options: AgentOptions) {
     this.llm = options.llmClient;
@@ -114,6 +120,44 @@ export class Agent {
     }
   }
 
+  private nextCheckpointId(): string {
+    this.checkpointCounter += 1;
+    return `ckpt-${this.checkpointCounter}`;
+  }
+
+  private withCheckpointMetadata(
+    message: Message,
+    reason: "user_prompt" | "assistant_toolcall" | "summary_anchor"
+  ): Message {
+    return {
+      ...message,
+      metadata: {
+        ...(message.metadata ?? {}),
+        checkpointId: this.nextCheckpointId(),
+        checkpointReason: reason
+      }
+    };
+  }
+
+  private syncCheckpointCounterFromMessages(): void {
+    let maxFound = 0;
+    for (const message of this.messages) {
+      const checkpointId = message.metadata?.checkpointId;
+      if (!checkpointId) {
+        continue;
+      }
+      const match = checkpointId.match(/^ckpt-(\d+)$/);
+      if (!match) {
+        continue;
+      }
+      const parsed = Number(match[1]);
+      if (Number.isFinite(parsed) && parsed > maxFound) {
+        maxFound = parsed;
+      }
+    }
+    this.checkpointCounter = Math.max(0, maxFound);
+  }
+
   setCallback(callback: AgentCallback): void {
     this.callback = callback;
   }
@@ -127,7 +171,56 @@ export class Agent {
   }
 
   addUserMessage(content: string): void {
-    this.messages.push({ role: "user", content });
+    this.messages.push(this.withCheckpointMetadata({ role: "user", content }, "user_prompt"));
+  }
+
+  listSummaryCheckpoints(limit: number = Agent.DEFAULT_SUMMARY_CHECKPOINT_LIMIT): SummaryCheckpoint[] {
+    const normalizedLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+    const checkpoints: SummaryCheckpoint[] = [];
+    for (let i = this.messages.length - 1; i >= 0; i -= 1) {
+      const message = this.messages[i];
+      const checkpointId = message.metadata?.checkpointId;
+      const checkpointReason = message.metadata?.checkpointReason;
+      if (!checkpointId || !checkpointReason) {
+        continue;
+      }
+      checkpoints.push({
+        checkpointId,
+        messageIndex: i,
+        role: message.role,
+        reason: checkpointReason,
+        preview: this.truncate(this.messageTextContent(message.content).replace(/\s+/g, " "), 180)
+      });
+      if (checkpoints.length >= normalizedLimit) {
+        break;
+      }
+    }
+    return checkpoints;
+  }
+
+  enqueueSummaryApply(request: SummaryApplyRequest): {
+    accepted: boolean;
+    availableCheckpoints: number;
+  } {
+    const checkpoints = this.listSummaryCheckpoints(1000);
+    const exists = checkpoints.some((item) => item.checkpointId === request.checkpointId);
+    if (!exists) {
+      return {
+        accepted: false,
+        availableCheckpoints: checkpoints.length
+      };
+    }
+    this.pendingSummaryApplyRequest = { ...request };
+    this.callback?.onSummaryMessagesAccepted?.({
+      checkpointId: request.checkpointId,
+      keepRecentMessages: request.keepRecentMessages,
+      summaryChars: request.summary.length,
+      availableCheckpoints: checkpoints.length
+    });
+    return {
+      accepted: true,
+      availableCheckpoints: checkpoints.length
+    };
   }
 
   getMessages(): Message[] {
@@ -143,6 +236,8 @@ export class Agent {
     } else {
       this.messages = [...messages];
     }
+    this.pendingSummaryApplyRequest = null;
+    this.syncCheckpointCounterFromMessages();
   }
 
   getLastUsage(): TokenUsage | undefined {
@@ -163,6 +258,8 @@ export class Agent {
   setSession(session: Session): void {
     this.sessionId = session.id;
     this.messages = [...session.messages];
+    this.pendingSummaryApplyRequest = null;
+    this.syncCheckpointCounterFromMessages();
   }
 
   private findToolNameById(toolCallId: string | undefined): string | undefined {
@@ -229,6 +326,67 @@ export class Agent {
 
   private estimateTotalChars(messages: Message[]): number {
     return messages.reduce((sum, message) => sum + this.estimateMessageChars(message), 0);
+  }
+
+  private findCheckpointMessageIndex(checkpointId: string): number {
+    for (let i = this.messages.length - 1; i >= 0; i -= 1) {
+      const id = this.messages[i]?.metadata?.checkpointId;
+      if (id === checkpointId) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private applyPendingSummaryIfNeeded(): void {
+    const pending = this.pendingSummaryApplyRequest;
+    if (!pending) {
+      return;
+    }
+    this.pendingSummaryApplyRequest = null;
+
+    const checkpointIndex = this.findCheckpointMessageIndex(pending.checkpointId);
+    if (checkpointIndex < 0) {
+      return;
+    }
+
+    const beforeMessages = this.messages.length;
+    const beforeChars = this.estimateTotalChars(this.messages);
+    const keepRecent = Math.max(0, Math.min(20, pending.keepRecentMessages));
+
+    const preservedHead = this.messages.slice(0, checkpointIndex + 1);
+    const preservedTail =
+      keepRecent > 0 ? this.messages.slice(Math.max(checkpointIndex + 1, this.messages.length - keepRecent)) : [];
+    const anchor = this.withCheckpointMetadata(
+      {
+        role: "user",
+        content: `[SUMMARY_MESSAGES_APPLIED checkpoint_id=${pending.checkpointId}]\n${pending.summary}`,
+        metadata: {
+          summaryAnchor: true,
+          summaryFromCheckpointId: pending.checkpointId
+        }
+      },
+      "summary_anchor"
+    );
+    anchor.metadata = {
+      ...(anchor.metadata ?? {}),
+      summaryCompactedMessageCount: Math.max(0, beforeMessages - (preservedHead.length + preservedTail.length + 1))
+    };
+
+    const nextMessages = [...preservedHead, ...preservedTail, anchor];
+    this.messages = sanitizeMessagesForToolProtocol(nextMessages).messages;
+    const afterMessages = this.messages.length;
+    const afterChars = this.estimateTotalChars(this.messages);
+    this.callback?.onSummaryMessagesApplied?.({
+      checkpointId: pending.checkpointId,
+      keepRecentMessages: keepRecent,
+      summaryChars: pending.summary.length,
+      beforeMessages,
+      afterMessages,
+      compactedMessages: Math.max(0, beforeMessages - afterMessages),
+      beforeChars,
+      afterChars
+    });
   }
 
   private truncate(value: string, maxChars: number): string {
@@ -391,7 +549,8 @@ export class Agent {
       thinking: message.thinking,
       toolCalls: message.toolCalls,
       toolCallId: message.toolCallId,
-      name: message.name
+      name: message.name,
+      metadata: message.metadata
     }));
   }
 
@@ -555,7 +714,11 @@ export class Agent {
           thinking: response.thinking,
           toolCalls: response.toolCalls
         };
-        this.messages.push(assistantMsg);
+        if (response.toolCalls && response.toolCalls.length > 0) {
+          this.messages.push(this.withCheckpointMetadata(assistantMsg, "assistant_toolcall"));
+        } else {
+          this.messages.push(assistantMsg);
+        }
 
         if (response.thinking) {
           this.callback?.onThinking?.(response.thinking);
@@ -583,6 +746,7 @@ export class Agent {
             };
             this.messages.push(this.sanitizeToolMessageBeforeAppend(toolMsg));
           }
+          this.applyPendingSummaryIfNeeded();
         }
         const currentStep = step + 1;
 
@@ -754,6 +918,8 @@ export class Agent {
   reset(): void {
     this.messages = [];
     this.sessionId = null;
+    this.pendingSummaryApplyRequest = null;
+    this.checkpointCounter = 0;
     this.initializeMessages();
   }
 

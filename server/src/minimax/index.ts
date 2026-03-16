@@ -10,6 +10,7 @@ import {
   createFileTools,
   createShellTool,
   createNoteTool,
+  createSummaryMessagesTool,
   PermissionManager,
   createTeamTools,
   createToolRegistrationState,
@@ -98,6 +99,7 @@ function buildDefaultSystemPrompt(): string {
     "- Read, write, and edit files",
     `- Execute ${runtime.platform === "win32" ? "Windows" : "POSIX"} shell commands`,
     "- Take and manage notes",
+    "- Use summary_messages to compact noisy context when needed",
     "",
     "## TeamWorkSpace Context",
     "- TeamWorkSpace: The shared project directory (../../ from your workspace)",
@@ -277,6 +279,16 @@ export class MiniMaxAgent {
       registerTool(noteTool, "core");
     }
 
+    const summaryMessagesTool = createSummaryMessagesTool({
+      bridge: {
+        isDisabled: () => String(process.env.AUTO_DEV_SUMMARY_MESSAGES_DISABLE ?? "0").trim() === "1",
+        listCheckpoints: (limit) => this.agent?.listSummaryCheckpoints(limit) ?? [],
+        enqueueApply: (request) =>
+          this.agent?.enqueueSummaryApply(request) ?? { accepted: false, availableCheckpoints: 0 }
+      }
+    });
+    registerTool(summaryMessagesTool, "core");
+
     if (this.config.teamToolContext && this.config.teamToolBridge) {
       const teamTools = createTeamTools({
         context: this.config.teamToolContext,
@@ -359,7 +371,7 @@ export class MiniMaxAgent {
       `[MiniMaxAgent] runWithResult: options.sessionId=${options.sessionId}, resolved sessionId=${sessionId}, isNewSession=${isNewSession}`
     );
 
-    const persistedMessages = this.storage.loadMessages(sessionId);
+    const persistedMessages = this.storage.loadEffectiveMessages(sessionId);
     let baselineMessageCount = 0;
     if (persistedMessages.length > 0) {
       const messages: Message[] = persistedMessages.map((pmsg) => ({
@@ -368,7 +380,8 @@ export class MiniMaxAgent {
         thinking: pmsg.thinking,
         toolCalls: pmsg.toolCalls,
         toolCallId: pmsg.toolCallId,
-        name: pmsg.name
+        name: pmsg.name,
+        metadata: pmsg.metadata
       }));
       const contextTrimmed = trimMessagesForContextWindow(messages, {
         maxTotalChars: Math.max(24000, Math.min(120000, Math.floor((this.config.tokenLimit ?? 80000) * 2)))
@@ -537,7 +550,8 @@ export class MiniMaxAgent {
         thinking: m.thinking,
         toolCalls: m.toolCalls,
         toolCallId: m.toolCallId,
-        name: m.name
+        name: m.name,
+        metadata: m.metadata
       })),
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.updatedAt),

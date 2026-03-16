@@ -407,6 +407,66 @@ export class MiniMaxRunner {
           this.updateHeartbeat().catch(() => {});
           this.appendLog("stdout", `[${role}] ${content.slice(0, 500)}`).catch(() => {});
         },
+        onSummaryMessagesAccepted: (event: {
+          checkpointId: string;
+          keepRecentMessages: number;
+          summaryChars: number;
+          availableCheckpoints: number;
+        }) => {
+          this.updateHeartbeat().catch(() => {});
+          this.appendLog(
+            "system",
+            `[SUMMARY_MESSAGES_APPLY_ACCEPTED] checkpoint_id=${event.checkpointId}, keep_recent_messages=${event.keepRecentMessages}, summary_chars=${event.summaryChars}, available_checkpoints=${event.availableCheckpoints}`
+          ).catch(() => {});
+          appendEvent(this.paths, {
+            projectId: this.project.projectId,
+            eventType: "SUMMARY_MESSAGES_APPLY_ACCEPTED",
+            source: "agent",
+            sessionId: this.request.sessionId,
+            taskId: this.request.taskId,
+            payload: {
+              runId: this.runId,
+              checkpointId: event.checkpointId,
+              keepRecentMessages: event.keepRecentMessages,
+              summaryChars: event.summaryChars,
+              availableCheckpoints: event.availableCheckpoints
+            }
+          }).catch(() => {});
+        },
+        onSummaryMessagesApplied: (event: {
+          checkpointId: string;
+          keepRecentMessages: number;
+          summaryChars: number;
+          beforeMessages: number;
+          afterMessages: number;
+          compactedMessages: number;
+          beforeChars: number;
+          afterChars: number;
+        }) => {
+          this.updateHeartbeat().catch(() => {});
+          this.appendLog(
+            "system",
+            `[SUMMARY_MESSAGES_APPLIED] checkpoint_id=${event.checkpointId}, compacted_messages=${event.compactedMessages}, chars=${event.beforeChars}->${event.afterChars}, messages=${event.beforeMessages}->${event.afterMessages}`
+          ).catch(() => {});
+          appendEvent(this.paths, {
+            projectId: this.project.projectId,
+            eventType: "SUMMARY_MESSAGES_APPLIED",
+            source: "agent",
+            sessionId: this.request.sessionId,
+            taskId: this.request.taskId,
+            payload: {
+              runId: this.runId,
+              checkpointId: event.checkpointId,
+              keepRecentMessages: event.keepRecentMessages,
+              summaryChars: event.summaryChars,
+              beforeMessages: event.beforeMessages,
+              afterMessages: event.afterMessages,
+              compactedMessages: event.compactedMessages,
+              beforeChars: event.beforeChars,
+              afterChars: event.afterChars
+            }
+          }).catch(() => {});
+        },
         onError: (error: Error) => {
           this.updateHeartbeat().catch(() => {});
           this.appendLog("stderr", `Error: ${error.message}`).catch(() => {});

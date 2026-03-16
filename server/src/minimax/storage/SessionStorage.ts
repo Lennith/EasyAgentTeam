@@ -134,6 +134,19 @@ export class SessionStorage {
     return allMessages;
   }
 
+  loadEffectiveMessages(sessionId: string): PersistedMessage[] {
+    const all = this.loadMessages(sessionId);
+    if (all.length === 0) {
+      return all;
+    }
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      if (all[i]?.metadata?.summaryAnchor) {
+        return all.slice(i);
+      }
+    }
+    return all;
+  }
+
   loadLatestMessages(sessionId: string): PersistedMessage[] {
     const meta = this.loadMeta(sessionId);
     if (!meta) {
@@ -241,7 +254,8 @@ export class SessionStorage {
       thinking: msg.thinking,
       toolCalls: msg.toolCalls,
       toolCallId: msg.toolCallId,
-      name: msg.name
+      name: msg.name,
+      metadata: msg.metadata
     });
   }
 
@@ -252,7 +266,8 @@ export class SessionStorage {
       thinking: pmsg.thinking,
       toolCalls: pmsg.toolCalls,
       toolCallId: pmsg.toolCallId,
-      name: pmsg.name
+      name: pmsg.name,
+      metadata: pmsg.metadata
     };
   }
 }
