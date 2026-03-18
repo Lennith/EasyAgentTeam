@@ -249,6 +249,8 @@ function resolveTaskActionNextAction(code: string): string | null {
       return "Call route_targets_get first, choose an allowed target role, and retry TASK_CREATE.";
     case "TASK_DEPENDENCY_NOT_READY":
       return "Wait for dependency tasks listed in error.details.dependency_task_ids to reach DONE/CANCELED, then retry.";
+    case "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN":
+      return "Remove parent/ancestor task ids from dependencies and retry TASK_CREATE.";
     case "RUN_NOT_RUNNING":
       return "Run is not active. Restart run before sending task actions.";
     case "ROUTE_DENIED":

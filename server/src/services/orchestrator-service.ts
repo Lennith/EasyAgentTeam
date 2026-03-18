@@ -54,6 +54,7 @@ import {
   isDiscussMessage,
   readMessageTypeUpper,
   selectTaskForDispatch,
+  sortTasksForDispatch,
   sortMessagesByTime
 } from "./orchestrator-dispatch-core.js";
 import {
@@ -916,6 +917,7 @@ async function dispatchSessionOnce(
   const runnableTasks = runnableByRole.find((item) => item.role === session.role)?.tasks ?? [];
   // [DEBUG] Keep verbose state logs to diagnose why runnableTasks can be empty.
   const allTasks = await listTasks(paths, project.projectId);
+  const prioritizedRunnableTasks = sortTasksForDispatch(runnableTasks, allTasks);
   const tasksByState = allTasks.reduce(
     (acc, task) => {
       acc[task.state] = (acc[task.state] || 0) + 1;
@@ -944,9 +946,9 @@ async function dispatchSessionOnce(
     } else {
       let taskCandidate: TaskRecord | null = null;
       if (!input.force) {
-        taskCandidate = runnableTasks.find((t) => t.state !== "MAY_BE_DONE") ?? null;
+        taskCandidate = prioritizedRunnableTasks.find((t) => t.state !== "MAY_BE_DONE") ?? null;
       } else {
-        taskCandidate = runnableTasks.length > 0 ? runnableTasks[0] : null;
+        taskCandidate = prioritizedRunnableTasks.length > 0 ? prioritizedRunnableTasks[0] : null;
       }
       if (input.taskId) {
         const allTasks = await listTasks(paths, project.projectId);

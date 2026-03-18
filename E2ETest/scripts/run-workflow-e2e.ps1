@@ -94,6 +94,7 @@ $script:runStarted = $false
 $script:agentChatTranscripts = New-Object System.Collections.Generic.List[object]
 $script:workflowRecoveryState = @{}
 $script:stabilityFallbackEvents = New-Object System.Collections.Generic.List[object]
+$script:postProcessDeadline = $null
 $strictMode = [bool]$StrictObserve
 $effectiveMiniMaxApiKeyOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) { [string]$env:E2E_MINIMAX_API_KEY } else { [string]$MiniMaxApiKeyOverride }
 $effectiveMiniMaxApiBaseOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) { [string]$env:E2E_MINIMAX_API_BASE } else { [string]$MiniMaxApiBaseOverride }
@@ -1151,13 +1152,123 @@ function Save-Json {
   ($Data | ConvertTo-Json -Depth 100) | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function Assert-PostProcessBudget {
+  param([string]$Stage = "")
+  if ($script:postProcessDeadline -and (Get-Date) -gt $script:postProcessDeadline) {
+    throw "postprocess_timeout:$Stage"
+  }
+}
+
+function Save-JsonSafe {
+  param(
+    [string]$Path,
+    [object]$Data,
+    [string]$Tag = ""
+  )
+
+  Assert-PostProcessBudget -Stage ("save_json_start:{0}" -f $Tag)
+  try {
+    Save-Json -Path $Path -Data $Data
+  } catch {
+    $script:warnings.Add("save_json_failed:${Tag}:$($_.Exception.Message)")
+    $fallback = [ordered]@{
+      pass = $false
+      skipped = $false
+      error = "serialize_failed"
+      message = [string]$_.Exception.Message
+      tag = $Tag
+      generated_at = (Get-Date).ToString("o")
+    }
+    try {
+      ($fallback | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $Path -Encoding UTF8
+    } catch {
+      $script:warnings.Add("save_json_fallback_failed:${Tag}:$($_.Exception.Message)")
+    }
+  }
+  Assert-PostProcessBudget -Stage ("save_json_end:{0}" -f $Tag)
+}
+
+function Convert-ReminderValidationForOutput {
+  param([object]$Validation)
+
+  if (-not $Validation) {
+    return [ordered]@{ pass = $false; skipped = $true }
+  }
+
+  $traceItems = if ($Validation.trace) { @($Validation.trace) } else { @() }
+  $traceTail = @($traceItems | Select-Object -Last 30)
+  $evidence = $Validation.evidence
+  return [ordered]@{
+    pass = [bool]$Validation.pass
+    skipped = $false
+    evidence = [ordered]@{
+      probe_role = if ($evidence) { [string]$evidence.probe_role } else { "" }
+      probe_task_id = if ($evidence) { [string]$evidence.probe_task_id } else { "" }
+      reminder_trigger_count = if ($evidence) { [int]$evidence.reminder_trigger_count } else { 0 }
+      message_dispatch_count = if ($evidence) { [int]$evidence.message_dispatch_count } else { 0 }
+      report_applied_count = if ($evidence) { [int]$evidence.report_applied_count } else { 0 }
+      probe_state = if ($evidence) { [string]$evidence.probe_state } else { "" }
+      probe_terminal = if ($evidence) { [bool]$evidence.probe_terminal } else { $false }
+      trigger_pass = if ($evidence) { [bool]$evidence.trigger_pass } else { $false }
+      dispatch_pass = if ($evidence) { [bool]$evidence.dispatch_pass } else { $false }
+      progress_pass = if ($evidence) { [bool]$evidence.progress_pass } else { $false }
+    }
+    trace_sample_count = $traceTail.Count
+    trace_tail = $traceTail
+    events_path = [string]$Validation.events_path
+    events_raw_omitted = $true
+  }
+}
+
+function Convert-SkillValidationForOutput {
+  param([object]$Validation)
+
+  if (-not $Validation) {
+    return [ordered]@{ pass = $false; skipped = $true }
+  }
+
+  $matches = if ($Validation.timeline_matches) { @($Validation.timeline_matches) } else { @() }
+  $sample = @(
+    $matches |
+      Select-Object -First 20 |
+      ForEach-Object {
+        [ordered]@{
+          at = Get-StringProp -Obj $_ -Names @("createdAt", "at")
+          role = Get-StringProp -Obj $_ -Names @("role")
+          event_type = Get-StringProp -Obj $_ -Names @("eventType", "event_type")
+          content_preview = ((Get-StringProp -Obj $_ -Names @("content")) -replace "\s+", " ").Substring(0, [Math]::Min(220, (Get-StringProp -Obj $_ -Names @("content")).Length))
+        }
+      }
+  )
+
+  return [ordered]@{
+    pass = [bool]$Validation.pass
+    skipped = [bool]$Validation.skipped
+    skill_id = [string]$Validation.skill_id
+    dispatch_role = [string]$Validation.dispatch_role
+    timeline_match_count = [int]$Validation.timeline_match_count
+    timeline_matches_sample = $sample
+    timeline_matches_sample_count = $sample.Count
+    timeline_matches_omitted = ($matches.Count -gt $sample.Count)
+    artifact_path = [string]$Validation.artifact_path
+    artifact_resolution_mode = [string]$Validation.artifact_resolution_mode
+    artifact_exists = [bool]$Validation.artifact_exists
+    missing_markers = @($Validation.missing_markers)
+  }
+}
+
 function Get-WorkflowRunEvents {
-  param([string]$RunId)
+  param(
+    [string]$RunId,
+    [switch]$IncludeRaw
+  )
   $path = Join-Path $repoRoot "data\workflows\runs\$RunId\events.jsonl"
   $items = @()
   $raw = ""
   if (Test-Path -LiteralPath $path) {
-    $raw = Get-Content -LiteralPath $path -Raw
+    if ($IncludeRaw) {
+      $raw = Get-Content -LiteralPath $path -Raw
+    }
     foreach ($line in (Get-Content -LiteralPath $path)) {
       $trimmed = $line.Trim()
       if (-not $trimmed) { continue }
@@ -1263,7 +1374,7 @@ function Wait-ForWorkflowReminderProbe {
         evidence = $evidence
         trace = $trace.ToArray()
         events_path = $eventsResp.path
-        events_raw = $eventsResp.raw
+        events_raw = ""
       }
     }
 
@@ -1278,7 +1389,7 @@ function Wait-ForWorkflowReminderProbe {
     evidence = $finalEvidence
     trace = $trace.ToArray()
     events_path = $eventsFinal.path
-    events_raw = $eventsFinal.raw
+    events_raw = ""
   }
 }
 
@@ -1838,6 +1949,7 @@ Ensure-Dir -Path $outDir
 
 $transcriptDir = Join-Path $outDir "agent_chat_transcripts"
 Ensure-Dir -Path $transcriptDir
+$script:postProcessDeadline = (Get-Date).AddSeconds(90)
 $triggerCount = $script:agentChatTranscripts.Count
 if ($triggerCount -gt 0) {
   Write-Utf8NoBom -Path (Join-Path $transcriptDir "README.md") -Content (@(
@@ -1856,46 +1968,55 @@ if ($triggerCount -gt 0) {
 
 $triggerIndex = 0
 foreach ($item in $script:agentChatTranscripts.ToArray()) {
+  Assert-PostProcessBudget -Stage "agent_chat_transcripts"
   $triggerIndex += 1
   $safeRole = ([string]$item.role) -replace "[^a-zA-Z0-9._-]+", "_"
   $prefix = "{0:D2}_{1}" -f $triggerIndex, $safeRole
-  Save-Json -Path (Join-Path $transcriptDir "$prefix.transcript.json") -Data $item
+  Save-JsonSafe -Path (Join-Path $transcriptDir "$prefix.transcript.json") -Data $item -Tag "agent_chat_transcript"
   Write-Utf8NoBom -Path (Join-Path $transcriptDir "$prefix.raw.sse.txt") -Content ([string]$item.raw_sse)
 }
 
-if ($script:runCreateResponse) {
-  Save-Json -Path (Join-Path $outDir "workflow_run_created_response.json") -Data $script:runCreateResponse.body
-}
-if ($script:latestStatus) {
-  Save-Json -Path (Join-Path $outDir "workflow_run_status.json") -Data $script:latestStatus
-}
-if ($script:latestTaskRuntime) {
-  Save-Json -Path (Join-Path $outDir "workflow_task_runtime.json") -Data $script:latestTaskRuntime
-}
-if ($script:latestTaskTree) {
-  Save-Json -Path (Join-Path $outDir "workflow_task_tree_runtime.json") -Data $script:latestTaskTree
-}
-if ($script:latestSessions) {
-  Save-Json -Path (Join-Path $outDir "workflow_sessions.json") -Data $script:latestSessions
-}
-if ($script:latestTimeline) {
-  Save-Json -Path (Join-Path $outDir "workflow_timeline.json") -Data $script:latestTimeline
-}
-if ($skillImportResponse) {
-  Save-Json -Path (Join-Path $outDir "workflow_skill_import.json") -Data $skillImportResponse.body
-}
+try {
+  if ($script:runCreateResponse) {
+    Save-JsonSafe -Path (Join-Path $outDir "workflow_run_created_response.json") -Data $script:runCreateResponse.body -Tag "workflow_run_created_response"
+  }
+  if ($script:latestStatus) {
+    Save-JsonSafe -Path (Join-Path $outDir "workflow_run_status.json") -Data $script:latestStatus -Tag "workflow_run_status"
+  }
+  if ($script:latestTaskRuntime) {
+    Save-JsonSafe -Path (Join-Path $outDir "workflow_task_runtime.json") -Data $script:latestTaskRuntime -Tag "workflow_task_runtime"
+  }
+  if ($script:latestTaskTree) {
+    Save-JsonSafe -Path (Join-Path $outDir "workflow_task_tree_runtime.json") -Data $script:latestTaskTree -Tag "workflow_task_tree_runtime"
+  }
+  if ($script:latestSessions) {
+    Save-JsonSafe -Path (Join-Path $outDir "workflow_sessions.json") -Data $script:latestSessions -Tag "workflow_sessions"
+  }
+  if ($script:latestTimeline) {
+    Save-JsonSafe -Path (Join-Path $outDir "workflow_timeline.json") -Data $script:latestTimeline -Tag "workflow_timeline"
+  }
+  if ($skillImportResponse) {
+    Save-JsonSafe -Path (Join-Path $outDir "workflow_skill_import.json") -Data $skillImportResponse.body -Tag "workflow_skill_import"
+  }
 
-Save-Json -Path (Join-Path $outDir "workflow_timing_timeline.json") -Data $script:timings.ToArray()
-Save-Json -Path (Join-Path $outDir "workflow_step_runtime_samples.json") -Data $script:runtimeSamples.ToArray()
-Save-Json -Path (Join-Path $outDir "workflow_artifact_validation.json") -Data $artifactValidation
-Save-Json -Path (Join-Path $outDir "workflow_agent_subtask_stats.json") -Data $subtaskStats
-Save-Json -Path (Join-Path $outDir "workflow_phase_validation.json") -Data $phaseValidation
-Save-Json -Path (Join-Path $outDir "workflow_process_validation.json") -Data $processValidation
-Save-Json -Path (Join-Path $outDir "workflow_subtask_dependency_validation.json") -Data $subtaskDependencyValidation
-Save-Json -Path (Join-Path $outDir "workflow_code_output_validation.json") -Data $codeOutputValidation
-Save-Json -Path (Join-Path $outDir "workflow_reminder_probe.json") -Data $reminderValidation
-Save-Json -Path (Join-Path $outDir "workflow_skill_validation.json") -Data $skillValidation
-$eventsSnapshot = Get-WorkflowRunEvents -RunId $runId
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_timing_timeline.json") -Data $script:timings.ToArray() -Tag "workflow_timing_timeline"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_step_runtime_samples.json") -Data $script:runtimeSamples.ToArray() -Tag "workflow_step_runtime_samples"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_artifact_validation.json") -Data $artifactValidation -Tag "workflow_artifact_validation"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_agent_subtask_stats.json") -Data $subtaskStats -Tag "workflow_agent_subtask_stats"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_phase_validation.json") -Data $phaseValidation -Tag "workflow_phase_validation"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_process_validation.json") -Data $processValidation -Tag "workflow_process_validation"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_subtask_dependency_validation.json") -Data $subtaskDependencyValidation -Tag "workflow_subtask_dependency_validation"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_code_output_validation.json") -Data $codeOutputValidation -Tag "workflow_code_output_validation"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_reminder_probe.json") -Data (Convert-ReminderValidationForOutput -Validation $reminderValidation) -Tag "workflow_reminder_probe"
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_skill_validation.json") -Data (Convert-SkillValidationForOutput -Validation $skillValidation) -Tag "workflow_skill_validation"
+} catch {
+  $script:warnings.Add("postprocess_failed:$($_.Exception.Message)")
+  if ($finalReason -eq "workflow_runtime_ok") {
+    $pass = $false
+  }
+  $finalReason = "postprocess_timeout"
+}
+$eventsSnapshot = Get-WorkflowRunEvents -RunId $runId -IncludeRaw
 if ($eventsSnapshot.raw.Length -gt 0) {
   Write-Utf8NoBom -Path (Join-Path $outDir "workflow_events.jsonl") -Content $eventsSnapshot.raw
 }
@@ -1924,9 +2045,9 @@ $stabilityMetrics = [ordered]@{
   timeout_recovered_timestamps = @($timeoutRecoveredTimestamps)
   fallback_events = @($script:stabilityFallbackEvents.ToArray())
 }
-Save-Json -Path (Join-Path $outDir "stability_metrics.json") -Data $stabilityMetrics
+Save-JsonSafe -Path (Join-Path $outDir "stability_metrics.json") -Data $stabilityMetrics -Tag "stability_metrics"
 if ($script:warnings.Count -gt 0) {
-  Save-Json -Path (Join-Path $outDir "warnings.json") -Data $script:warnings.ToArray()
+  Save-JsonSafe -Path (Join-Path $outDir "warnings.json") -Data $script:warnings.ToArray() -Tag "warnings"
 }
 if ($fatalError) {
   Write-Utf8NoBom -Path (Join-Path $outDir "fatal_error.txt") -Content ([string]$fatalError.Exception)

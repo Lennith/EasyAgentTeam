@@ -96,12 +96,13 @@ Project Orchestrator 负责项目运行态的调度闭环，核心包括：
 
 ## 4. 内部逻辑
 
-### 4.1 任务选择
+### 4.1 任务选择（状态：实装）
 
-1. 优先处理可执行任务派发消息
-2. 讨论消息按线程规则插入调度
-3. fallback 到 runnable task + message 组合
-4. 无目标返回 `no_message`
+1. 任务派发候选按统一优先级选择：`depth desc -> priority desc -> createdAt asc -> taskId asc`
+2. 当同一 role 同时存在祖先任务与其后代任务候选时，优先派发树更深（叶子侧）任务
+3. 任务绑定消息（含 `TASK_ASSIGNMENT`）命中多个候选任务时，按同一优先级规则选唯一 task
+4. 讨论消息仍按线程/消息语义插入调度，不引入任务优先级排序
+5. 无目标返回 `no_message`
 
 ### 4.2 Force Dispatch
 

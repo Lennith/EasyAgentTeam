@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createSummaryMessagesTool, type SummaryMessagesBridge } from "../minimax/tools/SummaryMessagesTool.js";
-import type { SummaryApplyRequest, SummaryCheckpoint } from "../minimax/types.js";
+import type { SummaryCheckpoint } from "../minimax/types.js";
 
 function parseContent(content: string): Record<string, unknown> {
   return JSON.parse(content) as Record<string, unknown>;
@@ -20,7 +20,7 @@ function createBridge(overrides?: Partial<SummaryMessagesBridge>): SummaryMessag
   return {
     isDisabled: () => false,
     listCheckpoints: () => checkpoints,
-    enqueueApply: (_request: SummaryApplyRequest) => ({ accepted: true, availableCheckpoints: checkpoints.length }),
+    enqueueApply: (_request) => ({ accepted: true, availableCheckpoints: checkpoints.length }),
     ...overrides
   };
 }
@@ -52,13 +52,9 @@ test("summary_messages apply validates summary and keep_recent_messages", async 
 });
 
 test("summary_messages apply validates checkpoint and returns accepted payload", async () => {
-  let acceptedRequest: SummaryApplyRequest | null = null;
   const tool = createSummaryMessagesTool({
     bridge: createBridge({
-      enqueueApply: (request) => {
-        acceptedRequest = request;
-        return { accepted: true, availableCheckpoints: 1 };
-      }
+      enqueueApply: (_request) => ({ accepted: true, availableCheckpoints: 1 })
     })
   });
 
@@ -79,7 +75,7 @@ test("summary_messages apply validates checkpoint and returns accepted payload",
   assert.equal(accepted.success, true);
   const payload = parseContent(accepted.content);
   assert.equal(payload.accepted, true);
-  assert.equal(acceptedRequest?.checkpointId, "ckpt-1");
+  assert.equal(payload.checkpoint_id, "ckpt-1");
 });
 
 test("summary_messages respects runtime disable switch", async () => {

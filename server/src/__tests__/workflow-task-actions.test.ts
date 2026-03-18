@@ -95,6 +95,40 @@ test("workflow task-actions support create/discuss/report with partial apply and
     assert.ok(taskCNode);
     assert.deepEqual(taskCNode?.dependencies ?? [], ["task_a", "task_dep"]);
 
+    const createInvalidParentDependency = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "architect",
+        from_session_id: "session-architect-01",
+        task: {
+          task_id: "task_invalid_parent_dep",
+          title: "Task Invalid Parent Dependency",
+          owner_role: "architect",
+          parent_task_id: "task_c",
+          dependencies: ["task_c"]
+        }
+      })
+    });
+    assert.equal(createInvalidParentDependency.status, 409);
+    const createInvalidParentDependencyPayload = (await createInvalidParentDependency.json()) as {
+      error_code?: string;
+      error?: {
+        details?: {
+          task_id?: string;
+          parent_task_id?: string | null;
+          ancestor_task_ids?: string[];
+          forbidden_dependency_ids?: string[];
+        };
+      };
+    };
+    assert.equal(createInvalidParentDependencyPayload.error_code, "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN");
+    assert.equal(createInvalidParentDependencyPayload.error?.details?.task_id, "task_invalid_parent_dep");
+    assert.equal(createInvalidParentDependencyPayload.error?.details?.parent_task_id, "task_c");
+    assert.equal(createInvalidParentDependencyPayload.error?.details?.ancestor_task_ids?.includes("task_b"), true);
+    assert.deepEqual(createInvalidParentDependencyPayload.error?.details?.forbidden_dependency_ids ?? [], ["task_c"]);
+
     const createInvalidRoleTask = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

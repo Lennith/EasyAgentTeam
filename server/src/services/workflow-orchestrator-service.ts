@@ -42,6 +42,7 @@ import {
   isRemindableTaskState,
   readMessageTypeUpper,
   selectTaskForDispatch,
+  sortTasksForDispatch,
   sortMessagesByTime
 } from "./orchestrator-dispatch-core.js";
 import {
@@ -141,7 +142,8 @@ export class WorkflowRuntimeError extends Error {
       | "ROUTE_DENIED"
       | "MESSAGE_TARGET_REQUIRED"
       | "TASK_OWNER_ROLE_NOT_FOUND"
-      | "TASK_DEPENDENCY_NOT_READY",
+      | "TASK_DEPENDENCY_NOT_READY"
+      | "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN",
     public readonly status: number = 400,
     public readonly hint?: string,
     public readonly details?: Record<string, unknown>
@@ -219,6 +221,31 @@ function mergeDependencies(parentDependencies: string[], explicitDependencies: s
     merged.push(normalized);
   }
   return merged;
+}
+
+function collectAncestorTaskIds(
+  tasks: WorkflowRunRecord["tasks"],
+  taskId: string,
+  parentTaskId: string | undefined
+): string[] {
+  if (!parentTaskId) {
+    return [];
+  }
+  const taskById = new Map(tasks.map((task) => [task.taskId, task]));
+  const ancestorTaskIds: string[] = [];
+  const visited = new Set<string>([taskId]);
+  let currentAncestorId: string | undefined = parentTaskId;
+  while (currentAncestorId && !visited.has(currentAncestorId)) {
+    ancestorTaskIds.push(currentAncestorId);
+    visited.add(currentAncestorId);
+    const ancestor = taskById.get(currentAncestorId);
+    const nextAncestorId = ancestor?.parentTaskId?.trim();
+    if (!ancestor || !nextAncestorId || nextAncestorId === currentAncestorId) {
+      break;
+    }
+    currentAncestorId = nextAncestorId;
+  }
+  return ancestorTaskIds;
 }
 
 function findLatestOpenDispatch(
@@ -2167,6 +2194,7 @@ export class WorkflowOrchestratorService {
       if (!task) throw new WorkflowRuntimeError("task payload is required", "INVALID_TRANSITION", 400);
       const taskId = task.taskId.trim();
       const ownerRole = task.ownerRole.trim();
+      const parentTaskId = task.parentTaskId?.trim() || undefined;
       if (!taskId) throw new WorkflowRuntimeError("task.task_id is required", "INVALID_TRANSITION", 400);
       if (run.tasks.some((item) => item.taskId === taskId))
         throw new WorkflowRuntimeError(`task '${taskId}' already exists`, "INVALID_TRANSITION", 409);
@@ -2186,10 +2214,10 @@ export class WorkflowOrchestratorService {
           }
         );
       }
-      if (task.parentTaskId && !run.tasks.some((item) => item.taskId === task.parentTaskId))
-        throw new WorkflowRuntimeError(`parent task '${task.parentTaskId}' not found`, "TASK_NOT_FOUND", 404);
-      const parentDependencies = task.parentTaskId
-        ? (run.tasks.find((item) => item.taskId === task.parentTaskId)?.dependencies ?? [])
+      if (parentTaskId && !run.tasks.some((item) => item.taskId === parentTaskId))
+        throw new WorkflowRuntimeError(`parent task '${parentTaskId}' not found`, "TASK_NOT_FOUND", 404);
+      const parentDependencies = parentTaskId
+        ? (run.tasks.find((item) => item.taskId === parentTaskId)?.dependencies ?? [])
         : [];
       const explicitDependencies = (task.dependencies ?? [])
         .map((item) => item.trim())
@@ -2198,6 +2226,23 @@ export class WorkflowOrchestratorService {
       for (const dep of dependencies)
         if (!run.tasks.some((item) => item.taskId === dep))
           throw new WorkflowRuntimeError(`dependency task '${dep}' not found`, "TASK_NOT_FOUND", 404);
+      const ancestorTaskIds = collectAncestorTaskIds(run.tasks, taskId, parentTaskId);
+      const ancestorTaskIdSet = new Set(ancestorTaskIds);
+      const forbiddenDependencyIds = dependencies.filter((dependencyId) => ancestorTaskIdSet.has(dependencyId));
+      if (forbiddenDependencyIds.length > 0) {
+        throw new WorkflowRuntimeError(
+          `dependencies cannot include parent/ancestor tasks: ${forbiddenDependencyIds.join(", ")}`,
+          "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN",
+          409,
+          undefined,
+          {
+            task_id: taskId,
+            parent_task_id: parentTaskId ?? null,
+            ancestor_task_ids: ancestorTaskIds,
+            forbidden_dependency_ids: forbiddenDependencyIds
+          }
+        );
+      }
       const nextTasks = [
         ...run.tasks,
         {
@@ -2205,7 +2250,7 @@ export class WorkflowOrchestratorService {
           title: task.title.trim(),
           resolvedTitle: task.title.trim(),
           ownerRole,
-          parentTaskId: task.parentTaskId?.trim() || undefined,
+          parentTaskId,
           dependencies,
           acceptance: (task.acceptance ?? []).map((item) => item.trim()).filter((item) => item.length > 0),
           artifacts: (task.artifacts ?? []).map((item) => item.trim()).filter((item) => item.length > 0),
@@ -2534,18 +2579,28 @@ export class WorkflowOrchestratorService {
           const roleTasks = run.tasks
             .filter((task) => task.ownerRole === roleCandidate)
             .filter((task) => !taskFilter || task.taskId === taskFilter)
-            .map((task) => {
+            .reduce<
+              Array<{
+                taskId: string;
+                state: WorkflowTaskState;
+                createdAt: string;
+                parentTaskId?: string;
+                priority?: number;
+              }>
+            >((acc, task) => {
               const runtimeTask = runtime.tasks.find((item) => item.taskId === task.taskId);
               if (!runtimeTask) {
-                return null;
+                return acc;
               }
-              return {
+              acc.push({
                 taskId: task.taskId,
                 state: runtimeTask.state,
-                createdAt: runtimeTask.lastTransitionAt ?? run.createdAt
-              };
-            })
-            .filter((item): item is { taskId: string; state: WorkflowTaskState; createdAt: string } => item !== null);
+                createdAt: runtimeTask.lastTransitionAt ?? run.createdAt,
+                parentTaskId: task.parentTaskId,
+                priority: 0
+              });
+              return acc;
+            }, []);
           const runnableRoleTasks = roleTasks.filter(
             (task) =>
               task.state === "READY" ||
@@ -2553,9 +2608,10 @@ export class WorkflowOrchestratorService {
                 taskFilter === task.taskId &&
                 (task.state === "DISPATCHED" || task.state === "IN_PROGRESS" || task.state === "MAY_BE_DONE"))
           );
+          const prioritizedRunnableRoleTasks = sortTasksForDispatch(runnableRoleTasks, roleTasks);
           const selection = selectTaskForDispatch(messages, runnableRoleTasks, roleTasks);
           if (!selection) {
-            const fallbackTask = runnableRoleTasks[0] ?? null;
+            const fallbackTask = prioritizedRunnableRoleTasks[0] ?? null;
             if (!fallbackTask) {
               continue;
             }

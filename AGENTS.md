@@ -71,13 +71,17 @@ This is a process control rule in this repository. It is not a product code feat
 - Trigger: release gate starts only when the prompt explicitly asks for `上线检测`.
 - Execution order (mandatory):
   - **Step 1**: Run full unit test regression first (`pnpm test` from repo root).
-  - **Step 2**: Verify all commands explicitly listed in `README.md` are runnable in this environment, and run `pnpm e2e:first-run` as the 5-minute stability baseline.
-  - **Step 3**: Run full E2E regression only if Step 2 passes (`pnpm e2e:baseline`).
+  - **Step 2**: Verify README basic commands are runnable in this environment (`pnpm i`, `pnpm dev`, `pnpm build`, `pnpm test`, `pnpm e2e:first-run`), and run `pnpm e2e:first-run` as the 5-minute stability baseline.
+    - Step 2 explicitly does **not** require standalone execution of `pnpm e2e:standard`, `pnpm e2e:discuss`, or `pnpm e2e:workflow` (these are covered by Step 3 `pnpm e2e:baseline`).
+  - **Step 3**: Run full E2E regression only if Step 2 passes (`pnpm e2e:baseline`) in a detached independent process (keep it running in background; do not wait for completion in the same operation).
+  - **Step 4**: Manually trigger Agent result check only after requester confirms to check and `e2e:baseline` has exited.
+  - Step 3 runtime rule: do not perform runtime observation/tracing while `e2e:baseline` is running, and do not terminate the process proactively.
   - Fail-fast rule: if any test case fails in any step, stop immediately and do not execute any subsequent test commands or steps.
 - Pass criteria (all required):
   - Step 1 passed (full unit tests).
   - Step 2 passed (README command runnability + `e2e:first-run` 5-minute baseline).
-  - Step 3 passed (full E2E baseline: chain + discuss + workflow).
+  - Step 3 passed (full E2E baseline: chain + discuss + workflow, independent-process run mode).
+  - Step 4 completed (manual Agent result check after `e2e:baseline` process exit).
   - No unresolved blocking issue in the release conclusion.
 - Waiver path (exception, explicit approval required):
   - If the requester explicitly confirms a release decision based on orchestrator behavior conformance (for example: `编排器符合设计即可发版`), release may proceed before full E2E completion.

@@ -40,7 +40,12 @@ export class SummaryMessagesTool extends Tool {
   }
 
   get description(): string {
-    return "List context checkpoints or request a checkpoint-based summary compaction for the current session.";
+    return (
+      "Reset noisy conversation context to an earlier checkpoint while keeping filesystem/runtime state unchanged. " +
+      "Use when context is cluttered by irrelevant history, large file/search outputs, or failed exploration steps. " +
+      "Typical flow: action=list to inspect checkpoints, then action=apply with checkpoint_id + concise summary " +
+      "to keep only useful progress and next steps."
+    );
   }
 
   get parameters(): Record<string, unknown> {
@@ -50,19 +55,22 @@ export class SummaryMessagesTool extends Tool {
         action: {
           type: "string",
           enum: ["list", "apply"],
-          description: "Use list to inspect checkpoints, apply to request summary compaction."
+          description:
+            "list: inspect available checkpoints. apply: compact context from checkpoint_id with summary for continuation."
         },
         checkpoint_id: {
           type: "string",
-          description: "Checkpoint id to compact from. Required when action=apply."
+          description: "Existing checkpoint id returned by action=list. Required when action=apply."
         },
         summary: {
           type: "string",
-          description: "Summary content to keep as canonical history. Required when action=apply."
+          description:
+            "Concise carry-forward note (what changed, key findings, next steps). Required when action=apply."
         },
         keep_recent_messages: {
           type: "number",
-          description: "How many latest messages to preserve in addition to checkpoint prefix. Range 0~20. Default 0."
+          description:
+            "Number of newest messages to keep in addition to checkpoint prefix and summary anchor. Range 0~20. Default 0."
         },
         limit: {
           type: "number",
