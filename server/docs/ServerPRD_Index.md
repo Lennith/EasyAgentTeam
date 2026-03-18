@@ -4,21 +4,21 @@ This index reflects the current backend product surface in `server/src/**`.
 
 ## Core Modules
 
-| Priority | Module                            | PRD File                                   | Main Source                                                                                      |
-| -------- | --------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| P0       | Orchestrator                      | `server/docs/PRD_Orchestrator.md`          | `server/src/services/orchestrator-service.ts`                                                    |
-| P0       | Routing and Message Orchestration | `server/docs/PRD_Routing_Orchestration.md` | `server/src/services/manager-message-service.ts`                                                 |
-| P0       | Task Protocol                     | `server/docs/PRD_Task_Protocol.md`         | `server/src/services/task-action-service.ts`                                                     |
-| P0       | MiniMax Tools                     | `server/docs/PRD_MiniMax_Tools.md`         | `server/src/minimax/tools/**`                                                                    |
-| P0       | MiniMax Agent Loop                | `server/docs/PRD_MiniMax_AgentLoop.md`     | `server/src/minimax/agent/Agent.ts`                                                              |
-| P1       | Workflow Runtime                  | `server/docs/PRD_Workflow_Runtime.md`      | `server/src/services/workflow-orchestrator-service.ts`                                           |
-| P1       | Agent and Skill Registry          | `server/docs/PRD_Agent_Skill_Registry.md`  | `server/src/data/agent-store.ts`, `server/src/data/skill-store.ts`, `server/src/app.ts`          |
-| P1       | Session Management                | `server/docs/PRD_Session_Management.md`    | `server/src/data/session-store.ts`, `server/src/app.ts`                                          |
-| P1       | Runtime Settings                  | `server/docs/PRD_Runtime_Settings.md`      | `server/src/data/runtime-settings-store.ts`, `server/src/app.ts`                                 |
-| P1       | Debug Services                    | `server/docs/PRD_Debug_Services.md`        | `server/src/services/agent-debug-service.ts`, `server/src/services/agent-io-timeline-service.ts` |
-| P1       | Domain Models                     | `server/docs/PRD_Domain_Models.md`         | `server/src/domain/models.ts`                                                                    |
-| P1       | Data Storage                      | `server/docs/PRD_Data_Storage.md`          | `server/src/data/**`                                                                             |
-| P1       | MiniMax Support                   | `server/docs/PRD_MiniMax_Support.md`       | `server/src/services/minimax-runner.ts`, `server/src/minimax/**`                                 |
+| Priority | Module                            | PRD File                                   | Main Source                                                                                              |
+| -------- | --------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| P0       | Orchestrator                      | `server/docs/PRD_Orchestrator.md`          | `server/src/services/orchestrator/project-orchestrator.ts`, `server/src/services/orchestrator/index.ts`  |
+| P0       | Routing and Message Orchestration | `server/docs/PRD_Routing_Orchestration.md` | `server/src/services/manager-message-service.ts`                                                         |
+| P0       | Task Protocol                     | `server/docs/PRD_Task_Protocol.md`         | `server/src/services/task-action-service.ts`                                                             |
+| P0       | MiniMax Tools                     | `server/docs/PRD_MiniMax_Tools.md`         | `server/src/minimax/tools/**`                                                                            |
+| P0       | MiniMax Agent Loop                | `server/docs/PRD_MiniMax_AgentLoop.md`     | `server/src/minimax/agent/Agent.ts`                                                                      |
+| P1       | Workflow Runtime                  | `server/docs/PRD_Workflow_Runtime.md`      | `server/src/services/orchestrator/workflow-orchestrator.ts`, `server/src/services/orchestrator/index.ts` |
+| P1       | Agent and Skill Registry          | `server/docs/PRD_Agent_Skill_Registry.md`  | `server/src/data/agent-store.ts`, `server/src/data/skill-store.ts`, `server/src/app.ts`                  |
+| P1       | Session Management                | `server/docs/PRD_Session_Management.md`    | `server/src/data/session-store.ts`, `server/src/app.ts`                                                  |
+| P1       | Runtime Settings                  | `server/docs/PRD_Runtime_Settings.md`      | `server/src/data/runtime-settings-store.ts`, `server/src/app.ts`                                         |
+| P1       | Debug Services                    | `server/docs/PRD_Debug_Services.md`        | `server/src/services/agent-debug-service.ts`, `server/src/services/agent-io-timeline-service.ts`         |
+| P1       | Domain Models                     | `server/docs/PRD_Domain_Models.md`         | `server/src/domain/models.ts`                                                                            |
+| P1       | Data Storage                      | `server/docs/PRD_Data_Storage.md`          | `server/src/data/**`                                                                                     |
+| P1       | MiniMax Support                   | `server/docs/PRD_MiniMax_Support.md`       | `server/src/services/minimax-runner.ts`, `server/src/minimax/**`                                         |
 
 ## Project API Baseline
 

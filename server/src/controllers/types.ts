@@ -1,5 +1,4 @@
-﻿import type { createOrchestratorService } from "../services/orchestrator-service.js";
-import type { createWorkflowOrchestratorService } from "../services/workflow-orchestrator-service.js";
+﻿import type { createOrchestratorService, createWorkflowOrchestratorService } from "../services/orchestrator/index.js";
 import type { createProviderRegistry } from "../services/provider-runtime.js";
 
 export interface AppRuntimeContext {

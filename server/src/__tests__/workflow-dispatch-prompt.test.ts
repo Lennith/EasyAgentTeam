@@ -1,10 +1,10 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { WorkflowRunRecord } from "../domain/models.js";
-import { createWorkflowOrchestratorService } from "../services/workflow-orchestrator-service.js";
+import { createWorkflowOrchestratorService } from "../services/orchestrator/index.js";
 
 test("workflow dispatch prompt includes team/shared workspace contract", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-dispatch-prompt-"));

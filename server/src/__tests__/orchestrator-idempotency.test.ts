@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { appendEvent, listEvents } from "../data/event-store.js";
 import { createProject, ensureProjectRuntime } from "../data/project-store.js";
 import { addSession } from "../data/session-store.js";
 import { createTask } from "../data/taskboard-store.js";
-import { OrchestratorService } from "../services/orchestrator-service.js";
+import { OrchestratorService } from "../services/orchestrator/index.js";
 
 test("dispatch skips duplicate open task dispatch for same task/session", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-orchestrator-idempotency-"));

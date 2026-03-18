@@ -1,14 +1,11 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
 import { createProject } from "../data/project-store.js";
 import { getRoleReminderState, readRoleRemindersState, updateRoleReminderState } from "../data/role-reminder-store.js";
-import {
-  calculateNextReminderTime,
-  shouldAutoResetReminderOnRoleTransition
-} from "../services/orchestrator-service.js";
+import { calculateNextReminderTime, shouldAutoResetReminderOnRoleTransition } from "../services/orchestrator/index.js";
 
 test("calculateNextReminderTime: default values produce 1 minute initial wait", () => {
   const nowMs = 1000000;

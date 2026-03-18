@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
@@ -10,7 +10,7 @@ import {
   listWorkflowSessions,
   upsertWorkflowSession
 } from "../data/workflow-run-store.js";
-import { createWorkflowOrchestratorService } from "../services/workflow-orchestrator-service.js";
+import { createWorkflowOrchestratorService } from "../services/orchestrator/index.js";
 
 test("workflow resolves role-authoritative session with persisted roleSessionMap", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-role-authority-"));

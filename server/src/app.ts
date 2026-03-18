@@ -1,9 +1,8 @@
 ﻿import express from "express";
 import path from "node:path";
 import { registerControllers } from "./controllers/index.js";
-import { createOrchestratorService } from "./services/orchestrator-service.js";
 import { createProviderRegistry } from "./services/provider-runtime.js";
-import { createWorkflowOrchestratorService } from "./services/workflow-orchestrator-service.js";
+import { createOrchestratorService, createWorkflowOrchestratorService } from "./services/orchestrator/index.js";
 
 export interface AppOptions {
   dataRoot?: string;

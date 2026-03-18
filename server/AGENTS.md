@@ -5,7 +5,7 @@ This file scopes work under `server/`.
 ## Focus Areas
 
 - Routing and API entrypoints: `server/src/app.ts`
-- Orchestration and dispatch: `server/src/services/orchestrator-service.ts`
+- Orchestration and dispatch: `server/src/services/orchestrator/index.ts`
 - Task actions and validation: `server/src/services/task-action-service.ts`
 - MiniMax runtime/tooling: `server/src/services/minimax-runner.ts`, `server/src/minimax/**`
 - Persistence: `server/src/data/**`

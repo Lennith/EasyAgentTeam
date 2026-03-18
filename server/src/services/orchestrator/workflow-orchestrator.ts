@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { listAgents } from "../data/agent-store.js";
-import { resolveImportedSkillPromptSegments, resolveSkillIdsForAgent } from "../data/skill-store.js";
-import { getRuntimeSettings } from "../data/runtime-settings-store.js";
+import { listAgents } from "../../data/agent-store.js";
+import { resolveImportedSkillPromptSegments, resolveSkillIdsForAgent } from "../../data/skill-store.js";
+import { getRuntimeSettings } from "../../data/runtime-settings-store.js";
 import {
   appendWorkflowInboxMessage,
   appendWorkflowRunEvent,
@@ -16,9 +16,12 @@ import {
   touchWorkflowSession,
   upsertWorkflowSession,
   writeWorkflowRunTaskRuntimeState
-} from "../data/workflow-run-store.js";
-import { getWorkflowRoleReminderState, updateWorkflowRoleReminderState } from "../data/workflow-role-reminder-store.js";
-import { getWorkflowRun, listWorkflowRuns, patchWorkflowRun, WorkflowStoreError } from "../data/workflow-store.js";
+} from "../../data/workflow-run-store.js";
+import {
+  getWorkflowRoleReminderState,
+  updateWorkflowRoleReminderState
+} from "../../data/workflow-role-reminder-store.js";
+import { getWorkflowRun, listWorkflowRuns, patchWorkflowRun, WorkflowStoreError } from "../../data/workflow-store.js";
 import type {
   ProjectRecord,
   WorkflowBlockReasonCode,
@@ -34,9 +37,9 @@ import type {
   WorkflowTaskActionResult,
   WorkflowTaskRuntimeRecord,
   WorkflowTaskState
-} from "../domain/models.js";
-import { logger } from "../utils/logger.js";
-import { buildDefaultRolePrompt, ensureAgentWorkspaces } from "./agent-workspace-service.js";
+} from "../../domain/models.js";
+import { logger } from "../../utils/logger.js";
+import { buildDefaultRolePrompt, ensureAgentWorkspaces } from "../agent-workspace-service.js";
 import {
   extractTaskIdFromMessage,
   isRemindableTaskState,
@@ -44,18 +47,25 @@ import {
   selectTaskForDispatch,
   sortTasksForDispatch,
   sortMessagesByTime
-} from "./orchestrator-dispatch-core.js";
+} from "../orchestrator-dispatch-core.js";
 import {
   buildOrchestratorContextSessionKey,
   OrchestratorLoopCore,
   runOrchestratorAdapterTick
-} from "./orchestrator-core.js";
-import { buildReminderMessageBody } from "./reminder-message-builder.js";
-import { getTimeoutCooldownMs, getTimeoutEscalationThreshold } from "./session-lifecycle-authority.js";
-import { dumpSessionMessagesOnSoftTimeout } from "./session-timeout-message-dump.js";
-import { createProviderRegistry, resolveSessionProviderId } from "./provider-runtime.js";
-import { createWorkflowToolExecutionAdapter, DefaultToolInjector } from "./tool-injector.js";
-import { resolveWorkflowRunRoleScope } from "./workflow-role-scope-service.js";
+} from "../orchestrator-core.js";
+import { buildReminderMessageBody } from "../reminder-message-builder.js";
+import { getTimeoutCooldownMs, getTimeoutEscalationThreshold } from "../session-lifecycle-authority.js";
+import { dumpSessionMessagesOnSoftTimeout } from "../session-timeout-message-dump.js";
+import { createProviderRegistry, resolveSessionProviderId } from "../provider-runtime.js";
+import { createWorkflowToolExecutionAdapter, DefaultToolInjector } from "../tool-injector.js";
+import { resolveWorkflowRunRoleScope } from "../workflow-role-scope-service.js";
+import { findLatestOpenDispatch, hasOpenTaskDispatch, readPayloadString } from "./dispatch-engine.js";
+import {
+  calculateNextReminderTimeByMode,
+  normalizeReminderMode,
+  shouldAutoResetReminderOnRoleTransition
+} from "./reminder-service.js";
+import { parseIsoMs, resolveRoleRuntimeState } from "./session-manager.js";
 
 export interface WorkflowRunRuntimeStatus {
   runId: string;
@@ -200,15 +210,6 @@ function hasRoutePermission(run: WorkflowRunRecord, fromAgent: string, toRole: s
   return Array.isArray(table[fromAgent]) && table[fromAgent].includes(toRole);
 }
 
-function readPayloadString(payload: Record<string, unknown>, key: string): string | undefined {
-  const value = payload[key];
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
 function mergeDependencies(parentDependencies: string[], explicitDependencies: string[]): string[] {
   const merged: string[] = [];
   const seen = new Set<string>();
@@ -246,57 +247,6 @@ function collectAncestorTaskIds(
     currentAncestorId = nextAncestorId;
   }
   return ancestorTaskIds;
-}
-
-function findLatestOpenDispatch(
-  sessionEvents: WorkflowRunEventRecord[]
-): { event: WorkflowRunEventRecord; dispatchId: string } | null {
-  const started = new Map<string, WorkflowRunEventRecord>();
-  for (const event of sessionEvents) {
-    const payload = event.payload as Record<string, unknown>;
-    const dispatchId = readPayloadString(payload, "dispatchId");
-    if (!dispatchId) {
-      continue;
-    }
-    if (event.eventType === "ORCHESTRATOR_DISPATCH_STARTED") {
-      started.set(dispatchId, event);
-      continue;
-    }
-    if (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
-      started.delete(dispatchId);
-    }
-  }
-  if (started.size === 0) {
-    return null;
-  }
-  const latest = [...started.entries()].sort((a, b) => Date.parse(b[1].createdAt) - Date.parse(a[1].createdAt))[0];
-  return {
-    dispatchId: latest[0],
-    event: latest[1]
-  };
-}
-
-function hasOpenTaskDispatch(events: WorkflowRunEventRecord[], taskId: string, sessionId: string): boolean {
-  const started = new Set<string>();
-  for (const event of events) {
-    if (event.taskId !== taskId || event.sessionId !== sessionId) {
-      continue;
-    }
-    const payload = event.payload as Record<string, unknown>;
-    const dispatchId = readPayloadString(payload, "dispatchId");
-    const dispatchKind = readPayloadString(payload, "dispatchKind");
-    if (!dispatchId || dispatchKind !== "task") {
-      continue;
-    }
-    if (event.eventType === "ORCHESTRATOR_DISPATCH_STARTED") {
-      started.add(dispatchId);
-      continue;
-    }
-    if (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
-      started.delete(dispatchId);
-    }
-  }
-  return started.size > 0;
 }
 
 function createInitialRuntime(run: WorkflowRunRecord): WorkflowRunRuntimeState {
@@ -346,52 +296,8 @@ function isRuntimeTerminal(runtime: WorkflowRunRuntimeState): boolean {
   return runtime.tasks.length > 0 && runtime.tasks.every((task) => isTerminalState(task.state));
 }
 
-function parseIsoMs(value: string | undefined): number {
-  if (!value) {
-    return 0;
-  }
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function normalizeReminderMode(raw: ReminderMode | undefined): ReminderMode {
-  return raw === "fixed_interval" ? "fixed_interval" : "backoff";
-}
-
-function calculateNextReminderTimeByMode(
-  reminderMode: ReminderMode,
-  reminderCount: number,
-  nowMs: number,
-  options: { initialWaitMs: number; backoffMultiplier: number; maxWaitMs: number }
-): string {
-  if (reminderMode === "fixed_interval") {
-    return new Date(nowMs + options.initialWaitMs).toISOString();
-  }
-  const waitMs = Math.min(
-    options.initialWaitMs * Math.pow(options.backoffMultiplier, reminderCount),
-    options.maxWaitMs
-  );
-  return new Date(nowMs + waitMs).toISOString();
-}
-
 function getRoleState(session: WorkflowSessionRecord | null): "INACTIVE" | "IDLE" | "RUNNING" {
-  if (!session) {
-    return "INACTIVE";
-  }
-  if (session.status === "running") {
-    return "RUNNING";
-  }
-  if (session.status === "idle") {
-    return "IDLE";
-  }
-  return "INACTIVE";
-}
-
-function shouldAutoResetReminderOnRoleTransition(
-  previousState: "INACTIVE" | "IDLE" | "RUNNING",
-  currentState: "INACTIVE" | "IDLE" | "RUNNING"
-): boolean {
-  return previousState === "INACTIVE" && currentState === "IDLE";
+  return resolveRoleRuntimeState(session ? [session] : []);
 }
 
 export class WorkflowOrchestratorService {

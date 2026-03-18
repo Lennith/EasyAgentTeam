@@ -1,11 +1,11 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { createWorkflowRun, createWorkflowTemplate, getWorkflowRun, patchWorkflowRun } from "../data/workflow-store.js";
 import { listWorkflowSessions, upsertWorkflowSession } from "../data/workflow-run-store.js";
-import { createWorkflowOrchestratorService } from "../services/workflow-orchestrator-service.js";
+import { createWorkflowOrchestratorService } from "../services/orchestrator/index.js";
 
 test("workflow timeout uses soft recovery (idle) before escalation", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-timeout-recovery-"));

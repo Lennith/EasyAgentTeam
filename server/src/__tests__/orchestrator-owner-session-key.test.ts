@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { createProject, ensureProjectRuntime } from "../data/project-store.js";
 import { addSession } from "../data/session-store.js";
 import { createTask } from "../data/taskboard-store.js";
-import { OrchestratorService } from "../services/orchestrator-service.js";
+import { OrchestratorService } from "../services/orchestrator/index.js";
 
 test("force dispatch rejects task ownerSession that does not match sessionId", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-owner-session-key-"));

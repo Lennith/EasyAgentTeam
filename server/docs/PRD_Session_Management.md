@@ -19,7 +19,7 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 
 - `server/src/data/session-store.ts`
 - `server/src/app.ts`（`/api/projects/:id/sessions*`）
-- `server/src/services/orchestrator-service.ts`
+- `server/src/services/orchestrator/project-orchestrator.ts`
 - `server/src/minimax/storage/SessionStorage.ts`
 - `server/src/minimax/index.ts`
 

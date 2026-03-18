@@ -238,7 +238,7 @@ Current MiniMax injection points:
 
 - project orchestrator dispatch via `server/src/services/minimax-runner.ts`
 - project agent chat via the same prompt composition path
-- workflow orchestrator dispatch via `server/src/services/workflow-orchestrator-service.ts`
+- workflow orchestrator dispatch via `server/src/services/orchestrator/workflow-orchestrator.ts`
 - workflow agent chat via the workflow MiniMax path
 
 Current non-injected paths:
