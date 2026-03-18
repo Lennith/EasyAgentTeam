@@ -16,7 +16,13 @@ Project Orchestrator 负责项目运行态的调度闭环，核心包括：
 - 处理 running 超时与 reminder 重试
 - 输出可回放事件链（dispatch/timeout/reminder）
 
-**源码路径**: `server/src/services/orchestrator-service.ts`
+**源码路径**:
+
+- `server/src/services/orchestrator/project-orchestrator.ts`
+- `server/src/services/orchestrator/dispatch-engine.ts`
+- `server/src/services/orchestrator/session-manager.ts`
+- `server/src/services/orchestrator/reminder-service.ts`
+- `server/src/services/orchestrator/index.ts`
 
 ### 解决问题
 
@@ -27,6 +33,12 @@ Project Orchestrator 负责项目运行态的调度闭环，核心包括：
 ---
 
 ## 2. 功能范围
+
+### P0-2 改造说明（状态：实装）
+
+- 本轮将 Project/Workflow 编排器收敛到统一目录 `server/src/services/orchestrator/`。
+- 通过 `dispatch-engine/session-manager/reminder-service` 抽离共性能力，避免双实现重复维护。
+- 对外 HTTP 接口、调度语义、事件语义、超时/提醒语义、错误码语义保持不变（兼容冻结）。
 
 ### 包含能力
 

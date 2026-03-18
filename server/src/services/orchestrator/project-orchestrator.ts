@@ -1,53 +1,57 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { logger } from "../utils/logger.js";
+import { logger } from "../../utils/logger.js";
 import type {
   ManagerToAgentMessage,
   ProjectPaths,
   ProjectRecord,
-  RoleRuntimeState,
   SessionRecord,
   TaskRecord
-} from "../domain/models.js";
-import type { EventRecord } from "../domain/models.js";
-import { appendEvent, listEvents } from "../data/event-store.js";
-import { listAgents } from "../data/agent-store.js";
-import { appendInboxMessage, listInboxMessages, removeInboxMessages } from "../data/inbox-store.js";
-import { getRuntimeSettings } from "../data/runtime-settings-store.js";
+} from "../../domain/models.js";
+import type { EventRecord } from "../../domain/models.js";
+import { appendEvent, listEvents } from "../../data/event-store.js";
+import { listAgents } from "../../data/agent-store.js";
+import { appendInboxMessage, listInboxMessages, removeInboxMessages } from "../../data/inbox-store.js";
+import { getRuntimeSettings } from "../../data/runtime-settings-store.js";
 import {
   ensureProjectRuntime,
   getProject,
   listProjects,
   setRoleSessionMapping,
   updateProjectOrchestratorSettings
-} from "../data/project-store.js";
-import { addSession, getSession, listSessions, touchSession } from "../data/session-store.js";
-import { getTaskDependencyGateStatus, listRunnableTasksByRole, listTasks, patchTask } from "../data/taskboard-store.js";
+} from "../../data/project-store.js";
+import { addSession, getSession, listSessions, touchSession } from "../../data/session-store.js";
+import {
+  getTaskDependencyGateStatus,
+  listRunnableTasksByRole,
+  listTasks,
+  patchTask
+} from "../../data/taskboard-store.js";
 import {
   cancelMiniMaxRunner,
   isMiniMaxRunnerActive,
   unregisterMiniMaxCompletionCallback,
   unregisterMiniMaxWakeUpCallback,
   type MiniMaxRunResultInternal
-} from "./minimax-runner.js";
-import { ensureProjectAgentScripts } from "./project-agent-script-service.js";
-import { ensureAgentWorkspaces } from "./agent-workspace-service.js";
-import { buildProjectRoutingSnapshot, type ProjectRoutingSnapshot } from "./project-routing-snapshot-service.js";
+} from "../minimax-runner.js";
+import { ensureProjectAgentScripts } from "../project-agent-script-service.js";
+import { ensureAgentWorkspaces } from "../agent-workspace-service.js";
+import { buildProjectRoutingSnapshot, type ProjectRoutingSnapshot } from "../project-routing-snapshot-service.js";
 import {
   getRoleMessageStatus,
   addPendingMessagesForRole,
   confirmPendingMessagesForRole
-} from "../data/role-message-status-store.js";
-import { getRoleReminderState, updateRoleReminderState } from "../data/role-reminder-store.js";
+} from "../../data/role-message-status-store.js";
+import { getRoleReminderState, updateRoleReminderState } from "../../data/role-reminder-store.js";
 import {
   markRunnerFatalError,
   markRunnerStarted,
   markRunnerSuccess,
   markRunnerTimeout,
   resolveActiveSessionForRole
-} from "./session-lifecycle-authority.js";
+} from "../session-lifecycle-authority.js";
 import {
   extractTaskIdFromMessage,
   isRemindableTaskState,
@@ -56,14 +60,23 @@ import {
   selectTaskForDispatch,
   sortTasksForDispatch,
   sortMessagesByTime
-} from "./orchestrator-dispatch-core.js";
+} from "../orchestrator-dispatch-core.js";
 import {
   buildOrchestratorContextSessionKey,
   OrchestratorLoopCore,
   runOrchestratorAdapterTick
-} from "./orchestrator-core.js";
-import { buildReminderMessageBody } from "./reminder-message-builder.js";
-import { createProviderRegistry, resolveSessionProviderId } from "./provider-runtime.js";
+} from "../orchestrator-core.js";
+import { buildReminderMessageBody } from "../reminder-message-builder.js";
+import { createProviderRegistry, resolveSessionProviderId } from "../provider-runtime.js";
+import {
+  calculateNextReminderTime,
+  calculateNextReminderTimeByMode,
+  shouldAutoResetReminderOnRoleTransition
+} from "./reminder-service.js";
+import { findLatestOpenDispatch, hasOpenTaskDispatch, readPayloadString } from "./dispatch-engine.js";
+import { resolveLatestIdleSession, resolveRoleRuntimeState } from "./session-manager.js";
+
+export { calculateNextReminderTime, shouldAutoResetReminderOnRoleTransition };
 
 type DispatchMode = "manual" | "loop";
 
@@ -74,69 +87,6 @@ const DEFAULT_SESSION_TERMINATION_TIMEOUT_MS = 1000;
 const INITIAL_REMINDER_WAIT_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_REMINDER_WAIT_MS = 60 * 60 * 1000; // 60 minutes
 const providerRegistry = createProviderRegistry();
-
-/**
- * Calculate next reminder time using exponential backoff
- * Formula: nextReminderAt = now + min(initialWaitMs * (backoffMultiplier ^ reminderCount), maxWaitMs)
- * @param reminderCount - Current reminder attempt count
- * @param nowMs - Current timestamp in ms (default: Date.now())
- * @param options - Optional config overrides
- */
-export function calculateNextReminderTime(
-  reminderCount: number,
-  nowMs: number = Date.now(),
-  options?: {
-    initialWaitMs?: number;
-    backoffMultiplier?: number;
-    maxWaitMs?: number;
-  }
-): string {
-  const initialWaitMs = options?.initialWaitMs ?? 60000; // Default: 1 minute
-  const backoffMultiplier = options?.backoffMultiplier ?? 2;
-  const maxWaitMs = options?.maxWaitMs ?? 1800000; // Default: 30 minutes
-  const waitMs = Math.min(initialWaitMs * Math.pow(backoffMultiplier, reminderCount), maxWaitMs);
-  return new Date(nowMs + waitMs).toISOString();
-}
-
-function calculateNextReminderTimeByMode(
-  reminderMode: "backoff" | "fixed_interval",
-  reminderCount: number,
-  nowMs: number,
-  options?: {
-    initialWaitMs?: number;
-    backoffMultiplier?: number;
-    maxWaitMs?: number;
-  }
-): string {
-  if (reminderMode === "fixed_interval") {
-    const intervalMs = options?.initialWaitMs ?? 60000;
-    return new Date(nowMs + intervalMs).toISOString();
-  }
-  return calculateNextReminderTime(reminderCount, nowMs, options);
-}
-
-function resolveRoleRuntimeState(roleSessions: SessionRecord[]): RoleRuntimeState {
-  if (roleSessions.some((item) => item.status === "running")) {
-    return "RUNNING";
-  }
-  if (roleSessions.some((item) => item.status === "idle")) {
-    return "IDLE";
-  }
-  return "INACTIVE";
-}
-
-function resolveLatestIdleSession(roleSessions: SessionRecord[]): SessionRecord | undefined {
-  return [...roleSessions]
-    .filter((item) => item.status === "idle")
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
-}
-
-export function shouldAutoResetReminderOnRoleTransition(
-  previousState: RoleRuntimeState,
-  currentState: RoleRuntimeState
-): boolean {
-  return previousState === "INACTIVE" && currentState === "IDLE";
-}
 
 type DispatchOutcome =
   | "dispatched"
@@ -543,64 +493,6 @@ function buildTaskAssignmentMessage(project: ProjectRecord, session: SessionReco
       }
     }
   };
-}
-
-function readPayloadString(payload: Record<string, unknown>, key: string): string | undefined {
-  const value = payload[key];
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function findLatestOpenDispatch(sessionEvents: EventRecord[]): { event: EventRecord; dispatchId: string } | null {
-  const started = new Map<string, EventRecord>();
-  for (const event of sessionEvents) {
-    const payload = event.payload as Record<string, unknown>;
-    const dispatchId = readPayloadString(payload, "dispatchId");
-    if (!dispatchId) {
-      continue;
-    }
-    if (event.eventType === "ORCHESTRATOR_DISPATCH_STARTED") {
-      started.set(dispatchId, event);
-      continue;
-    }
-    if (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
-      started.delete(dispatchId);
-    }
-  }
-  if (started.size === 0) {
-    return null;
-  }
-  const latest = [...started.entries()].sort((a, b) => Date.parse(b[1].createdAt) - Date.parse(a[1].createdAt))[0];
-  return {
-    dispatchId: latest[0],
-    event: latest[1]
-  };
-}
-
-function hasOpenTaskDispatch(events: EventRecord[], taskId: string, sessionId: string): boolean {
-  const started = new Set<string>();
-  for (const event of events) {
-    if (event.taskId !== taskId || event.sessionId !== sessionId) {
-      continue;
-    }
-    const payload = event.payload as Record<string, unknown>;
-    const dispatchId = readPayloadString(payload, "dispatchId");
-    const dispatchKind = readPayloadString(payload, "dispatchKind");
-    if (!dispatchId || dispatchKind !== "task") {
-      continue;
-    }
-    if (event.eventType === "ORCHESTRATOR_DISPATCH_STARTED") {
-      started.add(dispatchId);
-      continue;
-    }
-    if (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
-      started.delete(dispatchId);
-    }
-  }
-  return started.size > 0;
 }
 
 function findLatestOpenRun(sessionEvents: EventRecord[]): { event: EventRecord; runId: string } | null {

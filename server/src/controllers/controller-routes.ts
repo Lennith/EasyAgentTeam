@@ -68,7 +68,7 @@ import { createTeam, deleteTeam, getTeam, listTeams, updateTeam } from "../data/
 import { addSession, getSession, listSessions, SessionStoreError, touchSession } from "../data/session-store.js";
 import { listWorkflowRunEvents } from "../data/workflow-run-store.js";
 import { BASE_PROMPT_TEXT, BASE_PROMPT_VERSION, getBuiltInAgents } from "../services/agent-prompt-service.js";
-import { createOrchestratorService } from "../services/orchestrator-service.js";
+import { createOrchestratorService } from "../services/orchestrator/index.js";
 import { applyProjectTemplate } from "../services/project-template-service.js";
 import { buildAgentIOTimeline } from "../services/agent-io-timeline-service.js";
 import { ensureProjectAgentScripts, TeamToolsTemplateError } from "../services/project-agent-script-service.js";
@@ -85,7 +85,7 @@ import { buildTaskTreeResponse } from "../services/task-tree-query-service.js";
 import { buildTaskDetailResponse } from "../services/task-detail-query-service.js";
 import { buildWorkflowAgentIOTimeline } from "../services/workflow-agent-io-timeline-service.js";
 import { buildWorkflowTaskDetail, buildWorkflowTaskTreeResponse } from "../services/workflow-task-query-service.js";
-import { createWorkflowOrchestratorService, WorkflowRuntimeError } from "../services/workflow-orchestrator-service.js";
+import { createWorkflowOrchestratorService, WorkflowRuntimeError } from "../services/orchestrator/index.js";
 import { createProviderRegistry, resolveSessionProviderId } from "../services/provider-runtime.js";
 import { createWorkflowToolExecutionAdapter, DefaultToolInjector } from "../services/tool-injector.js";
 import type { ProviderId } from "@autodev/agent-library";

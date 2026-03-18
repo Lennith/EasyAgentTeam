@@ -41,8 +41,8 @@ function resolveTeamToolsListPath(): string {
 
 function resolveOrchestratorServicePath(): string {
   const candidates = [
-    path.resolve(process.cwd(), "src", "services", "orchestrator-service.ts"),
-    path.resolve(process.cwd(), "server", "src", "services", "orchestrator-service.ts")
+    path.resolve(process.cwd(), "src", "services", "orchestrator", "project-orchestrator.ts"),
+    path.resolve(process.cwd(), "server", "src", "services", "orchestrator", "project-orchestrator.ts")
   ];
   for (const candidate of candidates) {
     if (!existsSync(candidate)) {
@@ -53,7 +53,7 @@ function resolveOrchestratorServicePath(): string {
       return candidate;
     }
   }
-  throw new Error("orchestrator-service.ts not found from current test working directory");
+  throw new Error("project-orchestrator.ts not found from current test working directory");
 }
 
 test("agent-visible prompts/doc index use registered TeamTools names consistently", async () => {

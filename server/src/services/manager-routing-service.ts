@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import type { ManagerToAgentMessage, ProjectPaths, ProjectRecord } from "../domain/models.js";
 import { appendEvent } from "../data/event-store.js";
 import { appendInboxMessage } from "../data/inbox-store.js";
@@ -10,7 +10,7 @@ import {
   validateRoleSessionMapWrite,
   type RoutingRejectCode
 } from "./routing-guard-service.js";
-import { resolveTaskDiscuss } from "./orchestrator-service.js";
+import { resolveTaskDiscuss } from "./orchestrator/index.js";
 import { resolveActiveSessionForRole } from "./session-lifecycle-authority.js";
 
 export interface DeliverManagerMessageInput {
