@@ -54,6 +54,48 @@ function Invoke-ApiJson {
   }
 }
 
+function Invoke-ApiJsonWithRetry {
+  param(
+    [Parameter(Mandatory = $true)][string]$BaseUrl,
+    [Parameter(Mandatory = $true)][string]$Method,
+    [Parameter(Mandatory = $true)][string]$Path,
+    [object]$Body = $null,
+    [int[]]$AllowStatus = @(200, 201),
+    [int[]]$RetryOnStatus = @(),
+    [int]$MaxAttempts = 3,
+    [int]$InitialDelayMs = 250,
+    [switch]$RetryOnRequestFailure
+  )
+
+  if ($MaxAttempts -lt 1) {
+    $MaxAttempts = 1
+  }
+
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      $resp = Invoke-ApiJson -BaseUrl $BaseUrl -Method $Method -Path $Path -Body $Body -AllowStatus $AllowStatus
+      $status = [int]$resp.status
+      if (($RetryOnStatus -contains $status) -and $attempt -lt $MaxAttempts) {
+        $delay = [Math]::Min(3000, $InitialDelayMs * [Math]::Pow(2, $attempt - 1))
+        Write-Host ("retryable_response status={0} method={1} path={2} attempt={3}/{4}" -f $status, $Method, $Path, $attempt, $MaxAttempts)
+        Start-Sleep -Milliseconds ([int]$delay)
+        continue
+      }
+      if (($RetryOnStatus -contains $status) -and $attempt -ge $MaxAttempts) {
+        throw "HTTP $status on $Method $Path after $MaxAttempts attempts`n$([string]$resp.raw)"
+      }
+      return $resp
+    } catch {
+      if (-not $RetryOnRequestFailure.IsPresent -or $attempt -ge $MaxAttempts) {
+        throw
+      }
+      $delay = [Math]::Min(3000, $InitialDelayMs * [Math]::Pow(2, $attempt - 1))
+      Write-Host ("retryable_exception method={0} path={1} attempt={2}/{3} message={4}" -f $Method, $Path, $attempt, $MaxAttempts, [string]$_.Exception.Message)
+      Start-Sleep -Milliseconds ([int]$delay)
+    }
+  }
+}
+
 function Get-EventsNdjson {
   param(
     [Parameter(Mandatory = $true)][string]$BaseUrl,
@@ -169,4 +211,56 @@ function Reset-WorkspaceDirectory {
   } else {
     New-Item -ItemType Directory -Path $safeRoot | Out-Null
   }
+}
+
+function Remove-ProjectWithRetry {
+  param(
+    [Parameter(Mandatory = $true)][string]$BaseUrl,
+    [Parameter(Mandatory = $true)][string]$ProjectId,
+    [int]$MaxAttempts = 6,
+    [int]$InitialDelayMs = 400
+  )
+
+  $lastStatus = -1
+  $lastRaw = ""
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    $deleteResp = Invoke-ApiJson -BaseUrl $BaseUrl -Method DELETE -Path "/api/projects/$ProjectId" -AllowStatus @(200, 404, 409, 500)
+    $lastStatus = [int]$deleteResp.status
+    $lastRaw = [string]$deleteResp.raw
+    if ($lastStatus -eq 200 -or $lastStatus -eq 404) {
+      return [pscustomobject]@{
+        status = $lastStatus
+        attempts = $attempt
+      }
+    }
+
+    try {
+      Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/projects/$ProjectId/orchestrator/settings" -AllowStatus @(200, 404) -Body @{
+        auto_dispatch_enabled = $false
+        auto_dispatch_remaining = 0
+      } | Out-Null
+    } catch {}
+
+    try {
+      $sessionsResp = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$ProjectId/sessions" -AllowStatus @(200, 404)
+      if ([int]$sessionsResp.status -eq 200 -and $sessionsResp.body -and $sessionsResp.body.items) {
+        foreach ($session in @($sessionsResp.body.items)) {
+          $sessionId = [string]$session.sessionId
+          if ([string]::IsNullOrWhiteSpace($sessionId)) {
+            continue
+          }
+          try {
+            Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$ProjectId/sessions/$sessionId/dismiss" -AllowStatus @(200, 404, 409) | Out-Null
+          } catch {}
+        }
+      }
+    } catch {}
+
+    if ($attempt -lt $MaxAttempts) {
+      $delay = [Math]::Min(4000, $InitialDelayMs * [Math]::Pow(2, $attempt - 1))
+      Start-Sleep -Milliseconds ([int]$delay)
+    }
+  }
+
+  throw "Failed to remove project '$ProjectId' after $MaxAttempts attempts (lastStatus=$lastStatus). response=$lastRaw"
 }

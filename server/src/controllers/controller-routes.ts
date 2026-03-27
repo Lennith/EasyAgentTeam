@@ -18,6 +18,7 @@ import {
   updateProjectRouting,
   updateTaskAssignRouting
 } from "../data/project-store.js";
+import { runStorageTransaction } from "../data/file-utils.js";
 import { ProjectStoreError } from "../data/project-store.js";
 import {
   createWorkflowRun,
@@ -1422,19 +1423,29 @@ export function registerProjectRoutes(app: express.Application, context: AppRunt
         }
       }
 
-      const created = await createProject(dataRoot, {
-        projectId,
-        name,
-        workspacePath,
-        templateId,
-        agentIds,
-        routeTable,
-        routeDiscussRounds,
-        autoDispatchEnabled,
-        autoDispatchRemaining,
-        holdEnabled,
-        reminderMode,
-        roleSessionMap
+      let created!: Awaited<ReturnType<typeof createProject>>;
+      const projectPaths = getProjectPaths(dataRoot, projectId);
+      await runStorageTransaction([projectPaths.projectRootDir], async () => {
+        created = await createProject(dataRoot, {
+          projectId,
+          name,
+          workspacePath,
+          templateId,
+          agentIds,
+          routeTable,
+          routeDiscussRounds,
+          autoDispatchEnabled,
+          autoDispatchRemaining,
+          holdEnabled,
+          reminderMode,
+          roleSessionMap
+        });
+        await appendEvent(created.paths, {
+          projectId: created.project.projectId,
+          eventType: "PROJECT_CREATED",
+          source: "manager",
+          payload: { name: created.project.name, workspacePath: created.project.workspacePath }
+        });
       });
 
       if (taskAssignRouteTable && Object.keys(taskAssignRouteTable).length > 0) {
@@ -1461,12 +1472,6 @@ export function registerProjectRoutes(app: express.Application, context: AppRunt
         agentSummaries
       );
 
-      await appendEvent(created.paths, {
-        projectId: created.project.projectId,
-        eventType: "PROJECT_CREATED",
-        source: "manager",
-        payload: { name: created.project.name, workspacePath: created.project.workspacePath }
-      });
       if (templateApplyResult.applied) {
         await appendEvent(created.paths, {
           projectId: created.project.projectId,
@@ -2310,14 +2315,17 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
       }
       const { patchTask, recomputeRunnableStates } = await import("../data/taskboard-store.js");
       const { appendEvent } = await import("../data/event-store.js");
-      const patched = await patchTask(paths, project.projectId, taskId, patch);
-      await recomputeRunnableStates(paths, project.projectId);
-      await appendEvent(paths, {
-        projectId: project.projectId,
-        eventType: "TASK_UPDATED",
-        source: "dashboard",
-        taskId: patched.task.taskId,
-        payload: { updates: patch }
+      const patched = await runStorageTransaction([paths.taskboardFile, paths.eventsFile], async () => {
+        const updated = await patchTask(paths, project.projectId, taskId, patch);
+        await recomputeRunnableStates(paths, project.projectId);
+        await appendEvent(paths, {
+          projectId: project.projectId,
+          eventType: "TASK_UPDATED",
+          source: "dashboard",
+          taskId: updated.task.taskId,
+          payload: { updates: patch }
+        });
+        return updated;
       });
       res.status(200).json({ success: true, task: patched.task });
     } catch (error) {
@@ -2689,7 +2697,7 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
 }
 
 export function registerApiErrorMiddleware(app: express.Application): void {
-  app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  app.use((error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof ProjectStoreError) {
       if (error.code === "PROJECT_EXISTS") {
         sendApiError(res, 409, "PROJECT_EXISTS", error.message, "Use another project_id or delete existing project.");
@@ -2828,6 +2836,13 @@ export function registerApiErrorMiddleware(app: express.Application): void {
         "Ensure repository root has TeamsTools/ template files or set AUTO_DEV_TEAMTOOLS_SOURCE."
       );
       return;
+    }
+    if (error instanceof Error) {
+      logger.error(
+        `[API] ${req.method} ${req.originalUrl} - unhandled error: ${error.message}\n${error.stack ?? "(no stack)"}`
+      );
+    } else {
+      logger.error(`[API] ${req.method} ${req.originalUrl} - unhandled non-error rejection: ${String(error)}`);
     }
     const message = error instanceof Error ? error.message : "Unknown error";
     sendApiError(res, 500, "INTERNAL_SERVER_ERROR", message, "Inspect server logs for stack trace.");

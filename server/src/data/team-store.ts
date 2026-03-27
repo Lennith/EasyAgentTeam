@@ -1,6 +1,6 @@
 import * as path from "path";
-import * as fs from "fs";
-import { readJsonFile, writeJsonFile, ensureDirectory } from "./file-utils.js";
+import { ensureDirectory } from "./file-utils.js";
+import { deleteDocument, listDocumentFiles, readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 import type { TeamRecord, TeamSummary, CreateTeamInput, UpdateTeamInput } from "../domain/team-models.js";
 
 const TEAMS_DIR = "teams";
@@ -19,18 +19,12 @@ function normalizeTeamId(teamId: string): string {
 
 export async function listTeams(dataRoot: string): Promise<TeamSummary[]> {
   const dir = teamsDir(dataRoot);
-  try {
-    await fs.promises.access(dir);
-  } catch {
-    return [];
-  }
-
-  const files = await fs.promises.readdir(dir);
+  const files = await listDocumentFiles(dir);
   const teams: TeamSummary[] = [];
 
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
-    const filePath = path.join(dir, file);
+    const filePath = file;
     try {
       const team = await readJsonFile<TeamRecord>(filePath, {} as TeamRecord);
       if (team && team.teamId) {
@@ -129,10 +123,13 @@ export async function updateTeam(
 export async function deleteTeam(dataRoot: string, teamId: string): Promise<boolean> {
   const normalized = normalizeTeamId(teamId);
   const filePath = teamFile(dataRoot, normalized);
+  const existing = await getTeam(dataRoot, normalized);
+  if (!existing) {
+    return false;
+  }
 
   try {
-    await fs.promises.access(filePath);
-    await fs.promises.unlink(filePath);
+    await deleteDocument(filePath);
     return true;
   } catch {
     return false;

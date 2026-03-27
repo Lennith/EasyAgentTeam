@@ -2,7 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { LockRecord } from "../domain/models.js";
-import { ensureDirectory, readJsonFile } from "./file-utils.js";
+import { ensureDirectory } from "./file-utils.js";
+import {
+  deleteDocument,
+  listDocumentFiles,
+  readJsonFile,
+  writeJsonFile
+} from "./store/store-runtime.js";
 
 export class LockStoreError extends Error {
   constructor(
@@ -251,30 +257,25 @@ async function readLock(lockFile: string): Promise<LockRecord | null> {
 
 async function writeLock(lockFile: string, lock: LockRecord, createOnly = false): Promise<void> {
   await ensureDirectory(path.dirname(lockFile));
-  const payload = `${JSON.stringify(lock, null, 2)}\n`;
-  await fs.writeFile(lockFile, payload, {
-    encoding: "utf8",
-    flag: createOnly ? "wx" : "w"
-  });
+  if (createOnly) {
+    const payload = `${JSON.stringify(lock, null, 2)}\n`;
+    await fs.writeFile(lockFile, payload, {
+      encoding: "utf8",
+      flag: "wx"
+    });
+    return;
+  }
+  await writeJsonFile(lockFile, lock);
 }
 
 async function removeLockFile(lockFile: string): Promise<void> {
-  try {
-    await fs.rm(lockFile, { force: true });
-  } catch (error) {
-    const known = error as NodeJS.ErrnoException;
-    if (known.code !== "ENOENT") {
-      throw error;
-    }
-  }
+  await deleteDocument(lockFile);
 }
-
+  
 async function listLockFiles(workspaceLocksDir: string): Promise<string[]> {
-  await ensureDirectory(workspaceLocksDir);
-  const entries = await fs.readdir(workspaceLocksDir, { withFileTypes: true });
+  const entries = await listDocumentFiles(workspaceLocksDir);
   return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .map((entry) => path.join(workspaceLocksDir, entry.name))
+    .filter((entry) => entry.endsWith(".json"))
     .sort((a, b) => a.localeCompare(b));
 }
 

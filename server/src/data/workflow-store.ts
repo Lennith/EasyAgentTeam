@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   WorkflowBlockReasonCode,
@@ -14,7 +13,8 @@ import type {
   WorkflowTemplateRegistryState,
   WorkflowTemplateTaskRecord
 } from "../domain/models.js";
-import { ensureDirectory, ensureFile, readJsonFile, writeJsonFile } from "./file-utils.js";
+import { deleteDirectoryTransactional, ensureDirectory, ensureFile, runStorageTransaction } from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 import {
   ensureWorkflowRunRuntime,
   readWorkflowRunTaskRuntimeState,
@@ -525,24 +525,33 @@ async function readRunRegistry(dataRoot: string): Promise<WorkflowRunRegistrySta
   const maybeState = raw as WorkflowRunRegistryState;
   if (maybeState.schemaVersion === "2.0" && Array.isArray(maybeState.runs)) {
     const normalizedRuns: WorkflowRunRecord[] = [];
+    let hasLegacyMigration = false;
     for (const item of maybeState.runs) {
       const normalized = await normalizeRunRecord(dataRoot, item as unknown as Record<string, unknown>);
       if (normalized.migrated) {
-        await fs.rm(path.join(paths.runsRootDir, normalized.record.runId), { recursive: true, force: true });
+        hasLegacyMigration = true;
+        await deleteDirectoryTransactional(path.join(paths.runsRootDir, normalized.record.runId));
         continue;
       }
       normalizedRuns.push(normalized.record);
     }
-    const next: WorkflowRunRegistryState = {
+    if (hasLegacyMigration) {
+      const next: WorkflowRunRegistryState = {
+        schemaVersion: "2.0",
+        updatedAt: new Date().toISOString(),
+        runs: normalizedRuns
+      };
+      await writeJsonFile(paths.runsFile, next);
+      return next;
+    }
+    return {
       schemaVersion: "2.0",
-      updatedAt: new Date().toISOString(),
+      updatedAt: typeof maybeState.updatedAt === "string" ? maybeState.updatedAt : new Date().toISOString(),
       runs: normalizedRuns
     };
-    await writeJsonFile(paths.runsFile, next);
-    return next;
   }
 
-  await fs.rm(paths.runsRootDir, { recursive: true, force: true });
+  await deleteDirectoryTransactional(paths.runsRootDir);
   await ensureDirectory(paths.runsRootDir);
   const next: WorkflowRunRegistryState = defaultRunRegistry();
   await writeJsonFile(paths.runsFile, next);
@@ -837,9 +846,11 @@ export async function deleteWorkflowRun(
     state.runs.splice(idx, 1);
     const removedAt = new Date().toISOString();
     state.updatedAt = removedAt;
-    await writeJsonFile(paths.runsFile, state);
     const runtimeDir = path.join(paths.runsRootDir, runId);
-    await fs.rm(runtimeDir, { recursive: true, force: true });
+    await runStorageTransaction([paths.workflowsRootDir, runtimeDir], async () => {
+      await writeJsonFile(paths.runsFile, state);
+      await deleteDirectoryTransactional(runtimeDir);
+    });
     return { runId, removedAt };
   });
 }

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node scripts/dev-entry.mjs",
     "build": "tsc -p tsconfig.json",
     "test": "node --import tsx --test --test-concurrency=1 \"src/__tests__/**/*.test.ts\""
   },

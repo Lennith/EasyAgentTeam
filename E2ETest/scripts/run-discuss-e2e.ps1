@@ -128,6 +128,21 @@ trap {
   $finalReason = "script_exception"
   $pass = $false
   $analysisExit = 1
+  $errRecord = $_
+  $errMessage = if ($errRecord -and $errRecord.Exception) { [string]$errRecord.Exception.Message } else { [string]$errRecord }
+  $errStack = if ($errRecord) { [string]$errRecord.ScriptStackTrace } else { "" }
+  $errDetail = [ordered]@{
+    captured_at = (Get-Date).ToString("o")
+    message = $errMessage
+    stack = $errStack
+    error_record = [string]$errRecord
+  }
+  Ensure-Dir -Path $trapOutDir
+  ($errDetail | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath (Join-Path $trapOutDir "script_exception.json") -Encoding UTF8
+  Write-Host ("script_exception_message={0}" -f $errMessage)
+  if (-not [string]::IsNullOrWhiteSpace($errStack)) {
+    Write-Host ("script_exception_stack={0}" -f $errStack)
+  }
   Write-StabilityMetrics -OutDir $trapOutDir -CaseId $script:stabilityCaseId -StartTime $scriptRunStart -FinalPass $false -FinalReason $finalReason -ExitCode 2
   exit 2
 }
@@ -393,7 +408,7 @@ if ($projects.body.items) {
   $exists = @($projects.body.items | Where-Object { $_.projectId -eq $projectId }).Count -gt 0
 }
 if ($exists) {
-  Invoke-ApiJson -BaseUrl $BaseUrl -Method DELETE -Path "/api/projects/$projectId" | Out-Null
+  Remove-ProjectWithRetry -BaseUrl $BaseUrl -ProjectId $projectId | Out-Null
 }
 
 Write-Host "== Upsert agents =="
@@ -566,9 +581,9 @@ if ($SetupOnly) {
   $finalReason = "setup_only"
 } else {
   while ($true) {
-    $settingsNow = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/orchestrator/settings"
-    $sessionsNow = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions"
-    $treeNow = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/task-tree"
+    $settingsNow = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/orchestrator/settings" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 6 -InitialDelayMs 300 -RetryOnRequestFailure
+    $sessionsNow = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 6 -InitialDelayMs 300 -RetryOnRequestFailure
+    $treeNow = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/task-tree" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 6 -InitialDelayMs 300 -RetryOnRequestFailure
 
     $remaining = [int]$settingsNow.body.auto_dispatch_remaining
     $nodes = @($treeNow.body.nodes)
@@ -687,9 +702,9 @@ if (-not $SetupOnly) {
   }
 }
 
-$finalSettings = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/orchestrator/settings"
-$finalSessions = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions"
-$finalTree = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/task-tree"
+$finalSettings = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/orchestrator/settings" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 8 -InitialDelayMs 300 -RetryOnRequestFailure
+$finalSessions = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 8 -InitialDelayMs 300 -RetryOnRequestFailure
+$finalTree = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/task-tree" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 8 -InitialDelayMs 300 -RetryOnRequestFailure
 $finalRemaining = [int]$finalSettings.body.auto_dispatch_remaining
 $consumed = $totalBudgetGranted - $finalRemaining
 $runningCount = @($finalSessions.body.items | Where-Object { $_.status -eq "running" }).Count

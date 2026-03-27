@@ -6,7 +6,7 @@ import type {
   SessionsState
 } from "../domain/models.js";
 import type { ProviderId } from "@autodev/agent-library";
-import { readJsonFile, writeJsonFile } from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 
 const VALID_SESSION_STATUS = new Set<SessionStatus>(["running", "idle", "blocked", "dismissed"]);
 

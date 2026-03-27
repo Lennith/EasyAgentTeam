@@ -521,6 +521,45 @@ function findLatestOpenRun(sessionEvents: EventRecord[]): { event: EventRecord; 
   };
 }
 
+function hasDispatchClosedEvent(sessionEvents: EventRecord[], dispatchId: string): boolean {
+  const normalized = dispatchId.trim();
+  if (!normalized) {
+    return false;
+  }
+  return sessionEvents.some((event) => {
+    if (event.eventType !== "ORCHESTRATOR_DISPATCH_FINISHED" && event.eventType !== "ORCHESTRATOR_DISPATCH_FAILED") {
+      return false;
+    }
+    const payload = event.payload as Record<string, unknown>;
+    return readPayloadString(payload, "dispatchId") === normalized;
+  });
+}
+
+function findLatestDispatchStartedById(
+  sessionEvents: EventRecord[],
+  dispatchId: string
+): { event: EventRecord; dispatchId: string } | null {
+  const normalized = dispatchId.trim();
+  if (!normalized) {
+    return null;
+  }
+  const candidates = sessionEvents.filter((event) => {
+    if (event.eventType !== "ORCHESTRATOR_DISPATCH_STARTED") {
+      return false;
+    }
+    const payload = event.payload as Record<string, unknown>;
+    return readPayloadString(payload, "dispatchId") === normalized;
+  });
+  if (candidates.length === 0) {
+    return null;
+  }
+  const latest = candidates.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+  return {
+    dispatchId: normalized,
+    event: latest
+  };
+}
+
 function readPidFromEventPayload(payload: Record<string, unknown>): number | null {
   const raw = payload.pid;
   if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
@@ -1628,10 +1667,22 @@ export class OrchestratorService {
   private async terminateProcessByPid(pid: number): Promise<SessionProcessTerminationResult> {
     if (process.platform === "win32") {
       return new Promise((resolve) => {
-        const proc = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
-          windowsHide: true,
-          stdio: "pipe"
-        });
+        let proc: ReturnType<typeof spawn>;
+        try {
+          proc = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+            windowsHide: true,
+            stdio: "pipe"
+          });
+        } catch (error) {
+          const known = error as NodeJS.ErrnoException;
+          resolve({
+            attempted: true,
+            pid,
+            result: known.code === "EPERM" ? "access_denied" : "failed",
+            message: known.message || "taskkill spawn failed"
+          });
+          return;
+        }
         const timeoutMs = getSessionTerminationTimeoutMs();
         const timeoutTimer = setTimeout(() => {
           proc.kill();
@@ -2346,16 +2397,27 @@ export class OrchestratorService {
         provider: session.provider ?? "minimax"
       });
 
-      if (openDispatch) {
-        const payload = openDispatch.event.payload as Record<string, unknown>;
+      const dispatchIdCandidate =
+        openDispatch?.dispatchId ??
+        (typeof timeoutResult.session?.lastDispatchId === "string" ? timeoutResult.session.lastDispatchId : "") ??
+        openDispatchId ??
+        "";
+      const fallbackDispatch =
+        !openDispatch && dispatchIdCandidate ? findLatestDispatchStartedById(sessionEvents, dispatchIdCandidate) : null;
+      const dispatchToClose = openDispatch ?? fallbackDispatch;
+      const hasClosed =
+        dispatchIdCandidate.length > 0 ? hasDispatchClosedEvent(sessionEvents, dispatchIdCandidate) : false;
+
+      if (dispatchToClose && !hasClosed) {
+        const payload = dispatchToClose.event.payload as Record<string, unknown>;
         await appendEvent(paths, {
           projectId: project.projectId,
           eventType: timeoutResult.escalated ? "ORCHESTRATOR_DISPATCH_FAILED" : "ORCHESTRATOR_DISPATCH_FINISHED",
           source: "manager",
           sessionId: sessionToken,
-          taskId: session.currentTaskId ?? openDispatch.event.taskId,
+          taskId: session.currentTaskId ?? dispatchToClose.event.taskId,
           payload: {
-            dispatchId: openDispatch.dispatchId,
+            dispatchId: dispatchToClose.dispatchId,
             mode: payload.mode ?? "loop",
             dispatchKind: payload.dispatchKind ?? "task",
             messageId: payload.messageId ?? null,

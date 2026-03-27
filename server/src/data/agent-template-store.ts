@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { AgentTemplateDefinition, AgentTemplateRegistryState } from "../domain/models.js";
-import { ensureDirectory, readJsonFile, writeJsonFile } from "./file-utils.js";
+import { ensureDirectory } from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 
 export class AgentTemplateStoreError extends Error {
   constructor(

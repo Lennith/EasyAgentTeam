@@ -3,7 +3,58 @@
 > **优先级**: P1 (高)  
 > **风险等级**: 🟡 中高  
 > **预计工期**: 3周  
-> **目标**: 解决文件系统存储的原子性问题，创建存储抽象层
+> **目标**: 解决文件系统存储的原子性问题，创建存储抽象层，并在不改变业务逻辑的前提下提升一致性
+
+---
+
+## 执行状态（2026-03-26）
+
+- 当前状态：`验证中`
+- 执行策略：按“一次性切换 + 强一致事务 + 继续使用 JSON/JSONL 外部文件规格”执行，不引入数据库。
+- 与 baseline 冲突项的风险接受：
+  - baseline 建议“第三轮不一次性引入完整事务/WAL”；
+  - 本轮按业务决策执行全量重构，接受一次性回归成本升高；
+  - 通过 WAL 恢复、事务回滚、关键链路脚本验证降低风险，并保留恢复工具作为兜底。
+- 业务行为兼容约束（本轮必须保持不变）：
+  - HTTP API 输入/输出与错误码语义不变；
+  - JSON/JSONL 文件格式与目录路径不变；
+  - 事件类型与时序语义不变（如 `PROJECT_CREATED` 仍在项目创建链路中产出，迁移仅调整存储实现层次）；
+  - 任务树查询、任务动作校验、排序与过滤语义不变。
+- 未完成项清单（收尾批次）：
+  - data 模块已大面积切到 `store-runtime`，但仍需逐项完成迁移核对与回归；
+  - workflow 编排链路中仍有“状态写入 + 事件追加”未完全同事务的点位需收敛；
+  - `createProject` 主链路需固定为“核心事务含 `PROJECT_CREATED` + 外部 bootstrap 后续事件”；
+  - 目录级破坏操作仍有少量非事务删除路径需要改为事务删除（rename-to-trash + commit 清理）；
+  - 回归门槛（`pnpm --filter @autodev/server test`、`pnpm test`、上线检测 Step 1-4）需重新完成并归档证据。
+- 本次收尾目标：
+  - 完成全量迁移与事务边界闭合，保持 HTTP API 语义与 JSON/JSONL 协议不变；
+  - 完成关键链路（project/task/workflow）一致性验证并恢复到 `验证中`；
+  - 上线检测通过后再回调到 `实装`。
+- 收尾批次回归结果（2026-03-26）：
+  - `pnpm --filter @autodev/server build` 通过；
+  - `pnpm --filter @autodev/server test` 通过；
+  - `pnpm test` 通过；
+  - 当前进入上线检测前置状态，待执行 Step 1-4 后回调 `实装`。
+
+### 本轮已落地
+
+- 新增存储事务核心：
+  - `server/src/data/storage/atomic-writer.ts`
+  - `server/src/data/storage/file-lock-registry.ts`
+  - `server/src/data/storage/wal-store.ts`
+  - `server/src/data/storage/recovery-runner.ts`
+  - `server/src/data/storage/transaction-manager.ts`
+- 新增存储抽象层：
+  - `server/src/data/store/store-interface.ts`
+  - `server/src/data/store/errors.ts`
+  - `server/src/data/store/file-store.ts`
+  - `server/src/data/store/memory-store.ts`
+- `file-utils` 内部已切换到事务内核，外部函数签名保持不变。
+- 已将关键链路接入显式事务：
+  - `project-store#createProject`（项目配置事务化；收尾批次将 `PROJECT_CREATED` 固定并入核心事务）
+  - `project-store#deleteProject`（事务删除目录，避免直接硬删）
+  - `task-action-service` 的 `TASK_CREATE/TASK_UPDATE/TASK_ASSIGN/TASK_REPORT`
+  - `controller-routes` 的 dashboard `TASK_UPDATED` 路径
 
 ---
 
@@ -21,14 +72,10 @@
 **典型问题代码**:
 
 ```typescript
-// project-store.ts - 非原子操作
-export async function createProject(input: CreateProjectInput): Promise<ProjectRecord> {
-  await ensureDirectory(paths.projectRootDir); // 步骤1
-  await writeJsonFile(paths.projectConfigFile, project); // 步骤2 - 可能失败
-  await appendEvent(projectId, { type: "PROJECT_CREATED" }); // 步骤3 - 可能失败
-  return project;
-}
-// 如果步骤3失败，配置已写入但事件缺失，数据不一致
+// 旧链路示意：跨多个函数串行执行写入，缺少统一事务边界
+await writeJsonFile(paths.projectConfigFile, project); // 状态写入
+await appendEvent(paths, { eventType: "PROJECT_CREATED" }); // 事件追加
+// 任一步骤失败都可能留下“状态/事件不同步”的中间态
 ```
 
 ### 目标架构
@@ -39,13 +86,13 @@ data/
 │   ├── store-interface.ts    # Store<T> 接口
 │   ├── file-store.ts         # 文件存储实现
 │   └── memory-store.ts       # 内存存储实现（测试用）
-├── transaction/              # 事务支持
+├── storage/                  # 事务内核
 │   ├── transaction-manager.ts
-│   ├── write-ahead-log.ts
+│   ├── wal-store.ts
+│   ├── recovery-runner.ts
+│   ├── file-lock-registry.ts
 │   └── atomic-writer.ts
-├── migration/                # 存储迁移工具
-│   └── v1-to-v2-migration.ts
-└── [保持现有 store 文件，逐步迁移]
+└── file-utils.ts             # 兼容层（导出签名保持不变）
 ```
 
 ---
@@ -61,7 +108,6 @@ data/
 ```
 新增文件:
 - server/src/data/store/store-interface.ts
-- server/src/data/store/store-options.ts
 - server/src/data/store/errors.ts
 ```
 
@@ -131,8 +177,8 @@ export class StoreError extends Error {
 
 ```
 新增文件:
-- server/src/data/transaction/atomic-writer.ts
-- server/src/data/transaction/write-ahead-log.ts
+- server/src/data/storage/atomic-writer.ts
+- server/src/data/storage/wal-store.ts
 
 修改文件:
 - server/src/data/file-utils.ts (增强)
@@ -141,7 +187,7 @@ export class StoreError extends Error {
 **原子写入原理**:
 
 ```typescript
-// data/transaction/atomic-writer.ts
+// data/storage/atomic-writer.ts
 export async function writeFileAtomic(filePath: string, content: string, options?: AtomicWriteOptions): Promise<void> {
   const tempPath = `${filePath}.tmp.${Date.now()}`;
   const backupPath = `${filePath}.backup`;
@@ -196,14 +242,14 @@ export async function writeFileAtomic(filePath: string, content: string, options
 
 ```
 新增文件:
-- server/src/data/transaction/transaction-manager.ts
-- server/src/data/transaction/transaction-log.ts
+- server/src/data/storage/transaction-manager.ts
+- server/src/data/storage/recovery-runner.ts
 ```
 
 **事务管理器设计**:
 
 ```typescript
-// data/transaction/transaction-manager.ts
+// data/storage/transaction-manager.ts
 export class FileTransactionManager {
   private activeTransactions = new Map<string, Transaction<any>>();
 
@@ -259,7 +305,6 @@ class FileTransaction<T> implements Transaction<T> {
 ```
 新增文件:
 - server/src/data/store/file-store.ts
-- server/src/data/store/file-store-options.ts
 ```
 
 **FileStore 设计**:
@@ -360,13 +405,6 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectR
     // 原子保存
     await tx.save(project.projectId, project);
 
-    // 写入事件
-    await eventStore.save(generateEventId(), {
-      type: "PROJECT_CREATED",
-      projectId: project.projectId,
-      timestamp: new Date().toISOString()
-    });
-
     await tx.commit();
     return project;
   } catch (error) {
@@ -374,6 +412,7 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectR
     throw error;
   }
 }
+// 兼容性说明：PROJECT_CREATED 事件仍由 API 创建链路写入，事件类型与对外行为不变
 ```
 
 **检验标准**:
@@ -503,9 +542,9 @@ describe("ProjectService", () => {
 
 ### 回滚方案
 
-1. 保留旧 store 实现作为 fallback
-2. 通过配置切换新旧实现
-3. 数据文件格式兼容，可双向切换
+1. 不保留长期新旧双栈；统一走新事务内核
+2. 通过 WAL 恢复器 + 目录快照回滚应急（工具化）
+3. 保留只读迁移/巡检工具用于排障，不作为运行时双写路径
 
 ---
 
@@ -523,4 +562,4 @@ describe("ProjectService", () => {
 
 ## 附录: 存储操作清单
 
-待阶段1完成后，补充完整的数据操作清单用于验证。
+已纳入 `storage-transaction` 相关测试用例，后续按失败项持续补充。

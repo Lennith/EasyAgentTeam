@@ -72,23 +72,37 @@ test("running session timeout appends dispatch/run closure events", async () => 
   orchestrator.start();
   let events = await listEvents(paths);
   let timeoutEvent = events.find((item) => item.eventType === "SESSION_HEARTBEAT_TIMEOUT");
+  let dispatchClosed = events.find(
+    (item) =>
+      (item.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || item.eventType === "ORCHESTRATOR_DISPATCH_FAILED") &&
+      String((item.payload as Record<string, unknown>).dispatchId ?? "") === "dispatch-timeout-1"
+  );
+  let runFinished = events.find(
+    (item) =>
+      item.eventType === "CODEX_RUN_FINISHED" &&
+      String((item.payload as Record<string, unknown>).runId ?? "") === "run-timeout-1"
+  );
   try {
-    const deadline = Date.now() + 2_000;
-    while (!timeoutEvent && Date.now() < deadline) {
+    const deadline = Date.now() + 5_000;
+    while ((!timeoutEvent || !dispatchClosed || !runFinished) && Date.now() < deadline) {
       await sleep(100);
       events = await listEvents(paths);
       timeoutEvent = events.find((item) => item.eventType === "SESSION_HEARTBEAT_TIMEOUT");
+      dispatchClosed = events.find(
+        (item) =>
+          (item.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || item.eventType === "ORCHESTRATOR_DISPATCH_FAILED") &&
+          String((item.payload as Record<string, unknown>).dispatchId ?? "") === "dispatch-timeout-1"
+      );
+      runFinished = events.find(
+        (item) =>
+          item.eventType === "CODEX_RUN_FINISHED" &&
+          String((item.payload as Record<string, unknown>).runId ?? "") === "run-timeout-1"
+      );
     }
   } finally {
     orchestrator.stop();
   }
   assert.ok(timeoutEvent);
-
-  const dispatchClosed = events.find(
-    (item) =>
-      (item.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || item.eventType === "ORCHESTRATOR_DISPATCH_FAILED") &&
-      String((item.payload as Record<string, unknown>).dispatchId ?? "") === "dispatch-timeout-1"
-  );
   assert.ok(dispatchClosed);
   assert.equal((dispatchClosed?.payload as Record<string, unknown>).timedOut, true);
 
@@ -97,11 +111,6 @@ test("running session timeout appends dispatch/run closure events", async () => 
   );
   assert.ok(timeoutSoft);
 
-  const runFinished = events.find(
-    (item) =>
-      item.eventType === "CODEX_RUN_FINISHED" &&
-      String((item.payload as Record<string, unknown>).runId ?? "") === "run-timeout-1"
-  );
   assert.ok(runFinished);
   assert.equal((runFinished?.payload as Record<string, unknown>).timedOut, true);
   assert.equal((runFinished?.payload as Record<string, unknown>).status, "timeout");

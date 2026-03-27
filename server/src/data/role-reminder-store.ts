@@ -1,5 +1,5 @@
 import type { ProjectPaths, RoleReminderState, RoleRemindersState } from "../domain/models.js";
-import { readJsonFile, writeJsonFile } from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 
 function defaultRoleRemindersState(projectId: string): RoleRemindersState {
   return {

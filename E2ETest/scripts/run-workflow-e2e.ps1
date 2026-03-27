@@ -1529,7 +1529,7 @@ try {
       if ([string]::IsNullOrWhiteSpace($existingProjectId) -or -not (Matches-Prefix -Value $existingProjectId -Prefixes $projectPrefixes)) {
         continue
       }
-      Invoke-TimedApi -Method DELETE -Path "/api/projects/$existingProjectId" -AllowStatus @(200, 404) | Out-Null
+      Remove-ProjectWithRetry -BaseUrl $BaseUrl -ProjectId $existingProjectId | Out-Null
     }
 
     $agentsResp = Invoke-TimedApi -Method GET -Path "/api/agents" -AllowStatus @(200)

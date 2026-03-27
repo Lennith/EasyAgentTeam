@@ -1,7 +1,8 @@
 import path from "node:path";
 import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
-import { ensureDirectory, readJsonFile, writeJsonFile } from "./file-utils.js";
+import { ensureDirectory } from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 
 export interface MCPServerConfig {

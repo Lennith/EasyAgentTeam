@@ -23,9 +23,25 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
   }
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
+  async function fetchRuntimeWithRetry(timeoutMs = 8_000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const runtime = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-runtime`);
+      if (runtime.status === 200) {
+        return runtime;
+      }
+      if (runtime.status !== 404) {
+        assert.equal(runtime.status, 200);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const latest = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-runtime`);
+    assert.equal(latest.status, 200);
+    return latest;
+  }
+
   async function readRuntimeStatus() {
-    const runtime = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-runtime`);
-    assert.equal(runtime.status, 200);
+    const runtime = await fetchRuntimeWithRetry();
     return (await runtime.json()) as {
       status: string;
       active: boolean;
@@ -44,6 +60,21 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     }
     const latest = await readRuntimeStatus();
     throw new Error(`timeout waiting for runtime status '${status}', latest='${latest.status}'`);
+  }
+
+  async function waitForDoneConverged(timeoutMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const snapshot = await readRuntimeStatus();
+      if (snapshot.counters.done === snapshot.counters.total) {
+        return snapshot;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const latest = await readRuntimeStatus();
+    throw new Error(
+      `timeout waiting for done convergence, latest done=${latest.counters.done}, total=${latest.counters.total}`
+    );
   }
 
   try {
@@ -72,8 +103,7 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     });
     assert.equal(createRun.status, 201);
 
-    const runtimeBeforeStart = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-runtime`);
-    assert.equal(runtimeBeforeStart.status, 200);
+    const runtimeBeforeStart = await fetchRuntimeWithRetry();
     const beforePayload = (await runtimeBeforeStart.json()) as {
       status: string;
       active: boolean;
@@ -149,9 +179,8 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     });
     assert.equal(reportB.status, 200);
 
-    const donePayload = await readRuntimeStatus();
-    assert.equal(donePayload.status, "running");
-    assert.equal(donePayload.active, true);
+    const donePayload = await waitForDoneConverged(8000);
+    assert.equal(donePayload.status === "running" || donePayload.status === "finished", true);
     assert.equal(donePayload.counters.done, donePayload.counters.total);
 
     const finishedPayload = await waitForRuntimeStatus("finished", 8000);

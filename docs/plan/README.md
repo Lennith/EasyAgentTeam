@@ -10,7 +10,7 @@
 | ----------------------------------------------- | ------------------ | ------ | -------- | -------- | ------ |
 | [计划1](tech_debt_01_api_routing_refactor.md)   | API路由层重构      | **P0** | 🔴 高    | 2周      | 待开始 |
 | [计划2](tech_debt_02_orchestrator_merge.md)     | 编排器服务合并     | **P0** | 🔴 高    | 3周      | 待开始 |
-| [计划3](tech_debt_03_storage_transaction.md)    | 存储层事务与抽象   | **P1** | 🟡 中高  | 3周      | 待开始 |
+| [计划3](tech_debt_03_storage_transaction.md)    | 存储层事务与抽象   | **P1** | 🟡 中高  | 3周      | 验证中 |
 | [计划4](tech_debt_04_error_handling.md)         | 错误处理与类型安全 | **P1** | 🟡 中    | 2周      | 待开始 |
 | [计划5](tech_debt_05_infrastructure_enhance.md) | 基础设施增强       | **P2** | 🟢 中低  | 1-2周    | 待开始 |
 | [计划6](tech_debt_06_testing_docs.md)           | 测试与文档改进     | **P2** | 🟢 低    | 持续     | 待开始 |

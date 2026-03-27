@@ -8,7 +8,8 @@ import type {
   SkillListRegistryState,
   SkillRegistryState
 } from "../domain/models.js";
-import { ensureDirectory, readJsonFile, writeJsonFile } from "./file-utils.js";
+import { ensureDirectory } from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 
 const SKILL_FILE = "SKILL.md";
 

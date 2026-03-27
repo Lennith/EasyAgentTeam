@@ -1,5 +1,6 @@
 ﻿import express from "express";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { registerControllers } from "./controllers/index.js";
 import { createProviderRegistry } from "./services/provider-runtime.js";
 import { createOrchestratorService, createWorkflowOrchestratorService } from "./services/orchestrator/index.js";
@@ -8,6 +9,9 @@ export interface AppOptions {
   dataRoot?: string;
 }
 
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(moduleDir, "..", "..");
+
 export function resolveDataRoot(explicitDataRoot?: string): string {
   if (explicitDataRoot) {
     return path.resolve(explicitDataRoot);
@@ -15,7 +19,7 @@ export function resolveDataRoot(explicitDataRoot?: string): string {
   if (process.env.FRAMEWORK_DATA_ROOT) {
     return path.resolve(process.env.FRAMEWORK_DATA_ROOT);
   }
-  return path.resolve(process.cwd(), "..", "data");
+  return path.join(repositoryRoot, "data");
 }
 
 export function createApp(options: AppOptions = {}) {

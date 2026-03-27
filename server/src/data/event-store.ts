@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { EventRecord, ProjectPaths } from "../domain/models.js";
-import { appendJsonlLine, readJsonlLines } from "./file-utils.js";
+import { appendJsonlLine, readJsonlLines } from "./store/store-runtime.js";
 
 interface AppendEventInput {
   projectId: string;

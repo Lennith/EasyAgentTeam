@@ -21,6 +21,7 @@ import {
   getWorkflowRoleReminderState,
   updateWorkflowRoleReminderState
 } from "../../data/workflow-role-reminder-store.js";
+import { runStorageTransaction } from "../../data/file-utils.js";
 import { getWorkflowRun, listWorkflowRuns, patchWorkflowRun, WorkflowStoreError } from "../../data/workflow-store.js";
 import type {
   ProjectRecord,
@@ -347,6 +348,18 @@ export class WorkflowOrchestratorService {
     return buildOrchestratorContextSessionKey(runId, sessionId);
   }
 
+  private runRootPath(runId: string): string {
+    return path.join(this.dataRoot, "workflows", "runs", runId);
+  }
+
+  private workflowRootPath(): string {
+    return path.join(this.dataRoot, "workflows");
+  }
+
+  private async runWorkflowTransaction<T>(runId: string, operation: () => Promise<T>): Promise<T> {
+    return runStorageTransaction([this.workflowRootPath(), this.runRootPath(runId)], operation);
+  }
+
   private extractRunIdFromScopedKey(key: string): string {
     const separator = key.indexOf("::");
     if (separator <= 0) {
@@ -578,8 +591,10 @@ export class WorkflowOrchestratorService {
     this.reevaluateDependencyGate(run, nextRuntime);
     this.recomputeParentTaskStates(run, nextRuntime);
     if (changed) {
-      await writeWorkflowRunTaskRuntimeState(this.dataRoot, run.runId, nextRuntime);
-      await patchWorkflowRun(this.dataRoot, run.runId, { runtime: nextRuntime });
+      await this.runWorkflowTransaction(run.runId, async () => {
+        await writeWorkflowRunTaskRuntimeState(this.dataRoot, run.runId, nextRuntime);
+        await patchWorkflowRun(this.dataRoot, run.runId, { runtime: nextRuntime });
+      });
     }
     return nextRuntime;
   }
@@ -1402,6 +1417,7 @@ export class WorkflowOrchestratorService {
     const recentEvents = events.filter((event) => Date.parse(event.createdAt) >= cutoff);
 
     let changed = false;
+    const eventsToAppend: Array<{ taskId: string; dispatchCount: number }> = [];
     for (const task of nonTerminalTasks) {
       if (task.state === "MAY_BE_DONE") {
         continue;
@@ -1423,17 +1439,7 @@ export class WorkflowOrchestratorService {
       }
 
       this.addTransition(runtime, task, "MAY_BE_DONE");
-      await appendWorkflowRunEvent(this.dataRoot, run.runId, {
-        eventType: "TASK_MAY_BE_DONE_MARKED",
-        source: "system",
-        taskId: task.taskId,
-        payload: {
-          dispatchCount,
-          threshold,
-          windowMs,
-          reason: "dispatch_threshold_exceeded_with_valid_output"
-        }
-      });
+      eventsToAppend.push({ taskId: task.taskId, dispatchCount });
       logger.info(
         `[workflow-orchestrator] checkAndMarkMayBeDone: runId=${run.runId}, taskId=${task.taskId}, dispatchCount=${dispatchCount}`
       );
@@ -1441,8 +1447,23 @@ export class WorkflowOrchestratorService {
     }
 
     if (changed) {
-      await writeWorkflowRunTaskRuntimeState(this.dataRoot, run.runId, runtime);
-      await patchWorkflowRun(this.dataRoot, run.runId, { runtime });
+      await this.runWorkflowTransaction(run.runId, async () => {
+        await writeWorkflowRunTaskRuntimeState(this.dataRoot, run.runId, runtime);
+        await patchWorkflowRun(this.dataRoot, run.runId, { runtime });
+        for (const item of eventsToAppend) {
+          await appendWorkflowRunEvent(this.dataRoot, run.runId, {
+            eventType: "TASK_MAY_BE_DONE_MARKED",
+            source: "system",
+            taskId: item.taskId,
+            payload: {
+              dispatchCount: item.dispatchCount,
+              threshold,
+              windowMs,
+              reason: "dispatch_threshold_exceeded_with_valid_output"
+            }
+          });
+        }
+      });
     }
   }
 
@@ -1520,17 +1541,7 @@ export class WorkflowOrchestratorService {
       const escalated = timeoutStreak >= threshold;
       const cooldownUntil =
         escalated || cooldownMs <= 0 ? null : new Date(Date.now() + Math.max(0, cooldownMs)).toISOString();
-      await touchWorkflowSession(this.dataRoot, run.runId, session.sessionId, {
-        status: escalated ? "dismissed" : "idle",
-        currentTaskId,
-        lastDispatchId: dispatchId,
-        timeoutStreak,
-        lastFailureAt: new Date().toISOString(),
-        lastFailureKind: "timeout",
-        cooldownUntil,
-        agentPid: null,
-        lastRunId: run.runId
-      }).catch(() => {});
+      const timeoutMarkedAt = new Date().toISOString();
       const timeoutDump =
         !escalated && providerId === "minimax"
           ? await dumpSessionMessagesOnSoftTimeout({
@@ -1546,61 +1557,75 @@ export class WorkflowOrchestratorService {
               timeoutStreak
             })
           : null;
-      if (openDispatch) {
-        const payload = openDispatch.event.payload as Record<string, unknown>;
+      await this.runWorkflowTransaction(run.runId, async () => {
+        await touchWorkflowSession(this.dataRoot, run.runId, session.sessionId, {
+          status: escalated ? "dismissed" : "idle",
+          currentTaskId,
+          lastDispatchId: dispatchId,
+          timeoutStreak,
+          lastFailureAt: timeoutMarkedAt,
+          lastFailureKind: "timeout",
+          cooldownUntil,
+          agentPid: null,
+          lastRunId: run.runId
+        }).catch(() => {});
+
+        if (openDispatch) {
+          const payload = openDispatch.event.payload as Record<string, unknown>;
+          await appendWorkflowRunEvent(this.dataRoot, run.runId, {
+            eventType: escalated ? "ORCHESTRATOR_DISPATCH_FAILED" : "ORCHESTRATOR_DISPATCH_FINISHED",
+            source: "system",
+            sessionId: session.sessionId,
+            taskId: currentTaskId ?? undefined,
+            payload: {
+              dispatchId: openDispatch.dispatchId,
+              mode: payload.mode ?? "loop",
+              dispatchKind: payload.dispatchKind ?? "task",
+              messageId: payload.messageId ?? null,
+              requestId: payload.requestId ?? null,
+              runId: run.runId,
+              exitCode: null,
+              timedOut: true,
+              synthetic: true,
+              reason: "session_heartbeat_timeout",
+              ...(escalated ? { error: "session heartbeat timeout escalated" } : {})
+            }
+          });
+        }
         await appendWorkflowRunEvent(this.dataRoot, run.runId, {
-          eventType: escalated ? "ORCHESTRATOR_DISPATCH_FAILED" : "ORCHESTRATOR_DISPATCH_FINISHED",
+          eventType: "SESSION_HEARTBEAT_TIMEOUT",
           source: "system",
           sessionId: session.sessionId,
           taskId: currentTaskId ?? undefined,
           payload: {
-            dispatchId: openDispatch.dispatchId,
-            mode: payload.mode ?? "loop",
-            dispatchKind: payload.dispatchKind ?? "task",
-            messageId: payload.messageId ?? null,
-            requestId: payload.requestId ?? null,
-            runId: run.runId,
-            exitCode: null,
-            timedOut: true,
-            synthetic: true,
-            reason: "session_heartbeat_timeout",
-            ...(escalated ? { error: "session heartbeat timeout escalated" } : {})
+            previousStatus: "running",
+            timeoutMs: this.options.sessionRunningTimeoutMs,
+            lastActiveAt: session.lastActiveAt,
+            provider: providerId,
+            providerSessionId: cancelSessionId,
+            cancelRequested,
+            timeoutStreak,
+            threshold,
+            escalated,
+            cooldownUntil,
+            dispatchId
           }
         });
-      }
-      await appendWorkflowRunEvent(this.dataRoot, run.runId, {
-        eventType: "SESSION_HEARTBEAT_TIMEOUT",
-        source: "system",
-        sessionId: session.sessionId,
-        taskId: currentTaskId ?? undefined,
-        payload: {
-          previousStatus: "running",
-          timeoutMs: this.options.sessionRunningTimeoutMs,
-          lastActiveAt: session.lastActiveAt,
-          provider: providerId,
-          providerSessionId: cancelSessionId,
-          cancelRequested,
-          timeoutStreak,
-          threshold,
-          escalated,
-          cooldownUntil,
-          dispatchId
-        }
-      });
-      await appendWorkflowRunEvent(this.dataRoot, run.runId, {
-        eventType: escalated ? "RUNNER_TIMEOUT_ESCALATED" : "RUNNER_TIMEOUT_SOFT",
-        source: "system",
-        sessionId: session.sessionId,
-        taskId: currentTaskId ?? undefined,
-        payload: {
-          runId: run.runId,
-          dispatchId,
-          timeoutStreak,
-          threshold,
-          cooldownUntil,
-          timeoutMessageDumpPath: timeoutDump?.filePath ?? null,
-          timeoutMessageCount: timeoutDump?.messageCount ?? null
-        }
+        await appendWorkflowRunEvent(this.dataRoot, run.runId, {
+          eventType: escalated ? "RUNNER_TIMEOUT_ESCALATED" : "RUNNER_TIMEOUT_SOFT",
+          source: "system",
+          sessionId: session.sessionId,
+          taskId: currentTaskId ?? undefined,
+          payload: {
+            runId: run.runId,
+            dispatchId,
+            timeoutStreak,
+            threshold,
+            cooldownUntil,
+            timeoutMessageDumpPath: timeoutDump?.filePath ?? null,
+            timeoutMessageCount: timeoutDump?.messageCount ?? null
+          }
+        });
       });
     }
   }
@@ -1659,25 +1684,27 @@ export class WorkflowOrchestratorService {
     }
 
     const now = new Date().toISOString();
-    await patchWorkflowRun(this.dataRoot, run.runId, {
-      runtime,
-      status: "finished",
-      stoppedAt: now,
-      lastHeartbeatAt: now
+    await this.runWorkflowTransaction(run.runId, async () => {
+      await patchWorkflowRun(this.dataRoot, run.runId, {
+        runtime,
+        status: "finished",
+        stoppedAt: now,
+        lastHeartbeatAt: now
+      });
+      await appendWorkflowRunEvent(this.dataRoot, run.runId, {
+        eventType: "ORCHESTRATOR_RUN_AUTO_FINISHED",
+        source: "system",
+        payload: {
+          stableTicks,
+          requiredStableTicks: AUTO_FINISH_STABLE_TICKS_REQUIRED,
+          unfinishedTaskCount,
+          runningSessionCount,
+          finishedAt: now
+        }
+      });
     });
     this.activeRunIds.delete(run.runId);
     this.clearRunScopedState(run.runId);
-    await appendWorkflowRunEvent(this.dataRoot, run.runId, {
-      eventType: "ORCHESTRATOR_RUN_AUTO_FINISHED",
-      source: "system",
-      payload: {
-        stableTicks,
-        requiredStableTicks: AUTO_FINISH_STABLE_TICKS_REQUIRED,
-        unfinishedTaskCount,
-        runningSessionCount,
-        finishedAt: now
-      }
-    });
     return true;
   }
 
@@ -1735,16 +1762,19 @@ export class WorkflowOrchestratorService {
   async startRun(runId: string): Promise<WorkflowRunRuntimeStatus> {
     const run = await this.loadRunOrThrow(runId);
     const now = new Date().toISOString();
-    const updated = await patchWorkflowRun(this.dataRoot, runId, {
-      status: "running",
-      startedAt: run.startedAt ?? now,
-      stoppedAt: null,
-      lastHeartbeatAt: now
+    let updated!: WorkflowRunRecord;
+    await this.runWorkflowTransaction(runId, async () => {
+      updated = await patchWorkflowRun(this.dataRoot, runId, {
+        status: "running",
+        startedAt: run.startedAt ?? now,
+        stoppedAt: null,
+        lastHeartbeatAt: now
+      });
+      const runtime = await this.ensureRuntime(updated);
+      await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
     });
     this.activeRunIds.add(runId);
     this.runAutoFinishStableTicks.delete(runId);
-    const runtime = await this.ensureRuntime(updated);
-    await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
     return {
       runId: updated.runId,
       status: updated.status,
@@ -1776,29 +1806,33 @@ export class WorkflowOrchestratorService {
       const providerId = session.provider ?? resolveSessionProviderId(run, session.role, "minimax");
       const cancelSessionId = session.providerSessionId?.trim() || session.sessionId;
       const canceled = providerRegistry.cancelSession(providerId, cancelSessionId);
-      await touchWorkflowSession(this.dataRoot, runId, session.sessionId, {
-        status: "idle",
-        currentTaskId: null,
-        agentPid: null,
-        cooldownUntil: null
-      }).catch(() => {});
-      await appendWorkflowRunEvent(this.dataRoot, runId, {
-        eventType: "RUN_STOP_SESSION_CANCEL",
-        source: "system",
-        sessionId: session.sessionId,
-        payload: {
-          provider: providerId,
-          providerSessionId: cancelSessionId,
-          canceled
-        }
+      await this.runWorkflowTransaction(runId, async () => {
+        await touchWorkflowSession(this.dataRoot, runId, session.sessionId, {
+          status: "idle",
+          currentTaskId: null,
+          agentPid: null,
+          cooldownUntil: null
+        }).catch(() => {});
+        await appendWorkflowRunEvent(this.dataRoot, runId, {
+          eventType: "RUN_STOP_SESSION_CANCEL",
+          source: "system",
+          sessionId: session.sessionId,
+          payload: {
+            provider: providerId,
+            providerSessionId: cancelSessionId,
+            canceled
+          }
+        });
       });
     }
     const now = new Date().toISOString();
-    const updated = await patchWorkflowRun(this.dataRoot, runId, {
-      status: "stopped",
-      stoppedAt: now,
-      lastHeartbeatAt: now
-    });
+    const updated = await this.runWorkflowTransaction(runId, async () =>
+      patchWorkflowRun(this.dataRoot, runId, {
+        status: "stopped",
+        stoppedAt: now,
+        lastHeartbeatAt: now
+      })
+    );
     this.activeRunIds.delete(runId);
     this.clearRunScopedState(runId);
     return {
@@ -2177,8 +2211,10 @@ export class WorkflowOrchestratorService {
       const runWithNewTasks: WorkflowRunRecord = { ...run, tasks: nextTasks };
       this.reevaluateDependencyGate(runWithNewTasks, runtime);
       this.recomputeParentTaskStates(runWithNewTasks, runtime);
-      await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
-      const updated = await patchWorkflowRun(this.dataRoot, runId, { runtime, tasks: nextTasks });
+      const updated = await this.runWorkflowTransaction(runId, async () => {
+        await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
+        return patchWorkflowRun(this.dataRoot, runId, { runtime, tasks: nextTasks });
+      });
       appliedTaskIds.push(taskId);
       return {
         success: true,
@@ -2299,23 +2335,26 @@ export class WorkflowOrchestratorService {
     this.reevaluateDependencyGate(run, runtime);
     this.recomputeParentTaskStates(run, runtime);
     const now = new Date().toISOString();
-    await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
-    const updated = await patchWorkflowRun(this.dataRoot, runId, {
-      runtime,
-      lastHeartbeatAt: now
-    });
-    await appendWorkflowRunEvent(this.dataRoot, runId, {
-      eventType: "TASK_REPORT_APPLIED",
-      source: fromAgent === "manager" ? "manager" : "agent",
-      sessionId: input.fromSessionId,
-      taskId: input.taskId,
-      payload: {
-        fromAgent,
-        actionType,
-        appliedTaskIds,
-        updatedTaskIds: appliedTaskIds,
-        rejectedCount: rejectedResults.length
-      }
+    const updated = await this.runWorkflowTransaction(runId, async () => {
+      await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
+      const patched = await patchWorkflowRun(this.dataRoot, runId, {
+        runtime,
+        lastHeartbeatAt: now
+      });
+      await appendWorkflowRunEvent(this.dataRoot, runId, {
+        eventType: "TASK_REPORT_APPLIED",
+        source: fromAgent === "manager" ? "manager" : "agent",
+        sessionId: input.fromSessionId,
+        taskId: input.taskId,
+        payload: {
+          fromAgent,
+          actionType,
+          appliedTaskIds,
+          updatedTaskIds: appliedTaskIds,
+          rejectedCount: rejectedResults.length
+        }
+      });
+      return patched;
     });
     return {
       success: true,
@@ -2661,11 +2700,13 @@ export class WorkflowOrchestratorService {
       if (results.length === 0) {
         results.push({ role: role ?? "any", sessionId: null, taskId: taskFilter ?? null, outcome: "no_task" });
       }
-      await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
-      await patchWorkflowRun(this.dataRoot, runId, {
-        runtime,
-        autoDispatchRemaining: remaining,
-        lastHeartbeatAt: new Date().toISOString()
+      await this.runWorkflowTransaction(runId, async () => {
+        await writeWorkflowRunTaskRuntimeState(this.dataRoot, runId, runtime);
+        await patchWorkflowRun(this.dataRoot, runId, {
+          runtime,
+          autoDispatchRemaining: remaining,
+          lastHeartbeatAt: new Date().toISOString()
+        });
       });
       return { runId, results, dispatchedCount, remainingBudget: remaining };
     } finally {

@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import type { ManagerToAgentMessage, ProjectPaths } from "../domain/models.js";
-import { appendJsonlLine, readJsonlLines, writeJsonlLines } from "./file-utils.js";
+import { appendJsonlLine, readJsonlLines, writeJsonlLines } from "./store/store-runtime.js";
 
 export async function appendInboxMessage(
   paths: ProjectPaths,

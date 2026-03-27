@@ -7,8 +7,28 @@ import { createServer } from "node:http";
 import { createApp } from "../app.js";
 import { DISCUSS_DEFAULT_MAX_ROUNDS } from "../services/discuss-policy-service.js";
 
+async function startServerWithBaseUrl(app: ReturnType<typeof createApp>): Promise<{
+  server: ReturnType<typeof createServer>;
+  baseUrl: string;
+}> {
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to start test server");
+  }
+  const port = Number(address.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`invalid test server port: ${String(address.port)}`);
+  }
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${port}`
+  };
+}
+
 async function seedAgent(baseUrl: string, agentId: string): Promise<void> {
-  const seedRes = await fetch(`${baseUrl}/api/agents`, {
+  const seedRes = await fetch(new URL("/api/agents", baseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -24,13 +44,7 @@ test("route-targets API returns directional targets with directional discuss rou
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-route-targets-dir-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const { server, baseUrl } = await startServerWithBaseUrl(app);
 
   try {
     for (const agentId of ["PM", "planner", "devleader"]) {
@@ -78,13 +92,7 @@ test("route-targets API falls back to enabled agents when route table is not con
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-route-targets-default-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const { server, baseUrl } = await startServerWithBaseUrl(app);
 
   try {
     for (const agentId of ["agent_a", "agent_b", "agent_c"]) {

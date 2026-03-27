@@ -4,7 +4,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ProviderId } from "@autodev/agent-library";
 import type { ProjectPaths, ProjectRecord, ProjectSummary } from "../domain/models.js";
-import { ensureDirectory, ensureFile, readJsonFile, writeJsonFile } from "./file-utils.js";
+import {
+  deleteDirectoryTransactional,
+  ensureDirectory,
+  ensureFile,
+  runStorageTransaction
+} from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 import { DISCUSS_HARD_MAX_ROUNDS } from "../services/discuss-policy-service.js";
 
 export class ProjectStoreError extends Error {
@@ -389,7 +395,9 @@ export async function createProject(
     roleSessionMap: input.roleSessionMap
   };
 
-  await writeJsonFile(paths.projectConfigFile, project);
+  await runStorageTransaction([paths.projectConfigFile], async () => {
+    await writeJsonFile(paths.projectConfigFile, project);
+  });
   return { project, paths };
 }
 
@@ -763,7 +771,7 @@ export async function deleteProject(
     throw error;
   }
 
-  await fs.rm(paths.projectRootDir, { recursive: true, force: false });
+  await deleteDirectoryTransactional(paths.projectRootDir);
   return {
     projectId,
     removedAt: new Date().toISOString()

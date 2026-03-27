@@ -1,5 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "./storage/atomic-writer.js";
+import {
+  ensureStorageRecoveryForPaths,
+  getActiveTransactionPendingFileContent,
+  getActiveStorageTransaction,
+  withStorageTransaction
+} from "./storage/transaction-manager.js";
 
 const JSON_READ_RETRY_ATTEMPTS = 3;
 const JSON_READ_RETRY_BASE_DELAY_MS = 15;
@@ -50,10 +57,17 @@ function delay(ms: number): Promise<void> {
 }
 
 export async function ensureDirectory(targetDir: string): Promise<void> {
+  await ensureStorageRecoveryForPaths([targetDir]);
+  const active = getActiveStorageTransaction();
+  if (active) {
+    await active.mkdir(targetDir);
+    return;
+  }
   await fs.mkdir(targetDir, { recursive: true });
 }
 
 export async function ensureFile(targetFile: string, initialContent: string): Promise<void> {
+  await ensureStorageRecoveryForPaths([targetFile]);
   await withFileAccessLock(targetFile, async () => {
     try {
       await fs.access(targetFile);
@@ -63,12 +77,21 @@ export async function ensureFile(targetFile: string, initialContent: string): Pr
         throw error;
       }
       await ensureDirectory(path.dirname(targetFile));
-      await fs.writeFile(targetFile, initialContent, "utf8");
+      await writeFileAtomic(targetFile, initialContent);
     }
   });
 }
 
 export async function readJsonFile<T>(targetFile: string, fallback: T): Promise<T> {
+  await ensureStorageRecoveryForPaths([targetFile]);
+  const pending = getActiveTransactionPendingFileContent(targetFile);
+  if (pending !== undefined) {
+    try {
+      return JSON.parse(pending) as T;
+    } catch {
+      return fallback;
+    }
+  }
   for (let attempt = 0; attempt < JSON_READ_RETRY_ATTEMPTS; attempt += 1) {
     try {
       const raw = await withFileAccessLock(targetFile, () => fs.readFile(targetFile, "utf8"));
@@ -89,22 +112,45 @@ export async function readJsonFile<T>(targetFile: string, fallback: T): Promise<
 }
 
 export async function writeJsonFile(targetFile: string, payload: unknown): Promise<void> {
-  await withFileAccessLock(targetFile, async () => {
-    await ensureDirectory(path.dirname(targetFile));
-    const serialized = `${JSON.stringify(payload, null, 2)}\n`;
-    await fs.writeFile(targetFile, serialized, "utf8");
+  await ensureStorageRecoveryForPaths([targetFile]);
+  const serialized = `${JSON.stringify(payload, null, 2)}\n`;
+  const active = getActiveStorageTransaction();
+  if (active) {
+    await active.putJson(targetFile, serialized);
+    return;
+  }
+  await withStorageTransaction([targetFile], async () => {
+    const tx = getActiveStorageTransaction();
+    if (!tx) {
+      throw new Error("Storage transaction context missing for writeJsonFile");
+    }
+    await tx.putJson(targetFile, serialized);
   });
 }
 
 export async function appendJsonlLine(targetFile: string, payload: unknown): Promise<void> {
-  await withFileAccessLock(targetFile, async () => {
-    const dir = path.dirname(targetFile);
-    await ensureDirectory(dir);
-    await fs.appendFile(targetFile, `${JSON.stringify(payload)}\n`, "utf8");
+  await ensureStorageRecoveryForPaths([targetFile]);
+  const line = `${JSON.stringify(payload)}\n`;
+  const active = getActiveStorageTransaction();
+  if (active) {
+    await active.appendJsonl(targetFile, line);
+    return;
+  }
+  await withStorageTransaction([targetFile], async () => {
+    const tx = getActiveStorageTransaction();
+    if (!tx) {
+      throw new Error("Storage transaction context missing for appendJsonlLine");
+    }
+    await tx.appendJsonl(targetFile, line);
   });
 }
 
 export async function readJsonlLines<T>(targetFile: string): Promise<T[]> {
+  await ensureStorageRecoveryForPaths([targetFile]);
+  const pending = getActiveTransactionPendingFileContent(targetFile);
+  if (pending !== undefined) {
+    return parseJsonlLinesFromRaw<T>(pending);
+  }
   for (let attempt = 0; attempt < JSON_READ_RETRY_ATTEMPTS; attempt += 1) {
     try {
       const raw = await withFileAccessLock(targetFile, () => fs.readFile(targetFile, "utf8"));
@@ -156,11 +202,71 @@ export async function readJsonlLines<T>(targetFile: string): Promise<T[]> {
   return [];
 }
 
+function parseJsonlLinesFromRaw<T>(raw: string): T[] {
+  const rawLines = raw.split("\n");
+  const parsed: T[] = [];
+  for (const rawLine of rawLines) {
+    const line = rawLine.trim();
+    if (line.length === 0) {
+      continue;
+    }
+    parsed.push(JSON.parse(line) as T);
+  }
+  return parsed;
+}
+
 export async function writeJsonlLines<T>(targetFile: string, lines: T[]): Promise<void> {
-  await withFileAccessLock(targetFile, async () => {
-    await ensureDirectory(path.dirname(targetFile));
-    const content = lines.map((line) => JSON.stringify(line)).join("\n");
-    const finalContent = content.length > 0 ? `${content}\n` : "";
-    await fs.writeFile(targetFile, finalContent, "utf8");
+  await ensureStorageRecoveryForPaths([targetFile]);
+  const content = lines.map((line) => JSON.stringify(line)).join("\n");
+  const finalContent = content.length > 0 ? `${content}\n` : "";
+  const active = getActiveStorageTransaction();
+  if (active) {
+    await active.overwriteJsonl(targetFile, finalContent);
+    return;
+  }
+  await withStorageTransaction([targetFile], async () => {
+    const tx = getActiveStorageTransaction();
+    if (!tx) {
+      throw new Error("Storage transaction context missing for writeJsonlLines");
+    }
+    await tx.overwriteJsonl(targetFile, finalContent);
+  });
+}
+
+export async function runStorageTransaction<T>(paths: string[], operation: () => Promise<T>): Promise<T> {
+  return withStorageTransaction(paths, operation);
+}
+
+export async function deleteDirectoryTransactional(targetDir: string): Promise<void> {
+  const anchorPaths = [path.dirname(targetDir), targetDir];
+  await ensureStorageRecoveryForPaths(anchorPaths);
+  const active = getActiveStorageTransaction();
+  if (active) {
+    await active.deleteDir(targetDir);
+    return;
+  }
+  await withStorageTransaction(anchorPaths, async () => {
+    const tx = getActiveStorageTransaction();
+    if (!tx) {
+      throw new Error("Storage transaction context missing for deleteDirectoryTransactional");
+    }
+    await tx.deleteDir(targetDir);
+  });
+}
+
+export async function deleteFileTransactional(targetFile: string): Promise<void> {
+  const anchorPaths = [path.dirname(targetFile), targetFile];
+  await ensureStorageRecoveryForPaths(anchorPaths);
+  const active = getActiveStorageTransaction();
+  if (active) {
+    await active.deleteFile(targetFile);
+    return;
+  }
+  await withStorageTransaction(anchorPaths, async () => {
+    const tx = getActiveStorageTransaction();
+    if (!tx) {
+      throw new Error("Storage transaction context missing for deleteFileTransactional");
+    }
+    await tx.deleteFile(targetFile);
   });
 }

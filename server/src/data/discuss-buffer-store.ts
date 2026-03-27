@@ -2,7 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ProjectPaths } from "../domain/models.js";
-import { appendJsonlLine, readJsonlLines } from "./file-utils.js";
+import {
+  appendJsonlLine,
+  getStorageBackend,
+  readJsonlLines,
+  writeJsonlLines
+} from "./store/store-runtime.js";
 
 export interface BufferedDiscussPayload {
   taskId: string;
@@ -64,6 +69,10 @@ export async function listBufferedDiscussMessages(
 
 export async function clearBufferedDiscussMessages(paths: ProjectPaths, parentRequestId: string): Promise<void> {
   const file = resolveBufferFile(paths, parentRequestId);
+  if (getStorageBackend() === "memory") {
+    await writeJsonlLines(file, []);
+    return;
+  }
   try {
     await fs.unlink(file);
   } catch (error) {

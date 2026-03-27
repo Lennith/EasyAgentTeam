@@ -2,7 +2,7 @@ import type {
   WorkflowRoleReminderState,
   WorkflowRoleRemindersState
 } from "../domain/models.js";
-import { readJsonFile, writeJsonFile } from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 import { getWorkflowRunRuntimePaths } from "./workflow-run-store.js";
 
 function defaultWorkflowRoleRemindersState(runId: string): WorkflowRoleRemindersState {

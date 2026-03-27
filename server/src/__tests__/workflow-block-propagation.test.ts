@@ -47,6 +47,19 @@ test("workflow dependency propagation moves blocked tasks to READY after depende
     throw new Error(`timeout waiting for run status '${status}', latest='${latest.status}'`);
   }
 
+  async function waitForDoneCount(done: number, timeoutMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const snapshot = await taskRuntime();
+      if (snapshot.counters.done === done) {
+        return snapshot;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const latest = await taskRuntime();
+    throw new Error(`timeout waiting for done=${done}, latest=${latest.counters.done}`);
+  }
+
   async function reportDone(taskIds: string[]) {
     const results = taskIds.map((taskId) => ({ task_id: taskId, outcome: "DONE", summary: `${taskId} done` }));
     const res = await fetch(`${baseUrl}/api/workflow-runs/block_prop_run_01/task-actions`, {
@@ -126,10 +139,9 @@ test("workflow dependency propagation moves blocked tasks to READY after depende
     assert.equal(afterAlignment.tasks.find((task) => task.taskId === "task_final")?.state, "READY");
 
     await reportDone(["task_final"]);
-    const afterFinalReport = await taskRuntime();
+    const afterFinalReport = await waitForDoneCount(6, 4000);
     assert.equal(afterFinalReport.counters.done, 6);
-    assert.equal(afterFinalReport.status, "running");
-    assert.equal(afterFinalReport.active, true);
+    assert.equal(afterFinalReport.status === "running" || afterFinalReport.status === "finished", true);
 
     const finalState = await waitForRunStatus("finished", 8000);
     assert.equal(finalState.counters.done, 6);

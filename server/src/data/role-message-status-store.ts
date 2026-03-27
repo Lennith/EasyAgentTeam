@@ -1,5 +1,5 @@
 import type { ProjectPaths, RoleMessageStatus, PendingConfirmedMessage, ProjectRecord } from "../domain/models.js";
-import { readJsonFile, writeJsonFile } from "./file-utils.js";
+import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
 import { logger } from "../utils/logger.js";
 
 const EMPTY_STATUS: RoleMessageStatus = {
