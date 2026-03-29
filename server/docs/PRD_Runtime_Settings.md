@@ -2,6 +2,10 @@
 
 ## 1. 模块目标
 
+### 模块状态
+
+- `实装`
+
 ### 模块职责
 
 运行时配置模块负责存储和读取后端运行参数，覆盖 CLI、MiniMax 运行参数、主题与超时类配置。
@@ -9,7 +13,8 @@
 **源码路径**:
 
 - `server/src/data/runtime-settings-store.ts`
-- `server/src/app.ts` (`/api/settings`)
+- `server/src/services/runtime-settings-service.ts`
+- `server/src/routes/system-routes.ts` (`/api/settings`)
 
 ### 解决问题
 

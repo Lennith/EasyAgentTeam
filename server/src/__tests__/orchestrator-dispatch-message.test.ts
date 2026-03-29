@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 interface EventRow {
   eventType: string;
@@ -25,13 +25,8 @@ test.skip("dispatch-message endpoint targets the specified message_id", async ()
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-msg-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -109,7 +104,7 @@ test.skip("dispatch-message endpoint targets the specified message_id", async ()
     assert.equal(typeof statusPayload.dispatchTotalInProject?.dispatchmsg, "number");
     assert.equal((statusPayload.dispatchTotalInProject?.dispatchmsg ?? 0) >= 1, true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
     if (originalCodexCommand === undefined) {
       delete process.env.CODEX_CLI_COMMAND;
     } else {
@@ -124,13 +119,8 @@ test.skip("dispatch endpoint auto-recovers blocked session when new message arri
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-unblock-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -190,7 +180,7 @@ test.skip("dispatch endpoint auto-recovers blocked session when new message arri
     const types = new Set(events.map((event) => event.eventType));
     assert.equal(types.has("SESSION_AUTO_UNBLOCKED"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
     if (originalCodexCommand === undefined) {
       delete process.env.CODEX_CLI_COMMAND;
     } else {
@@ -203,13 +193,8 @@ test.skip("dispatch-message endpoint returns message_not_found for unknown messa
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-msg-miss-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -237,7 +222,7 @@ test.skip("dispatch-message endpoint returns message_not_found for unknown messa
     assert.equal(payload.results.length, 1);
     assert.equal(payload.results[0].outcome, "message_not_found");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -247,13 +232,8 @@ test("orchestrator status exposes max concurrent dispatch setting", async () => 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-orchestrator-status-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const statusRes = await fetch(`${baseUrl}/api/orchestrator/status`);
@@ -265,7 +245,7 @@ test("orchestrator status exposes max concurrent dispatch setting", async () => 
     assert.equal(payload.maxConcurrentDispatches, 4);
     assert.equal(typeof payload.inFlightDispatchSessions, "number");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
     if (originalMaxConcurrent === undefined) {
       delete process.env.ORCHESTRATOR_MAX_CONCURRENT_SESSIONS;
     } else {

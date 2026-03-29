@@ -1,126 +1,33 @@
-# EasyAgentTeam 技术债修复计划
+# EasyAgentTeam Refactor Plans
 
-> 基于 `kimi_code_review.md` 分析，制定的详细修复路线图
+This directory tracks current refactor plans, baseline snapshots, and archived debt notes for the repository.
 
----
+## Current Plans
 
-## 计划总览
+| File                                                                                         | Status     | Purpose                                                                                                            |
+| -------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| [orchestrator_shared_abstraction_20260328.md](./orchestrator_shared_abstraction_20260328.md) | Active     | Current-state plan for project/workflow orchestrator shared abstraction, known issues, and remaining work.         |
+| [tech_debt_01_api_routing_refactor.md](./tech_debt_01_api_routing_refactor.md)               | Historical | Early routing refactor plan. Use current server routes and PRD state as the source of truth before implementation. |
+| [tech_debt_03_storage_transaction.md](./tech_debt_03_storage_transaction.md)                 | Active     | Repository and UnitOfWork expansion plan for storage/runtime boundaries.                                           |
+| [tech_debt_04_error_handling.md](./tech_debt_04_error_handling.md)                           | Historical | Error boundary cleanup notes. Re-validate against current typed route/service errors before implementation.        |
+| [tech_debt_05_infrastructure_enhance.md](./tech_debt_05_infrastructure_enhance.md)           | Historical | Infrastructure enhancement backlog.                                                                                |
+| [tech_debt_06_testing_docs.md](./tech_debt_06_testing_docs.md)                               | Historical | Test/docs debt checklist.                                                                                          |
 
-| 计划                                            | 名称               | 优先级 | 风险等级 | 预计工期 | 状态   |
-| ----------------------------------------------- | ------------------ | ------ | -------- | -------- | ------ |
-| [计划1](tech_debt_01_api_routing_refactor.md)   | API路由层重构      | **P0** | 🔴 高    | 2周      | 待开始 |
-| [计划2](tech_debt_02_orchestrator_merge.md)     | 编排器服务合并     | **P0** | 🔴 高    | 3周      | 待开始 |
-| [计划3](tech_debt_03_storage_transaction.md)    | 存储层事务与抽象   | **P1** | 🟡 中高  | 3周      | 验证中 |
-| [计划4](tech_debt_04_error_handling.md)         | 错误处理与类型安全 | **P1** | 🟡 中    | 2周      | 待开始 |
-| [计划5](tech_debt_05_infrastructure_enhance.md) | 基础设施增强       | **P2** | 🟢 中低  | 1-2周    | 待开始 |
-| [计划6](tech_debt_06_testing_docs.md)           | 测试与文档改进     | **P2** | 🟢 低    | 持续     | 待开始 |
+## Baselines And Snapshots
 
----
+| File                                                                           | Status   | Purpose                                                            |
+| ------------------------------------------------------------------------------ | -------- | ------------------------------------------------------------------ |
+| [refactor_round3_baseline_20260318.md](./refactor_round3_baseline_20260318.md) | Snapshot | Baseline record captured before the current V3 rounds accelerated. |
+| [kimi_code_review.md](./kimi_code_review.md)                                   | Input    | External review snapshot that seeded the initial debt plans.       |
 
-## 依赖关系
+## Archived
 
-```
-计划1 (API路由) ──┐
-                 ├──→ 计划4 (错误处理) ──→ 计划5 (基础设施)
-计划2 (编排器) ───┘         ↑
-                 └─────────┘
+| File                                                                       | Status   | Reason                                                                                                                                                           |
+| -------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [tech_debt_02_orchestrator_merge.md](./tech_debt_02_orchestrator_merge.md) | Archived | Based on old file names, pre-facade orchestrator assumptions, and now-outdated merge strategy. Keep for history only; do not use it as an implementation source. |
 
-计划3 (存储层) ──────────────────────────→ 计划6 (测试)
-  (独立执行)
-```
+## Working Rules
 
----
-
-## 建议执行顺序
-
-### 第一阶段 (Week 1-5)
-
-1. **计划1**: API路由层重构
-2. **计划2**: 编排器服务合并
-   - 这两个计划风险最高，但收益最大
-   - 可以并行执行，但建议先完成计划1
-
-### 第二阶段 (Week 6-10)
-
-3. **计划3**: 存储层事务与抽象
-4. **计划4**: 错误处理与类型安全
-   - 存储层稳定后，可以更安全地改动错误处理
-
-### 第三阶段 (Week 11-12)
-
-5. **计划5**: 基础设施增强
-6. **计划6**: 测试与文档改进
-   - 在前述计划完成后，改进测试和文档
-
----
-
-## 快速导航
-
-### 按角色
-
-**架构师/技术负责人**:
-
-- [计划1: API路由层重构](tech_debt_01_api_routing_refactor.md) - 代码组织改进
-- [计划2: 编排器服务合并](tech_debt_02_orchestrator_merge.md) - 消除代码重复
-- [计划3: 存储层事务与抽象](tech_debt_03_storage_transaction.md) - 数据层架构
-
-**后端开发者**:
-
-- [计划4: 错误处理与类型安全](tech_debt_04_error_handling.md) - 代码质量提升
-- [计划5: 基础设施增强](tech_debt_05_infrastructure_enhance.md) - 日志与配置
-
-**测试/文档工程师**:
-
-- [计划6: 测试与文档改进](tech_debt_06_testing_docs.md) - 可维护性提升
-
-### 按优先级
-
-**P0 (最高优先级)**:
-
-1. [API路由层重构](tech_debt_01_api_routing_refactor.md)
-2. [编排器服务合并](tech_debt_02_orchestrator_merge.md)
-
-**P1 (高优先级)**: 3. [存储层事务与抽象](tech_debt_03_storage_transaction.md) 4. [错误处理与类型安全](tech_debt_04_error_handling.md)
-
-**P2 (中优先级)**: 5. [基础设施增强](tech_debt_05_infrastructure_enhance.md) 6. [测试与文档改进](tech_debt_06_testing_docs.md)
-
----
-
-## 实施检查清单
-
-每个计划开始前:
-
-- [ ] 阅读完整的计划文档
-- [ ] 确认当前代码状态
-- [ ] 备份或创建分支
-- [ ] 准备测试环境
-
-每个阶段完成后:
-
-- [ ] 运行 `pnpm test` 确保 100% 通过
-- [ ] 运行 `pnpm e2e:first-run` 验证核心流程
-- [ ] 更新计划文档中的状态
-- [ ] 代码审查
-
----
-
-## 风险总览
-
-| 风险         | 影响计划 | 等级  | 缓解措施          |
-| ------------ | -------- | ----- | ----------------- |
-| API 行为改变 | 计划1,2  | 🔴 高 | 完整 E2E 测试覆盖 |
-| 数据损坏     | 计划3    | 🔴 高 | 备份 + 事务验证   |
-| 编译错误激增 | 计划4    | 🟡 中 | 分阶段清理        |
-| 性能退化     | 计划3,5  | 🟢 低 | 基准测试对比      |
-
----
-
-## 相关文档
-
-- [代码审查报告](./kimi_code_review.md) - 技术债分析来源
-- [架构设计](../architecture-and-api.md) - 系统架构说明
-- [发布流程](../AGENTS.md) - 代码变更流程
-
----
-
-_最后更新: 2026年3月17日_
+- Prefer the newest current-state plan over older tech debt notes when the two conflict.
+- Treat module PRDs under `server/docs/` as the source of truth for effective behavior.
+- When a plan is superseded, move it to the `Archived` section instead of editing history in place.

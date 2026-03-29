@@ -8,26 +8,29 @@
 
 ### 模块职责
 
-Session 管理模块负责项目内角色会话生命周期与角色会话槽位维护，核心是单 `sessionId` 通道：
+Session 管理模块负责项目内角色会话生命周期与角色会话槽位维护，核心是统一 `sessionId` 通道：
 
-- 会话创建、更新、查询、状态迁移
+- 会话创建、查询、更新、dismiss、repair
 - `role -> sessionId` 映射维护
-- dismiss / timeout / repair 的状态收敛
-- `providerSessionId` 仅内部运行态字段，不作为外部主键
+- timeout / repair / force bootstrap 后的状态收敛
+- `providerSessionId` 仅作为运行态字段，不作为外部主键
 
 **源码路径**:
 
 - `server/src/data/session-store.ts`
-- `server/src/app.ts`（`/api/projects/:id/sessions*`）
-- `server/src/services/orchestrator/project-orchestrator.ts`
-- `server/src/minimax/storage/SessionStorage.ts`
-- `server/src/minimax/index.ts`
+- `server/src/services/orchestrator/project-session-runtime-service.ts`
+- `server/src/services/orchestrator/project-session-runtime-timeout.ts`
+- `server/src/services/orchestrator/project-session-runtime-termination.ts`
+- `server/src/services/orchestrator/workflow-session-runtime-service.ts`
+- `server/src/services/orchestrator/workflow-session-runtime-timeout.ts`
+- `server/src/routes/project-runtime-routes.ts`
+- `server/src/services/orchestrator/project-dispatch-service.ts`
 
-### 解决问题
+### 当前收敛目标
 
-- 统一外部与内部会话标识，消除 `sessionId/sessionKey` 双语义
-- 保证角色视角单活跃会话槽位
-- 会话异常可自动或人工收敛
+- 会话运行态副作用统一由 application service 协调
+- route 不直接承担 session 恢复事务边界
+- API 继续只暴露 `sessionId`，不恢复 `sessionKey`
 
 ---
 
@@ -39,11 +42,12 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 - `GET /api/projects/:id/sessions`
 - `POST /api/projects/:id/sessions/:session_id/dismiss`
 - `POST /api/projects/:id/sessions/:session_id/repair`
+- force dispatch 时按需 bootstrap owner session
 
 ### 不包含能力
 
-- 任务依赖门禁与状态推进（task 模块）
-- 消息路由策略判定（routing 模块）
+- task 状态机推进
+- message 路由策略判定
 
 ---
 
@@ -71,40 +75,33 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 
 ### 3.2 输出
 
-- 创建返回 `session.sessionId`（始终为 string），并附 `status: "pending"`
-- 列表按 role 聚合最新会话，`sessionId` 始终非空
+- 创建返回 `session.sessionId`，并保持 string 类型
+- 列表按 role 聚合 authoritative active session
 - dismiss 返回 `session` + `processTermination`
 - 不再对外返回 `sessionKey`
-- 不再在 sessions API 对外返回 `providerSessionId`
+- 不在 sessions API 对外返回 `providerSessionId`
 
 ---
 
 ## 4. 内部逻辑
 
-### 核心处理规则
+### 4.1 创建规则
 
-#### 4.1 会话创建规则
+1. 同 role 存在 active session 时拒绝创建，返回 `SESSION_ROLE_CONFLICT`
+2. force dispatch 可在 owner role 无 authoritative active session 时自动 bootstrap session
+3. bootstrap 出来的 session 仍需写入 role-session mapping 与审计事件
 
-1. 同 role 存在未 dismissed 会话时拒绝（`SESSION_ROLE_CONFLICT`）。
-2. 自动生成 `pending-<role>-<suffix>` 形式的 `sessionId`。
-3. `agentTool` 从项目 `agentModelConfigs` 读取（`codex/trae/minimax`）。
+### 4.2 状态收敛规则
 
-#### 4.2 运行态字段规则
+- dismiss：先终止进程，再写 `dismissed`
+- repair：通过 application service 写回 `idle/blocked`
+- timeout：先做进程终止，再补 dispatch/run 闭环事件，再落 `SESSION_HEARTBEAT_TIMEOUT`
+- `agentPid` 仅作为运行态辅助字段，不作为 API 主键
 
-- `providerSessionId` 仅用于运行器内部 resume 语义。
-- 该字段不作为 API 主键，不参与会话查找。
+### 4.3 事务边界
 
-#### 4.3 状态收敛规则
-
-- `touchSession` 在状态非 `running` 时自动清空 `agentPid`。
-- dismiss：先尝试进程终止，再置 `dismissed`。
-- repair：人工恢复为 `idle/blocked`。
-
-#### 4.4 MiniMax 会话消息有效加载口径
-
-- SummaryMessages apply 后会写入 `summary_anchor` 消息元数据。
-- 会话恢复时按“最新 summary_anchor 及其之后消息”加载有效上下文窗口。
-- 原始历史消息保留用于审计，不做物理删除。
+- session 状态修改、事件追加、相关 task/runtime 修正必须在同一 application service 事务中完成
+- route 层不得直接开启事务
 
 ---
 
@@ -112,7 +109,7 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 
 - `sessionId` 必须匹配 `^[a-zA-Z0-9._:-]+$`
 - `status` 仅允许 `running/idle/blocked/dismissed`
-- 默认同 role 单活跃会话策略
+- 同 role 默认单 authoritative active session
 
 ---
 
@@ -138,7 +135,7 @@ Session 管理模块负责项目内角色会话生命周期与角色会话槽位
 
 ### 关键字段
 
-- `sessionId`：唯一会话主键（对内对外一致）
-- `providerSessionId`：内部运行态字段（resume 语义）
-- `agentPid`：运行进程 pid（仅 `running` 保留）
-- `summary_anchor`：MiniMax 会话上下文压缩锚点（仅内部消息元数据）
+- `sessionId`：唯一会话主键
+- `providerSessionId`：内部运行态字段
+- `agentPid`：运行进程 pid，仅在运行态保留
+- `lastRunId` / `lastDispatchId`：编排闭环恢复辅助字段

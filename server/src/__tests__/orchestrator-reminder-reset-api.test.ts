@@ -3,11 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
 import { ensureProjectRuntime, getProjectPaths } from "../data/project-store.js";
 import { getRoleReminderState, updateRoleReminderState } from "../data/role-reminder-store.js";
 import { listEvents } from "../data/event-store.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 async function createBasicProject(
   baseUrl: string,
@@ -45,13 +45,8 @@ test("session create resets role reminder state", async () => {
   const role = "reminder_role_create";
   const projectId = "reminderresetcreate";
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
   try {
     await createBasicProject(baseUrl, tempRoot, projectId, role);
     const paths = await ensureProjectRuntime(dataRoot, projectId);
@@ -78,7 +73,7 @@ test("session create resets role reminder state", async () => {
     assert.ok(resetEvent);
     assert.equal((resetEvent?.payload as Record<string, unknown>).reason, "session_created");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });
 
@@ -88,13 +83,8 @@ test("session dismiss and repair reset role reminder state", async () => {
   const role = "reminder_role_flow";
   const projectId = "reminderresetflow";
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
   try {
     await createBasicProject(baseUrl, tempRoot, projectId, role);
     const paths = await ensureProjectRuntime(dataRoot, projectId);
@@ -160,6 +150,6 @@ test("session dismiss and repair reset role reminder state", async () => {
     assert.ok(resetReasons.includes("session_dismissed"));
     assert.ok(resetReasons.includes("session_repaired"));
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });

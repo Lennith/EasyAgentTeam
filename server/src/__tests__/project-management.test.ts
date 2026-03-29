@@ -4,8 +4,10 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
+
+const fetch = globalThis.fetch;
 
 test("repo_doc_flow template scaffolds role documentation files", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-template-"));
@@ -20,13 +22,8 @@ test("repo_doc_flow template scaffolds role documentation files", async () => {
   await fs.writeFile(path.join(workspacePath, "autodev_lock.ps1"), "legacy", "utf8");
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const createRes = await fetch(`${baseUrl}/api/projects`, {
@@ -75,7 +72,7 @@ test("repo_doc_flow template scaffolds role documentation files", async () => {
     assert.equal(types.has("PROJECT_TEMPLATE_APPLIED"), true);
     assert.equal(types.has("PROJECT_AGENT_SCRIPT_BOOTSTRAPPED"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -86,13 +83,8 @@ test("project bootstrap creates per-agent AGENTS.md with direct ToolCall guidanc
   await fs.mkdir(workspacePath, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const createAgentRes = await fetch(`${baseUrl}/api/agents`, {
@@ -135,7 +127,7 @@ test("project bootstrap creates per-agent AGENTS.md with direct ToolCall guidanc
     assert.equal(roleMdContent.includes("../../TeamTools/TeamToolsList.md"), false);
     assert.equal(roleMdContent.includes("Tool schemas are exposed directly by runtime tool registry."), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -143,13 +135,8 @@ test("base prompt API returns TeamTools initialization contract", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-base-prompt-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const res = await fetch(`${baseUrl}/api/prompts/base`);
@@ -159,7 +146,7 @@ test("base prompt API returns TeamTools initialization contract", async () => {
     assert.equal(payload.prompt.includes("AGENTS.md"), true);
     assert.equal(payload.prompt.includes("discuss"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -167,13 +154,8 @@ test("delete project removes project data and returns not found afterwards", asy
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-delete-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const createRes = await fetch(`${baseUrl}/api/projects`, {
@@ -200,7 +182,7 @@ test("delete project removes project data and returns not found afterwards", asy
     const readRes = await fetch(`${baseUrl}/api/projects/deletecase`);
     assert.equal(readRes.status, 404);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -211,13 +193,8 @@ test("role template injects boundary/report rules for eng_manager and qa roles",
   await fs.mkdir(workspacePath, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const createEngManagerRes = await fetch(`${baseUrl}/api/agents`, {
@@ -264,7 +241,7 @@ test("role template injects boundary/report rules for eng_manager and qa roles",
     assert.equal(qaRoleMd.includes("Validate quality."), true);
     assert.equal(qaRoleMd.includes("## Role Boundary"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -272,13 +249,8 @@ test("project creation persists auto_dispatch_enabled and auto_dispatch_remainin
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-auto-dispatch-limit-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const createRes = await fetch(`${baseUrl}/api/projects`, {
@@ -305,7 +277,7 @@ test("project creation persists auto_dispatch_enabled and auto_dispatch_remainin
     assert.equal(project.autoDispatchRemaining, 5);
     assert.equal(project.holdEnabled, false);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -316,13 +288,8 @@ test(
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-teamtools-missing-"));
     const dataRoot = path.join(tempRoot, "data");
     const app = createApp({ dataRoot });
-    const server = createServer(app);
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-    const address = server.address();
-    if (!address || typeof address === "string") {
-      throw new Error("failed to start test server");
-    }
-    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const serverHandle = await startTestHttpServer(app);
+    const baseUrl = serverHandle.baseUrl;
     const prev = process.env.AUTO_DEV_TEAMTOOLS_SOURCE;
     process.env.AUTO_DEV_TEAMTOOLS_SOURCE = path.join(tempRoot, "not-found-teamtools");
 
@@ -343,7 +310,7 @@ test(
       } else {
         process.env.AUTO_DEV_TEAMTOOLS_SOURCE = prev;
       }
-      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      await serverHandle.close();
     }
   }
 );
@@ -370,13 +337,8 @@ test("project bootstrap applies workspace role template override", async () => {
   );
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const createAgentRes = await fetch(`${baseUrl}/api/agents`, {
@@ -408,7 +370,7 @@ test("project bootstrap applies workspace role template override", async () => {
     assert.equal(roleMd.includes("Prompt from agent registry"), true);
     assert.equal(roleMd.includes("## Boundary"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -419,13 +381,8 @@ test("patching agent prompt does not auto-sync existing project role.md", async 
   await fs.mkdir(workspacePath, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const createAgentRes = await fetch(`${baseUrl}/api/agents`, {
@@ -471,6 +428,6 @@ test("patching agent prompt does not auto-sync existing project role.md", async 
     assert.equal(after.includes("Old prompt body"), true);
     assert.equal(after.includes("New prompt body from agent control"), false);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });

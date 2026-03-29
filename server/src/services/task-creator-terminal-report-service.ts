@@ -3,7 +3,7 @@ import type { ProjectPaths, ProjectRecord, TaskRecord } from "../domain/models.j
 import { appendEvent, listEvents } from "../data/event-store.js";
 import { listTasks } from "../data/taskboard-store.js";
 import { resolveSessionByRole } from "../data/project-store.js";
-import { deliverManagerMessage } from "./manager-routing-service.js";
+import { deliverProjectMessage } from "./orchestrator/project-message-routing-service.js";
 import { resolveActiveSessionForRole } from "./session-lifecycle-authority.js";
 
 const TERMINAL = new Set(["DONE", "BLOCKED_DEP", "CANCELED"]);
@@ -141,7 +141,7 @@ export async function emitCreatorTerminalReportsIfReady(
     };
     const messageId = randomUUID();
     const requestId = randomUUID();
-    await deliverManagerMessage({
+    await deliverProjectMessage({
       dataRoot,
       project,
       paths,

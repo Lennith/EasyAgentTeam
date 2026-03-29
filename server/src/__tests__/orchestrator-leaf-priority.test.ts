@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 async function seedAgent(baseUrl: string, agentId: string): Promise<void> {
   const res = await fetch(`${baseUrl}/api/agents`, {
@@ -25,14 +25,8 @@ test("project dispatch prefers deeper runnable task for the same role", async ()
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-leaf-dispatch-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     await seedAgent(baseUrl, "manager");
@@ -147,7 +141,7 @@ test("project dispatch prefers deeper runnable task for the same role", async ()
     );
     assert.equal(dispatchPayload.results[0]?.taskId, "task_leaf_deep");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
     if (originalCodexCommand === undefined) {
       delete process.env.CODEX_CLI_COMMAND;
     } else {

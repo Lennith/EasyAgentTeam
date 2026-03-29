@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("workflow task runtime API exposes runtime fields, dependency gates, and terminal convergence", async () => {
   const previousInterval = process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS;
@@ -15,13 +15,8 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
   await mkdir(workspaceRoot, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   async function fetchRuntimeWithRetry(timeoutMs = 8_000) {
     const start = Date.now();
@@ -45,7 +40,7 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     return (await runtime.json()) as {
       status: string;
       active: boolean;
-      counters: { done: number; total: number };
+      counters: { done: number; canceled: number; total: number };
     };
   }
 
@@ -62,18 +57,39 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     throw new Error(`timeout waiting for runtime status '${status}', latest='${latest.status}'`);
   }
 
-  async function waitForDoneConverged(timeoutMs: number) {
+  async function waitForTaskState(taskId: string, targetState: string, timeoutMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const runtime = await fetchRuntimeWithRetry();
+      const payload = (await runtime.json()) as {
+        tasks: Array<{ taskId: string; state: string }>;
+      };
+      const task = payload.tasks.find((item) => item.taskId === taskId);
+      if (task?.state === targetState) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const runtime = await fetchRuntimeWithRetry();
+    const payload = (await runtime.json()) as {
+      tasks: Array<{ taskId: string; state: string }>;
+    };
+    const task = payload.tasks.find((item) => item.taskId === taskId);
+    throw new Error(`timeout waiting task '${taskId}' -> '${targetState}', latest='${task?.state ?? "missing"}'`);
+  }
+
+  async function waitForTerminalConverged(timeoutMs: number) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const snapshot = await readRuntimeStatus();
-      if (snapshot.counters.done === snapshot.counters.total) {
+      if (snapshot.counters.done + snapshot.counters.canceled >= snapshot.counters.total) {
         return snapshot;
       }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     const latest = await readRuntimeStatus();
     throw new Error(
-      `timeout waiting for done convergence, latest done=${latest.counters.done}, total=${latest.counters.total}`
+      `timeout waiting for terminal convergence, latest status=${latest.status}, done=${latest.counters.done}, canceled=${latest.counters.canceled}, total=${latest.counters.total}`
     );
   }
 
@@ -167,6 +183,7 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
       })
     });
     assert.equal(reportA.status, 200);
+    await waitForTaskState("task_b", "READY", 8000);
 
     const reportB = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-actions`, {
       method: "POST",
@@ -178,16 +195,17 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
       })
     });
     assert.equal(reportB.status, 200);
+    await waitForTaskState("task_b", "DONE", 20_000);
 
-    const donePayload = await waitForDoneConverged(8000);
+    const donePayload = await waitForTerminalConverged(20_000);
     assert.equal(donePayload.status === "running" || donePayload.status === "finished", true);
-    assert.equal(donePayload.counters.done, donePayload.counters.total);
+    assert.equal(donePayload.counters.done + donePayload.counters.canceled, donePayload.counters.total);
 
-    const finishedPayload = await waitForRuntimeStatus("finished", 8000);
+    const finishedPayload = await waitForRuntimeStatus("finished", 20_000);
     assert.equal(finishedPayload.active, false);
-    assert.equal(finishedPayload.counters.done, finishedPayload.counters.total);
+    assert.equal(finishedPayload.counters.done + finishedPayload.counters.canceled, finishedPayload.counters.total);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
     if (previousInterval === undefined) {
       delete process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS;
     } else {

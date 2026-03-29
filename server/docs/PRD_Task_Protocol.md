@@ -13,6 +13,7 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 **源码路径**:
 
 - `server/src/services/task-action-service.ts`
+- `server/src/services/task-actions/**`
 - `server/src/data/taskboard-store.ts`
 - `server/src/services/task-tree-query-service.ts`
 - `server/src/services/task-detail-query-service.ts`

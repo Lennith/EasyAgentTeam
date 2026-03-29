@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 async function seedAgent(baseUrl: string, agentId: string): Promise<void> {
   const response = await fetch(`${baseUrl}/api/agents`, {
@@ -23,14 +23,8 @@ test("task assignment message is skipped when ancestor dependency gate is closed
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-assignment-gate-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     for (const agentId of ["manager", "dev_0"]) {
@@ -152,6 +146,6 @@ test("task assignment message is skipped when ancestor dependency gate is closed
     assert.equal(payload.results.length, 1);
     assert.equal(payload.results[0]?.outcome, "no_message");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });

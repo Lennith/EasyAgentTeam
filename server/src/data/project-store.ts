@@ -4,14 +4,11 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ProviderId } from "@autodev/agent-library";
 import type { ProjectPaths, ProjectRecord, ProjectSummary } from "../domain/models.js";
-import {
-  deleteDirectoryTransactional,
-  ensureDirectory,
-  ensureFile,
-  runStorageTransaction
-} from "./file-utils.js";
-import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
+import { getRepository, getUnitOfWork } from "./repository/runtime.js";
 import { DISCUSS_HARD_MAX_ROUNDS } from "../services/discuss-policy-service.js";
+
+const repository = getRepository();
+const unitOfWork = getUnitOfWork();
 
 export class ProjectStoreError extends Error {
   constructor(
@@ -333,19 +330,19 @@ export async function ensureProjectRuntime(dataRoot: string, projectId: string):
   assertProjectId(projectId);
   const paths = getProjectPaths(dataRoot, projectId);
 
-  await ensureDirectory(paths.projectRootDir);
-  await ensureDirectory(paths.collabDir);
-  await ensureDirectory(path.dirname(paths.taskboardFile));
-  await ensureDirectory(paths.locksDir);
-  await ensureDirectory(paths.inboxDir);
-  await ensureDirectory(paths.outboxDir);
-  await ensureDirectory(paths.auditDir);
-  await ensureDirectory(paths.promptsDir);
+  await repository.ensureDirectory(paths.projectRootDir);
+  await repository.ensureDirectory(paths.collabDir);
+  await repository.ensureDirectory(path.dirname(paths.taskboardFile));
+  await repository.ensureDirectory(paths.locksDir);
+  await repository.ensureDirectory(paths.inboxDir);
+  await repository.ensureDirectory(paths.outboxDir);
+  await repository.ensureDirectory(paths.auditDir);
+  await repository.ensureDirectory(paths.promptsDir);
 
-  await ensureFile(paths.eventsFile, "");
-  await ensureFile(paths.taskboardFile, `${JSON.stringify(emptyTaskboard(projectId), null, 2)}\n`);
-  await ensureFile(paths.sessionsFile, `${JSON.stringify(emptySessions(projectId), null, 2)}\n`);
-  await ensureFile(paths.agentOutputFile, "");
+  await repository.ensureFile(paths.eventsFile, "");
+  await repository.ensureFile(paths.taskboardFile, `${JSON.stringify(emptyTaskboard(projectId), null, 2)}\n`);
+  await repository.ensureFile(paths.sessionsFile, `${JSON.stringify(emptySessions(projectId), null, 2)}\n`);
+  await repository.ensureFile(paths.agentOutputFile, "");
 
   return paths;
 }
@@ -395,8 +392,8 @@ export async function createProject(
     roleSessionMap: input.roleSessionMap
   };
 
-  await runStorageTransaction([paths.projectConfigFile], async () => {
-    await writeJsonFile(paths.projectConfigFile, project);
+  await unitOfWork.run([paths.projectConfigFile], async () => {
+    await repository.writeJson(paths.projectConfigFile, project);
   });
   return { project, paths };
 }
@@ -405,7 +402,7 @@ export async function getProject(dataRoot: string, projectId: string): Promise<P
   assertProjectId(projectId);
   const paths = getProjectPaths(dataRoot, projectId);
   const fallback = null as unknown as ProjectRecord;
-  const project = await readJsonFile<ProjectRecord | null>(paths.projectConfigFile, fallback);
+  const project = await repository.readJson<ProjectRecord | null>(paths.projectConfigFile, fallback);
   if (!project) {
     throw new ProjectStoreError(`project '${projectId}' not found`, "PROJECT_NOT_FOUND");
   }
@@ -605,7 +602,7 @@ export async function setRoleSessionMapping(
     updatedAt: new Date().toISOString()
   };
   const paths = getProjectPaths(dataRoot, projectId);
-  await writeJsonFile(paths.projectConfigFile, next);
+  await repository.writeJson(paths.projectConfigFile, next);
   return next;
 }
 
@@ -629,7 +626,7 @@ export async function clearRoleSessionMapping(
     updatedAt: new Date().toISOString()
   };
   const paths = getProjectPaths(dataRoot, projectId);
-  await writeJsonFile(paths.projectConfigFile, next);
+  await repository.writeJson(paths.projectConfigFile, next);
   return next;
 }
 
@@ -663,7 +660,7 @@ export async function updateProjectRouting(
     updatedAt: new Date().toISOString()
   };
   const paths = getProjectPaths(dataRoot, projectId);
-  await writeJsonFile(paths.projectConfigFile, next);
+  await repository.writeJson(paths.projectConfigFile, next);
   return next;
 }
 
@@ -686,7 +683,7 @@ export async function updateTaskAssignRouting(
     updatedAt: new Date().toISOString()
   };
   const paths = getProjectPaths(dataRoot, projectId);
-  await writeJsonFile(paths.projectConfigFile, next);
+  await repository.writeJson(paths.projectConfigFile, next);
   return next;
 }
 
@@ -722,7 +719,7 @@ export async function updateProjectOrchestratorSettings(
     updatedAt: new Date().toISOString()
   };
   const paths = getProjectPaths(dataRoot, projectId);
-  await writeJsonFile(paths.projectConfigFile, next);
+  await repository.writeJson(paths.projectConfigFile, next);
   return next;
 }
 
@@ -750,7 +747,7 @@ export async function addAgentToProject(
   };
 
   const paths = getProjectPaths(dataRoot, projectId);
-  await writeJsonFile(paths.projectConfigFile, next);
+  await repository.writeJson(paths.projectConfigFile, next);
   return next;
 }
 
@@ -771,7 +768,7 @@ export async function deleteProject(
     throw error;
   }
 
-  await deleteDirectoryTransactional(paths.projectRootDir);
+  await repository.deleteDirectory(paths.projectRootDir);
   return {
     projectId,
     removedAt: new Date().toISOString()
@@ -783,7 +780,7 @@ async function ensureTeamAgentRequestsFile(
   projectId: string
 ): Promise<{ paths: ReturnType<typeof getTeamRequestsPaths>; state: TeamAgentRequestsState }> {
   const paths = getTeamRequestsPaths(dataRoot, projectId);
-  await ensureDirectory(path.dirname(paths.teamAgentRequestsFile));
+  await repository.ensureDirectory(path.dirname(paths.teamAgentRequestsFile));
   
   const fallback: TeamAgentRequestsState = {
     schemaVersion: "1.0",
@@ -792,9 +789,9 @@ async function ensureTeamAgentRequestsFile(
     requests: []
   };
   
-  const state = await readJsonFile<TeamAgentRequestsState | null>(paths.teamAgentRequestsFile, fallback);
+  const state = await repository.readJson<TeamAgentRequestsState | null>(paths.teamAgentRequestsFile, fallback);
   if (!state) {
-    await writeJsonFile(paths.teamAgentRequestsFile, fallback);
+    await repository.writeJson(paths.teamAgentRequestsFile, fallback);
     return { paths, state: fallback };
   }
   return { paths, state };
@@ -805,7 +802,7 @@ async function ensureRouteChangeRequestsFile(
   projectId: string
 ): Promise<{ paths: ReturnType<typeof getTeamRequestsPaths>; state: RouteChangeRequestsState }> {
   const paths = getTeamRequestsPaths(dataRoot, projectId);
-  await ensureDirectory(path.dirname(paths.routeChangeRequestsFile));
+  await repository.ensureDirectory(path.dirname(paths.routeChangeRequestsFile));
   
   const fallback: RouteChangeRequestsState = {
     schemaVersion: "1.0",
@@ -814,9 +811,9 @@ async function ensureRouteChangeRequestsFile(
     requests: []
   };
   
-  const state = await readJsonFile<RouteChangeRequestsState | null>(paths.routeChangeRequestsFile, fallback);
+  const state = await repository.readJson<RouteChangeRequestsState | null>(paths.routeChangeRequestsFile, fallback);
   if (!state) {
-    await writeJsonFile(paths.routeChangeRequestsFile, fallback);
+    await repository.writeJson(paths.routeChangeRequestsFile, fallback);
     return { paths, state: fallback };
   }
   return { paths, state };
@@ -852,7 +849,7 @@ export async function createTeamAgentRequest(
   state.requests.push(request);
   state.updatedAt = now;
   
-  await writeJsonFile(paths.teamAgentRequestsFile, state);
+  await repository.writeJson(paths.teamAgentRequestsFile, state);
   return request;
 }
 
@@ -883,7 +880,7 @@ export async function updateTeamAgentRequestStatus(
   state.requests[index].updatedAt = new Date().toISOString();
   state.updatedAt = state.requests[index].updatedAt;
   
-  await writeJsonFile(paths.teamAgentRequestsFile, state);
+  await repository.writeJson(paths.teamAgentRequestsFile, state);
   return state.requests[index];
 }
 
@@ -915,7 +912,7 @@ export async function createRouteChangeRequest(
   state.requests.push(request);
   state.updatedAt = now;
   
-  await writeJsonFile(paths.routeChangeRequestsFile, state);
+  await repository.writeJson(paths.routeChangeRequestsFile, state);
   return request;
 }
 
@@ -946,6 +943,6 @@ export async function updateRouteChangeRequestStatus(
   state.requests[index].updatedAt = new Date().toISOString();
   state.updatedAt = state.requests[index].updatedAt;
   
-  await writeJsonFile(paths.routeChangeRequestsFile, state);
+  await repository.writeJson(paths.routeChangeRequestsFile, state);
   return state.requests[index];
 }

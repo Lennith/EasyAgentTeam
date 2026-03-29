@@ -1,4 +1,4 @@
-# 编排器模块 PRD (Orchestrator)
+# Orchestrator 模块 PRD
 
 ## 1. 模块目标
 
@@ -8,178 +8,213 @@
 
 ### 模块职责
 
-Project Orchestrator 负责项目运行态的调度闭环，核心包括：
+Project Orchestrator 负责 project runtime 的编排闭环，覆盖：
 
-- 基于 role/session 选择可派发任务或消息并触发执行
-- 维护会话状态（`idle/running/blocked/dismissed`）
-- 执行自动派发预算（`auto_dispatch_enabled` + `auto_dispatch_remaining`）
-- 处理 running 超时与 reminder 重试
-- 输出可回放事件链（dispatch/timeout/reminder）
+- role/session 级 dispatch 与 message dispatch
+- session timeout repair / dismiss
+- reminder 与 MAY_BE_DONE 推进
+- auto dispatch 预算、hold 与单飞保护
+- timeline 可回放事件输出
 
-**源码路径**:
+### 主要源码
 
 - `server/src/services/orchestrator/project-orchestrator.ts`
-- `server/src/services/orchestrator/dispatch-engine.ts`
-- `server/src/services/orchestrator/session-manager.ts`
-- `server/src/services/orchestrator/reminder-service.ts`
+- `server/src/services/orchestrator/project-dispatch-service.ts`
+- `server/src/services/orchestrator/project-dispatch-loop-adapter.ts`
+- `server/src/services/orchestrator/project-dispatch-session-helper.ts`
+- `server/src/services/orchestrator/project-dispatch-selection-adapter.ts`
+- `server/src/services/orchestrator/project-dispatch-prompt-context.ts`
+- `server/src/services/orchestrator/project-dispatch-prompt.ts`
+- `server/src/services/orchestrator/project-dispatch-launch-adapter.ts`
+- `server/src/services/orchestrator/project-dispatch-launch-execution-types.ts`
+- `server/src/services/orchestrator/project-dispatch-launch-helper-service.ts`
+- `server/src/services/orchestrator/project-dispatch-launch-minimax.ts`
+- `server/src/services/orchestrator/project-dispatch-launch-sync.ts`
+- `server/src/services/orchestrator/project-dispatch-launch-preparation.ts`
+- `server/src/services/orchestrator/project-dispatch-launch-support.ts`
+- `server/src/services/orchestrator/project-orchestrator-options.ts`
+- `server/src/services/orchestrator/project-session-runtime-service.ts`
+- `server/src/services/orchestrator/project-session-runtime-timeout.ts`
+- `server/src/services/orchestrator/project-session-runtime-termination.ts`
+- `server/src/services/orchestrator/project-reminder-service.ts`
+- `server/src/services/orchestrator/project-completion-service.ts`
+- `server/src/services/orchestrator/project-tick-service.ts`
+- `server/src/services/orchestrator/project-message-routing-service.ts`
+- `server/src/services/manager-routing-event-service.ts`
+- `server/src/services/orchestrator/shared/dispatch-template.ts`
+- `server/src/services/orchestrator/shared/launch-template.ts`
+- `server/src/services/orchestrator/shared/orchestrator-identifiers.ts`
+- `server/src/services/orchestrator/shared/orchestrator-env.ts`
+- `server/src/services/orchestrator/shared/orchestrator-runtime-helpers.ts`
+- `server/src/services/orchestrator/shared/orchestrator-agent-catalog.ts`
+- `server/src/services/orchestrator/shared/tool-session-input.ts`
+- `server/src/services/orchestrator/shared/role-prompt-skill-bundle.ts`
+- `server/src/services/orchestrator/shared/tick-pipeline.ts`
 - `server/src/services/orchestrator/index.ts`
 
-### 解决问题
+## 2. 对外行为
 
-- 避免 agent 对“可见但依赖未满足”的任务误上报推进态，污染时间线与阶段顺序判定
-- 保证每轮 dispatch 都有明确的 focus task，并把 blocked/task 依赖状态直接暴露给 agent
-- 在异常超时/重派发场景下保持编排可恢复、可观测、可复盘
-
----
-
-## 2. 功能范围
-
-### P0-2 改造说明（状态：实装）
-
-- 本轮将 Project/Workflow 编排器收敛到统一目录 `server/src/services/orchestrator/`。
-- 通过 `dispatch-engine/session-manager/reminder-service` 抽离共性能力，避免双实现重复维护。
-- 对外 HTTP 接口、调度语义、事件语义、超时/提醒语义、错误码语义保持不变（兼容冻结）。
-
-### 包含能力
-
-- 手工 dispatch / loop 自动 dispatch
-- `force + task_id` 强制投递
-- `dispatch-message` 指定消息投递
-- running 超时收敛 + reminder 机制
-- role 维度会话收敛与冲突恢复
-
-### 不包含能力
-
-- task payload 协议校验（由 `task-action-service` 负责）
-- message payload 协议校验（由 `manager-message-service` 负责）
-
----
-
-## 3. 对外行为
-
-### 3.1 输入
+### 2.1 API
 
 - `POST /api/projects/:id/orchestrator/dispatch`
+- `POST /api/projects/:id/orchestrator/dispatch-message`
 - `GET /api/projects/:id/orchestrator/settings`
 - `PATCH /api/projects/:id/orchestrator/settings`
 
-`dispatch` 请求关键参数：
+### 2.2 稳定约束
 
-- `role`（可选）
-- `session_id`（可选）
-- `task_id`（可选）
-- `force`（可选）
-- `only_idle`（可选）
+- 对外 API path、payload、status code、SSE、event type、task state name 保持不变。
+- 退役接口继续返回 `410`。
+- `server/src/services/orchestrator/index.ts` 继续稳定导出：
+  - `OrchestratorService`
+  - `createOrchestratorService`
+  - `resolveTaskDiscuss`
+  - `calculateNextReminderTime`
+  - `shouldAutoResetReminderOnRoleTransition`
 
-约束：
+## 3. 结构分层
 
-- `role + session_id` 同时传入时必须一致，否则 `409 SESSION_ROLE_MISMATCH`
+### 3.1 Façade
 
-### 3.2 输出
+- `project-orchestrator.ts`
+- 只负责 service 装配、loop 启停、兼容导出与 public façade。
 
-- `results[]`（每个目标 session 的派发结果）
-- 关键事件：
-  - `ORCHESTRATOR_DISPATCH_STARTED`
-  - `ORCHESTRATOR_DISPATCH_FINISHED`
-  - `ORCHESTRATOR_DISPATCH_FAILED`
-  - `SESSION_HEARTBEAT_TIMEOUT`
-  - `ORCHESTRATOR_ROLE_REMINDER_TRIGGERED`
-  - `ORCHESTRATOR_ROLE_REMINDER_RESET`
+### 3.2 Pure Policy
 
-### 3.3 Dispatch Prompt 执行语义（状态：实装）
+- `project-dispatch-policy.ts`
+- `project-reminder-policy.ts`
+- `project-completion-policy.ts`
 
-每次派发给 agent 的 prompt 必须明确以下上下文：
+规则模块不直接读写存储，不构造 HTTP payload。
 
-- `focus_task_id`
-- `this_turn_operate_task_id`
-- `visible_actionable_tasks`
-- `visible_blocked_tasks`
-- `focus_task_dependencies_ready`
-- `focus_task_unresolved_dependencies`
+### 3.3 Application Services
 
-执行约束（prompt contract）：
+- `project-dispatch-service.ts`
+- `project-session-runtime-service.ts`
+- `project-reminder-service.ts`
+- `project-completion-service.ts`
+- `project-tick-service.ts`
 
-- 优先处理 focus task
-- 非 focus task 在依赖已满足时允许上报，但属于次优行为
-- 对依赖未满足任务，不得上报 `IN_PROGRESS/DONE/MAY_BE_DONE`
-- 若因依赖门禁被拒绝，需等待依赖完成提示后再继续，并撤回或降级冲突性的提前完成结论
+application service 是编排副作用与 UnitOfWork 边界的唯一入口。
 
----
+## 4. Dispatch 规则
 
-## 4. 内部逻辑
+### 4.1 Dispatch 入口
 
-### 4.1 任务选择（状态：实装）
+- 手工 dispatch
+- 手工 dispatch-message
+- loop auto dispatch
 
-1. 任务派发候选按统一优先级选择：`depth desc -> priority desc -> createdAt asc -> taskId asc`
-2. 当同一 role 同时存在祖先任务与其后代任务候选时，优先派发树更深（叶子侧）任务
-3. 任务绑定消息（含 `TASK_ASSIGNMENT`）命中多个候选任务时，按同一优先级规则选唯一 task
-4. 讨论消息仍按线程/消息语义插入调度，不引入任务优先级排序
-5. 无目标返回 `no_message`
+### 4.2 Dispatch 选择
 
-### 4.2 Force Dispatch
+- `project-dispatch-selection-adapter.ts` 负责：
+  - explicit message candidate
+  - task candidate / force task
+  - dependency gate
+  - duplicate open dispatch
+  - onlyIdle / session_busy
+- 输出 normalized selection result，service 不再手拼散字段。
 
-- `force=true + task_id` 允许跨常规候选直接定位任务
-- 允许状态：`READY | DISPATCHED | IN_PROGRESS | MAY_BE_DONE`
-- owner role 无活跃会话时可自动 bootstrap session 并更新 owner 绑定
+### 4.3 Dispatch Prompt
 
-### 4.3 依赖门禁
+- `project-dispatch-prompt-context.ts` 负责组装 stable prompt context。
+- `project-dispatch-prompt.ts` 只消费 context 做 renderer。
+- prompt 必须包含：
+  - focus task
+  - actionable / blocked tasks
+  - dependency readiness
+  - routing snapshot
+  - discuss guide
 
-- 常规派发必须通过依赖门禁（自身依赖 + 祖先链依赖）
-- 依赖未满足任务不会作为有效推进目标进入派发候选
+### 4.4 Dispatch 执行骨架
 
-### 4.4 自动派发预算
+- `shared/dispatch-template.ts` 是当前 project/workflow 共用的 dispatch skeleton。
+- shared skeleton 统一负责：
+  - preflight gate 顺序
+  - dispatch loop / maxDispatches
+  - single-flight gate
+  - skipped / dispatched / busy / no-task 结果归一
+- project adapter 继续负责：
+  - authoritative session 解析
+  - force dispatch bootstrap
+  - cooldown 与 role-level ordering
+  - project runtime side effect
 
-- 仅“有效任务派发”扣减 `auto_dispatch_remaining`
-- 预算归零触发 `ORCHESTRATOR_AUTO_LIMIT_REACHED`
+### 4.5 Launch 执行骨架
 
-### 4.5 超时与提醒
+- `shared/launch-template.ts` 是当前 project/workflow 共用的 launch skeleton。
+- shared skeleton 统一负责：
+  - started phase
+  - execute / failure trap
+  - success / failure handler 收口
+- `project-dispatch-launch-adapter.ts` 继续负责：
+  - provider 选择
+  - shared launch-template 接线
+  - payload/build glue
+- `project-dispatch-launch-helper-service.ts` 当前负责：
+  - runner success / timeout / fatal 处理
+- `project-dispatch-launch-minimax.ts` 当前负责：
+  - MiniMax wake-up / completion callback
+- `project-dispatch-launch-sync.ts` 当前负责：
+  - Codex resume / fallback
+- `project-dispatch-launch-preparation.ts` 负责：
+  - provider/model enrichment
+  - workspace/bootstrap
+  - prompt artifact persistence
+- `project-dispatch-launch-support.ts` 负责：
+  - event payload builder
+  - runner payload builder
+  - terminal dispatch event append
+- `manager-routing-event-service.ts` 当前负责 project/workflow 共用的 route event payload contract builder，避免 `USER_MESSAGE_RECEIVED` / `MESSAGE_ROUTED` 字段规则在不同编排器侧继续分叉。
+- `project-orchestrator-options.ts` 与 `shared/orchestrator-env.ts` 当前负责 project/workflow 共用的 env/options 解析门限，避免两个 orchestrator 工厂各自重复解析环境变量。
+- `shared/orchestrator-identifiers.ts` 当前负责跨 project/workflow 复用的 session/request/message/reminder identifier 规则，减少 role session id 与 timestamp-based id 的分叉实现。
+- `shared/orchestrator-runtime-helpers.ts` 当前负责 project/workflow 共用的 agent workspace 路径、`.minimax/sessions` fallback、provider session fallback 与 manager URL 默认值，避免 launch path 与 agent-chat route 再各自手拼运行时路径。
 
-- running 超时后执行软收敛并补齐 run/dispatch 闭环事件
-- reminder 基于 role 运行态 + open tasks 触发，不依赖旧 session 实例是否仍可用
+### 4.6 Force Dispatch
 
----
+- `force=true + task_id` 时，先校验 task 是否存在且状态 force-dispatchable。
+- 无 active owner session 时可自动 bootstrap owner session。
+- 非 force-dispatchable 状态直接返回 `task_not_force_dispatchable`。
 
-## 5. 异常与边界
+### 4.7 结果语义
 
-| 场景                              | 结果                          |
-| --------------------------------- | ----------------------------- |
-| session 正忙                      | `session_busy`                |
-| task 不存在                       | `task_not_found`              |
-| task 状态不允许 force             | `task_not_force_dispatchable` |
-| task owner 与 session role 不一致 | `task_owner_mismatch`         |
-| 命中未闭合重复派发                | `already_dispatched`          |
-| runner 执行失败                   | `dispatch_failed`             |
-
----
-
-## 6. 数据与事件
-
-### DispatchOutcome
+常见 outcome：
 
 - `dispatched`
 - `no_message`
+- `message_not_found`
 - `task_not_found`
 - `task_not_force_dispatchable`
+- `task_already_done`
 - `task_owner_mismatch`
 - `already_dispatched`
 - `session_busy`
 - `session_not_found`
 - `dispatch_failed`
 
-### 关键事件
+## 5. Tick 规则
 
-- `ORCHESTRATOR_DISPATCH_STARTED`
-- `ORCHESTRATOR_DISPATCH_FINISHED`
-- `ORCHESTRATOR_DISPATCH_FAILED`
-- `SESSION_HEARTBEAT_TIMEOUT`
-- `ORCHESTRATOR_ROLE_REMINDER_TRIGGERED`
-- `ORCHESTRATOR_ROLE_REMINDER_RESET`
+project tick 固定顺序：
 
----
+1. `timeout`
+2. `reminder`
+3. `may-be-done`
+4. `observability snapshot`
+5. `auto-dispatch remaining update`
 
-## API Path Registry (docs:check)
+- tick path 通过 `shared/tick-pipeline.ts` 执行公共骨架。
+- role reminder 状态继续保存在 project runtime 文档，不新增独立 reminder store。
 
-Orchestrator settings endpoints (exact path contract):
+## 6. 事务与数据边界
 
-- `GET /api/projects/:id/orchestrator/settings`
-- `PATCH /api/projects/:id/orchestrator/settings`
+- route 层只做 HTTP 解析、校验、响应映射，不直接开事务。
+- 同一用例内的 taskboard、session、event、inbox、project runtime 写入必须落在同一 UnitOfWork 边界。
+- façade 与 route 不得直接依赖底层 file util 或 `runStorageTransaction`。
+- orchestrator service 不得直接构造 HTTP 风格响应。
+
+## 7. 验证基线
+
+- `pnpm --filter @autodev/server build`
+- `pnpm --filter @autodev/server test`
+
+当前 shared dispatch/launch skeleton 已在 project 主路径实装并通过上述验证。

@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 function parseNdjson(raw: string): Array<{ eventType: string }> {
   return raw
@@ -31,13 +31,8 @@ test("route table denies illegal agent-to-agent message", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-route-policy-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     for (const agentId of ["PM", "planner"]) {
@@ -104,7 +99,7 @@ test("route table denies illegal agent-to-agent message", async () => {
     assert.equal(types.has("MESSAGE_ROUTE_DENIED"), true);
     assert.equal(types.has("MESSAGE_ROUTED"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -112,13 +107,8 @@ test("project routing-config API updates directional discuss limits", async () =
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-route-config-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     for (const agentId of ["PM", "planner"]) {
@@ -167,6 +157,6 @@ test("project routing-config API updates directional discuss limits", async () =
     assert.equal(patchPayload.routeDiscussRounds?.PM?.planner, 3);
     assert.equal(patchPayload.routeDiscussRounds?.planner?.PM, 5);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });

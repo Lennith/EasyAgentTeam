@@ -3,20 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("project create and orchestrator settings API use enabled+remaining model", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-orch-settings-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     const createRes = await fetch(`${baseUrl}/api/projects`, {
@@ -78,7 +73,7 @@ test("project create and orchestrator settings API use enabled+remaining model",
     });
     assert.equal(invalidPatch.status, 400);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });
 
@@ -86,13 +81,8 @@ test("retired auto_dispatch_limit is rejected on create and routing-config patch
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-orch-retired-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     const rejectedCreate = await fetch(`${baseUrl}/api/projects`, {
@@ -129,6 +119,6 @@ test("retired auto_dispatch_limit is rejected on create and routing-config patch
     });
     assert.equal(patchRes.status, 400);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });

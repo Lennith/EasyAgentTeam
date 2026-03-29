@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("workflow template CRUD and run lifecycle work with workspace_path-only create", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-api-"));
@@ -13,13 +13,9 @@ test("workflow template CRUD and run lifecycle work with workspace_path-only cre
   await mkdir(workspaceRoot, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+  const fetch = globalThis.fetch;
 
   try {
     const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
@@ -97,7 +93,7 @@ test("workflow template CRUD and run lifecycle work with workspace_path-only cre
     assert.equal(stopPayload.runtime.status, "stopped");
     assert.equal(stopPayload.runtime.active, false);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });
 
@@ -108,13 +104,9 @@ test("workflow run create hard-rejects retired binding fields and step-* endpoin
   await mkdir(workspaceRoot, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+  const fetch = globalThis.fetch;
 
   try {
     const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
@@ -177,7 +169,7 @@ test("workflow run create hard-rejects retired binding fields and step-* endpoin
     const retiredActionsBody = (await retiredActions.json()) as { code?: string };
     assert.equal(retiredActionsBody.code, "ENDPOINT_RETIRED");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });
 
@@ -188,13 +180,9 @@ test("workflow orchestrator defaults/settings and task-tree/detail parity endpoi
   await mkdir(workspaceRoot, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+  const fetch = globalThis.fetch;
 
   try {
     const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
@@ -290,7 +278,7 @@ test("workflow orchestrator defaults/settings and task-tree/detail parity endpoi
     assert.equal(detailPayload.task_id, "wf_task_a");
     assert.equal(detailPayload.task.task_id, "wf_task_a");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });
 
@@ -301,13 +289,9 @@ test("workflow dispatch can auto-select READY task even without inbox messages",
   await mkdir(workspaceRoot, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+  const fetch = globalThis.fetch;
 
   try {
     const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
@@ -349,6 +333,6 @@ test("workflow dispatch can auto-select READY task even without inbox messages",
     assert.equal(first?.taskId, "wf_ready_task");
     assert.equal(first?.dispatchKind, "task");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });

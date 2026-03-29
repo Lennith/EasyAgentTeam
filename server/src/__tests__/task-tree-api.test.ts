@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 async function createTask(baseUrl: string, projectId: string, body: Record<string, unknown>): Promise<void> {
   const res = await fetch(`${baseUrl}/api/projects/${projectId}/task-actions`, {
@@ -24,13 +24,8 @@ test("task-tree supports focus and external dependency edges", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-task-tree-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -109,6 +104,6 @@ test("task-tree supports focus and external dependency edges", async () => {
     );
     assert.equal(filtered, undefined);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });

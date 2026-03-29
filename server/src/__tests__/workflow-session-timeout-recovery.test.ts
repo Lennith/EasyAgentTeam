@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { createWorkflowRun, createWorkflowTemplate, getWorkflowRun, patchWorkflowRun } from "../data/workflow-store.js";
 import { listWorkflowSessions, upsertWorkflowSession } from "../data/workflow-run-store.js";
 import { createWorkflowOrchestratorService } from "../services/orchestrator/index.js";
+import { createProviderRegistry } from "../services/provider-runtime.js";
 
 test("workflow timeout uses soft recovery (idle) before escalation", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-timeout-recovery-"));
@@ -62,7 +63,7 @@ test("workflow timeout uses soft recovery (idle) before escalation", async () =>
     assert.equal(sessionsBefore[0]?.status, "running");
 
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const orchestrator = createWorkflowOrchestratorService(tempRoot) as unknown as {
+    const orchestrator = createWorkflowOrchestratorService(tempRoot, createProviderRegistry()) as unknown as {
       markTimedOutSessions: (
         runRecord: NonNullable<typeof run>,
         sessions: Awaited<ReturnType<typeof listWorkflowSessions>>
