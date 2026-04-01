@@ -8,13 +8,16 @@ import type {
 } from "../../domain/models.js";
 import type { WorkflowRepositoryBundle } from "../../data/repository/workflow-repository-bundle.js";
 import { logger } from "../../utils/logger.js";
-import { readPayloadString } from "./dispatch-engine.js";
 import { evaluateWorkflowAutoFinishWindow } from "./runtime/workflow-auto-finish-window.js";
 import { addWorkflowTaskTransition, isWorkflowTaskTerminalState } from "./runtime/workflow-runtime-kernel.js";
 import { buildOrchestratorAgentProgressFile } from "./shared/orchestrator-runtime-helpers.js";
-
-const MAY_BE_DONE_DISPATCH_THRESHOLD = 5;
-const MAY_BE_DONE_CHECK_WINDOW_MS = 60 * 60 * 1000;
+import {
+  countOrchestratorTaskDispatches,
+  hasOrchestratorSuccessfulRunFinishEvent,
+  isOrchestratorTerminalTaskState,
+  isOrchestratorValidProgressContent,
+  resolveOrchestratorMayBeDoneSettings
+} from "./shared/index.js";
 const AUTO_FINISH_STABLE_TICKS_REQUIRED = 2;
 
 interface WorkflowCompletionServiceContext {
@@ -30,18 +33,13 @@ export class WorkflowCompletionService {
   constructor(private readonly context: WorkflowCompletionServiceContext) {}
 
   async checkAndMarkMayBeDone(run: WorkflowRunRecord, runtime: WorkflowRunRuntimeState): Promise<void> {
-    const mayBeDoneEnabled = String(process.env.MAY_BE_DONE_ENABLED ?? "1").trim() !== "0";
-    if (!mayBeDoneEnabled) {
+    const mayBeDoneSettings = resolveOrchestratorMayBeDoneSettings();
+    if (!mayBeDoneSettings.enabled) {
       return;
     }
+    const { threshold, windowMs } = mayBeDoneSettings;
 
-    const thresholdRaw = Number(process.env.MAY_BE_DONE_DISPATCH_THRESHOLD ?? MAY_BE_DONE_DISPATCH_THRESHOLD);
-    const threshold =
-      Number.isFinite(thresholdRaw) && thresholdRaw > 0 ? Math.floor(thresholdRaw) : MAY_BE_DONE_DISPATCH_THRESHOLD;
-    const windowRaw = Number(process.env.MAY_BE_DONE_CHECK_WINDOW_MS ?? MAY_BE_DONE_CHECK_WINDOW_MS);
-    const windowMs = Number.isFinite(windowRaw) && windowRaw > 0 ? Math.floor(windowRaw) : MAY_BE_DONE_CHECK_WINDOW_MS;
-
-    const nonTerminalTasks = runtime.tasks.filter((task) => task.state !== "DONE" && task.state !== "CANCELED");
+    const nonTerminalTasks = runtime.tasks.filter((task) => !isOrchestratorTerminalTaskState(task.state));
     if (nonTerminalTasks.length === 0) {
       return;
     }
@@ -56,14 +54,7 @@ export class WorkflowCompletionService {
       if (task.state === "MAY_BE_DONE") {
         continue;
       }
-      const taskDispatchEvents = recentEvents.filter((event) => {
-        if (event.taskId !== task.taskId || event.eventType !== "ORCHESTRATOR_DISPATCH_STARTED") {
-          return false;
-        }
-        const payload = event.payload as Record<string, unknown>;
-        return readPayloadString(payload, "dispatchKind") === "task";
-      });
-      const dispatchCount = taskDispatchEvents.length;
+      const dispatchCount = countOrchestratorTaskDispatches(task.taskId, recentEvents);
       if (dispatchCount < threshold) {
         continue;
       }
@@ -213,17 +204,8 @@ export class WorkflowCompletionService {
       return true;
     }
 
-    const runFinishedEvents = recentEvents.filter(
-      (event) =>
-        event.taskId === task.taskId &&
-        (event.eventType === "CODEX_RUN_FINISHED" || event.eventType === "MINIMAX_RUN_FINISHED")
-    );
-    for (const event of runFinishedEvents) {
-      const payload = event.payload as Record<string, unknown>;
-      const exitCode = payload.exitCode;
-      if (typeof exitCode === "number" && exitCode === 0) {
-        return true;
-      }
+    if (hasOrchestratorSuccessfulRunFinishEvent(task.taskId, recentEvents)) {
+      return true;
     }
 
     const ownerRole = run.tasks.find((item) => item.taskId === task.taskId)?.ownerRole?.trim();
@@ -231,8 +213,7 @@ export class WorkflowCompletionService {
       const progressFile = buildOrchestratorAgentProgressFile(run.workspacePath, ownerRole);
       try {
         const content = await fs.readFile(progressFile, "utf8");
-        const normalized = content.replace(/^\uFEFF/, "").trim();
-        if (normalized.length > 50) {
+        if (isOrchestratorValidProgressContent(content)) {
           return true;
         }
       } catch {

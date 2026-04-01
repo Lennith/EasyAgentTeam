@@ -7,8 +7,7 @@ import type {
   TaskReport,
   TaskState
 } from "../../domain/models.js";
-import { setRoleSessionMapping } from "../../data/project-store.js";
-import { addSession } from "../../data/session-store.js";
+import { getProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
 import { TaskboardStoreError } from "../../data/taskboard-store.js";
 import {
   isReservedTargetSessionId,
@@ -17,34 +16,21 @@ import {
 } from "../routing-guard-service.js";
 import { resolveActiveSessionForRole } from "../session-lifecycle-authority.js";
 import {
+  buildOrchestratorDependencyNotReadyHint,
   collectOrchestratorUnreadyDependencyIds,
-  requiresOrchestratorReadyDependencies,
   buildOrchestratorTaskAssignmentMessage,
-  buildRoleScopedSessionId
+  buildRoleScopedSessionId,
+  getOrchestratorTaskReportOutcomeLabel,
+  isOrchestratorRetiredTaskReportOutcome,
+  normalizeOrchestratorTaskReportOutcomeToken,
+  parseOrchestratorTaskReportOutcome,
+  requiresOrchestratorReadyDependencies
 } from "../orchestrator/shared/index.js";
 import { TaskActionError, type TaskReportRejectedResult } from "./types.js";
 
 type TaskReportOutcome = TaskReport["results"][number]["outcome"];
 
-export function buildTaskAssignmentMessageForTask(
-  project: ProjectRecord,
-  task: {
-    taskId: string;
-    taskKind?: string;
-    parentTaskId: string;
-    rootTaskId?: string;
-    title: string;
-    state?: string;
-    ownerRole: string;
-    ownerSession?: string;
-    priority?: number;
-    writeSet?: string[];
-    dependencies?: string[];
-    acceptance?: string[];
-    artifacts?: string[];
-    lastSummary?: string;
-  }
-): ManagerToAgentMessage {
+export function buildTaskAssignmentMessageForTask(project: ProjectRecord, task: TaskRecord): ManagerToAgentMessage {
   const requestId = randomUUID();
   return buildOrchestratorTaskAssignmentMessage({
     scopeKind: "project",
@@ -73,10 +59,10 @@ export function buildTaskAssignmentMessageForTask(
       ownerRole: task.ownerRole,
       ownerSession: task.ownerSession ?? null,
       priority: task.priority ?? 0,
-      writeSet: task.writeSet ?? [],
-      dependencies: task.dependencies ?? [],
-      acceptance: task.acceptance ?? [],
-      artifacts: task.artifacts ?? []
+      writeSet: task.writeSet,
+      dependencies: task.dependencies,
+      acceptance: task.acceptance,
+      artifacts: task.artifacts
     }
   }) as ManagerToAgentMessage;
 }
@@ -94,7 +80,7 @@ export function buildTaskActionRejectedHint(code: TaskActionError["code"]): stri
     case "TASK_ROUTE_DENIED":
       return "Choose an allowed route target or request route-table update.";
     case "TASK_ACTION_INVALID":
-      return "Fix payload schema for the chosen action_type. For TASK_REPORT, send results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.";
+      return `Fix payload schema for the chosen action_type. For TASK_REPORT, send results[] with outcome in ${getOrchestratorTaskReportOutcomeLabel()}.`;
     case "TASK_REPORT_NO_STATE_CHANGE":
       return "Do not resend identical report. Add new progress/results that change task state, then send once.";
     case "TASK_STATE_STALE":
@@ -171,11 +157,7 @@ export function resolveUnreadyDependencyTaskIds(
 }
 
 export function buildDependencyNotReadyHint(taskId: string, dependencyTaskIds: string[]): string {
-  const deps = dependencyTaskIds.join(", ");
-  return (
-    `Task '${taskId}' cannot be progressed yet. Wait for dependencies [${deps}] to reach DONE/CANCELED. ` +
-    "If you already produced conflicting completion content, retract or downgrade it to draft and retry after dependencies are complete."
-  );
+  return buildOrchestratorDependencyNotReadyHint(taskId, dependencyTaskIds);
 }
 
 export { requiresOrchestratorReadyDependencies };
@@ -287,6 +269,7 @@ export async function resolveTargetSession(
   toRole: string,
   explicitToSessionId?: string
 ): Promise<string> {
+  const repositories = getProjectRepositoryBundle(dataRoot);
   const configuredProviderId = project.agentModelConfigs?.[toRole]?.provider_id;
   if (
     configuredProviderId &&
@@ -327,7 +310,7 @@ export async function resolveTargetSession(
     throw new TaskActionError("resolved target session is reserved", "TASK_BINDING_MISMATCH");
   }
   const toRoleProviderId = project.agentModelConfigs?.[toRole]?.provider_id ?? "minimax";
-  await addSession(paths, project.projectId, {
+  await repositories.sessions.addSession(paths, project.projectId, {
     sessionId,
     role: toRole,
     status: "idle",
@@ -336,7 +319,7 @@ export async function resolveTargetSession(
   });
   const mappingError = validateRoleSessionMapWrite(toRole, sessionId);
   if (!mappingError) {
-    await setRoleSessionMapping(dataRoot, project.projectId, toRole, sessionId);
+    await repositories.projectRuntime.setRoleSessionMapping(project.projectId, toRole, sessionId);
   }
   return sessionId;
 }
@@ -348,12 +331,13 @@ export function normalizeTaskReport(
   payload: Record<string, unknown>
 ): TaskReport {
   const reportId = readString(payload.report_id) ?? readString(payload.reportId) ?? randomUUID();
+  const stableOutcomeLabel = getOrchestratorTaskReportOutcomeLabel();
   if (
     Object.prototype.hasOwnProperty.call(payload, "report_mode") ||
     Object.prototype.hasOwnProperty.call(payload, "reportMode")
   ) {
     throw new TaskActionError(
-      "TASK_REPORT report_mode is retired. Use results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.",
+      `TASK_REPORT report_mode is retired. Use results[] with outcome in ${stableOutcomeLabel}.`,
       "TASK_ACTION_INVALID",
       400
     );
@@ -363,7 +347,7 @@ export function normalizeTaskReport(
   const resultsRaw = Array.isArray(payload.results) ? payload.results : [];
   if (resultsRaw.length === 0) {
     throw new TaskActionError(
-      "TASK_REPORT requires results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED",
+      `TASK_REPORT requires results[] with outcome in ${stableOutcomeLabel}`,
       "TASK_ACTION_INVALID",
       400
     );
@@ -373,27 +357,29 @@ export function normalizeTaskReport(
     .map((row) => {
       const obj = row as Record<string, unknown>;
       const taskId = readString(obj.task_id) ?? readString(obj.taskId);
-      const outcomeRaw = readString(obj.outcome)?.toUpperCase();
+      const outcomeInput = readString(obj.outcome);
+      const outcomeRaw = outcomeInput ? normalizeOrchestratorTaskReportOutcomeToken(outcomeInput) : undefined;
       if (!taskId || !outcomeRaw) {
         throw new TaskActionError("TASK_REPORT result requires task_id and outcome", "TASK_ACTION_INVALID", 400);
       }
-      if (["PARTIAL", "BLOCKED", "FAILED"].includes(outcomeRaw)) {
+      if (isOrchestratorRetiredTaskReportOutcome(outcomeRaw)) {
         throw new TaskActionError(
-          `retired outcome '${outcomeRaw}'. Use IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.`,
+          `retired outcome '${outcomeRaw}'. Use ${stableOutcomeLabel}.`,
           "TASK_ACTION_INVALID",
           400
         );
       }
-      if (!["IN_PROGRESS", "BLOCKED_DEP", "DONE", "CANCELED"].includes(outcomeRaw)) {
+      const parsedOutcome = parseOrchestratorTaskReportOutcome(outcomeRaw);
+      if (!parsedOutcome) {
         throw new TaskActionError(
-          `unsupported outcome: ${outcomeRaw}. Use IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED.`,
+          `unsupported outcome: ${outcomeRaw}. Use ${stableOutcomeLabel}.`,
           "TASK_ACTION_INVALID",
           400
         );
       }
       return {
         taskId,
-        outcome: outcomeRaw as TaskReportOutcome,
+        outcome: parsedOutcome as TaskReportOutcome,
         summary: readString(obj.summary),
         artifacts: readStringList(obj.artifacts),
         blockers: readStringList(obj.blockers)

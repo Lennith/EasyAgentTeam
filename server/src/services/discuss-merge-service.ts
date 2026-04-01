@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
-import { appendEvent } from "../data/event-store.js";
+import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
 import {
   clearBufferedDiscussMessages,
   listBufferedDiscussMessages,
@@ -116,6 +116,7 @@ export async function flushMergedDiscussRequestsForParent(
   paths: ProjectPaths,
   parentRequestId: string
 ): Promise<DiscussMergeFlushResult> {
+  const repositories = getProjectRepositoryBundle(dataRoot);
   const resolvedParentRequestId = parentRequestId.trim();
   if (!resolvedParentRequestId) {
     return {
@@ -173,7 +174,7 @@ export async function flushMergedDiscussRequestsForParent(
     routedMessageIds.push(routed.messageId);
   }
 
-  await appendEvent(paths, {
+  await repositories.events.appendEvent(paths, {
     projectId: project.projectId,
     eventType: "DISCUSS_BUFFER_FLUSHED",
     source: "manager",

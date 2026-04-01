@@ -15,6 +15,7 @@ import { resolveProjectOrchestratorOptionsFromEnv } from "./project-orchestrator
 import { resolveTaskDiscuss } from "./project-dispatch-policy.js";
 import type { DispatchProjectInput, OrchestratorOptions, ProjectDispatchResult } from "./project-orchestrator-types.js";
 import type { ProviderRegistry } from "../provider-runtime.js";
+import { resolveOrchestratorErrorMessage } from "./shared/index.js";
 
 /*
  * Source-contract compatibility markers for prompt consistency tests.
@@ -96,8 +97,7 @@ export class OrchestratorService {
         await this.tickService.tickLoop();
       },
       onError: (error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[orchestrator] tickLoop failed: ${message}`);
+        console.error(`[orchestrator] tickLoop failed: ${resolveOrchestratorErrorMessage(error)}`);
       }
     });
   }

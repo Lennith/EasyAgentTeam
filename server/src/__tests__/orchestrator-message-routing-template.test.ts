@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { executeOrchestratorMessageRouting } from "../services/orchestrator/shared/message-routing-template.js";
+import {
+  createOrchestratorMessageRoutingUnitOfWorkRunner,
+  executeOrchestratorMessageRouting,
+  executeOrchestratorMessageRoutingInUnitOfWork
+} from "../services/orchestrator/shared/message-routing-template.js";
 
 test("message routing template runs resolve -> normalize -> inbox -> route -> touch sequence", async () => {
   const order: string[] = [];
@@ -63,4 +67,73 @@ test("message routing template propagates persistence errors", async () => {
       ),
     /route failed/
   );
+});
+
+test("message routing helper executes adapter with explicit unit-of-work runner", async () => {
+  const order: string[] = [];
+  const result = await executeOrchestratorMessageRoutingInUnitOfWork(
+    { runId: "run-3" },
+    { content: "ok" },
+    async (_scope, _input, operation) => {
+      order.push("uow-begin");
+      await operation();
+      order.push("uow-end");
+    },
+    {
+      resolveTarget: async () => {
+        order.push("resolve");
+        return { role: "qa", sessionId: "session-qa-3" };
+      },
+      normalizeEnvelope: async () => {
+        order.push("normalize");
+        return { messageId: "msg-3" };
+      },
+      persistInbox: async () => {
+        order.push("inbox");
+      },
+      persistRouteEvent: async () => {
+        order.push("route");
+      },
+      touchSession: async () => {
+        order.push("touch");
+      },
+      buildResult: async () => ({ ok: true })
+    }
+  );
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(order, ["resolve", "normalize", "uow-begin", "inbox", "route", "touch", "uow-end"]);
+});
+
+test("message routing helper can wrap scope-only unit-of-work runner", async () => {
+  const order: string[] = [];
+  const runInUnitOfWork = createOrchestratorMessageRoutingUnitOfWorkRunner<{ runId: string }, { content: string }>(
+    async (_scope, operation) => {
+      order.push("uow-begin");
+      await operation();
+      order.push("uow-end");
+    }
+  );
+
+  await executeOrchestratorMessageRoutingInUnitOfWork({ runId: "run-4" }, { content: "ok" }, runInUnitOfWork, {
+    resolveTarget: async () => {
+      order.push("resolve");
+      return { role: "dev", sessionId: "session-dev-4" };
+    },
+    normalizeEnvelope: async () => {
+      order.push("normalize");
+      return { messageId: "msg-4" };
+    },
+    persistInbox: async () => {
+      order.push("inbox");
+    },
+    persistRouteEvent: async () => {
+      order.push("route");
+    },
+    touchSession: async () => {
+      order.push("touch");
+    },
+    buildResult: async () => ({ ok: true })
+  });
+
+  assert.deepEqual(order, ["resolve", "normalize", "uow-begin", "inbox", "route", "touch", "uow-end"]);
 });

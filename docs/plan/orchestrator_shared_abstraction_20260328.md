@@ -1,231 +1,98 @@
-# Orchestrator Shared Abstraction Plan (2026-03-29)
+# Orchestrator Shared Abstraction Plan (2026-03-31)
 
-Updated: 2026-03-29  
-Status: Current
+Status: `实装`  
+Scope: `server` only (V3 hard cut)
 
-This is the current canonical plan for project/workflow orchestrator convergence on the V3 hard-cut branch.
+## current state
 
-## Current State
+- shared 骨架已接管主路径：
+  - `shared/dispatch-template.ts`
+  - `shared/launch-template.ts`
+  - `shared/runner-template.ts`
+  - `shared/message-routing-template.ts`
+  - `shared/task-action-template.ts`
+  - `shared/tick-pipeline.ts`
+- project/workflow dispatch service 已收薄为 façade + adapter 装配
+- message routing 的 UoW 执行入口已统一为：
+  - `executeOrchestratorMessageRoutingInUnitOfWork`
+- discuss 解析统一为：
+  - `normalizeOrchestratorDiscussReference(...)`
+- routing scope-only UoW runner 统一为：
+  - `createOrchestratorMessageRoutingUnitOfWorkRunner(...)`
+- launch/routing 错误文案归一为：
+  - `resolveOrchestratorErrorMessage(...)`
+- workflow launch helper 硬切完成：
+  - 删除 `workflow-dispatch-launch-support.ts`
+  - lifecycle helper 并入 `workflow-dispatch-launch-adapter.ts`
+- workflow routing helper 硬切完成：
+  - 删除 `workflow-message-routing-internal.ts`
+  - route target/envelope/event 流程并入 `workflow-message-routing-service.ts`
+- project launch helper 硬切完成：
+  - 删除 `project-dispatch-launch-support.ts`
+  - lifecycle payload/terminal append/helper 收口到 `project-dispatch-launch-adapter.ts`
+- project routing helper 硬切完成：
+  - 删除 `project-message-routing-internal.ts`
+  - route target/session/discuss/event 流程收口到 `project-message-routing-service.ts`
+- project routing contracts 中间模块硬切完成：
+  - 删除 `project-message-routing-contracts.ts`
+  - routing input/context/error 类型收口到 `project-message-routing-service.ts`
+- project launch adapter 内部导出收窄：
+  - 移除无业务引用导出 `SyncDispatchRunResult`
+  - `ProjectDispatchLaunch*` 内部类型改为文件内私有声明
+- completion 共性策略已上提 shared：
+  - `shared/completion-policy.ts`
+  - `resolveOrchestratorMayBeDoneSettings(...)`
+  - `countOrchestratorTaskDispatches(...)`
+  - `hasOrchestratorSuccessfulRunFinishEvent(...)`
+  - `isOrchestratorTerminalTaskState(...)`
+  - `isOrchestratorValidProgressContent(...)`
 
-- Shared skeletons are active in `server/src/services/orchestrator/shared/`:
-  - `dispatch-template.ts`
-  - `launch-template.ts`
-  - `runner-template.ts`
-  - `message-routing-template.ts`
-  - `message-routing-contract.ts`
-  - `role-candidates.ts`
-  - `task-action-template.ts`
-  - `tick-pipeline.ts`
-  - `manager-message-contract.ts`
-- Repository/UoW seam is active on both domains with the same contract family:
-  - `resolveScope`
-  - `runInUnitOfWork`
-  - `runWithResolvedScope`
-- Dispatch loop pipeline re-thin (latest round):
-  - `project-dispatch-service.ts` reduced to facade + wiring (186 lines).
-  - `workflow-dispatch-service.ts` reduced to facade + wiring (187 lines).
-  - loop sequencing moved into dedicated pipeline modules:
-    - `project-dispatch-loop-pipeline.ts` (200 lines)
-    - `workflow-dispatch-loop-pipeline.ts` (251 lines)
-  - both pipelines execute through `shared/dispatch-template.ts`.
-- Workflow launch-support hard-cut:
-  - deleted `workflow-dispatch-launch-support.ts`
-  - moved launch result/error/max-token recovery handlers into:
-    - `workflow-dispatch-provider-runner.ts` (290 lines)
-- Project launch-helper hard-cut:
-  - deleted `project-dispatch-launch-helper-service.ts`
-  - moved helper payload/terminal-event/task-state updates into:
-    - `project-dispatch-launch-support.ts`
-- Project provider-branch hard-cut:
-  - deleted `project-dispatch-launch-minimax.ts`
-  - deleted `project-dispatch-launch-sync.ts`
-  - merged provider execution branches into:
-    - `project-dispatch-provider-runner.ts` (231 lines)
-- Project message routing hard-cut:
-  - `project-message-routing-service.ts` now uses:
-    - `ProjectRepositoryBundle`
-    - `runInUnitOfWork(...)`
-    - `shared/message-routing-template.ts`
-  - legacy `manager-routing-service.ts` removed.
-  - `discuss-merge-service.ts` now routes via `routeProjectManagerMessage(...)`.
-  - `task-creator-terminal-report-service.ts` now delivers via `deliverProjectMessage(...)`.
-- Flaky mitigation hardening:
-  - added shared dispatch selection support:
-    - `shared/dispatch-selection-support.ts`
-    - `evaluateOrchestratorDispatchSessionAvailability(...)`
-    - `guardOrchestratorDuplicateTaskDispatch(...)`
-  - project/workflow selection modules now consume the same session gate + duplicate-dispatch guard helper.
-  - added shared message route-event append helper:
-    - `shared/message-routing-events.ts`
-    - project/workflow both append `USER_MESSAGE_RECEIVED -> MESSAGE_ROUTED` through shared helper.
-  - added shared routed-message contract helper:
-    - `shared/message-routing-contract.ts`
-    - project/workflow routed manager message builders now share one contract path.
-  - added shared role candidate helper:
-    - `shared/role-candidates.ts`
-    - workflow dispatch selection + project/workflow reminder role scans now share one role-set contract.
-  - added shared duplicate-open-dispatch skip helper:
-    - `buildOrchestratorDuplicateTaskDispatchSkipResult(...)`
-    - project/workflow dispatch selection now share one duplicate-skip flow (guard + skip-result shaping seam).
-  - added shared dispatch selection candidate helper:
-    - `shared/dispatch-selection-candidate.ts`
-    - project/workflow dispatch selection now share one `messages + runnable tasks + fallback` candidate resolution path.
-    - project keeps explicit `message_id` override and force/dependency guards in domain adapter.
-  - added shared reminder runtime helper:
-    - `shared/reminder-runtime.ts`
-    - project/workflow reminder services now share one role-state transition patch + eligibility path.
-    - shared helpers now own:
-      - role state transition patch (`INACTIVE/IDLE/RUNNING`)
-      - schedule-missing patch
-      - trigger patch (reminderCount + nextReminderAt)
-      - eligibility decision call-through contract
-  - `workflow-task-action-service.ts` now runs `TASK_CREATE` and `TASK_REPORT` through the same shared pipeline seam.
-  - `workflow-task-runtime-api.test.ts` now waits for dependency-unlock state barrier before second DONE report.
-  - `workflow-task-runtime-api.test.ts` now also waits `task_b -> DONE` and uses widened terminal/finished windows (`20s`).
-  - `workflow-block-propagation.test.ts` now uses terminal-state barrier + retry report loop + wider finished wait window (`45s`).
-  - `workflow-completion-service.ts` now persists finalized runtime timestamp through `workflowRuns.writeRuntime(...)` before `patchRun(...)`.
-  - all HTTP suites in `server/src/__tests__/**` now use `startTestHttpServer(...)`;
-    no direct `createServer(...).listen(0)` remains outside helper implementation.
-  - bad-port retry compatibility helper removed (hard cut):
-    - deleted `server/src/__tests__/helpers/fetch-with-bad-port-retry.ts`
-    - affected suites now use `globalThis.fetch` directly with `startTestHttpServer(...)`.
-- Current large modules (line count snapshot):
-  - `workflow-task-action-service.ts` (383)
-  - `project-dispatch-selection-adapter.ts` (343)
-  - `project-reminder-service.ts` (308)
-  - `project-message-routing-service.ts` (299)
-  - `workflow-dispatch-provider-runner.ts` (290)
-  - `project-session-runtime-termination.ts` (287)
-  - `workflow-reminder-service.ts` (277)
-  - `workflow-dispatch-selection-adapter.ts` (264)
-  - `workflow-orchestrator-composition.ts` (265)
-  - `workflow-dispatch-loop-pipeline.ts` (251)
+## mergeable modules
 
-## Mergeable Modules
+- dispatch loop skeleton + single-flight gate
+- launch/runner lifecycle skeleton
+- message routing pipeline（resolve -> normalize -> persist -> touch）
+- dispatch terminal-state 读取与去重判定
+- route result normalization 与 shared payload 基元
+- manager chat message type 与 route-result 基础字段 contract
+- MAY_BE_DONE 配置与 completion 计数/输出有效性判定
 
-These are safe to keep pushing into one shared contract/template family:
+## non-mergeable modules
 
-- Kernel and concurrency primitives:
-  - `kernel/orchestrator-kernel.ts`
-  - `kernel/single-flight.ts`
-- Shared lifecycle/skeleton layers:
-  - dispatch loop skeleton
-  - launch/runner lifecycle skeleton
-  - message routing skeleton
-  - task-action pipeline skeleton
-  - tick pipeline skeleton
-- Shared message/payload contract:
-  - manager-to-agent envelope/body builder in `manager-message-contract.ts`
-- Repository/UoW scope pattern:
-  - scope resolve + transaction entry semantics
-- Shared helpers:
-  - orchestrator identifiers
-  - runtime/env path helpers
-  - role prompt + skill bundle resolver
-  - tool session input builder
+- project provider resume/fallback 与进程终止细节
+- workflow runtime convergence 与 auto-finish 规则
+- project taskboard 与 workflow run/runtime 持久化模型
+- project `dispatchMessage` 与 workflow `sendRunMessage` 的域策略语义
 
-## Non-Mergeable Modules
+## shared abstraction target
 
-These should remain adapter-owned in this phase:
+- 不新增第二套 shared contract 家族，继续沿用现有 shared contract family
+- shared 层只承载稳定编排骨架；域特有行为保留在 adapter/policy
+- 迁移规则固定为“替换主路径 + 同轮删旧”，不保留并存兼容层
 
-- Project-only runtime/process behavior:
-  - PID/process termination detail
-  - provider resume/fallback behavior
-  - taskboard/project-runtime side effects
-- Workflow-only runtime/state behavior:
-  - run lifecycle and runtime convergence
-  - workflow task-action rules and stable-window completion behavior
-- Persistence model differences:
-  - project taskboard/runtime docs
-  - workflow run/runtime/reminder docs
-- Message routing policy differences:
-  - project `dispatchMessage` policy
-  - workflow `sendRunMessage` policy
+## known issues
 
-## Shared Abstraction Target
-
-Shared seam root stays:
-
-- `server/src/services/orchestrator/shared/`
-
-Contract family (single naming system):
-
-- `OrchestratorRepositoryScope`
-- `OrchestratorDispatchPreflightAdapter`
-- `OrchestratorDispatchExecutionAdapter`
-- `OrchestratorDispatchMutationAdapter`
-- `OrchestratorDispatchFinalizeAdapter`
-- `OrchestratorDispatchLifecycleEventAdapter`
-- `OrchestratorLaunchExecutionAdapter`
-- `OrchestratorRunnerExecutionAdapter`
-- `OrchestratorRunnerLifecycleAdapter`
-- `OrchestratorMessageRoutingAdapter`
-- `OrchestratorTaskActionPipelineAdapter`
-- `OrchestratorTickPipeline`
-
-Ownership boundary:
-
-- Shared layer owns ordering/sequencing/skeleton.
-- Domain adapters own business policy and domain state transitions.
-- No single monolithic orchestrator class.
-
-## Known Issues
-
-- Structural:
-  - dispatch service facade slimming is done, but domain loop branches still exist in per-domain pipeline modules (next step is shared pipeline seam extraction).
-  - workflow launch/routing helper graph is reduced, but `workflow-dispatch-provider-runner.ts` still carries both provider run flow and launch lifecycle handling.
-  - project launch helper spread is reduced, but `project-dispatch-launch-support.ts` still carries both payload builders and terminal side-effect helpers.
-  - project provider execution paths are now single-file, but launch lifecycle logic is still duplicated conceptually between project/workflow provider runners.
-  - selection adapters are still heavy and couple policy with event-side effects.
-- Observed flaky watchlist (mitigations landed and currently clean):
+- observed flaky regression（观察项，非稳定复现）：
   - `fetch bad port`
-  - `workflow-block-propagation`
+  - `workflow-block-propagation` 偶发时序抖动
+- 本轮已同轮压稳：
   - `workflow-task-runtime-api`
   - `session-timeout-closure`
-  - `workflow-api parity endpoints` (`defaults/settings/task-tree/detail`) transient `404` in one full-suite pass; single-file rerun and next full pass were green.
-- Latest mitigation landed:
-  - `session-timeout-closure` accepts `RUNNER_TIMEOUT_SOFT` or `RUNNER_TIMEOUT_ESCALATED` to avoid env-threshold race.
-  - `fetch bad port` retry shim was retired; tests now rely on deterministic `startTestHttpServer(...)` + direct `fetch`.
-  - workflow runtime propagation tests now use state barriers instead of fixed timing assumptions.
-  - `project/workflow` HTTP suites that used bad-port wrapper now run on direct `globalThis.fetch`.
-  - route/message/settings/project/task-tree/team-summary HTTP suites migrated to `startTestHttpServer(...)`.
-  - `workflow-block-propagation` finished gate timeout widened to absorb full-suite scheduler pressure.
-  - `workflow-task-runtime-api` now has explicit `task_b -> DONE` barrier before terminal convergence assert.
-  - latest full regression on 2026-03-29:
-    - `pnpm --filter @autodev/server build` passed
-    - `pnpm --filter @autodev/server test` passed
-    - post-change full `server test` consecutive pass count: 3
-  - latest convergence round (2026-03-29 evening):
-    - `pnpm --filter @autodev/server build` passed
-    - `pnpm --filter @autodev/server test` first run had one transient failure in `workflow-api` parity endpoint test (404 vs expected 200)
-    - isolated rerun `node --import tsx --test --test-concurrency=1 src/__tests__/workflow-api.test.ts` passed
-    - second full run `pnpm --filter @autodev/server test` passed
-- Docs hygiene:
-  - `tech_debt_02_orchestrator_merge.md` remains archived and must not be used as implementation source.
+- 当前结构风险：
+  - project/workflow dispatch adapter 内仍有部分域分支密度偏高
+  - task-action 域内 validator 与 emit 路径仍有继续收敛空间
 
-## Remaining Work
+## remaining work
 
-Round-based closeout target (3 rounds max):
+1. 继续压缩 project/workflow dispatch adapter 内高密度分支，维持 façade 薄层。
+2. 继续清理 shared 层剩余低复用导出，保持 contract 家族收敛且稳定。
+3. 仅在收口阻塞时再推进 task-action 非 report 路径的 apply/converge/emit 细化，不扩新增 contract 命名。
 
-1. Round A: dispatch service re-thin is complete.
-   - service layer is now facade + wiring.
-   - dispatch loop sequencing is isolated in domain pipeline modules.
-2. Round B: routing + task-action domain parity (next).
-   - keep one routing skeleton and one task-action skeleton path.
-   - completed in latest round:
-     - project/workflow route-event pair append path is shared.
-     - project/workflow routed manager message builder path is shared.
-     - workflow `TASK_CREATE/TASK_REPORT` use one task-action pipeline seam.
-   - continue removing duplicated event/payload/write glue from remaining dispatch/task-action branches.
-3. Round C: hard delete + stability gate.
-   - remove superseded internal seams.
-   - run `pnpm --filter @autodev/server build`
-   - run `pnpm --filter @autodev/server test` three consecutive passes.
-   - run flaky-target suites three consecutive passes.
+## verification snapshot (2026-03-31)
 
-Exit criteria for this plan:
-
-- shared skeleton ownership is stable,
-- project/workflow adapters are policy-focused,
-- no duplicated orchestrator sequencing paths remain,
-- flaky watchlist is empty.
+- `pnpm --filter @autodev/server build`: passed
+- `pnpm --filter @autodev/server test`: passed (2 consecutive runs)
+- flaky focus rerun passed:
+  - `pnpm --filter @autodev/server run test -- --test-name-pattern "workflow-block-propagation|workflow-task-runtime-api|session-timeout-closure|bad port"`
+- latest full regression snapshot: `tests 313 / pass 308 / fail 0 / skipped 5`
+- flaky focused rerun passed (`3/3`), including `workflow-block-propagation / workflow-task-runtime-api / session-timeout-closure`

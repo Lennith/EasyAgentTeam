@@ -15,6 +15,9 @@ test("launch template executes started then success handlers", async () => {
       appendStarted: async (context: { id: string }) => {
         order.push(`started:${context.id}`);
       },
+      appendSuccess: async (_context: { id: string }, executionResult: { finished: string }) => {
+        order.push(`append-success:${executionResult.finished}`);
+      },
       execute: async (context: { id: string }) => {
         order.push(`execute:${context.id}`);
         return { finished: context.id };
@@ -30,7 +33,13 @@ test("launch template executes started then success handlers", async () => {
   );
 
   assert.equal(result, "launch-1");
-  assert.deepEqual(order, ["create:launch-1", "started:launch-1", "execute:launch-1", "success:launch-1"]);
+  assert.deepEqual(order, [
+    "create:launch-1",
+    "started:launch-1",
+    "execute:launch-1",
+    "append-success:launch-1",
+    "success:launch-1"
+  ]);
 });
 
 test("launch template routes execution failure through failure handler", async () => {
@@ -42,6 +51,9 @@ test("launch template routes execution failure through failure handler", async (
       createContext: async (input: { id: string }) => ({ id: input.id }),
       appendStarted: async (context: { id: string }) => {
         order.push(`started:${context.id}`);
+      },
+      appendFailure: async (_context: { id: string }, error: unknown) => {
+        order.push(`append-failure:${error instanceof Error ? error.message : String(error)}`);
       },
       execute: async () => {
         throw new Error("boom");
@@ -57,5 +69,31 @@ test("launch template routes execution failure through failure handler", async (
   );
 
   assert.equal(result, "failed");
-  assert.deepEqual(order, ["started:launch-2", "failed:boom"]);
+  assert.deepEqual(order, ["started:launch-2", "append-failure:boom", "failed:boom"]);
+});
+
+test("launch template forwards timeout classification and lifecycle hooks", async () => {
+  const order: string[] = [];
+
+  const result = await executeOrchestratorLaunch(
+    { id: "launch-timeout" },
+    {
+      createContext: async (input: { id: string }) => ({ id: input.id }),
+      appendStarted: async (context: { id: string }) => {
+        order.push(`started:${context.id}`);
+      },
+      appendTimeout: async (_context: { id: string }, error: unknown) => {
+        order.push(`timeout:${error instanceof Error ? error.message : String(error)}`);
+      },
+      execute: async () => {
+        throw new Error("deadline");
+      },
+      classifyFailure: () => "timeout",
+      onSuccess: async () => "ok",
+      onFailure: async () => "failed"
+    }
+  );
+
+  assert.equal(result, "failed");
+  assert.deepEqual(order, ["started:launch-timeout", "timeout:deadline"]);
 });

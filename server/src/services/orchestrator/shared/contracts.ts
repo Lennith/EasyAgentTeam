@@ -1,40 +1,4 @@
-export type OrchestratorScopeId = string;
 export type OrchestratorDispatchSelectionKind = "task" | "message";
-
-/**
- * Shared repository/UoW seam for orchestrator implementations.
- *
- * The project and workflow bundles intentionally keep different backing stores,
- * but they should converge on this scope-resolution shape before any deeper
- * service sharing happens.
- */
-export interface OrchestratorRepositoryScope<
-  TScopeId extends OrchestratorScopeId = OrchestratorScopeId,
-  TResolvedScope = unknown
-> {
-  readonly dataRoot: string;
-  resolveScope(scopeId: TScopeId): Promise<TResolvedScope>;
-  runInUnitOfWork<T>(scope: TResolvedScope, operation: () => Promise<T>): Promise<T>;
-  runWithResolvedScope<T>(scopeId: TScopeId, operation: (scope: TResolvedScope) => Promise<T>): Promise<T>;
-}
-
-/**
- * Dispatch seam shared by project/workflow orchestrators.
- *
- * The optional `dispatchMessage` keeps project `dispatchMessage` and workflow
- * `sendRunMessage` separate at the adapter layer while allowing the shared
- * orchestration skeleton to depend on one contract family.
- */
-export interface OrchestratorDispatchAdapter<
-  TScopeId extends OrchestratorScopeId = OrchestratorScopeId,
-  TDispatchInput = void,
-  TDispatchResult = void,
-  TMessageInput = never,
-  TMessageResult = never
-> {
-  dispatch(scopeId: TScopeId, input: TDispatchInput): Promise<TDispatchResult>;
-  dispatchMessage?: (scopeId: TScopeId, input: TMessageInput) => Promise<TMessageResult>;
-}
 
 export interface NormalizedDispatchSelectionResult<TSession = unknown, TMessage = unknown> {
   role: string;
@@ -114,8 +78,6 @@ export interface OrchestratorDispatchLaunchAdapter<TLaunchInput = unknown, TLaun
   launch(input: TLaunchInput): Promise<TLaunchResult>;
 }
 
-export type OrchestratorRunnerTerminalStatus = "success" | "failure" | "timeout" | "escalated";
-
 export interface OrchestratorRunnerLifecycleAdapter<TContext = unknown, TExecutionResult = unknown> {
   appendStarted(context: TContext): Promise<void>;
   appendSuccess?(context: TContext, result: TExecutionResult): Promise<void>;
@@ -134,7 +96,7 @@ export interface OrchestratorRunnerExecutionAdapter<
   execute(context: TContext): Promise<TExecutionResult>;
   onSuccess(context: TContext, result: TExecutionResult): Promise<TOutput>;
   onFailure(context: TContext, error: unknown): Promise<TOutput>;
-  classifyFailure?(context: TContext, error: unknown): Exclude<OrchestratorRunnerTerminalStatus, "success">;
+  classifyFailure?(context: TContext, error: unknown): "failure" | "timeout" | "escalated";
   onEscalated?(context: TContext, error: unknown): Promise<TOutput>;
 }
 
@@ -146,9 +108,15 @@ export interface OrchestratorLaunchExecutionAdapter<
 > {
   createContext(input: TInput): Promise<TContext>;
   appendStarted(context: TContext): Promise<void>;
+  appendSuccess?(context: TContext, result: TExecutionResult): Promise<void>;
+  appendFailure?(context: TContext, error: unknown): Promise<void>;
+  appendTimeout?(context: TContext, error: unknown): Promise<void>;
+  appendEscalated?(context: TContext, error: unknown): Promise<void>;
   execute(context: TContext): Promise<TExecutionResult>;
   onSuccess(context: TContext, result: TExecutionResult): Promise<TOutput>;
   onFailure(context: TContext, error: unknown): Promise<TOutput>;
+  classifyFailure?(context: TContext, error: unknown): "failure" | "timeout" | "escalated";
+  onEscalated?(context: TContext, error: unknown): Promise<TOutput>;
 }
 
 export interface OrchestratorPromptFrame {

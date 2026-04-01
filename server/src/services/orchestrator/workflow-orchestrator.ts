@@ -20,6 +20,7 @@ import {
   resolveWorkflowOrchestratorOptionsFromEnv,
   type ResolvedWorkflowOrchestratorOptions
 } from "./workflow-orchestrator-options.js";
+import type { WorkflowMessageRouteResult, WorkflowRouteMessageInput } from "./workflow-message-routing-service.js";
 import type {
   WorkflowDispatchResult,
   WorkflowOrchestratorStatus,
@@ -94,6 +95,7 @@ export class WorkflowOrchestratorService {
     this.clearAllTransientState();
   }
 
+  // Compatibility seam: internal tests and legacy orchestrator glue still call this helper directly.
   private buildDispatchPrompt(input: {
     run: WorkflowRunRecord;
     role: string;
@@ -107,6 +109,7 @@ export class WorkflowOrchestratorService {
     return buildWorkflowDispatchPrompt(buildWorkflowDispatchPromptContext(input));
   }
 
+  // Compatibility seam: timeout-recovery tests and legacy codepaths call this through service instance.
   private async markTimedOutSessions(run: WorkflowRunRecord, sessions: WorkflowSessionRecord[]): Promise<void> {
     return this.sessionRuntimeService.markTimedOutSessions(run, sessions);
   }
@@ -148,27 +151,7 @@ export class WorkflowOrchestratorService {
     return this.sessionRuntimeService.registerRunSession(runId, input);
   }
 
-  async sendRunMessage(input: {
-    runId: string;
-    fromAgent: string;
-    fromSessionId: string;
-    messageType: "MANAGER_MESSAGE" | "TASK_DISCUSS_REQUEST" | "TASK_DISCUSS_REPLY" | "TASK_DISCUSS_CLOSED";
-    toRole?: string;
-    toSessionId?: string;
-    taskId?: string;
-    content: string;
-    requestId?: string;
-    parentRequestId?: string;
-    discuss?: { threadId?: string; requestId?: string };
-  }): Promise<{
-    requestId: string;
-    messageId: string;
-    messageType: string;
-    taskId: string | null;
-    toRole: string | null;
-    resolvedSessionId: string;
-    createdAt: string;
-  }> {
+  async sendRunMessage(input: WorkflowRouteMessageInput): Promise<WorkflowMessageRouteResult> {
     return this.dispatchService.sendRunMessage(input);
   }
 

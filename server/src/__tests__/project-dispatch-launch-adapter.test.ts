@@ -45,7 +45,8 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
           touchSession: async () => {}
         },
         events: {
-          appendEvent: async () => {}
+          appendEvent: async () => {},
+          listEvents: async () => []
         }
       } as any,
       eventAdapter: {
@@ -241,7 +242,8 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
           touchSession: async () => {}
         },
         events: {
-          appendEvent: async () => {}
+          appendEvent: async () => {},
+          listEvents: async () => []
         }
       } as any,
       eventAdapter: {

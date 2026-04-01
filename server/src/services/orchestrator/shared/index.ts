@@ -1,6 +1,5 @@
 export type {
   OrchestratorCompletionAdapter,
-  OrchestratorDispatchAdapter,
   OrchestratorDispatchExecutionAdapter,
   OrchestratorDispatchFinalizeAdapter,
   OrchestratorDispatchSelectionAdapter,
@@ -16,12 +15,9 @@ export type {
   OrchestratorPromptFrameBuilder,
   OrchestratorRunnerExecutionAdapter,
   OrchestratorRunnerLifecycleAdapter,
-  OrchestratorRunnerTerminalStatus,
   OrchestratorReminderAdapter,
   OrchestratorTaskActionPipelineAdapter,
   NormalizedDispatchSelectionResult,
-  OrchestratorRepositoryScope,
-  OrchestratorScopeId,
   OrchestratorSessionRuntimeAdapter
 } from "./contracts.js";
 export { createOrchestratorPromptFrame, DEFAULT_ORCHESTRATOR_EXECUTION_CONTRACT_LINES } from "./prompt-frame.js";
@@ -40,18 +36,24 @@ export {
   DEFAULT_ORCHESTRATOR_TICK_PHASE_ORDER
 } from "./tick-pipeline.js";
 export {
+  applyOrchestratorDispatchTerminalState,
   buildOrchestratorDispatchPayload,
   isOrchestratorDispatchClosed,
+  loadOrchestratorDispatchTerminalState,
+  resolveOrchestratorErrorMessage,
+  resolveOrchestratorDispatchTerminalState,
   wasOrchestratorDispatchTimedOut,
   withOrchestratorDispatchGate
 } from "./dispatch-lifecycle.js";
 export type {
   OrchestratorDispatchSessionAvailabilityInput,
   OrchestratorDispatchSessionAvailabilityResult,
+  BuildNormalizedDispatchSelectionResultInput,
   OrchestratorDuplicateTaskDispatchGuardInput,
   OrchestratorDuplicateTaskDispatchSkipInput
 } from "./dispatch-selection-support.js";
 export {
+  buildNormalizedDispatchSelectionResult,
   evaluateOrchestratorDispatchSessionAvailability,
   guardOrchestratorDuplicateTaskDispatch,
   buildOrchestratorDuplicateTaskDispatchSkipResult
@@ -64,16 +66,26 @@ export { resolveOrchestratorDispatchCandidate } from "./dispatch-selection-candi
 export type { OrchestratorDispatchTemplateOptions, OrchestratorDispatchTemplateResult } from "./dispatch-template.js";
 export { runOrchestratorDispatchTemplate } from "./dispatch-template.js";
 export { executeOrchestratorLaunch } from "./launch-template.js";
-export { executeOrchestratorMessageRouting } from "./message-routing-template.js";
-export type { OrchestratorMessageRouteEventPair } from "./message-routing-events.js";
-export { appendOrchestratorMessageRouteEventPair } from "./message-routing-events.js";
-export type { BuildOrchestratorRoutedManagerMessageInput } from "./message-routing-contract.js";
-export { buildOrchestratorRoutedManagerMessage } from "./message-routing-contract.js";
+export type {
+  BuildOrchestratorMessageRouteResultInput,
+  OrchestratorMessageRouteResult,
+  OrchestratorMessageRouteEventPair
+} from "./message-routing-template.js";
+export {
+  appendOrchestratorMessageRouteEventPair,
+  buildOrchestratorMessageRouteResult,
+  createOrchestratorMessageRoutingUnitOfWorkRunner,
+  executeOrchestratorMessageRouting,
+  executeOrchestratorMessageRoutingInUnitOfWork
+} from "./message-routing-template.js";
 export { executeOrchestratorRunner } from "./runner-template.js";
 export type {
   BuildOrchestratorChatMessageBodyInput,
+  OrchestratorDiscussReference,
   BuildOrchestratorManagerChatMessageInput,
   BuildOrchestratorMessageEnvelopeInput,
+  OrchestratorRouteMessageInputBase,
+  BuildOrchestratorRoutedManagerMessageInput,
   BuildOrchestratorTaskAssignmentBodyInput,
   BuildOrchestratorTaskAssignmentMessageInput,
   OrchestratorMessageScopeKind
@@ -82,10 +94,23 @@ export {
   buildOrchestratorChatMessageBody,
   buildOrchestratorManagerChatMessage,
   buildOrchestratorMessageEnvelope,
+  normalizeOrchestratorDiscussReference,
+  buildOrchestratorRoutedManagerMessage,
   buildOrchestratorTaskAssignmentMessage
 } from "./manager-message-contract.js";
 export { runOrchestratorTaskActionPipeline } from "./task-action-template.js";
 export type {
+  BuildOrchestratorTaskReportActionResultInput,
+  BuildOrchestratorTaskReportAppliedEventPayloadInput,
+  OrchestratorTaskReportActionResult,
+  OrchestratorTaskReportAppliedEventPayload
+} from "./task-action-report-template.js";
+export {
+  buildOrchestratorTaskReportActionResult,
+  buildOrchestratorTaskReportAppliedEventPayload
+} from "./task-action-report-template.js";
+export type {
+  OrchestratorDispatchTerminalState,
   OrchestratorDispatchEventLike,
   OrchestratorDispatchLifecyclePayloadOptions
 } from "./dispatch-lifecycle.js";
@@ -114,14 +139,37 @@ export type { BuildOrchestratorToolSessionInput } from "./tool-session-input.js"
 export { buildOrchestratorToolSessionInput } from "./tool-session-input.js";
 export type { CollectOrchestratorRoleSetInput } from "./role-candidates.js";
 export { collectOrchestratorRoleSet, sortOrchestratorRoles } from "./role-candidates.js";
+export type { ParseOrchestratorTaskReportOutcomeOptions } from "./task-report-policy.js";
+export {
+  buildOrchestratorDependencyNotReadyHint,
+  getOrchestratorTaskReportOutcomeLabel,
+  isOrchestratorRetiredTaskReportOutcome,
+  isOrchestratorTaskReportableState,
+  normalizeOrchestratorTaskReportOutcomeToken,
+  parseOrchestratorTaskReportOutcome
+} from "./task-report-policy.js";
+export type { OrchestratorCompletionEventLike, OrchestratorMayBeDoneSettings } from "./completion-policy.js";
+export {
+  countOrchestratorTaskDispatches,
+  hasOrchestratorSuccessfulRunFinishEvent,
+  isOrchestratorTerminalTaskState,
+  isOrchestratorValidProgressContent,
+  resolveOrchestratorMayBeDoneSettings
+} from "./completion-policy.js";
 export type {
+  BuildOrchestratorReminderMessageInput,
   BuildOrchestratorReminderRoleStatePatchInput,
+  OrchestratorReminderOpenTaskSummary,
+  OrchestratorReminderOpenTaskSummaryInputItem,
   BuildOrchestratorReminderSchedulePatchInput,
   OrchestratorReminderEligibilityInput,
   OrchestratorReminderRoleStatePatch,
   OrchestratorReminderTimingOptions
 } from "./reminder-runtime.js";
 export {
+  buildOrchestratorReminderMessage,
+  buildOrchestratorReminderContent,
+  buildOrchestratorReminderOpenTaskSummary,
   buildOrchestratorReminderRoleStatePatch,
   buildOrchestratorReminderSchedulePatch,
   buildOrchestratorReminderTriggeredPatch,

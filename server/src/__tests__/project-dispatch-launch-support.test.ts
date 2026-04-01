@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  appendProjectDispatchTerminalEventForContext,
   appendProjectTerminalDispatchEvent,
   buildProjectDispatchEventScope,
   buildProjectDispatchStartedDetails,
   buildProjectProviderDispatchInput,
   buildProjectRunnerPayload
-} from "../services/orchestrator/project-dispatch-launch-support.js";
+} from "../services/orchestrator/project-dispatch-launch-adapter.js";
 
 test("project dispatch launch support builds provider and runner payloads with stable fields", () => {
   const providerInput = buildProjectProviderDispatchInput({
@@ -129,4 +130,66 @@ test("project dispatch launch support appends terminal failed event with shared 
       }
     }
   ]);
+});
+
+test("project dispatch launch support skips terminal append when dispatch is already closed", async () => {
+  const emitted: Array<{ kind: string; scope: unknown; details: unknown }> = [];
+
+  await appendProjectDispatchTerminalEventForContext(
+    {
+      appendStarted: async () => {},
+      appendFinished: async (scope: unknown, details: unknown) => {
+        emitted.push({ kind: "finished", scope, details });
+      },
+      appendFailed: async (scope: unknown, details: unknown) => {
+        emitted.push({ kind: "failed", scope, details });
+      }
+    } as any,
+    {
+      events: {
+        listEvents: async () => [
+          {
+            eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
+            createdAt: "2026-03-28T12:06:00.000Z",
+            sessionId: "session-1",
+            payload: { dispatchId: "dispatch-1" }
+          }
+        ]
+      }
+    } as any,
+    {
+      dispatchId: "dispatch-1",
+      startedAt: "2026-03-28T12:00:00.000Z",
+      input: {
+        project: { projectId: "project-1" },
+        paths: { projectRootDir: "C:\\memory\\project-1" },
+        session: { sessionId: "session-1", role: "dev" },
+        taskId: "task-1",
+        dispatchKind: "task",
+        selectedMessageIds: ["msg-1"],
+        firstMessage: {
+          envelope: {
+            message_id: "msg-1",
+            correlation: {
+              request_id: "req-1",
+              parent_request_id: null
+            }
+          }
+        },
+        input: {
+          mode: "manual"
+        }
+      }
+    } as any,
+    "session-1",
+    {
+      dispatchFailedReason: null,
+      runId: "run-1",
+      exitCode: 0,
+      timedOut: false,
+      finishedAt: "2026-03-28T12:05:00.000Z"
+    }
+  );
+
+  assert.deepEqual(emitted, []);
 });

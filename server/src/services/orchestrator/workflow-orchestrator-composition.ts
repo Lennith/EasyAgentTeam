@@ -19,6 +19,7 @@ import { WorkflowRuntimeSupportService } from "./workflow-runtime-support-servic
 import { WorkflowSessionRuntimeService } from "./workflow-session-runtime-service.js";
 import { WorkflowTaskActionService } from "./workflow-task-action-service.js";
 import { WorkflowTickService } from "./workflow-tick-service.js";
+import { resolveOrchestratorErrorMessage } from "./shared/index.js";
 
 export type WorkflowRuntimeErrorCode =
   | WorkflowBlockReasonCode
@@ -66,6 +67,31 @@ function extractRunIdFromScopedKey(key: string): string {
   return key.slice(0, separator);
 }
 
+function removeScopedEntriesByRunId(keys: Iterable<string>, runId: string, remove: (key: string) => void): void {
+  for (const key of keys) {
+    if (extractRunIdFromScopedKey(key) === runId) {
+      remove(key);
+    }
+  }
+}
+
+function pruneRunScopedEntries(keys: Iterable<string>, activeRunIds: Set<string>, remove: (key: string) => void): void {
+  for (const key of keys) {
+    const runId = extractRunIdFromScopedKey(key);
+    if (!runId || !activeRunIds.has(runId)) {
+      remove(key);
+    }
+  }
+}
+
+function pruneRunStateMap<TValue>(stateMap: Map<string, TValue>, activeRunIds: Set<string>): void {
+  for (const runId of Array.from(stateMap.keys())) {
+    if (!activeRunIds.has(runId)) {
+      stateMap.delete(runId);
+    }
+  }
+}
+
 function clearRunScopedState(
   runId: string,
   runHoldState: Map<string, boolean>,
@@ -75,16 +101,12 @@ function clearRunScopedState(
 ): void {
   runHoldState.delete(runId);
   runAutoFinishStableTicks.delete(runId);
-  for (const key of Array.from(sessionHeartbeatThrottle.keys())) {
-    if (extractRunIdFromScopedKey(key) === runId) {
-      sessionHeartbeatThrottle.delete(key);
-    }
-  }
-  for (const key of Array.from(inFlightDispatchSessionKeys)) {
-    if (extractRunIdFromScopedKey(key) === runId) {
-      inFlightDispatchSessionKeys.delete(key);
-    }
-  }
+  removeScopedEntriesByRunId(Array.from(sessionHeartbeatThrottle.keys()), runId, (key) =>
+    sessionHeartbeatThrottle.delete(key)
+  );
+  removeScopedEntriesByRunId(Array.from(inFlightDispatchSessionKeys), runId, (key) =>
+    inFlightDispatchSessionKeys.delete(key)
+  );
 }
 
 function pruneInactiveRunScopedState(
@@ -94,28 +116,14 @@ function pruneInactiveRunScopedState(
   sessionHeartbeatThrottle: Map<string, number>,
   inFlightDispatchSessionKeys: OrchestratorSingleFlightGate
 ): void {
-  for (const runId of Array.from(runHoldState.keys())) {
-    if (!activeRunIds.has(runId)) {
-      runHoldState.delete(runId);
-    }
-  }
-  for (const runId of Array.from(runAutoFinishStableTicks.keys())) {
-    if (!activeRunIds.has(runId)) {
-      runAutoFinishStableTicks.delete(runId);
-    }
-  }
-  for (const key of Array.from(sessionHeartbeatThrottle.keys())) {
-    const runId = extractRunIdFromScopedKey(key);
-    if (!runId || !activeRunIds.has(runId)) {
-      sessionHeartbeatThrottle.delete(key);
-    }
-  }
-  for (const key of Array.from(inFlightDispatchSessionKeys)) {
-    const runId = extractRunIdFromScopedKey(key);
-    if (!runId || !activeRunIds.has(runId)) {
-      inFlightDispatchSessionKeys.delete(key);
-    }
-  }
+  pruneRunStateMap(runHoldState, activeRunIds);
+  pruneRunStateMap(runAutoFinishStableTicks, activeRunIds);
+  pruneRunScopedEntries(Array.from(sessionHeartbeatThrottle.keys()), activeRunIds, (key) =>
+    sessionHeartbeatThrottle.delete(key)
+  );
+  pruneRunScopedEntries(Array.from(inFlightDispatchSessionKeys), activeRunIds, (key) =>
+    inFlightDispatchSessionKeys.delete(key)
+  );
 }
 
 export function createWorkflowOrchestratorComposition(
@@ -267,9 +275,7 @@ export function createWorkflowOrchestratorComposition(
       await tickService.tickLoop();
     },
     onError: (error) => {
-      logger.error(
-        `[workflow-orchestrator] tickLoop failed: ${error instanceof Error ? error.message : String(error)}`
-      );
+      logger.error(`[workflow-orchestrator] tickLoop failed: ${resolveOrchestratorErrorMessage(error)}`);
     }
   });
 

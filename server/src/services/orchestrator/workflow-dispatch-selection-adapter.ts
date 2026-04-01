@@ -3,19 +3,18 @@ import type {
   WorkflowRunRecord,
   WorkflowRunRuntimeState,
   WorkflowSessionRecord,
-  WorkflowTaskRuntimeRecord,
-  WorkflowTaskState
+  WorkflowTaskRuntimeRecord
 } from "../../domain/models.js";
 import type { WorkflowRepositoryBundle } from "../../data/repository/workflow-repository-bundle.js";
-import { extractTaskIdFromMessage, sortMessagesByTime } from "../orchestrator-dispatch-core.js";
 import type { NormalizedDispatchSelectionResult, OrchestratorDispatchSelectionAdapter } from "./shared/contracts.js";
 import type { OrchestratorSingleFlightGate } from "./kernel/single-flight.js";
 import {
+  buildNormalizedDispatchSelectionResult,
   buildOrchestratorDuplicateTaskDispatchSkipResult,
   evaluateOrchestratorDispatchSessionAvailability
-} from "./shared/dispatch-selection-support.js";
-import { resolveOrchestratorDispatchCandidate } from "./shared/dispatch-selection-candidate.js";
+} from "./shared/index.js";
 import { collectOrchestratorRoleSet, sortOrchestratorRoles } from "./shared/role-candidates.js";
+import { resolveWorkflowDispatchRoleSelection } from "./workflow-dispatch-selection-task.js";
 
 type WorkflowDispatchRow = {
   role: string;
@@ -125,71 +124,17 @@ export class WorkflowDispatchSelectionAdapter implements OrchestratorDispatchSel
         continue;
       }
 
-      const messages = sortMessagesByTime(
-        await this.context.repositories.inbox.listInboxMessages(scope.run.runId, roleCandidate)
-      ).filter((message) => !taskFilter || (extractTaskIdFromMessage(message) ?? "") === taskFilter);
-
-      const roleTasks = scope.run.tasks
-        .filter((task) => task.ownerRole === roleCandidate)
-        .filter((task) => !taskFilter || task.taskId === taskFilter)
-        .reduce<
-          Array<{
-            taskId: string;
-            state: WorkflowTaskState;
-            createdAt: string;
-            parentTaskId?: string;
-            priority?: number;
-          }>
-        >((accumulator, task) => {
-          const runtimeTask = runtimeTaskById.get(task.taskId);
-          if (!runtimeTask) {
-            return accumulator;
-          }
-          accumulator.push({
-            taskId: task.taskId,
-            state: runtimeTask.state,
-            createdAt: runtimeTask.lastTransitionAt ?? scope.run.createdAt,
-            parentTaskId: task.parentTaskId,
-            priority: 0
-          });
-          return accumulator;
-        }, []);
-      const roleTaskById = new Map(roleTasks.map((task) => [task.taskId, task]));
-      const runnableRoleTasks = roleTasks.filter(
-        (task) =>
-          task.state === "READY" ||
-          (input.force &&
-            taskFilter === task.taskId &&
-            (task.state === "DISPATCHED" || task.state === "IN_PROGRESS" || task.state === "MAY_BE_DONE"))
-      );
-      const candidate = resolveOrchestratorDispatchCandidate({
-        messages,
-        runnableTasks: runnableRoleTasks,
-        allTasks: roleTasks,
-        force: input.force,
-        resolveTaskById: (taskId) => roleTaskById.get(taskId) ?? null
+      const chosen = await resolveWorkflowDispatchRoleSelection({
+        repositories: this.context.repositories,
+        run: scope.run,
+        runtimeTaskById,
+        role: roleCandidate,
+        taskFilter,
+        force: input.force
       });
-      if (!candidate) {
+      if (!chosen) {
         continue;
       }
-      const selectedRuntimeTask = candidate.taskId ? (runtimeTaskById.get(candidate.taskId) ?? null) : null;
-      if (candidate.dispatchKind === "task" && !selectedRuntimeTask) {
-        continue;
-      }
-      if (candidate.dispatchKind === "message" && !candidate.firstMessage) {
-        continue;
-      }
-      const chosen: {
-        taskId: string | null;
-        dispatchKind: "task" | "message";
-        message: WorkflowManagerToAgentMessage | null;
-        runtimeTask: WorkflowTaskRuntimeRecord | null;
-      } = {
-        taskId: candidate.taskId,
-        dispatchKind: candidate.dispatchKind,
-        message: candidate.firstMessage,
-        runtimeTask: selectedRuntimeTask
-      };
 
       if (
         !input.force &&
@@ -249,16 +194,15 @@ export class WorkflowDispatchSelectionAdapter implements OrchestratorDispatchSel
       return {
         status: "selected",
         selection: {
-          role: roleCandidate,
-          session,
-          dispatchKind: chosen.dispatchKind,
-          taskId: chosen.taskId,
-          message: chosen.message,
-          messageId: chosen.message?.envelope.message_id ?? null,
-          requestId: input.requestId,
-          runtimeTask: chosen.runtimeTask,
-          skipReason: undefined,
-          terminalOutcome: undefined
+          ...buildNormalizedDispatchSelectionResult({
+            role: roleCandidate,
+            session,
+            dispatchKind: chosen.dispatchKind,
+            taskId: chosen.taskId,
+            message: chosen.message,
+            requestId: input.requestId
+          }),
+          runtimeTask: chosen.runtimeTask
         }
       };
     }

@@ -5,6 +5,7 @@ import process from "node:process";
 const repoRoot = process.cwd();
 const contractPath = path.join(repoRoot, "docs", "contracts", "api-scope.server-workflow.json");
 const appPath = path.join(repoRoot, "server", "src", "app.ts");
+const routesDir = path.join(repoRoot, "server", "src", "routes");
 const args = new Set(process.argv.slice(2));
 const jsonOutput = args.has("--json");
 
@@ -21,6 +22,25 @@ function parseRoutes(appSource) {
     match = regex.exec(appSource);
   }
   return routes;
+}
+
+async function listTsFilesRecursively(rootDir) {
+  const output = [];
+  async function walk(currentDir) {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      if (entry.isFile() && fullPath.endsWith(".ts")) {
+        output.push(fullPath);
+      }
+    }
+  }
+  await walk(rootDir);
+  return output;
 }
 
 function stringifyResult(payload) {
@@ -57,10 +77,20 @@ function stringifyResult(payload) {
 
 async function main() {
   const startedAt = Date.now();
-  const [contractRaw, appRaw] = await Promise.all([fs.readFile(contractPath, "utf8"), fs.readFile(appPath, "utf8")]);
+  const [contractRaw, appRaw, routeFiles] = await Promise.all([
+    fs.readFile(contractPath, "utf8"),
+    fs.readFile(appPath, "utf8"),
+    listTsFilesRecursively(routesDir)
+  ]);
   const contract = JSON.parse(contractRaw);
   const endpoints = Array.isArray(contract.endpoints) ? contract.endpoints : [];
-  const routes = parseRoutes(appRaw);
+  const routeSources = await Promise.all(routeFiles.map(async (filePath) => await fs.readFile(filePath, "utf8")));
+  const routes = new Set(parseRoutes(appRaw));
+  for (const routeSource of routeSources) {
+    for (const route of parseRoutes(routeSource)) {
+      routes.add(route);
+    }
+  }
 
   const missingRoutes = [];
   const docMissingRefs = [];
@@ -99,8 +129,8 @@ async function main() {
     status: missingRoutes.length === 0 ? "PASS" : "FAIL",
     reason:
       missingRoutes.length === 0
-        ? "all managed endpoints exist in app.ts"
-        : `${missingRoutes.length} managed endpoint(s) missing in app.ts`
+        ? "all managed endpoints exist in server route sources"
+        : `${missingRoutes.length} managed endpoint(s) missing in server route sources`
   });
   checks.push({
     id: "doc_refs_exist",

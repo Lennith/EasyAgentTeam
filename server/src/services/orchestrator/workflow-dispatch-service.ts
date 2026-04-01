@@ -24,7 +24,7 @@ import {
   type WorkflowRouteMessageInput
 } from "./workflow-message-routing-service.js";
 import { WorkflowDispatchSelectionAdapter } from "./workflow-dispatch-selection-adapter.js";
-import { createTimestampedIdentifier } from "./shared/index.js";
+import { createTimestampedIdentifier, resolveOrchestratorErrorMessage } from "./shared/index.js";
 
 export type WorkflowDispatchOutcome = WorkflowDispatchRow["outcome"];
 
@@ -126,9 +126,7 @@ export class WorkflowDispatchService {
   }
 
   private handleLaunchError(error: unknown): void {
-    logger.error(
-      `[workflow-dispatch-service] launch adapter failed: ${error instanceof Error ? error.message : String(error)}`
-    );
+    logger.error(`[workflow-dispatch-service] launch adapter failed: ${resolveOrchestratorErrorMessage(error)}`);
   }
 
   async sendRunMessage(input: WorkflowRouteMessageInput): Promise<WorkflowMessageRouteResult> {
@@ -163,23 +161,13 @@ export class WorkflowDispatchService {
       source: input.source ?? "manual",
       remaining: Math.max(0, Math.floor(run.autoDispatchRemaining ?? 5))
     };
-    const dispatchResult = await this.runLoop(state, maxDispatches);
+    const dispatchResult = await this.loopPipeline.run(state, maxDispatches);
     return {
       runId,
       results: dispatchResult.results,
       dispatchedCount: dispatchResult.dispatchedCount,
       remainingBudget: state.remaining
     };
-  }
-
-  private async runLoop(
-    state: WorkflowDispatchLoopState,
-    maxDispatches: number
-  ): Promise<{
-    results: WorkflowDispatchRow[];
-    dispatchedCount: number;
-  }> {
-    return await this.loopPipeline.run(state, maxDispatches);
   }
 }
 

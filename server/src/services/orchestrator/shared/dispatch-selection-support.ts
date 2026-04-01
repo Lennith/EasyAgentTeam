@@ -1,4 +1,5 @@
 import { hasOpenTaskDispatch } from "../dispatch-engine.js";
+import type { OrchestratorDispatchSelectionKind, NormalizedDispatchSelectionResult } from "./contracts.js";
 
 export interface OrchestratorDispatchSessionAvailabilityInput {
   sessionStatus: string;
@@ -36,6 +37,21 @@ export interface OrchestratorDuplicateTaskDispatchSkipInput<
   TEvent extends DispatchEventLike = DispatchEventLike
 > extends OrchestratorDuplicateTaskDispatchGuardInput<TEvent> {
   buildSkippedResult(): TResult;
+}
+
+export interface BuildNormalizedDispatchSelectionResultInput<
+  TSession,
+  TMessage,
+  TDispatchKind extends OrchestratorDispatchSelectionKind | null = OrchestratorDispatchSelectionKind | null
+> {
+  role: string;
+  session: TSession;
+  dispatchKind: TDispatchKind;
+  taskId: string | null;
+  message: TMessage | null;
+  requestId: string | null;
+  skipReason?: string;
+  terminalOutcome?: string;
 }
 
 export function evaluateOrchestratorDispatchSessionAvailability(
@@ -103,4 +119,36 @@ export async function buildOrchestratorDuplicateTaskDispatchSkipResult<TResult>(
     return null;
   }
   return input.buildSkippedResult();
+}
+
+export function buildNormalizedDispatchSelectionResult<
+  TSession,
+  TMessage,
+  TDispatchKind extends OrchestratorDispatchSelectionKind | null
+>(
+  input: BuildNormalizedDispatchSelectionResultInput<TSession, TMessage, TDispatchKind>
+): Omit<NormalizedDispatchSelectionResult<TSession, TMessage>, "dispatchKind"> & { dispatchKind: TDispatchKind } {
+  return {
+    role: input.role,
+    session: input.session,
+    dispatchKind: input.dispatchKind,
+    taskId: input.taskId,
+    message: input.message,
+    messageId: readNormalizedMessageId(input.message),
+    requestId: input.requestId,
+    skipReason: input.skipReason,
+    terminalOutcome: input.terminalOutcome
+  };
+}
+
+function readNormalizedMessageId(message: unknown): string | null {
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+  const envelope = (message as { envelope?: unknown }).envelope;
+  if (!envelope || typeof envelope !== "object") {
+    return null;
+  }
+  const rawMessageId = (envelope as { message_id?: unknown }).message_id;
+  return typeof rawMessageId === "string" && rawMessageId.trim().length > 0 ? rawMessageId : null;
 }

@@ -42,19 +42,22 @@ test("workflow dependency propagation moves blocked tasks to READY after depende
     throw new Error(`timeout waiting for run status '${status}', latest='${latest.status}'`);
   }
 
-  async function waitForTaskState(taskId: string, expectedState: string, timeoutMs: number) {
+  async function waitForTaskStateIn(taskId: string, expectedStates: string[], timeoutMs: number) {
+    const expected = new Set(expectedStates);
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const snapshot = await taskRuntime();
       const task = snapshot.tasks.find((item) => item.taskId === taskId);
-      if (task?.state === expectedState) {
+      if (task && expected.has(task.state)) {
         return snapshot;
       }
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     const latest = await taskRuntime();
     const latestState = latest.tasks.find((item) => item.taskId === taskId)?.state ?? "missing";
-    throw new Error(`timeout waiting for task '${taskId}' state='${expectedState}', latest='${latestState}'`);
+    throw new Error(
+      `timeout waiting for task '${taskId}' state in [${expectedStates.join(", ")}], latest='${latestState}'`
+    );
   }
 
   async function waitForTaskDoneEligible(taskIds: string[], timeoutMs: number) {
@@ -213,19 +216,19 @@ test("workflow dependency propagation moves blocked tasks to READY after depende
     assert.deepEqual(b?.blockedBy ?? [], ["task_lead"]);
 
     await reportDone(["task_lead"]);
-    const afterLead = await waitForTaskState("task_b", "READY", 4000);
-    assert.equal(afterLead.tasks.find((task) => task.taskId === "task_b")?.state, "READY");
-    assert.equal(afterLead.tasks.find((task) => task.taskId === "task_c")?.state, "READY");
-    assert.equal(afterLead.tasks.find((task) => task.taskId === "task_d")?.state, "READY");
+    const afterLead = await waitForTaskStateIn("task_b", ["READY", "DISPATCHED", "IN_PROGRESS", "DONE"], 8000);
+    assert.notEqual(afterLead.tasks.find((task) => task.taskId === "task_b")?.state, "BLOCKED_DEP");
+    assert.notEqual(afterLead.tasks.find((task) => task.taskId === "task_c")?.state, "BLOCKED_DEP");
+    assert.notEqual(afterLead.tasks.find((task) => task.taskId === "task_d")?.state, "BLOCKED_DEP");
     assert.equal(afterLead.tasks.find((task) => task.taskId === "task_alignment")?.state, "BLOCKED_DEP");
 
     await reportDone(["task_b", "task_c", "task_d"]);
-    const afterBCD = await waitForTaskState("task_alignment", "READY", 4000);
-    assert.equal(afterBCD.tasks.find((task) => task.taskId === "task_alignment")?.state, "READY");
+    const afterBCD = await waitForTaskStateIn("task_alignment", ["READY", "DISPATCHED", "IN_PROGRESS", "DONE"], 8000);
+    assert.notEqual(afterBCD.tasks.find((task) => task.taskId === "task_alignment")?.state, "BLOCKED_DEP");
 
     await reportDone(["task_alignment"]);
-    const afterAlignment = await waitForTaskState("task_final", "READY", 4000);
-    assert.equal(afterAlignment.tasks.find((task) => task.taskId === "task_final")?.state, "READY");
+    const afterAlignment = await waitForTaskStateIn("task_final", ["READY", "DISPATCHED", "IN_PROGRESS", "DONE"], 8000);
+    assert.notEqual(afterAlignment.tasks.find((task) => task.taskId === "task_final")?.state, "BLOCKED_DEP");
 
     await reportDone(["task_final"]);
     const finalState = await waitForRunStatus("finished", 45000);

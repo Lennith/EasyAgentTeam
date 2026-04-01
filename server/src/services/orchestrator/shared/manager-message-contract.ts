@@ -1,6 +1,7 @@
 import type {
   AccountabilityInfo,
   Envelope,
+  ManagerChatMessageType,
   ManagerToAgentMessage,
   WorkflowEnvelope,
   WorkflowManagerToAgentMessage
@@ -37,10 +38,44 @@ export interface BuildOrchestratorMessageEnvelopeInput<
 }
 
 export interface BuildOrchestratorChatMessageBodyInput {
-  messageType: string;
+  messageType: ManagerChatMessageType;
   content: string;
   taskId?: string | null;
   discuss?: unknown | null;
+}
+
+export interface OrchestratorDiscussReference {
+  threadId?: string;
+  requestId?: string;
+}
+
+export interface OrchestratorRouteMessageInputBase {
+  fromAgent: string;
+  fromSessionId: string;
+  messageType: ManagerChatMessageType;
+  toRole?: string;
+  toSessionId?: string;
+  taskId?: string;
+  content: string;
+  requestId?: string;
+  parentRequestId?: string;
+  discuss?: OrchestratorDiscussReference;
+}
+
+export function normalizeOrchestratorDiscussReference(value: unknown): OrchestratorDiscussReference | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const threadIdRaw = record.threadId ?? record.thread_id;
+  const requestIdRaw = record.requestId ?? record.request_id;
+  const threadId = typeof threadIdRaw === "string" && threadIdRaw.trim().length > 0 ? threadIdRaw.trim() : undefined;
+  const requestId =
+    typeof requestIdRaw === "string" && requestIdRaw.trim().length > 0 ? requestIdRaw.trim() : undefined;
+  if (!threadId && !requestId) {
+    return null;
+  }
+  return { threadId, requestId };
 }
 
 export interface BuildOrchestratorManagerChatMessageInput
@@ -68,6 +103,24 @@ export interface BuildOrchestratorTaskAssignmentBodyInput {
 
 export interface BuildOrchestratorTaskAssignmentMessageInput
   extends BuildOrchestratorMessageEnvelopeInput, BuildOrchestratorTaskAssignmentBodyInput {}
+
+export interface BuildOrchestratorRoutedManagerMessageInput<
+  TScopeKind extends OrchestratorMessageScopeKind = OrchestratorMessageScopeKind
+> {
+  scopeKind: TScopeKind;
+  scopeId: string;
+  fromAgent: string;
+  fromSessionId: string;
+  messageType: ManagerChatMessageType;
+  resolvedRole: string;
+  requestId: string;
+  messageId: string;
+  createdAt: string;
+  taskId?: string | null;
+  content: string;
+  parentRequestId?: string | null;
+  discuss?: unknown | null;
+}
 
 export function buildOrchestratorMessageEnvelope(input: BuildOrchestratorMessageEnvelopeInput<"project">): Envelope;
 export function buildOrchestratorMessageEnvelope(
@@ -145,6 +198,41 @@ export function buildOrchestratorManagerChatMessage<TScopeKind extends Orchestra
     envelope: buildOrchestratorMessageEnvelope(input),
     body: buildOrchestratorChatMessageBody(input)
   } as OrchestratorManagerMessageByScope<TScopeKind>;
+}
+
+export function buildOrchestratorRoutedManagerMessage(
+  input: BuildOrchestratorRoutedManagerMessageInput<"project">
+): ManagerToAgentMessage;
+export function buildOrchestratorRoutedManagerMessage(
+  input: BuildOrchestratorRoutedManagerMessageInput<"workflow">
+): WorkflowManagerToAgentMessage;
+export function buildOrchestratorRoutedManagerMessage(
+  input: BuildOrchestratorRoutedManagerMessageInput
+): ManagerToAgentMessage | WorkflowManagerToAgentMessage;
+export function buildOrchestratorRoutedManagerMessage(
+  input: BuildOrchestratorRoutedManagerMessageInput
+): ManagerToAgentMessage | WorkflowManagerToAgentMessage {
+  const fromAgent = input.fromAgent.trim() || "manager";
+  return buildOrchestratorManagerChatMessage({
+    scopeKind: input.scopeKind,
+    scopeId: input.scopeId,
+    messageId: input.messageId,
+    createdAt: input.createdAt,
+    senderType: fromAgent === "manager" ? "system" : "agent",
+    senderRole: fromAgent,
+    senderSessionId: input.fromSessionId,
+    intent: input.messageType.startsWith("TASK_DISCUSS") ? "TASK_DISCUSS" : "MANAGER_MESSAGE",
+    requestId: input.requestId,
+    parentRequestId: input.parentRequestId,
+    taskId: input.taskId,
+    ownerRole: input.resolvedRole,
+    reportToRole: fromAgent,
+    reportToSessionId: input.fromSessionId,
+    expect: input.messageType === "TASK_DISCUSS_REQUEST" ? "DISCUSS_REPLY" : "TASK_REPORT",
+    messageType: input.messageType,
+    content: input.content,
+    discuss: input.discuss ?? null
+  });
 }
 
 function buildOrchestratorTaskAssignmentBody(input: BuildOrchestratorTaskAssignmentBodyInput): Record<string, unknown> {

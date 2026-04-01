@@ -2,7 +2,7 @@ import type { ProjectPaths, ProjectRecord, SessionRecord } from "../../domain/mo
 import type { ProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
 import { resolveActiveSessionForRole } from "../session-lifecycle-authority.js";
 import { buildPendingSessionId, isForceDispatchableState } from "./project-dispatch-policy.js";
-import type { DispatchProjectInput } from "./project-orchestrator-types.js";
+import type { DispatchProjectInput, ProjectDispatchResult } from "./project-orchestrator-types.js";
 
 interface ProjectDispatchSessionHelperContext {
   dataRoot: string;
@@ -11,6 +11,104 @@ interface ProjectDispatchSessionHelperContext {
 
 export class ProjectDispatchSessionHelper {
   constructor(private readonly context: ProjectDispatchSessionHelperContext) {}
+
+  async validateForceDispatchTask(
+    project: ProjectRecord,
+    paths: ProjectPaths,
+    input: DispatchProjectInput
+  ): Promise<ProjectDispatchResult["results"][number] | null> {
+    if (!input.force || !input.taskId) {
+      return null;
+    }
+    const allTasks = await this.context.repositories.taskboard.listTasks(paths, project.projectId);
+    const targetTask = allTasks.find((item) => item.taskId === input.taskId);
+    if (!targetTask) {
+      return {
+        sessionId: input.sessionId ?? "unknown",
+        role: "unknown",
+        outcome: "task_not_found",
+        dispatchKind: "task",
+        taskId: input.taskId,
+        reason: `task '${input.taskId}' does not exist (hint: refresh task-tree and retry with current task_id)`
+      };
+    }
+    if (!isForceDispatchableState(targetTask.state)) {
+      return {
+        sessionId: targetTask.ownerSession ?? input.sessionId ?? "unknown",
+        role: targetTask.ownerRole,
+        outcome: "task_not_force_dispatchable",
+        dispatchKind: "task",
+        taskId: input.taskId,
+        reason: `task '${input.taskId}' state=${targetTask.state} is not force-dispatchable`
+      };
+    }
+    return null;
+  }
+
+  async resolveDispatchSessions(
+    project: ProjectRecord,
+    paths: ProjectPaths,
+    input: DispatchProjectInput,
+    mode: "manual" | "loop"
+  ): Promise<{
+    orderedSessions: SessionRecord[];
+    forceBootstrappedSessionId: string | null;
+    preflightResult: ProjectDispatchResult["results"][number] | null;
+  }> {
+    const selectedSessions = await (input.sessionId
+      ? this.context.repositories.sessions
+          .getSession(paths, project.projectId, input.sessionId)
+          .then((item) => (item ? [item] : []))
+      : this.context.repositories.sessions.listSessions(paths, project.projectId));
+    if (input.sessionId && selectedSessions.length === 0) {
+      return {
+        orderedSessions: [],
+        forceBootstrappedSessionId: null,
+        preflightResult: {
+          sessionId: input.sessionId,
+          role: "unknown",
+          outcome: "session_not_found",
+          dispatchKind: null
+        }
+      };
+    }
+
+    const forceBootstrappedSessionId = await this.bootstrapForceDispatchSession(project, paths, input);
+    const effectiveSessions = await this.resolveEffectiveSessions(project, paths, input, selectedSessions);
+    if (input.sessionId && effectiveSessions.length === 0) {
+      return {
+        orderedSessions: [],
+        forceBootstrappedSessionId,
+        preflightResult: {
+          sessionId: input.sessionId,
+          role: "unknown",
+          outcome: "session_not_found",
+          dispatchKind: null
+        }
+      };
+    }
+
+    const orderedSessions = await this.resolveOrderedSessions(project, paths, effectiveSessions, input, mode);
+    if (input.sessionId && orderedSessions.length === 0 && effectiveSessions[0]) {
+      return {
+        orderedSessions: [],
+        forceBootstrappedSessionId,
+        preflightResult: {
+          sessionId: effectiveSessions[0].sessionId,
+          role: effectiveSessions[0].role,
+          outcome: "session_busy",
+          dispatchKind: null,
+          reason: "session is not authoritative active session for role"
+        }
+      };
+    }
+
+    return {
+      orderedSessions,
+      forceBootstrappedSessionId,
+      preflightResult: null
+    };
+  }
 
   async bootstrapForceDispatchSession(
     project: ProjectRecord,

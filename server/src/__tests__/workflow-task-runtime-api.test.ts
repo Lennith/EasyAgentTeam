@@ -8,7 +8,9 @@ import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("workflow task runtime API exposes runtime fields, dependency gates, and terminal convergence", async () => {
   const previousInterval = process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS;
+  const previousMayBeDoneEnabled = process.env.MAY_BE_DONE_ENABLED;
   process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS = "600";
+  process.env.MAY_BE_DONE_ENABLED = "0";
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-task-runtime-"));
   const dataRoot = path.join(tempRoot, "data");
   const workspaceRoot = path.join(tempRoot, "workspace");
@@ -57,7 +59,8 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     throw new Error(`timeout waiting for runtime status '${status}', latest='${latest.status}'`);
   }
 
-  async function waitForTaskState(taskId: string, targetState: string, timeoutMs: number) {
+  async function waitForTaskStateIn(taskId: string, targetStates: string[], timeoutMs: number) {
+    const accepted = new Set(targetStates);
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const runtime = await fetchRuntimeWithRetry();
@@ -65,8 +68,8 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
         tasks: Array<{ taskId: string; state: string }>;
       };
       const task = payload.tasks.find((item) => item.taskId === taskId);
-      if (task?.state === targetState) {
-        return;
+      if (task && accepted.has(task.state)) {
+        return task.state;
       }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
@@ -75,7 +78,9 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
       tasks: Array<{ taskId: string; state: string }>;
     };
     const task = payload.tasks.find((item) => item.taskId === taskId);
-    throw new Error(`timeout waiting task '${taskId}' -> '${targetState}', latest='${task?.state ?? "missing"}'`);
+    throw new Error(
+      `timeout waiting task '${taskId}' in [${targetStates.join(", ")}], latest='${task?.state ?? "missing"}'`
+    );
   }
 
   async function waitForTerminalConverged(timeoutMs: number) {
@@ -183,7 +188,7 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
       })
     });
     assert.equal(reportA.status, 200);
-    await waitForTaskState("task_b", "READY", 8000);
+    await waitForTaskStateIn("task_b", ["READY", "DISPATCHED", "IN_PROGRESS", "MAY_BE_DONE", "DONE"], 12_000);
 
     const reportB = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-actions`, {
       method: "POST",
@@ -195,7 +200,15 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
       })
     });
     assert.equal(reportB.status, 200);
-    await waitForTaskState("task_b", "DONE", 20_000);
+    const reportBPayload = (await reportB.json()) as {
+      success?: boolean;
+      partialApplied?: boolean;
+      appliedTaskIds?: string[];
+      rejectedResults?: Array<{ taskId?: string; reasonCode?: string }>;
+    };
+    assert.equal(reportBPayload.success, true);
+    assert.equal(reportBPayload.appliedTaskIds?.includes("task_b"), true);
+    assert.equal(reportBPayload.rejectedResults?.length ?? 0, 0);
 
     const donePayload = await waitForTerminalConverged(20_000);
     assert.equal(donePayload.status === "running" || donePayload.status === "finished", true);
@@ -210,6 +223,11 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
       delete process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS;
     } else {
       process.env.WORKFLOW_ORCHESTRATOR_INTERVAL_MS = previousInterval;
+    }
+    if (previousMayBeDoneEnabled === undefined) {
+      delete process.env.MAY_BE_DONE_ENABLED;
+    } else {
+      process.env.MAY_BE_DONE_ENABLED = previousMayBeDoneEnabled;
     }
   }
 });

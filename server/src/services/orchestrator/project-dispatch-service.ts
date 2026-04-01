@@ -5,7 +5,6 @@ import type {
   ProjectDispatchContext,
   ProjectDispatchResult
 } from "./project-orchestrator-types.js";
-import { isForceDispatchableState } from "./project-dispatch-policy.js";
 import { ProjectDispatchSelectionAdapter } from "./project-dispatch-selection-adapter.js";
 import { ProjectDispatchLaunchAdapter } from "./project-dispatch-launch-adapter.js";
 import { ProjectDispatchLoopPipeline } from "./project-dispatch-loop-pipeline.js";
@@ -56,102 +55,34 @@ export class ProjectDispatchService {
       maxDispatches: input.maxDispatches
     };
 
-    const selectedSessions = await (normalizedInput.sessionId
-      ? this.context.repositories.sessions
-          .getSession(scope.paths, scope.project.projectId, normalizedInput.sessionId)
-          .then((item) => (item ? [item] : []))
-      : this.context.repositories.sessions.listSessions(scope.paths, scope.project.projectId));
-
-    if (normalizedInput.sessionId && selectedSessions.length === 0) {
-      return {
-        projectId: scope.project.projectId,
-        mode,
-        results: [
-          { sessionId: normalizedInput.sessionId, role: "unknown", outcome: "session_not_found", dispatchKind: null }
-        ]
-      };
-    }
-
-    if (normalizedInput.force && normalizedInput.taskId) {
-      const allTasks = await this.context.repositories.taskboard.listTasks(scope.paths, scope.project.projectId);
-      const targetTask = allTasks.find((item) => item.taskId === normalizedInput.taskId);
-      if (!targetTask) {
-        return {
-          projectId: scope.project.projectId,
-          mode,
-          results: [
-            {
-              sessionId: normalizedInput.sessionId ?? "unknown",
-              role: "unknown",
-              outcome: "task_not_found",
-              dispatchKind: "task",
-              taskId: normalizedInput.taskId,
-              reason: `task '${normalizedInput.taskId}' does not exist (hint: refresh task-tree and retry with current task_id)`
-            }
-          ]
-        };
-      }
-      if (!isForceDispatchableState(targetTask.state)) {
-        return {
-          projectId: scope.project.projectId,
-          mode,
-          results: [
-            {
-              sessionId: targetTask.ownerSession ?? normalizedInput.sessionId ?? "unknown",
-              role: targetTask.ownerRole,
-              outcome: "task_not_force_dispatchable",
-              dispatchKind: "task",
-              taskId: normalizedInput.taskId,
-              reason: `task '${normalizedInput.taskId}' state=${targetTask.state} is not force-dispatchable`
-            }
-          ]
-        };
-      }
-    }
-
-    const forceBootstrappedSessionId = await this.sessionHelper.bootstrapForceDispatchSession(
+    const forceValidationResult = await this.sessionHelper.validateForceDispatchTask(
       scope.project,
       scope.paths,
       normalizedInput
     );
-    const effectiveSessions = await this.sessionHelper.resolveEffectiveSessions(
-      scope.project,
-      scope.paths,
-      normalizedInput,
-      selectedSessions
-    );
-    if (normalizedInput.sessionId && effectiveSessions.length === 0) {
+    if (forceValidationResult) {
       return {
         projectId: scope.project.projectId,
         mode,
-        results: [
-          { sessionId: normalizedInput.sessionId, role: "unknown", outcome: "session_not_found", dispatchKind: null }
-        ]
+        results: [forceValidationResult]
       };
     }
 
-    const orderedSessions = await this.sessionHelper.resolveOrderedSessions(
+    const resolvedSessions = await this.sessionHelper.resolveDispatchSessions(
       scope.project,
       scope.paths,
-      effectiveSessions,
       normalizedInput,
       mode
     );
-    if (normalizedInput.sessionId && orderedSessions.length === 0 && effectiveSessions[0]) {
+    if (resolvedSessions.preflightResult) {
       return {
         projectId: scope.project.projectId,
         mode,
-        results: [
-          {
-            sessionId: effectiveSessions[0].sessionId,
-            role: effectiveSessions[0].role,
-            outcome: "session_busy",
-            dispatchKind: null,
-            reason: "session is not authoritative active session for role"
-          }
-        ]
+        results: [resolvedSessions.preflightResult]
       };
     }
+
+    const { orderedSessions, forceBootstrappedSessionId } = resolvedSessions;
 
     const agentList = await listAgents(this.context.dataRoot);
     const agentCatalog = buildOrchestratorAgentCatalog(agentList);

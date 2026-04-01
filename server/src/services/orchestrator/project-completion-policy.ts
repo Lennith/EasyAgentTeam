@@ -1,36 +1,30 @@
 import type { EventRecord, TaskRecord } from "../../domain/models.js";
-
-const TERMINAL_TASK_STATES = new Set(["DONE", "CANCELED"]);
+import {
+  countOrchestratorTaskDispatches,
+  hasOrchestratorSuccessfulRunFinishEvent,
+  isOrchestratorTerminalTaskState,
+  isOrchestratorValidProgressContent,
+  resolveOrchestratorMayBeDoneSettings
+} from "./shared/index.js";
 
 export function isTerminalTaskState(state: string): boolean {
-  return TERMINAL_TASK_STATES.has(state);
+  return isOrchestratorTerminalTaskState(state);
 }
 
 export function countRecentTaskDispatches(taskId: string, recentEvents: EventRecord[]): number {
-  return recentEvents.filter((event) => {
-    if (event.taskId !== taskId || event.eventType !== "ORCHESTRATOR_DISPATCH_STARTED") {
-      return false;
-    }
-    const payload = event.payload as Record<string, unknown>;
-    return payload.dispatchKind === "task";
-  }).length;
+  return countOrchestratorTaskDispatches(taskId, recentEvents);
 }
 
 export function hasSuccessfulRunFinishEvent(taskId: string, recentEvents: EventRecord[]): boolean {
-  return recentEvents.some((event) => {
-    if (event.taskId !== taskId) {
-      return false;
-    }
-    if (event.eventType !== "CODEX_RUN_FINISHED" && event.eventType !== "MINIMAX_RUN_FINISHED") {
-      return false;
-    }
-    const payload = event.payload as Record<string, unknown>;
-    return payload.exitCode === 0;
-  });
+  return hasOrchestratorSuccessfulRunFinishEvent(taskId, recentEvents);
 }
 
 export function isValidAgentProgressContent(content: string | undefined): boolean {
-  return (content ?? "").replace(/^\uFEFF/, "").trim().length > 50;
+  return isOrchestratorValidProgressContent(content);
+}
+
+export function resolveProjectMayBeDoneSettings() {
+  return resolveOrchestratorMayBeDoneSettings();
 }
 
 export function shouldMarkTaskMayBeDone(input: {

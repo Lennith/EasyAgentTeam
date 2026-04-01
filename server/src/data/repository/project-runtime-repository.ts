@@ -7,7 +7,10 @@ import {
   getProject,
   getProjectOverview,
   getProjectPaths,
+  isProjectRouteAllowed,
+  isTaskAssignRouteAllowed,
   listProjects,
+  resolveSessionByRole,
   setRoleSessionMapping,
   updateProjectOrchestratorSettings,
   updateProjectRouting,
@@ -31,6 +34,9 @@ export interface ProjectRuntimeRepository {
   updateProjectRouting(projectId: string, input: UpdateProjectRoutingInput): Promise<ProjectRecord>;
   updateTaskAssignRouting(projectId: string, taskAssignRouteTable: Record<string, string[]>): Promise<ProjectRecord>;
   updateProjectOrchestratorSettings(projectId: string, input: UpdateProjectOrchestratorSettingsInput): Promise<ProjectRecord>;
+  isProjectRouteAllowed(project: ProjectRecord, fromRole: string, toRole: string): boolean;
+  isTaskAssignRouteAllowed(project: ProjectRecord, fromRole: string, toRole: string): boolean;
+  resolveSessionByRole(project: ProjectRecord, role?: string): string | undefined;
   setRoleSessionMapping(projectId: string, role: string, sessionId: string): Promise<ProjectRecord>;
   clearRoleSessionMapping(projectId: string, role: string): Promise<ProjectRecord>;
   getRoleReminderState(paths: ProjectPaths, projectId: string, role: string): Promise<RoleReminderState | null>;
@@ -83,6 +89,18 @@ class DefaultProjectRuntimeRepository implements ProjectRuntimeRepository {
     input: UpdateProjectOrchestratorSettingsInput
   ): Promise<ProjectRecord> {
     return updateProjectOrchestratorSettings(this.dataRoot, projectId, input);
+  }
+
+  isProjectRouteAllowed(project: ProjectRecord, fromRole: string, toRole: string): boolean {
+    return isProjectRouteAllowed(project, fromRole, toRole);
+  }
+
+  isTaskAssignRouteAllowed(project: ProjectRecord, fromRole: string, toRole: string): boolean {
+    return isTaskAssignRouteAllowed(project, fromRole, toRole);
+  }
+
+  resolveSessionByRole(project: ProjectRecord, role?: string): string | undefined {
+    return resolveSessionByRole(project, role);
   }
 
   setRoleSessionMapping(projectId: string, role: string, sessionId: string): Promise<ProjectRecord> {

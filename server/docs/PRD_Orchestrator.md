@@ -1,220 +1,111 @@
-# Orchestrator 模块 PRD
+# Orchestrator 模块 PRD（V3）
 
-## 1. 模块目标
+## 1. 状态
 
-### 模块状态
+- 模块状态：`实装`
+- 范围：`server` 内部重构（V3 hard cut）
+- 外部冻结：API path、payload、status code、SSE、event type、task state、退役接口 `410` 语义不变
+- 本轮目标：routing + task-action（apply/converge/emit）已完成收口；shared 主路径接管并删除被替换的 internal helper/compat 路径
 
-- `实装`
+## 2. 当前生效结构
 
-### 模块职责
+- orchestrator 入口仅承担 façade + 依赖装配：
+  - `server/src/services/orchestrator/project-orchestrator.ts`
+  - `server/src/services/orchestrator/workflow-orchestrator.ts`
+- shared 骨架为唯一主路径：
+  - `shared/dispatch-template.ts`
+  - `shared/launch-template.ts`
+  - `shared/runner-template.ts`
+  - `shared/message-routing-template.ts`
+  - `shared/task-action-template.ts`
+  - `shared/tick-pipeline.ts`
+  - `shared/dispatch-lifecycle.ts`
+  - `shared/completion-policy.ts`
+- project/workflow 差异仅保留在 adapter/policy，不再在入口 service 手拼流程
 
-Project Orchestrator 负责 project runtime 的编排闭环，覆盖：
+## 3. Launch 生效规则
 
-- role/session 级 dispatch 与 message dispatch
-- session timeout repair / dismiss
-- reminder 与 MAY_BE_DONE 推进
-- auto dispatch 预算、hold 与单飞保护
-- timeline 可回放事件输出
+- 生命周期统一为：`started -> execute -> success/failure/timeout/escalation`
+- shared launch/runner 负责编排骨架；域 adapter 仅保留：
+  - provider/run 细节
+  - 域状态最小写回
+  - 域事件语义映射
+- terminal-state 判定统一通过 `shared/dispatch-lifecycle.ts`
 
-### 主要源码
+## 4. Routing 生效规则
 
-- `server/src/services/orchestrator/project-orchestrator.ts`
-- `server/src/services/orchestrator/project-dispatch-service.ts`
-- `server/src/services/orchestrator/project-dispatch-loop-adapter.ts`
-- `server/src/services/orchestrator/project-dispatch-session-helper.ts`
-- `server/src/services/orchestrator/project-dispatch-selection-adapter.ts`
-- `server/src/services/orchestrator/project-dispatch-prompt-context.ts`
-- `server/src/services/orchestrator/project-dispatch-prompt.ts`
-- `server/src/services/orchestrator/project-dispatch-launch-adapter.ts`
-- `server/src/services/orchestrator/project-dispatch-launch-execution-types.ts`
-- `server/src/services/orchestrator/project-dispatch-launch-helper-service.ts`
-- `server/src/services/orchestrator/project-dispatch-launch-minimax.ts`
-- `server/src/services/orchestrator/project-dispatch-launch-sync.ts`
-- `server/src/services/orchestrator/project-dispatch-launch-preparation.ts`
-- `server/src/services/orchestrator/project-dispatch-launch-support.ts`
-- `server/src/services/orchestrator/project-orchestrator-options.ts`
-- `server/src/services/orchestrator/project-session-runtime-service.ts`
-- `server/src/services/orchestrator/project-session-runtime-timeout.ts`
-- `server/src/services/orchestrator/project-session-runtime-termination.ts`
-- `server/src/services/orchestrator/project-reminder-service.ts`
-- `server/src/services/orchestrator/project-completion-service.ts`
-- `server/src/services/orchestrator/project-tick-service.ts`
-- `server/src/services/orchestrator/project-message-routing-service.ts`
-- `server/src/services/manager-routing-event-service.ts`
-- `server/src/services/orchestrator/shared/dispatch-template.ts`
-- `server/src/services/orchestrator/shared/launch-template.ts`
-- `server/src/services/orchestrator/shared/orchestrator-identifiers.ts`
-- `server/src/services/orchestrator/shared/orchestrator-env.ts`
-- `server/src/services/orchestrator/shared/orchestrator-runtime-helpers.ts`
-- `server/src/services/orchestrator/shared/orchestrator-agent-catalog.ts`
-- `server/src/services/orchestrator/shared/tool-session-input.ts`
-- `server/src/services/orchestrator/shared/role-prompt-skill-bundle.ts`
-- `server/src/services/orchestrator/shared/tick-pipeline.ts`
-- `server/src/services/orchestrator/index.ts`
+- 唯一流程固定为：`target resolve -> envelope normalize -> inbox persist -> route event persist -> session touch`
+- UoW 执行入口唯一化为：
+  - `executeOrchestratorMessageRoutingInUnitOfWork`
+- project/workflow routing service 只保留上下文装配与策略 gate
+- manager/discuss 输入契约统一使用：
+  - `OrchestratorRouteMessageInputBase`
+  - `OrchestratorDiscussReference`
+  - `normalizeOrchestratorDiscussReference(...)`
+- routing scope-only UoW runner 统一通过：
+  - `createOrchestratorMessageRoutingUnitOfWorkRunner(...)`
 
-## 2. 对外行为
+## 5. Completion 生效规则
 
-### 2.1 API
+- `MAY_BE_DONE` 配置解析统一通过：
+  - `resolveOrchestratorMayBeDoneSettings(...)`
+- completion 共性规则统一通过 shared helper：
+  - `countOrchestratorTaskDispatches(...)`
+  - `hasOrchestratorSuccessfulRunFinishEvent(...)`
+  - `isOrchestratorTerminalTaskState(...)`
+  - `isOrchestratorValidProgressContent(...)`
+- project/workflow completion service 不再各自实现同构计数与配置解析逻辑
 
-- `POST /api/projects/:id/orchestrator/dispatch`
-- `POST /api/projects/:id/orchestrator/dispatch-message`
-- `GET /api/projects/:id/orchestrator/settings`
-- `PATCH /api/projects/:id/orchestrator/settings`
+## 6. 本轮已落地收口（2026-03-31）
 
-### 2.2 稳定约束
+- workflow provider runner 文件已删除并并入 launch adapter：
+  - 删除 `workflow-dispatch-provider-runner.ts`
+  - 逻辑并入 `workflow-dispatch-launch-adapter.ts`
+- workflow launch-support 旧 helper 已同轮删除：
+  - 删除 `workflow-dispatch-launch-support.ts`
+  - 生命周期辅助逻辑收口到 `workflow-dispatch-launch-adapter.ts`
+- workflow message routing internal 旧 helper 已同轮删除：
+  - 删除 `workflow-message-routing-internal.ts`
+  - 目标解析、envelope 构建、route event 组装统一收口到 `workflow-message-routing-service.ts`
+- project launch-support 旧 helper 已同轮删除：
+  - 删除 `project-dispatch-launch-support.ts`
+  - provider payload、runner lifecycle、terminal event append 统一收口到 `project-dispatch-launch-adapter.ts`
+- project message routing internal 旧 helper 已同轮删除：
+  - 删除 `project-message-routing-internal.ts`
+  - target/session/discuss/event 组装统一收口到 `project-message-routing-service.ts`
+- project message routing contracts 旧中间模块已同轮删除：
+  - 删除 `project-message-routing-contracts.ts`
+  - routing input/context/error 类型并入 `project-message-routing-service.ts`
+- project launch adapter 内部 seam 收窄：
+  - 移除无业务引用导出 `SyncDispatchRunResult`
+  - `ProjectDispatchLaunch*` 内部类型改为文件内私有声明，保留运行时行为与外部接口不变
+- manager chat message type 收敛为单一定义：
+  - `server/src/domain/models.ts` 中 `MANAGER_CHAT_MESSAGE_TYPES` / `ManagerChatMessageType`
+  - 统一校验函数 `isManagerChatMessageType(...)`
+- message routing 结果基础结构统一为 shared 单定义：
+  - `OrchestratorMessageRouteResult`
+- discuss 解析归一到 shared helper，manager service 与 workflow teamtool bridge 复用同一解析流程
+- launch/routing 错误文案归一复用：
+  - `resolveOrchestratorErrorMessage(...)`
+- completion 共性策略收敛为 shared helper：
+  - `shared/completion-policy.ts`
+- project dispatch façade 进一步收薄：
+  - force task precheck 与 session 解析下沉到 `project-dispatch-session-helper.ts`
+  - `project-dispatch-service.ts` 保留 scope resolve + adapter 装配 + public method
+- shared contract 收窄：
+  - 移除未使用 contract：`OrchestratorDispatchAdapter`、`OrchestratorRepositoryScope`、`OrchestratorScopeId`、`OrchestratorRunnerTerminalStatus`
+  - 保留现有 shared contract family，不新增命名体系
 
-- 对外 API path、payload、status code、SSE、event type、task state name 保持不变。
-- 退役接口继续返回 `410`。
-- `server/src/services/orchestrator/index.ts` 继续稳定导出：
-  - `OrchestratorService`
-  - `createOrchestratorService`
-  - `resolveTaskDiscuss`
-  - `calculateNextReminderTime`
-  - `shouldAutoResetReminderOnRoleTransition`
+## 7. 事务与数据边界
 
-## 3. 结构分层
+- route 层不直接开事务
+- application service 通过 repository/UoW 持有事务边界
+- 同一用例内 runtime/session/event/inbox/taskboard 关键写入保持单事务边界
 
-### 3.1 Façade
+## 8. 验证快照（2026-03-31）
 
-- `project-orchestrator.ts`
-- 只负责 service 装配、loop 启停、兼容导出与 public façade。
-
-### 3.2 Pure Policy
-
-- `project-dispatch-policy.ts`
-- `project-reminder-policy.ts`
-- `project-completion-policy.ts`
-
-规则模块不直接读写存储，不构造 HTTP payload。
-
-### 3.3 Application Services
-
-- `project-dispatch-service.ts`
-- `project-session-runtime-service.ts`
-- `project-reminder-service.ts`
-- `project-completion-service.ts`
-- `project-tick-service.ts`
-
-application service 是编排副作用与 UnitOfWork 边界的唯一入口。
-
-## 4. Dispatch 规则
-
-### 4.1 Dispatch 入口
-
-- 手工 dispatch
-- 手工 dispatch-message
-- loop auto dispatch
-
-### 4.2 Dispatch 选择
-
-- `project-dispatch-selection-adapter.ts` 负责：
-  - explicit message candidate
-  - task candidate / force task
-  - dependency gate
-  - duplicate open dispatch
-  - onlyIdle / session_busy
-- 输出 normalized selection result，service 不再手拼散字段。
-
-### 4.3 Dispatch Prompt
-
-- `project-dispatch-prompt-context.ts` 负责组装 stable prompt context。
-- `project-dispatch-prompt.ts` 只消费 context 做 renderer。
-- prompt 必须包含：
-  - focus task
-  - actionable / blocked tasks
-  - dependency readiness
-  - routing snapshot
-  - discuss guide
-
-### 4.4 Dispatch 执行骨架
-
-- `shared/dispatch-template.ts` 是当前 project/workflow 共用的 dispatch skeleton。
-- shared skeleton 统一负责：
-  - preflight gate 顺序
-  - dispatch loop / maxDispatches
-  - single-flight gate
-  - skipped / dispatched / busy / no-task 结果归一
-- project adapter 继续负责：
-  - authoritative session 解析
-  - force dispatch bootstrap
-  - cooldown 与 role-level ordering
-  - project runtime side effect
-
-### 4.5 Launch 执行骨架
-
-- `shared/launch-template.ts` 是当前 project/workflow 共用的 launch skeleton。
-- shared skeleton 统一负责：
-  - started phase
-  - execute / failure trap
-  - success / failure handler 收口
-- `project-dispatch-launch-adapter.ts` 继续负责：
-  - provider 选择
-  - shared launch-template 接线
-  - payload/build glue
-- `project-dispatch-launch-helper-service.ts` 当前负责：
-  - runner success / timeout / fatal 处理
-- `project-dispatch-launch-minimax.ts` 当前负责：
-  - MiniMax wake-up / completion callback
-- `project-dispatch-launch-sync.ts` 当前负责：
-  - Codex resume / fallback
-- `project-dispatch-launch-preparation.ts` 负责：
-  - provider/model enrichment
-  - workspace/bootstrap
-  - prompt artifact persistence
-- `project-dispatch-launch-support.ts` 负责：
-  - event payload builder
-  - runner payload builder
-  - terminal dispatch event append
-- `manager-routing-event-service.ts` 当前负责 project/workflow 共用的 route event payload contract builder，避免 `USER_MESSAGE_RECEIVED` / `MESSAGE_ROUTED` 字段规则在不同编排器侧继续分叉。
-- `project-orchestrator-options.ts` 与 `shared/orchestrator-env.ts` 当前负责 project/workflow 共用的 env/options 解析门限，避免两个 orchestrator 工厂各自重复解析环境变量。
-- `shared/orchestrator-identifiers.ts` 当前负责跨 project/workflow 复用的 session/request/message/reminder identifier 规则，减少 role session id 与 timestamp-based id 的分叉实现。
-- `shared/orchestrator-runtime-helpers.ts` 当前负责 project/workflow 共用的 agent workspace 路径、`.minimax/sessions` fallback、provider session fallback 与 manager URL 默认值，避免 launch path 与 agent-chat route 再各自手拼运行时路径。
-
-### 4.6 Force Dispatch
-
-- `force=true + task_id` 时，先校验 task 是否存在且状态 force-dispatchable。
-- 无 active owner session 时可自动 bootstrap owner session。
-- 非 force-dispatchable 状态直接返回 `task_not_force_dispatchable`。
-
-### 4.7 结果语义
-
-常见 outcome：
-
-- `dispatched`
-- `no_message`
-- `message_not_found`
-- `task_not_found`
-- `task_not_force_dispatchable`
-- `task_already_done`
-- `task_owner_mismatch`
-- `already_dispatched`
-- `session_busy`
-- `session_not_found`
-- `dispatch_failed`
-
-## 5. Tick 规则
-
-project tick 固定顺序：
-
-1. `timeout`
-2. `reminder`
-3. `may-be-done`
-4. `observability snapshot`
-5. `auto-dispatch remaining update`
-
-- tick path 通过 `shared/tick-pipeline.ts` 执行公共骨架。
-- role reminder 状态继续保存在 project runtime 文档，不新增独立 reminder store。
-
-## 6. 事务与数据边界
-
-- route 层只做 HTTP 解析、校验、响应映射，不直接开事务。
-- 同一用例内的 taskboard、session、event、inbox、project runtime 写入必须落在同一 UnitOfWork 边界。
-- façade 与 route 不得直接依赖底层 file util 或 `runStorageTransaction`。
-- orchestrator service 不得直接构造 HTTP 风格响应。
-
-## 7. 验证基线
-
-- `pnpm --filter @autodev/server build`
-- `pnpm --filter @autodev/server test`
-
-当前 shared dispatch/launch skeleton 已在 project 主路径实装并通过上述验证。
+- `pnpm --filter @autodev/server build`：通过
+- `pnpm --filter @autodev/server test`：连续 2 次通过
+- flaky 关注集额外回归通过：
+  - `pnpm --filter @autodev/server run test -- --test-name-pattern "workflow-block-propagation|workflow-task-runtime-api|session-timeout-closure|bad port"`
+- 最新快照：`tests 313 / pass 308 / fail 0 / skipped 5`

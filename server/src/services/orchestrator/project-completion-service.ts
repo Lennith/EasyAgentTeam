@@ -13,12 +13,10 @@ import {
   hasSuccessfulRunFinishEvent,
   isTerminalTaskState,
   isValidAgentProgressContent,
+  resolveProjectMayBeDoneSettings,
   shouldMarkTaskMayBeDone
 } from "./project-completion-policy.js";
 import type { ProjectCompletionContext } from "./project-orchestrator-types.js";
-
-const MAY_BE_DONE_DISPATCH_THRESHOLD = 5;
-const MAY_BE_DONE_CHECK_WINDOW_MS = 60 * 60 * 1000;
 
 export class ProjectCompletionService {
   constructor(private readonly context: ProjectCompletionContext) {}
@@ -41,16 +39,11 @@ export class ProjectCompletionService {
   }
 
   async checkAndMarkMayBeDone(project: ProjectRecord, paths: ProjectPaths): Promise<void> {
-    const mayBeDoneEnabled = String(process.env.MAY_BE_DONE_ENABLED ?? "1").trim() !== "0";
-    if (!mayBeDoneEnabled) {
+    const mayBeDoneSettings = resolveProjectMayBeDoneSettings();
+    if (!mayBeDoneSettings.enabled) {
       return;
     }
-
-    const thresholdRaw = Number(process.env.MAY_BE_DONE_DISPATCH_THRESHOLD ?? MAY_BE_DONE_DISPATCH_THRESHOLD);
-    const threshold =
-      Number.isFinite(thresholdRaw) && thresholdRaw > 0 ? Math.floor(thresholdRaw) : MAY_BE_DONE_DISPATCH_THRESHOLD;
-    const windowRaw = Number(process.env.MAY_BE_DONE_CHECK_WINDOW_MS ?? MAY_BE_DONE_CHECK_WINDOW_MS);
-    const windowMs = Number.isFinite(windowRaw) && windowRaw > 0 ? Math.floor(windowRaw) : MAY_BE_DONE_CHECK_WINDOW_MS;
+    const { threshold, windowMs } = mayBeDoneSettings;
 
     const allTasks = await this.context.repositories.taskboard.listTasks(paths, project.projectId);
     const nonTerminalTasks = allTasks.filter((task) => !isTerminalTaskState(task.state));

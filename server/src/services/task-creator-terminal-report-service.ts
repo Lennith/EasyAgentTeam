@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ProjectPaths, ProjectRecord, TaskRecord } from "../domain/models.js";
-import { appendEvent, listEvents } from "../data/event-store.js";
-import { listTasks } from "../data/taskboard-store.js";
-import { resolveSessionByRole } from "../data/project-store.js";
+import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
 import { deliverProjectMessage } from "./orchestrator/project-message-routing-service.js";
 import { resolveActiveSessionForRole } from "./session-lifecycle-authority.js";
 
@@ -68,12 +66,13 @@ export async function emitCreatorTerminalReportsIfReady(
   paths: ProjectPaths,
   triggerRequestId?: string
 ): Promise<void> {
-  const tasks = await listTasks(paths, project.projectId);
+  const repositories = getProjectRepositoryBundle(dataRoot);
+  const tasks = await repositories.taskboard.listTasks(paths, project.projectId);
   const groups = buildGroups(tasks).filter((group) => group.tasks.length > 0);
   if (groups.length === 0) {
     return;
   }
-  const events = await listEvents(paths);
+  const events = await repositories.events.listEvents(paths);
   const latestSignatureByGroup = new Map<string, string>();
   for (const event of events) {
     if (event.eventType !== "TASK_CREATOR_TERMINAL_REPORT_SENT") {
@@ -93,7 +92,7 @@ export async function emitCreatorTerminalReportsIfReady(
     const groupKey = buildGroupKey(group);
     const signature = buildSignature(group.tasks);
     if (latestSignatureByGroup.get(groupKey) === signature) {
-      await appendEvent(paths, {
+      await repositories.events.appendEvent(paths, {
         projectId: project.projectId,
         eventType: "TASK_CREATOR_TERMINAL_REPORT_SKIPPED",
         source: "system",
@@ -106,7 +105,8 @@ export async function emitCreatorTerminalReportsIfReady(
       continue;
     }
 
-    const preferredSession = group.creatorSessionId || resolveSessionByRole(project, group.creatorRole);
+    const preferredSession =
+      group.creatorSessionId || repositories.projectRuntime.resolveSessionByRole(project, group.creatorRole);
     let targetSessionId = preferredSession;
     if (!targetSessionId) {
       const latest = await resolveActiveSessionForRole({
@@ -119,7 +119,7 @@ export async function emitCreatorTerminalReportsIfReady(
       targetSessionId = latest?.sessionId;
     }
     if (!targetSessionId) {
-      await appendEvent(paths, {
+      await repositories.events.appendEvent(paths, {
         projectId: project.projectId,
         eventType: "TASK_CREATOR_TERMINAL_REPORT_SKIPPED",
         source: "system",
@@ -189,7 +189,7 @@ export async function emitCreatorTerminalReportsIfReady(
       }
     });
 
-    await appendEvent(paths, {
+    await repositories.events.appendEvent(paths, {
       projectId: project.projectId,
       eventType: "TASK_CREATOR_TERMINAL_REPORT_SENT",
       source: "system",

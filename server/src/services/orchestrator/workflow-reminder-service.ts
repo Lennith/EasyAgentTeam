@@ -1,16 +1,13 @@
-import type {
-  WorkflowManagerToAgentMessage,
-  WorkflowRunRecord,
-  WorkflowRunRuntimeState,
-  WorkflowSessionRecord
-} from "../../domain/models.js";
+import type { WorkflowRunRecord, WorkflowRunRuntimeState, WorkflowSessionRecord } from "../../domain/models.js";
 import type { WorkflowRepositoryBundle } from "../../data/repository/workflow-repository-bundle.js";
 import { isRemindableTaskState } from "../orchestrator-dispatch-core.js";
-import { buildReminderMessageBody } from "../reminder-message-builder.js";
 import { normalizeReminderMode } from "./reminder-service.js";
 import { resolveRoleRuntimeState } from "./session-manager.js";
 import { createOpaqueIdentifier, createTimestampedIdentifier } from "./shared/orchestrator-identifiers.js";
 import {
+  buildOrchestratorReminderMessage,
+  buildOrchestratorReminderContent,
+  buildOrchestratorReminderOpenTaskSummary,
   buildOrchestratorReminderRoleStatePatch,
   buildOrchestratorReminderSchedulePatch,
   buildOrchestratorReminderTriggeredPatch,
@@ -180,63 +177,49 @@ export class WorkflowReminderService {
       const reminderRequestId = createOpaqueIdentifier();
       const primaryTask = roleOpenTasks[0] ?? null;
       const primaryTaskId = primaryTask?.taskId ?? null;
-      const openTaskTitlePreview = roleOpenTasks
-        .slice(0, 3)
-        .map((task) => `${task.taskId}: ${task.resolvedTitle}`)
-        .join("; ");
-      const content =
-        `Reminder: you have ${roleOpenTasks.length} open task(s) without recent progress. ` +
-        (openTaskTitlePreview.length > 0 ? `Open tasks: ${openTaskTitlePreview}. ` : "") +
-        "Please continue execution and submit TASK_REPORT for current work.";
+      const openTaskSummary = buildOrchestratorReminderOpenTaskSummary(
+        roleOpenTasks.map((task) => ({
+          taskId: task.taskId,
+          title: task.resolvedTitle
+        }))
+      );
+      const content = buildOrchestratorReminderContent({
+        openTaskCount: roleOpenTasks.length,
+        openTaskTitlePreview: openTaskSummary.openTaskTitlePreview,
+        instruction: "Please continue execution and submit TASK_REPORT for current work."
+      });
 
-      const message: WorkflowManagerToAgentMessage = {
-        envelope: {
-          message_id: reminderMessageId,
-          run_id: run.runId,
-          timestamp: new Date().toISOString(),
-          sender: { type: "system", role: "manager", session_id: "manager-system" },
-          via: { type: "manager" },
-          intent: "MANAGER_MESSAGE",
-          priority: "normal",
-          correlation: {
-            request_id: reminderRequestId,
-            parent_request_id: reminderRequestId,
-            task_id: primaryTaskId ?? undefined
-          },
-          accountability: {
-            owner_role: role,
-            report_to: { role: "manager", session_id: "manager-system" },
-            expect: "TASK_REPORT"
-          },
-          dispatch_policy: "fixed_session"
-        },
-        body: buildReminderMessageBody({
-          role,
-          reminderMode,
-          reminderCount: reminderState.reminderCount,
-          nextReminderAt: reminderState.nextReminderAt ?? null,
-          openTasks: roleOpenTasks.map((task) => ({
-            taskId: task.taskId,
-            title: task.resolvedTitle
-          })),
-          content,
-          primaryTaskId,
-          primarySummary: primaryTask?.summary ?? "",
-          primaryTask:
-            primaryTask === null
-              ? null
-              : {
-                  task_id: primaryTask.taskId,
-                  state: primaryTask.state,
-                  owner_role: primaryTask.ownerRole,
-                  parent_task_id: primaryTask.parentTaskId ?? null,
-                  write_set: primaryTask.writeSet ?? [],
-                  dependencies: primaryTask.dependencies ?? [],
-                  acceptance: primaryTask.acceptance ?? [],
-                  artifacts: primaryTask.artifacts ?? []
-                }
-        })
-      };
+      const message = buildOrchestratorReminderMessage({
+        scopeKind: "workflow",
+        scopeId: run.runId,
+        role,
+        reminderMode,
+        reminderCount: reminderState.reminderCount,
+        nextReminderAt: reminderState.nextReminderAt ?? null,
+        openTasks: roleOpenTasks.map((task) => ({
+          taskId: task.taskId,
+          title: task.resolvedTitle
+        })),
+        content,
+        requestId: reminderRequestId,
+        parentRequestId: reminderRequestId,
+        messageId: reminderMessageId,
+        primaryTaskId,
+        primarySummary: primaryTask?.summary ?? "",
+        primaryTask:
+          primaryTask === null
+            ? null
+            : {
+                task_id: primaryTask.taskId,
+                state: primaryTask.state,
+                owner_role: primaryTask.ownerRole,
+                parent_task_id: primaryTask.parentTaskId ?? null,
+                write_set: primaryTask.writeSet ?? [],
+                dependencies: primaryTask.dependencies ?? [],
+                acceptance: primaryTask.acceptance ?? [],
+                artifacts: primaryTask.artifacts ?? []
+              }
+      });
       await this.context.repositories.runInUnitOfWork({ run }, async () => {
         await this.context.repositories.inbox.appendInboxMessage(run.runId, role, message);
         await this.context.repositories.events.appendEvent(run.runId, {
@@ -251,11 +234,8 @@ export class WorkflowReminderService {
             reminderMode,
             reminderCount: reminderState.reminderCount,
             nextReminderAt: reminderState.nextReminderAt ?? null,
-            openTaskIds: roleOpenTasks.map((task) => task.taskId),
-            openTaskTitles: roleOpenTasks.map((task) => ({
-              task_id: task.taskId,
-              title: task.resolvedTitle
-            }))
+            openTaskIds: openTaskSummary.openTaskIds,
+            openTaskTitles: openTaskSummary.openTaskTitles
           }
         });
       });

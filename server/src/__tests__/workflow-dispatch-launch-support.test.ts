@@ -4,7 +4,7 @@ import {
   appendWorkflowMaxTokensRecoveryEvent,
   handleWorkflowDispatchLaunchError,
   handleWorkflowDispatchLaunchResult
-} from "../services/orchestrator/workflow-dispatch-provider-runner.js";
+} from "../services/orchestrator/workflow-dispatch-launch-adapter.js";
 
 const baseContext = {
   runId: "run-1",

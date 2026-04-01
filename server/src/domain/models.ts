@@ -448,6 +448,21 @@ export type TaskActionType =
   | "TASK_DISCUSS_CLOSED"
   | "TASK_REPORT";
 
+export const MANAGER_CHAT_MESSAGE_TYPES = [
+  "MANAGER_MESSAGE",
+  "TASK_DISCUSS_REQUEST",
+  "TASK_DISCUSS_REPLY",
+  "TASK_DISCUSS_CLOSED"
+] as const;
+
+export type ManagerChatMessageType = (typeof MANAGER_CHAT_MESSAGE_TYPES)[number];
+
+const managerChatMessageTypeSet = new Set<string>(MANAGER_CHAT_MESSAGE_TYPES);
+
+export function isManagerChatMessageType(value: string): value is ManagerChatMessageType {
+  return managerChatMessageTypeSet.has(value);
+}
+
 export interface TaskActionRequest {
   actionType: TaskActionType;
   fromAgent?: string;

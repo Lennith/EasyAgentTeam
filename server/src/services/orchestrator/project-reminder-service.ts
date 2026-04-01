@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { ManagerToAgentMessage, ProjectPaths, ProjectRecord, TaskRecord } from "../../domain/models.js";
+import type { ProjectPaths, ProjectRecord } from "../../domain/models.js";
 import { resolveActiveSessionForRole } from "../session-lifecycle-authority.js";
 import { isRemindableTaskState } from "../orchestrator-dispatch-core.js";
-import { buildReminderMessageBody } from "../reminder-message-builder.js";
 import { resolveLatestIdleSession, resolveRoleRuntimeState } from "./session-manager.js";
 import { calculateNextReminderTimeByMode } from "./project-reminder-policy.js";
 import {
+  buildOrchestratorReminderMessage,
+  buildOrchestratorReminderContent,
+  buildOrchestratorReminderOpenTaskSummary,
   buildOrchestratorReminderRoleStatePatch,
   buildOrchestratorReminderSchedulePatch,
   buildOrchestratorReminderTriggeredPatch,
@@ -194,16 +196,51 @@ export class ProjectReminderService {
       const reminderMessageId = randomUUID();
       const primaryTask = roleOpenTasks[0] ?? null;
       const primaryTaskId = primaryTask?.taskId ?? null;
-      const reminderMessage = this.buildReminderMessage(
-        project,
-        role,
-        reminderMode,
-        reminderState.reminderCount,
-        primaryTask,
-        roleOpenTasks,
-        reminderRequestId,
-        reminderMessageId
+      const openTaskSummary = buildOrchestratorReminderOpenTaskSummary(
+        roleOpenTasks.map((task) => ({
+          taskId: task.taskId,
+          title: task.title
+        }))
       );
+      const reminderMessage = buildOrchestratorReminderMessage({
+        scopeKind: "project",
+        scopeId: project.projectId,
+        role,
+        reminderMode: reminderMode ?? "backoff",
+        reminderCount: reminderState.reminderCount,
+        nextReminderAt: null,
+        openTasks: roleOpenTasks.map((task) => ({
+          taskId: task.taskId,
+          title: task.title
+        })),
+        content: buildOrchestratorReminderContent({
+          openTaskCount: roleOpenTasks.length,
+          openTaskTitlePreview: openTaskSummary.openTaskTitlePreview,
+          instruction:
+            "Please update progress and submit TASK_REPORT with results[].outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED for current work."
+        }),
+        requestId: reminderRequestId,
+        messageId: reminderMessageId,
+        primaryTaskId,
+        primarySummary: primaryTask?.lastSummary ?? "",
+        primaryTask:
+          primaryTask === null
+            ? null
+            : {
+                task_id: primaryTask.taskId,
+                task_kind: primaryTask.taskKind,
+                parent_task_id: primaryTask.parentTaskId,
+                root_task_id: primaryTask.rootTaskId,
+                state: primaryTask.state,
+                owner_role: primaryTask.ownerRole,
+                owner_session: primaryTask.ownerSession ?? null,
+                priority: primaryTask.priority ?? 0,
+                write_set: primaryTask.writeSet,
+                dependencies: primaryTask.dependencies,
+                acceptance: primaryTask.acceptance,
+                artifacts: primaryTask.artifacts
+              }
+      });
 
       await this.context.repositories.runInUnitOfWork({ project, paths }, async () => {
         await this.context.repositories.inbox.appendInboxMessage(paths, role, reminderMessage);
@@ -220,11 +257,8 @@ export class ProjectReminderService {
             reminderMode,
             reminderCount: reminderState?.reminderCount ?? 0,
             nextReminderAt: reminderState?.nextReminderAt ?? null,
-            openTaskIds: roleOpenTasks.map((task) => task.taskId),
-            openTaskTitles: roleOpenTasks.map((task) => ({
-              task_id: task.taskId,
-              title: task.title
-            }))
+            openTaskIds: openTaskSummary.openTaskIds,
+            openTaskTitles: openTaskSummary.openTaskTitles
           }
         });
       });
@@ -249,80 +283,5 @@ export class ProjectReminderService {
         }
       });
     }
-  }
-
-  private buildReminderMessage(
-    project: ProjectRecord,
-    role: string,
-    reminderMode: ProjectRecord["reminderMode"],
-    reminderCount: number,
-    primaryTask: TaskRecord | null,
-    roleOpenTasks: TaskRecord[],
-    reminderRequestId: string,
-    reminderMessageId: string
-  ): ManagerToAgentMessage {
-    const primaryTaskId = primaryTask?.taskId ?? null;
-    const openTaskTitlePreview = roleOpenTasks
-      .slice(0, 3)
-      .map((task) => `${task.taskId}: ${task.title}`)
-      .join("; ");
-    return {
-      envelope: {
-        message_id: reminderMessageId,
-        project_id: project.projectId,
-        timestamp: new Date().toISOString(),
-        sender: {
-          type: "system",
-          role: "manager",
-          session_id: "manager-system"
-        },
-        via: { type: "manager" },
-        intent: "SYSTEM_NOTICE",
-        priority: "normal",
-        correlation: {
-          request_id: reminderRequestId,
-          task_id: primaryTaskId ?? undefined
-        },
-        accountability: {
-          owner_role: role,
-          report_to: { role: "manager", session_id: "manager-system" },
-          expect: "TASK_REPORT"
-        },
-        dispatch_policy: "fixed_session"
-      },
-      body: buildReminderMessageBody({
-        role,
-        reminderMode: reminderMode ?? "backoff",
-        reminderCount,
-        nextReminderAt: null,
-        openTasks: roleOpenTasks.map((task) => ({
-          taskId: task.taskId,
-          title: task.title
-        })),
-        content:
-          `Reminder: you have ${roleOpenTasks.length} open task(s) without recent progress. ` +
-          (openTaskTitlePreview.length > 0 ? `Open tasks: ${openTaskTitlePreview}. ` : "") +
-          "Please update progress and submit TASK_REPORT with results[].outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED for current work.",
-        primaryTaskId,
-        primarySummary: primaryTask?.lastSummary ?? "",
-        primaryTask:
-          primaryTask === null
-            ? null
-            : {
-                task_id: primaryTask.taskId,
-                task_kind: primaryTask.taskKind,
-                parent_task_id: primaryTask.parentTaskId,
-                root_task_id: primaryTask.rootTaskId,
-                state: primaryTask.state,
-                owner_role: primaryTask.ownerRole,
-                owner_session: primaryTask.ownerSession ?? null,
-                priority: primaryTask.priority ?? 0,
-                write_set: primaryTask.writeSet,
-                dependencies: primaryTask.dependencies,
-                acceptance: primaryTask.acceptance,
-                artifacts: primaryTask.artifacts
-              }
-      })
-    };
   }
 }
