@@ -11,6 +11,7 @@ import {
   upsertWorkflowSession
 } from "../data/workflow-run-store.js";
 import { createWorkflowOrchestratorService } from "../services/orchestrator/index.js";
+import { createProviderRegistry } from "../services/provider-runtime.js";
 
 test("workflow resolves role-authoritative session with persisted roleSessionMap", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-role-authority-"));
@@ -42,7 +43,7 @@ test("workflow resolves role-authoritative session with persisted roleSessionMap
     status: "idle"
   });
 
-  const orchestrator = createWorkflowOrchestratorService(tempRoot);
+  const orchestrator = createWorkflowOrchestratorService(tempRoot, createProviderRegistry());
   await orchestrator.sendRunMessage({
     runId,
     fromAgent: "manager",
@@ -89,7 +90,7 @@ test("workflow dispatch skips duplicate open task dispatch", async () => {
     workspacePath: tempRoot,
     tasks: [{ taskId: "task_a", title: "Task A", ownerRole: "lead", resolvedTitle: "Task A" }]
   });
-  const orchestrator = createWorkflowOrchestratorService(tempRoot);
+  const orchestrator = createWorkflowOrchestratorService(tempRoot, createProviderRegistry());
   await orchestrator.startRun(runId);
   await upsertWorkflowSession(tempRoot, runId, {
     sessionId: "lead-session-01",

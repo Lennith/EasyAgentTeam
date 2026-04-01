@@ -1,0 +1,151 @@
+import { getTimeoutCooldownMs, getTimeoutEscalationThreshold } from "../session-lifecycle-authority.js";
+import { dumpSessionMessagesOnSoftTimeout } from "../session-timeout-message-dump.js";
+import { resolveSessionProviderId, type ProviderRegistry } from "../provider-runtime.js";
+import type { WorkflowRunRecord, WorkflowSessionRecord } from "../../domain/models.js";
+import { parseIsoMs } from "./session-manager.js";
+import { findLatestOpenDispatch } from "./dispatch-engine.js";
+import { getRuntimeSettings } from "../../data/runtime-settings-store.js";
+import type { WorkflowRepositoryBundle } from "../../data/repository/workflow-repository-bundle.js";
+import {
+  buildOrchestratorMinimaxSessionDir,
+  resolveOrchestratorProviderSessionId
+} from "./shared/orchestrator-runtime-helpers.js";
+
+export interface WorkflowSessionTimeoutDependencies {
+  dataRoot: string;
+  repositories: WorkflowRepositoryBundle;
+  providerRegistry: ProviderRegistry;
+  sessionRunningTimeoutMs: number;
+  resolveAuthoritativeSession(
+    runId: string,
+    role: string,
+    sessions: WorkflowSessionRecord[],
+    runRecord?: WorkflowRunRecord,
+    reason?: string
+  ): Promise<WorkflowSessionRecord | null>;
+}
+
+export async function markWorkflowTimedOutSessions(
+  dependencies: WorkflowSessionTimeoutDependencies,
+  run: WorkflowRunRecord,
+  sessions: WorkflowSessionRecord[]
+): Promise<void> {
+  const nowMs = Date.now();
+  const threshold = getTimeoutEscalationThreshold();
+  const cooldownMs = getTimeoutCooldownMs();
+  const settings = await getRuntimeSettings(dependencies.dataRoot);
+  const events = await dependencies.repositories.events.listEvents(run.runId);
+  const roleCandidates = Array.from(
+    new Set(sessions.filter((session) => session.status !== "dismissed").map((session) => session.role))
+  ).sort((a, b) => a.localeCompare(b));
+
+  for (const role of roleCandidates) {
+    const session = await dependencies.resolveAuthoritativeSession(run.runId, role, sessions, run, "timeout_check");
+    if (!session || session.status !== "running") {
+      continue;
+    }
+    const lastActiveMs = parseIsoMs(session.lastActiveAt ?? session.updatedAt);
+    if (!Number.isFinite(lastActiveMs) || nowMs - lastActiveMs < dependencies.sessionRunningTimeoutMs) {
+      continue;
+    }
+    const providerId = session.provider ?? resolveSessionProviderId(run, session.role, "minimax");
+    const cancelSessionId = resolveOrchestratorProviderSessionId(session.sessionId, session.providerSessionId);
+    const cancelRequested = dependencies.providerRegistry.cancelSession(providerId, cancelSessionId);
+    const sessionEvents = events.filter((event) => event.sessionId === session.sessionId);
+    const openDispatch = findLatestOpenDispatch(sessionEvents);
+    const currentTaskId = session.currentTaskId ?? openDispatch?.event.taskId ?? null;
+    const dispatchId = openDispatch?.dispatchId ?? session.lastDispatchId ?? null;
+    const timeoutStreak = (session.timeoutStreak ?? 0) + 1;
+    const escalated = timeoutStreak >= threshold;
+    const cooldownUntil =
+      escalated || cooldownMs <= 0 ? null : new Date(Date.now() + Math.max(0, cooldownMs)).toISOString();
+    const timeoutMarkedAt = new Date().toISOString();
+    const timeoutDump =
+      !escalated && providerId === "minimax"
+        ? await dumpSessionMessagesOnSoftTimeout({
+            workspacePath: run.workspacePath,
+            sessionDir: settings.minimaxSessionDir || buildOrchestratorMinimaxSessionDir(run.workspacePath),
+            sessionId: session.sessionId,
+            providerSessionId: session.providerSessionId,
+            runId: run.runId,
+            role: session.role,
+            provider: providerId,
+            dispatchId,
+            taskId: currentTaskId ?? null,
+            timeoutStreak
+          })
+        : null;
+
+    await dependencies.repositories.runInUnitOfWork({ run }, async () => {
+      await dependencies.repositories.sessions
+        .touchSession(run.runId, session.sessionId, {
+          status: escalated ? "dismissed" : "idle",
+          currentTaskId,
+          lastDispatchId: dispatchId,
+          timeoutStreak,
+          lastFailureAt: timeoutMarkedAt,
+          lastFailureKind: "timeout",
+          cooldownUntil,
+          agentPid: null,
+          lastRunId: run.runId
+        })
+        .catch(() => {});
+      if (openDispatch) {
+        const payload = openDispatch.event.payload as Record<string, unknown>;
+        await dependencies.repositories.events.appendEvent(run.runId, {
+          eventType: escalated ? "ORCHESTRATOR_DISPATCH_FAILED" : "ORCHESTRATOR_DISPATCH_FINISHED",
+          source: "system",
+          sessionId: session.sessionId,
+          taskId: currentTaskId ?? undefined,
+          payload: {
+            dispatchId: openDispatch.dispatchId,
+            mode: payload.mode ?? "loop",
+            dispatchKind: payload.dispatchKind ?? "task",
+            messageId: payload.messageId ?? null,
+            requestId: payload.requestId ?? null,
+            runId: run.runId,
+            exitCode: null,
+            timedOut: true,
+            synthetic: true,
+            reason: "session_heartbeat_timeout",
+            ...(escalated ? { error: "session heartbeat timeout escalated" } : {})
+          }
+        });
+      }
+      await dependencies.repositories.events.appendEvent(run.runId, {
+        eventType: "SESSION_HEARTBEAT_TIMEOUT",
+        source: "system",
+        sessionId: session.sessionId,
+        taskId: currentTaskId ?? undefined,
+        payload: {
+          previousStatus: "running",
+          timeoutMs: dependencies.sessionRunningTimeoutMs,
+          lastActiveAt: session.lastActiveAt,
+          provider: providerId,
+          providerSessionId: cancelSessionId,
+          cancelRequested,
+          timeoutStreak,
+          threshold,
+          escalated,
+          cooldownUntil,
+          dispatchId
+        }
+      });
+      await dependencies.repositories.events.appendEvent(run.runId, {
+        eventType: escalated ? "RUNNER_TIMEOUT_ESCALATED" : "RUNNER_TIMEOUT_SOFT",
+        source: "system",
+        sessionId: session.sessionId,
+        taskId: currentTaskId ?? undefined,
+        payload: {
+          runId: run.runId,
+          dispatchId,
+          timeoutStreak,
+          threshold,
+          cooldownUntil,
+          timeoutMessageDumpPath: timeoutDump?.filePath ?? null,
+          timeoutMessageCount: timeoutDump?.messageCount ?? null
+        }
+      });
+    });
+  }
+}

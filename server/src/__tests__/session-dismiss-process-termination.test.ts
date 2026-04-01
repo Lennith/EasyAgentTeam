@@ -3,20 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("dismiss returns processTermination result", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-session-dismiss-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -57,6 +52,6 @@ test("dismiss returns processTermination result", async () => {
     assert.equal(typeof payload.processTermination?.attempted, "boolean");
     assert.equal(typeof payload.processTermination?.result, "string");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });

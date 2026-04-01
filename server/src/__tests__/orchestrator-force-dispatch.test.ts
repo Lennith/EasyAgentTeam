@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 async function seedAgent(baseUrl: string, agentId: string): Promise<void> {
   const res = await fetch(`${baseUrl}/api/agents`, {
@@ -23,14 +23,8 @@ test("force dispatch returns clear task_not_found for stale task id", async () =
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-force-missing-task-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     await seedAgent(baseUrl, "dev_0");
@@ -62,7 +56,7 @@ test("force dispatch returns clear task_not_found for stale task id", async () =
     assert.equal(payload.results[0]?.outcome, "task_not_found");
     assert.equal(Boolean(payload.results[0]?.reason?.includes("does not exist")), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });
 
@@ -70,14 +64,8 @@ test("force dispatch rejects non-force-dispatchable state with explicit reason",
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-force-state-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     for (const agentId of ["manager", "dev_0"]) {
@@ -173,7 +161,7 @@ test("force dispatch rejects non-force-dispatchable state with explicit reason",
     assert.equal(payload.results[0]?.outcome, "task_not_force_dispatchable");
     assert.equal(Boolean(payload.results[0]?.reason?.includes("not force-dispatchable")), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });
 
@@ -181,14 +169,8 @@ test("force dispatch auto-bootstraps session when owner has only dismissed sessi
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-force-bootstrap-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     for (const agentId of ["manager", "dev_0"]) {
@@ -296,6 +278,6 @@ test("force dispatch auto-bootstraps session when owner has only dismissed sessi
     assert.notEqual(forcePayload.results[0]?.outcome, "session_not_found");
     assert.notEqual(forcePayload.results[0]?.sessionId, dismissedSessionId);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });

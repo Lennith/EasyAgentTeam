@@ -1,185 +1,111 @@
-# 编排器模块 PRD (Orchestrator)
+# Orchestrator 模块 PRD（V3）
 
-## 1. 模块目标
+## 1. 状态
 
-### 模块状态
+- 模块状态：`实装`
+- 范围：`server` 内部重构（V3 hard cut）
+- 外部冻结：API path、payload、status code、SSE、event type、task state、退役接口 `410` 语义不变
+- 本轮目标：routing + task-action（apply/converge/emit）已完成收口；shared 主路径接管并删除被替换的 internal helper/compat 路径
 
-- `实装`
+## 2. 当前生效结构
 
-### 模块职责
+- orchestrator 入口仅承担 façade + 依赖装配：
+  - `server/src/services/orchestrator/project-orchestrator.ts`
+  - `server/src/services/orchestrator/workflow-orchestrator.ts`
+- shared 骨架为唯一主路径：
+  - `shared/dispatch-template.ts`
+  - `shared/launch-template.ts`
+  - `shared/runner-template.ts`
+  - `shared/message-routing-template.ts`
+  - `shared/task-action-template.ts`
+  - `shared/tick-pipeline.ts`
+  - `shared/dispatch-lifecycle.ts`
+  - `shared/completion-policy.ts`
+- project/workflow 差异仅保留在 adapter/policy，不再在入口 service 手拼流程
 
-Project Orchestrator 负责项目运行态的调度闭环，核心包括：
+## 3. Launch 生效规则
 
-- 基于 role/session 选择可派发任务或消息并触发执行
-- 维护会话状态（`idle/running/blocked/dismissed`）
-- 执行自动派发预算（`auto_dispatch_enabled` + `auto_dispatch_remaining`）
-- 处理 running 超时与 reminder 重试
-- 输出可回放事件链（dispatch/timeout/reminder）
+- 生命周期统一为：`started -> execute -> success/failure/timeout/escalation`
+- shared launch/runner 负责编排骨架；域 adapter 仅保留：
+  - provider/run 细节
+  - 域状态最小写回
+  - 域事件语义映射
+- terminal-state 判定统一通过 `shared/dispatch-lifecycle.ts`
 
-**源码路径**:
+## 4. Routing 生效规则
 
-- `server/src/services/orchestrator/project-orchestrator.ts`
-- `server/src/services/orchestrator/dispatch-engine.ts`
-- `server/src/services/orchestrator/session-manager.ts`
-- `server/src/services/orchestrator/reminder-service.ts`
-- `server/src/services/orchestrator/index.ts`
+- 唯一流程固定为：`target resolve -> envelope normalize -> inbox persist -> route event persist -> session touch`
+- UoW 执行入口唯一化为：
+  - `executeOrchestratorMessageRoutingInUnitOfWork`
+- project/workflow routing service 只保留上下文装配与策略 gate
+- manager/discuss 输入契约统一使用：
+  - `OrchestratorRouteMessageInputBase`
+  - `OrchestratorDiscussReference`
+  - `normalizeOrchestratorDiscussReference(...)`
+- routing scope-only UoW runner 统一通过：
+  - `createOrchestratorMessageRoutingUnitOfWorkRunner(...)`
 
-### 解决问题
+## 5. Completion 生效规则
 
-- 避免 agent 对“可见但依赖未满足”的任务误上报推进态，污染时间线与阶段顺序判定
-- 保证每轮 dispatch 都有明确的 focus task，并把 blocked/task 依赖状态直接暴露给 agent
-- 在异常超时/重派发场景下保持编排可恢复、可观测、可复盘
+- `MAY_BE_DONE` 配置解析统一通过：
+  - `resolveOrchestratorMayBeDoneSettings(...)`
+- completion 共性规则统一通过 shared helper：
+  - `countOrchestratorTaskDispatches(...)`
+  - `hasOrchestratorSuccessfulRunFinishEvent(...)`
+  - `isOrchestratorTerminalTaskState(...)`
+  - `isOrchestratorValidProgressContent(...)`
+- project/workflow completion service 不再各自实现同构计数与配置解析逻辑
 
----
+## 6. 本轮已落地收口（2026-03-31）
 
-## 2. 功能范围
+- workflow provider runner 文件已删除并并入 launch adapter：
+  - 删除 `workflow-dispatch-provider-runner.ts`
+  - 逻辑并入 `workflow-dispatch-launch-adapter.ts`
+- workflow launch-support 旧 helper 已同轮删除：
+  - 删除 `workflow-dispatch-launch-support.ts`
+  - 生命周期辅助逻辑收口到 `workflow-dispatch-launch-adapter.ts`
+- workflow message routing internal 旧 helper 已同轮删除：
+  - 删除 `workflow-message-routing-internal.ts`
+  - 目标解析、envelope 构建、route event 组装统一收口到 `workflow-message-routing-service.ts`
+- project launch-support 旧 helper 已同轮删除：
+  - 删除 `project-dispatch-launch-support.ts`
+  - provider payload、runner lifecycle、terminal event append 统一收口到 `project-dispatch-launch-adapter.ts`
+- project message routing internal 旧 helper 已同轮删除：
+  - 删除 `project-message-routing-internal.ts`
+  - target/session/discuss/event 组装统一收口到 `project-message-routing-service.ts`
+- project message routing contracts 旧中间模块已同轮删除：
+  - 删除 `project-message-routing-contracts.ts`
+  - routing input/context/error 类型并入 `project-message-routing-service.ts`
+- project launch adapter 内部 seam 收窄：
+  - 移除无业务引用导出 `SyncDispatchRunResult`
+  - `ProjectDispatchLaunch*` 内部类型改为文件内私有声明，保留运行时行为与外部接口不变
+- manager chat message type 收敛为单一定义：
+  - `server/src/domain/models.ts` 中 `MANAGER_CHAT_MESSAGE_TYPES` / `ManagerChatMessageType`
+  - 统一校验函数 `isManagerChatMessageType(...)`
+- message routing 结果基础结构统一为 shared 单定义：
+  - `OrchestratorMessageRouteResult`
+- discuss 解析归一到 shared helper，manager service 与 workflow teamtool bridge 复用同一解析流程
+- launch/routing 错误文案归一复用：
+  - `resolveOrchestratorErrorMessage(...)`
+- completion 共性策略收敛为 shared helper：
+  - `shared/completion-policy.ts`
+- project dispatch façade 进一步收薄：
+  - force task precheck 与 session 解析下沉到 `project-dispatch-session-helper.ts`
+  - `project-dispatch-service.ts` 保留 scope resolve + adapter 装配 + public method
+- shared contract 收窄：
+  - 移除未使用 contract：`OrchestratorDispatchAdapter`、`OrchestratorRepositoryScope`、`OrchestratorScopeId`、`OrchestratorRunnerTerminalStatus`
+  - 保留现有 shared contract family，不新增命名体系
 
-### P0-2 改造说明（状态：实装）
+## 7. 事务与数据边界
 
-- 本轮将 Project/Workflow 编排器收敛到统一目录 `server/src/services/orchestrator/`。
-- 通过 `dispatch-engine/session-manager/reminder-service` 抽离共性能力，避免双实现重复维护。
-- 对外 HTTP 接口、调度语义、事件语义、超时/提醒语义、错误码语义保持不变（兼容冻结）。
+- route 层不直接开事务
+- application service 通过 repository/UoW 持有事务边界
+- 同一用例内 runtime/session/event/inbox/taskboard 关键写入保持单事务边界
 
-### 包含能力
+## 8. 验证快照（2026-03-31）
 
-- 手工 dispatch / loop 自动 dispatch
-- `force + task_id` 强制投递
-- `dispatch-message` 指定消息投递
-- running 超时收敛 + reminder 机制
-- role 维度会话收敛与冲突恢复
-
-### 不包含能力
-
-- task payload 协议校验（由 `task-action-service` 负责）
-- message payload 协议校验（由 `manager-message-service` 负责）
-
----
-
-## 3. 对外行为
-
-### 3.1 输入
-
-- `POST /api/projects/:id/orchestrator/dispatch`
-- `GET /api/projects/:id/orchestrator/settings`
-- `PATCH /api/projects/:id/orchestrator/settings`
-
-`dispatch` 请求关键参数：
-
-- `role`（可选）
-- `session_id`（可选）
-- `task_id`（可选）
-- `force`（可选）
-- `only_idle`（可选）
-
-约束：
-
-- `role + session_id` 同时传入时必须一致，否则 `409 SESSION_ROLE_MISMATCH`
-
-### 3.2 输出
-
-- `results[]`（每个目标 session 的派发结果）
-- 关键事件：
-  - `ORCHESTRATOR_DISPATCH_STARTED`
-  - `ORCHESTRATOR_DISPATCH_FINISHED`
-  - `ORCHESTRATOR_DISPATCH_FAILED`
-  - `SESSION_HEARTBEAT_TIMEOUT`
-  - `ORCHESTRATOR_ROLE_REMINDER_TRIGGERED`
-  - `ORCHESTRATOR_ROLE_REMINDER_RESET`
-
-### 3.3 Dispatch Prompt 执行语义（状态：实装）
-
-每次派发给 agent 的 prompt 必须明确以下上下文：
-
-- `focus_task_id`
-- `this_turn_operate_task_id`
-- `visible_actionable_tasks`
-- `visible_blocked_tasks`
-- `focus_task_dependencies_ready`
-- `focus_task_unresolved_dependencies`
-
-执行约束（prompt contract）：
-
-- 优先处理 focus task
-- 非 focus task 在依赖已满足时允许上报，但属于次优行为
-- 对依赖未满足任务，不得上报 `IN_PROGRESS/DONE/MAY_BE_DONE`
-- 若因依赖门禁被拒绝，需等待依赖完成提示后再继续，并撤回或降级冲突性的提前完成结论
-
----
-
-## 4. 内部逻辑
-
-### 4.1 任务选择（状态：实装）
-
-1. 任务派发候选按统一优先级选择：`depth desc -> priority desc -> createdAt asc -> taskId asc`
-2. 当同一 role 同时存在祖先任务与其后代任务候选时，优先派发树更深（叶子侧）任务
-3. 任务绑定消息（含 `TASK_ASSIGNMENT`）命中多个候选任务时，按同一优先级规则选唯一 task
-4. 讨论消息仍按线程/消息语义插入调度，不引入任务优先级排序
-5. 无目标返回 `no_message`
-
-### 4.2 Force Dispatch
-
-- `force=true + task_id` 允许跨常规候选直接定位任务
-- 允许状态：`READY | DISPATCHED | IN_PROGRESS | MAY_BE_DONE`
-- owner role 无活跃会话时可自动 bootstrap session 并更新 owner 绑定
-
-### 4.3 依赖门禁
-
-- 常规派发必须通过依赖门禁（自身依赖 + 祖先链依赖）
-- 依赖未满足任务不会作为有效推进目标进入派发候选
-
-### 4.4 自动派发预算
-
-- 仅“有效任务派发”扣减 `auto_dispatch_remaining`
-- 预算归零触发 `ORCHESTRATOR_AUTO_LIMIT_REACHED`
-
-### 4.5 超时与提醒
-
-- running 超时后执行软收敛并补齐 run/dispatch 闭环事件
-- reminder 基于 role 运行态 + open tasks 触发，不依赖旧 session 实例是否仍可用
-
----
-
-## 5. 异常与边界
-
-| 场景                              | 结果                          |
-| --------------------------------- | ----------------------------- |
-| session 正忙                      | `session_busy`                |
-| task 不存在                       | `task_not_found`              |
-| task 状态不允许 force             | `task_not_force_dispatchable` |
-| task owner 与 session role 不一致 | `task_owner_mismatch`         |
-| 命中未闭合重复派发                | `already_dispatched`          |
-| runner 执行失败                   | `dispatch_failed`             |
-
----
-
-## 6. 数据与事件
-
-### DispatchOutcome
-
-- `dispatched`
-- `no_message`
-- `task_not_found`
-- `task_not_force_dispatchable`
-- `task_owner_mismatch`
-- `already_dispatched`
-- `session_busy`
-- `session_not_found`
-- `dispatch_failed`
-
-### 关键事件
-
-- `ORCHESTRATOR_DISPATCH_STARTED`
-- `ORCHESTRATOR_DISPATCH_FINISHED`
-- `ORCHESTRATOR_DISPATCH_FAILED`
-- `SESSION_HEARTBEAT_TIMEOUT`
-- `ORCHESTRATOR_ROLE_REMINDER_TRIGGERED`
-- `ORCHESTRATOR_ROLE_REMINDER_RESET`
-
----
-
-## API Path Registry (docs:check)
-
-Orchestrator settings endpoints (exact path contract):
-
-- `GET /api/projects/:id/orchestrator/settings`
-- `PATCH /api/projects/:id/orchestrator/settings`
+- `pnpm --filter @autodev/server build`：通过
+- `pnpm --filter @autodev/server test`：连续 2 次通过
+- flaky 关注集额外回归通过：
+  - `pnpm --filter @autodev/server run test -- --test-name-pattern "workflow-block-propagation|workflow-task-runtime-api|session-timeout-closure|bad port"`
+- 最新快照：`tests 313 / pass 308 / fail 0 / skipped 5`

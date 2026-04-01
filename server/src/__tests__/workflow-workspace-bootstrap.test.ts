@@ -4,8 +4,8 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("workflow run bootstrap creates agent workspace files with fallback prompt for unregistered role", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-workspace-bootstrap-"));
@@ -14,13 +14,8 @@ test("workflow run bootstrap creates agent workspace files with fallback prompt 
   await fs.mkdir(workflowWorkspace, { recursive: true });
 
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
 
   try {
     const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
@@ -57,6 +52,6 @@ test("workflow run bootstrap creates agent workspace files with fallback prompt 
     assert.equal(roleMd.includes("Role: custom_dev_role"), true);
     assert.equal(progressMd.includes("# Progress - custom_dev_role"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });

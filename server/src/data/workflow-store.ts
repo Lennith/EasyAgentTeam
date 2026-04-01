@@ -13,8 +13,7 @@ import type {
   WorkflowTemplateRegistryState,
   WorkflowTemplateTaskRecord
 } from "../domain/models.js";
-import { deleteDirectoryTransactional, ensureDirectory, ensureFile, runStorageTransaction } from "./file-utils.js";
-import { readJsonFile, writeJsonFile } from "./store/store-runtime.js";
+import { getRepository, getUnitOfWork } from "./repository/runtime.js";
 import {
   ensureWorkflowRunRuntime,
   readWorkflowRunTaskRuntimeState,
@@ -119,6 +118,8 @@ class WorkflowWriteMutex {
 }
 
 const workflowWriteMutex = new WorkflowWriteMutex();
+const repository = getRepository();
+const unitOfWork = getUnitOfWork();
 
 function getWorkflowPaths(dataRoot: string): WorkflowPaths {
   const workflowsRootDir = path.join(dataRoot, "workflows");
@@ -270,10 +271,10 @@ function normalizeRunTask(task: WorkflowRunTaskRecord, index: number): WorkflowR
 
 async function ensureWorkflowRuntime(dataRoot: string): Promise<WorkflowPaths> {
   const paths = getWorkflowPaths(dataRoot);
-  await ensureDirectory(paths.workflowsRootDir);
-  await ensureDirectory(paths.runsRootDir);
-  await ensureFile(paths.templatesFile, `${JSON.stringify(defaultTemplateRegistry(), null, 2)}\n`);
-  await ensureFile(paths.runsFile, `${JSON.stringify(defaultRunRegistry(), null, 2)}\n`);
+  await repository.ensureDirectory(paths.workflowsRootDir);
+  await repository.ensureDirectory(paths.runsRootDir);
+  await repository.ensureFile(paths.templatesFile, `${JSON.stringify(defaultTemplateRegistry(), null, 2)}\n`);
+  await repository.ensureFile(paths.runsFile, `${JSON.stringify(defaultRunRegistry(), null, 2)}\n`);
   return paths;
 }
 
@@ -516,12 +517,12 @@ async function normalizeRunRecord(
 
 async function readTemplateRegistry(dataRoot: string): Promise<WorkflowTemplateRegistryState> {
   const paths = await ensureWorkflowRuntime(dataRoot);
-  return readJsonFile(paths.templatesFile, defaultTemplateRegistry());
+  return repository.readJson(paths.templatesFile, defaultTemplateRegistry());
 }
 
 async function readRunRegistry(dataRoot: string): Promise<WorkflowRunRegistryState> {
   const paths = await ensureWorkflowRuntime(dataRoot);
-  const raw = await readJsonFile(paths.runsFile, defaultRunRegistry() as WorkflowRunRegistryState | Record<string, unknown>);
+  const raw = await repository.readJson(paths.runsFile, defaultRunRegistry() as WorkflowRunRegistryState | Record<string, unknown>);
   const maybeState = raw as WorkflowRunRegistryState;
   if (maybeState.schemaVersion === "2.0" && Array.isArray(maybeState.runs)) {
     const normalizedRuns: WorkflowRunRecord[] = [];
@@ -530,7 +531,7 @@ async function readRunRegistry(dataRoot: string): Promise<WorkflowRunRegistrySta
       const normalized = await normalizeRunRecord(dataRoot, item as unknown as Record<string, unknown>);
       if (normalized.migrated) {
         hasLegacyMigration = true;
-        await deleteDirectoryTransactional(path.join(paths.runsRootDir, normalized.record.runId));
+        await repository.deleteDirectory(path.join(paths.runsRootDir, normalized.record.runId));
         continue;
       }
       normalizedRuns.push(normalized.record);
@@ -541,7 +542,7 @@ async function readRunRegistry(dataRoot: string): Promise<WorkflowRunRegistrySta
         updatedAt: new Date().toISOString(),
         runs: normalizedRuns
       };
-      await writeJsonFile(paths.runsFile, next);
+      await repository.writeJson(paths.runsFile, next);
       return next;
     }
     return {
@@ -551,10 +552,10 @@ async function readRunRegistry(dataRoot: string): Promise<WorkflowRunRegistrySta
     };
   }
 
-  await deleteDirectoryTransactional(paths.runsRootDir);
-  await ensureDirectory(paths.runsRootDir);
+  await repository.deleteDirectory(paths.runsRootDir);
+  await repository.ensureDirectory(paths.runsRootDir);
   const next: WorkflowRunRegistryState = defaultRunRegistry();
-  await writeJsonFile(paths.runsFile, next);
+  await repository.writeJson(paths.runsFile, next);
   return next;
 }
 
@@ -612,7 +613,7 @@ export async function createWorkflowTemplate(
     };
     state.templates.push(created);
     state.updatedAt = now;
-    await writeJsonFile(paths.templatesFile, state);
+    await repository.writeJson(paths.templatesFile, state);
     return created;
   });
 }
@@ -665,7 +666,7 @@ export async function patchWorkflowTemplate(
     }
     state.templates[idx] = next;
     state.updatedAt = now;
-    await writeJsonFile(paths.templatesFile, state);
+    await repository.writeJson(paths.templatesFile, state);
     return next;
   });
 }
@@ -685,7 +686,7 @@ export async function deleteWorkflowTemplate(
     state.templates.splice(idx, 1);
     const removedAt = new Date().toISOString();
     state.updatedAt = removedAt;
-    await writeJsonFile(paths.templatesFile, state);
+    await repository.writeJson(paths.templatesFile, state);
     return { templateId, removedAt };
   });
 }
@@ -755,7 +756,7 @@ export async function createWorkflowRun(dataRoot: string, input: CreateWorkflowR
     };
     state.runs.push(created);
     state.updatedAt = now;
-    await writeJsonFile(paths.runsFile, state);
+    await repository.writeJson(paths.runsFile, state);
     await ensureWorkflowRunRuntime(dataRoot, runId, buildInitialRuntimeFromTasks(normalizedTasks));
     return hydrateRunRuntime(dataRoot, created);
   });
@@ -819,7 +820,7 @@ export async function patchWorkflowRun(
     };
     state.runs[idx] = next;
     state.updatedAt = now;
-    await writeJsonFile(paths.runsFile, state);
+    await repository.writeJson(paths.runsFile, state);
     if (patch.runtime !== undefined) {
       if (patch.runtime === null) {
         await writeWorkflowRunTaskRuntimeState(dataRoot, runId, buildInitialRuntimeFromTasks(next.tasks));
@@ -847,9 +848,9 @@ export async function deleteWorkflowRun(
     const removedAt = new Date().toISOString();
     state.updatedAt = removedAt;
     const runtimeDir = path.join(paths.runsRootDir, runId);
-    await runStorageTransaction([paths.workflowsRootDir, runtimeDir], async () => {
-      await writeJsonFile(paths.runsFile, state);
-      await deleteDirectoryTransactional(runtimeDir);
+    await unitOfWork.run([paths.workflowsRootDir, runtimeDir], async () => {
+      await repository.writeJson(paths.runsFile, state);
+      await repository.deleteDirectory(runtimeDir);
     });
     return { runId, removedAt };
   });

@@ -7,6 +7,7 @@ import { createProject, ensureProjectRuntime } from "../data/project-store.js";
 import { addSession } from "../data/session-store.js";
 import { createTask } from "../data/taskboard-store.js";
 import { OrchestratorService } from "../services/orchestrator/index.js";
+import { createProviderRegistry } from "../services/provider-runtime.js";
 
 test("force dispatch rejects task ownerSession that does not match sessionId", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-owner-session-key-"));
@@ -43,6 +44,7 @@ test("force dispatch rejects task ownerSession that does not match sessionId", a
 
   const orchestrator = new OrchestratorService({
     dataRoot,
+    providerRegistry: createProviderRegistry(),
     enabled: true,
     intervalMs: 3000,
     maxConcurrentDispatches: 2,

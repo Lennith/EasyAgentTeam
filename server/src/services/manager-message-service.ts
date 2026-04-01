@@ -1,16 +1,14 @@
-import { randomUUID } from "node:crypto";
+import { isManagerChatMessageType } from "../domain/models.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
-import { appendEvent } from "../data/event-store.js";
-import { clearRoleSessionMapping, isProjectRouteAllowed, setRoleSessionMapping } from "../data/project-store.js";
-import { addSession, getSession } from "../data/session-store.js";
+import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
+import { validateExplicitTargetSession } from "./routing-guard-service.js";
+import { createTimestampRequestId } from "./orchestrator/shared/orchestrator-identifiers.js";
+import { normalizeOrchestratorDiscussReference } from "./orchestrator/shared/manager-message-contract.js";
 import {
-  isReservedTargetSessionId,
-  validateExplicitTargetSession,
-  validateRoleSessionMapWrite
-} from "./routing-guard-service.js";
-import { deliverManagerMessage } from "./manager-routing-service.js";
-import { emitMessageRouted, emitUserMessageReceived } from "./manager-routing-event-emitter-service.js";
-import { resolveActiveSessionForRole } from "./session-lifecycle-authority.js";
+  routeProjectManagerMessage,
+  type ProjectRouteMessageType
+} from "./orchestrator/project-message-routing-service.js";
+import { resolveTargetSession } from "./task-actions/shared.js";
 
 function readStringField(body: Record<string, unknown>, keys: string[], fallback?: string): string | undefined {
   for (const key of keys) {
@@ -40,35 +38,6 @@ function detectEncodingCorruption(content: string): string | null {
     return `content has high '?' ratio (${Math.round(ratio * 100)}%) with repeated '???'`;
   }
   return null;
-}
-
-function buildSessionId(role: string): string {
-  const safeRole = role.replace(/[^a-zA-Z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
-  return `session-${safeRole}-${randomUUID().slice(0, 12)}`;
-}
-
-async function resolveUsableSessionIdByRole(
-  dataRoot: string,
-  project: ProjectRecord,
-  paths: ProjectPaths,
-  role: string
-): Promise<string | undefined> {
-  const latest = await resolveActiveSessionForRole({
-    dataRoot,
-    project,
-    paths,
-    role,
-    reason: "message_send"
-  });
-  if (latest && latest.status !== "dismissed" && !isReservedTargetSessionId(latest.sessionId)) {
-    return latest.sessionId;
-  }
-  const mapped = project.roleSessionMap?.[role];
-  if (!mapped) {
-    return undefined;
-  }
-  await clearRoleSessionMapping(dataRoot, project.projectId, role);
-  return undefined;
 }
 
 export class ManagerMessageServiceError extends Error {
@@ -102,6 +71,7 @@ export async function handleManagerMessageSend(
   paths: ProjectPaths,
   body: Record<string, unknown>
 ): Promise<ManagerMessageSendResult> {
+  const repositories = getProjectRepositoryBundle(dataRoot);
   const modeRaw = (body.mode as string | undefined)?.toUpperCase();
   if (modeRaw === "TASK_ASSIGN") {
     throw new ManagerMessageServiceError(
@@ -122,9 +92,8 @@ export async function handleManagerMessageSend(
     );
   }
 
-  const messageType = readStringField(body, ["message_type", "messageType"], "MANAGER_MESSAGE");
-  const validTypes = new Set(["MANAGER_MESSAGE", "TASK_DISCUSS_REQUEST", "TASK_DISCUSS_REPLY", "TASK_DISCUSS_CLOSED"]);
-  if (!messageType || !validTypes.has(messageType)) {
+  const messageTypeRaw = readStringField(body, ["message_type", "messageType"], "MANAGER_MESSAGE");
+  if (!messageTypeRaw || !isManagerChatMessageType(messageTypeRaw)) {
     throw new ManagerMessageServiceError(
       400,
       "MESSAGE_TYPE_INVALID",
@@ -132,6 +101,7 @@ export async function handleManagerMessageSend(
       "Use MANAGER_MESSAGE or TASK_DISCUSS_REQUEST|TASK_DISCUSS_REPLY|TASK_DISCUSS_CLOSED."
     );
   }
+  const messageType: ProjectRouteMessageType = messageTypeRaw;
 
   const to = (body.to ?? {}) as Record<string, unknown>;
   const toRole = (to.agent ?? to.role ?? body.to_role ?? body.to_agent) as string | undefined;
@@ -141,7 +111,7 @@ export async function handleManagerMessageSend(
     (fromAgent === "manager" ? "manager-system" : "agent-session-unknown");
   const explicitSessionId = (to.session_id ?? body.session_id ?? body.to_session_id) as string | undefined;
   const content = body.content as string | undefined;
-  const requestId = ((body.request_id ?? body.requestId) as string | undefined) ?? `${Date.now()}`;
+  const requestId = ((body.request_id ?? body.requestId) as string | undefined) ?? createTimestampRequestId();
   const parentRequestId = readStringField(body, ["parent_request_id", "parentRequestId"]);
   const taskId = readStringField(body, ["task_id", "taskId"]);
 
@@ -195,36 +165,7 @@ export async function handleManagerMessageSend(
     }
   }
   if (!resolvedSessionId && resolvedToRole) {
-    resolvedSessionId = await resolveUsableSessionIdByRole(dataRoot, project, paths, resolvedToRole);
-  }
-  if (!resolvedSessionId && resolvedToRole) {
-    const configuredProviderId = project.agentModelConfigs?.[resolvedToRole]?.provider_id;
-    if (
-      configuredProviderId &&
-      configuredProviderId !== "codex" &&
-      configuredProviderId !== "trae" &&
-      configuredProviderId !== "minimax"
-    ) {
-      throw new ManagerMessageServiceError(
-        409,
-        "SESSION_PROVIDER_NOT_SUPPORTED",
-        `role '${resolvedToRole}' is configured with unsupported provider '${configuredProviderId}'`,
-        "Only codex, trae, and minimax providers are supported for session startup."
-      );
-    }
-    resolvedSessionId = buildSessionId(resolvedToRole);
-    const resolvedProviderId = project.agentModelConfigs?.[resolvedToRole]?.provider_id ?? "minimax";
-    await addSession(paths, project.projectId, {
-      sessionId: resolvedSessionId,
-      role: resolvedToRole,
-      status: "idle",
-      providerSessionId: undefined,
-      provider: resolvedProviderId
-    });
-    const mappingError = validateRoleSessionMapWrite(resolvedToRole, resolvedSessionId);
-    if (!mappingError) {
-      await setRoleSessionMapping(dataRoot, project.projectId, resolvedToRole, resolvedSessionId);
-    }
+    resolvedSessionId = await resolveTargetSession(dataRoot, project, paths, resolvedToRole, undefined);
   }
   if (!resolvedSessionId) {
     throw new ManagerMessageServiceError(
@@ -235,11 +176,11 @@ export async function handleManagerMessageSend(
     );
   }
   if (!resolvedToRole) {
-    const target = await getSession(paths, project.projectId, resolvedSessionId);
+    const target = await repositories.sessions.getSession(paths, project.projectId, resolvedSessionId);
     resolvedToRole = target?.role;
   }
-  if (resolvedToRole && !isProjectRouteAllowed(project, fromAgent, resolvedToRole)) {
-    await appendEvent(paths, {
+  if (resolvedToRole && !repositories.projectRuntime.isProjectRouteAllowed(project, fromAgent, resolvedToRole)) {
+    await repositories.events.appendEvent(paths, {
       projectId: project.projectId,
       eventType: "MESSAGE_ROUTE_DENIED",
       source: "manager",
@@ -259,91 +200,19 @@ export async function handleManagerMessageSend(
     );
   }
 
-  const messageId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  const intent = messageType.startsWith("TASK_DISCUSS") ? "TASK_DISCUSS" : "MANAGER_MESSAGE";
-  const managerMessage = {
-    envelope: {
-      message_id: messageId,
-      project_id: project.projectId,
-      timestamp: new Date().toISOString(),
-      sender: {
-        type: fromAgent === "manager" ? ("system" as const) : ("agent" as const),
-        role: fromAgent,
-        session_id: fromSessionId
-      },
-      via: { type: "manager" as const },
-      intent,
-      priority: "normal" as const,
-      correlation: {
-        request_id: requestId,
-        parent_request_id: parentRequestId,
-        task_id: taskId
-      },
-      accountability: {
-        owner_role: resolvedToRole ?? "unknown",
-        report_to: { role: fromAgent, session_id: fromSessionId },
-        expect: messageType === "TASK_DISCUSS_REQUEST" ? ("DISCUSS_REPLY" as const) : ("TASK_REPORT" as const)
-      },
-      dispatch_policy: "fixed_session" as const
-    },
-    body: {
-      content: content.trim(),
-      mode: "CHAT",
-      messageType,
-      taskId,
-      discuss: body.discuss ?? null
-    }
-  };
-
-  await deliverManagerMessage({
+  return await routeProjectManagerMessage({
     dataRoot,
     project,
     paths,
-    message: managerMessage,
-    targetRole: resolvedToRole,
-    targetSessionId: resolvedSessionId,
-    updateRoleSessionMap: Boolean(resolvedToRole)
-  });
-
-  await emitUserMessageReceived(
-    { projectId: project.projectId, paths, source: "manager", taskId },
-    {
-      requestId,
-      parentRequestId,
-      content: content.trim(),
-      toRole: resolvedToRole ?? null,
-      fromAgent,
-      mode: "CHAT",
-      messageType,
-      taskId,
-      discuss: body.discuss ?? null
-    }
-  );
-  await emitMessageRouted(
-    { projectId: project.projectId, paths, source: "manager", sessionId: resolvedSessionId, taskId },
-    {
-      requestId,
-      parentRequestId,
-      toRole: resolvedToRole ?? null,
-      resolvedSessionId,
-      messageId,
-      mode: "CHAT",
-      messageType,
-      taskId,
-      discuss: body.discuss ?? null,
-      content: content.trim()
-    }
-  );
-
-  return {
+    fromAgent,
+    fromSessionId,
+    messageType,
+    toRole: resolvedToRole ?? null,
+    toSessionId: resolvedSessionId,
     requestId,
     parentRequestId: parentRequestId ?? null,
-    messageId,
-    messageType,
     taskId: taskId ?? null,
-    toRole: resolvedToRole ?? null,
-    resolvedSessionId,
-    mode: "CHAT",
-    createdAt: new Date().toISOString()
-  };
+    content: content.trim(),
+    discuss: normalizeOrchestratorDiscussReference(body.discuss)
+  });
 }

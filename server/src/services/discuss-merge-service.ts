@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
-import { appendEvent } from "../data/event-store.js";
+import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
 import {
   clearBufferedDiscussMessages,
   listBufferedDiscussMessages,
   type BufferedDiscussMessage
 } from "../data/discuss-buffer-store.js";
-import { deliverManagerMessage } from "./manager-routing-service.js";
-import { emitMessageRouted, emitUserMessageReceived } from "./manager-routing-event-emitter-service.js";
+import { routeProjectManagerMessage } from "./orchestrator/project-message-routing-service.js";
 import { clampDiscussRounds } from "./discuss-policy-service.js";
 
 interface MergeGroupKey {
@@ -117,6 +116,7 @@ export async function flushMergedDiscussRequestsForParent(
   paths: ProjectPaths,
   parentRequestId: string
 ): Promise<DiscussMergeFlushResult> {
+  const repositories = getProjectRepositoryBundle(dataRoot);
   const resolvedParentRequestId = parentRequestId.trim();
   if (!resolvedParentRequestId) {
     return {
@@ -154,106 +154,27 @@ export async function flushMergedDiscussRequestsForParent(
     const createdAt = new Date().toISOString();
     const messageId = randomUUID();
     const requestId = randomUUID();
-    const managerMessage = {
-      envelope: {
-        message_id: messageId,
-        project_id: project.projectId,
-        timestamp: createdAt,
-        sender: {
-          type: "system" as const,
-          role: "manager",
-          session_id: "manager-system"
-        },
-        via: { type: "manager" as const },
-        intent: "TASK_DISCUSS",
-        priority: "normal" as const,
-        correlation: {
-          request_id: requestId,
-          parent_request_id: resolvedParentRequestId,
-          task_id: row.key.taskId
-        },
-        accountability: {
-          owner_role: row.key.toRole,
-          report_to: {
-            role: row.key.fromAgent,
-            session_id: "manager-system"
-          },
-          expect: "DISCUSS_REPLY" as const
-        },
-        dispatch_policy: "fixed_session" as const
-      },
-      body: {
-        content: row.mergedContent,
-        mode: "CHAT",
-        messageType: "TASK_DISCUSS_REQUEST",
-        taskId: row.key.taskId,
-        discuss: row.mergedDiscuss
-      }
-    };
-
-    await deliverManagerMessage({
+    const routed = await routeProjectManagerMessage({
       dataRoot,
       project,
       paths,
-      message: managerMessage,
-      targetRole: row.key.toRole,
-      targetSessionId: row.key.toSessionId,
-      updateRoleSessionMap: Boolean(row.key.toRole)
+      fromAgent: row.key.fromAgent,
+      fromSessionId: "manager-system",
+      messageType: "TASK_DISCUSS_REQUEST",
+      toRole: row.key.toRole,
+      toSessionId: row.key.toSessionId,
+      requestId,
+      parentRequestId: resolvedParentRequestId,
+      taskId: row.key.taskId,
+      content: row.mergedContent,
+      discuss: row.mergedDiscuss,
+      messageId,
+      createdAt
     });
-
-    await emitUserMessageReceived(
-      {
-        projectId: project.projectId,
-        paths,
-        source: "manager",
-        taskId: row.key.taskId
-      },
-      {
-        requestId,
-        parentRequestId: resolvedParentRequestId,
-        content: row.mergedContent,
-        toRole: row.key.toRole,
-        fromAgent: row.key.fromAgent,
-        mode: "CHAT",
-        messageType: "TASK_DISCUSS_REQUEST",
-        taskId: row.key.taskId,
-        discuss: row.mergedDiscuss,
-        extras: {
-          sourceType: "manager",
-          originAgent: row.key.fromAgent,
-          relaySource: "manager",
-          mergedFromBuffered: true,
-          mergedCount: row.entries.length,
-          sourceRequestIds: row.entries.map((item) => item.requestId)
-        }
-      }
-    );
-
-    await emitMessageRouted(
-      {
-        projectId: project.projectId,
-        paths,
-        source: "manager",
-        sessionId: row.key.toSessionId,
-        taskId: row.key.taskId
-      },
-      {
-        requestId,
-        parentRequestId: resolvedParentRequestId,
-        toRole: row.key.toRole,
-        resolvedSessionId: row.key.toSessionId,
-        messageId,
-        mode: "CHAT",
-        messageType: "TASK_DISCUSS_REQUEST",
-        taskId: row.key.taskId,
-        discuss: row.mergedDiscuss,
-        content: row.mergedContent
-      }
-    );
-    routedMessageIds.push(messageId);
+    routedMessageIds.push(routed.messageId);
   }
 
-  await appendEvent(paths, {
+  await repositories.events.appendEvent(paths, {
     projectId: project.projectId,
     eventType: "DISCUSS_BUFFER_FLUSHED",
     source: "manager",

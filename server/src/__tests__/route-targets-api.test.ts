@@ -3,27 +3,20 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
 import { DISCUSS_DEFAULT_MAX_ROUNDS } from "../services/discuss-policy-service.js";
+import { startTestHttpServer, type TestHttpServerHandle } from "./helpers/http-test-server.js";
 
 async function startServerWithBaseUrl(app: ReturnType<typeof createApp>): Promise<{
-  server: ReturnType<typeof createServer>;
+  server: TestHttpServerHandle["server"];
   baseUrl: string;
+  close: TestHttpServerHandle["close"];
 }> {
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const port = Number(address.port);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`invalid test server port: ${String(address.port)}`);
-  }
+  const handle = await startTestHttpServer(app);
   return {
-    server,
-    baseUrl: `http://127.0.0.1:${port}`
+    server: handle.server,
+    baseUrl: handle.baseUrl,
+    close: handle.close
   };
 }
 
@@ -44,7 +37,7 @@ test("route-targets API returns directional targets with directional discuss rou
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-route-targets-dir-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const { server, baseUrl } = await startServerWithBaseUrl(app);
+  const { baseUrl, close } = await startServerWithBaseUrl(app);
 
   try {
     for (const agentId of ["PM", "planner", "devleader"]) {
@@ -84,7 +77,7 @@ test("route-targets API returns directional targets with directional discuss rou
     assert.equal(byRole.get("PM"), 5);
     assert.equal(byRole.get("devleader"), 2);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await close();
   }
 });
 
@@ -92,7 +85,7 @@ test("route-targets API falls back to enabled agents when route table is not con
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-route-targets-default-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const { server, baseUrl } = await startServerWithBaseUrl(app);
+  const { baseUrl, close } = await startServerWithBaseUrl(app);
 
   try {
     for (const agentId of ["agent_a", "agent_b", "agent_c"]) {
@@ -123,6 +116,6 @@ test("route-targets API falls back to enabled agents when route table is not con
     assert.equal(byRole.get("agent_c"), DISCUSS_DEFAULT_MAX_ROUNDS);
     assert.equal(byRole.has("agent_b"), false);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await close();
   }
 });

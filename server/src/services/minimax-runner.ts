@@ -10,11 +10,10 @@ import { logger } from "../utils/logger.js";
 import { MiniMaxAgent, createMiniMaxAgent, type MiniMaxRunResult } from "../minimax/index.js";
 import { isMiniMaxContextWindowExceededError, isMiniMaxToolResultIdNotFoundError } from "../minimax/llm/LLMClient.js";
 import { createProjectToolExecutionAdapter, DefaultToolInjector } from "./tool-injector.js";
-import { listAgents } from "../data/agent-store.js";
-import { resolveImportedSkillPromptSegments, resolveSkillIdsForAgent } from "../data/skill-store.js";
 import { composeSystemPrompt } from "./prompt-composer.js";
 import { resolveSkillPromptSegments } from "./skill-catalog.js";
 import { getDefaultShellType } from "../runtime-platform.js";
+import { resolveOrchestratorRolePromptSkillBundle } from "./orchestrator/shared/index.js";
 
 const activeRunners = new Map<string, MiniMaxRunner>();
 
@@ -305,28 +304,25 @@ export class MiniMaxRunner {
         "system",
         `[MiniMaxRunner] token_limit=${this.settings.minimaxTokenLimit ?? 180000}, max_output_tokens=${this.settings.minimaxMaxOutputTokens ?? 16384}`
       );
-      const agents = await listAgents(this.dataRoot);
-      const roleAgent = this.request.agentRole
-        ? agents.find((item) => item.agentId === this.request.agentRole)
-        : undefined;
-      const rolePrompt = roleAgent?.prompt;
-      const requestedSkillIds = await resolveSkillIdsForAgent(this.dataRoot, roleAgent?.skillList);
-      const importedSkillPrompt = await resolveImportedSkillPromptSegments(this.dataRoot, requestedSkillIds);
+      const rolePromptSkillBundle = await resolveOrchestratorRolePromptSkillBundle({
+        dataRoot: this.dataRoot,
+        role: this.request.agentRole ?? ""
+      });
       const skillPrompt = resolveSkillPromptSegments({
         manifestPath: process.env.AUTO_DEV_SKILL_MANIFEST,
         providerId: "minimax",
         contextKind: "project_dispatch",
-        requestedSkillIds
+        requestedSkillIds: rolePromptSkillBundle.skillIds
       });
       const promptCompose = composeSystemPrompt({
         providerId: "minimax",
         hostPlatform: process.platform,
         role: this.request.agentRole,
-        rolePrompt,
+        rolePrompt: rolePromptSkillBundle.rolePrompt,
         contextKind: "project_dispatch",
         contextOverride: this.request.taskId ? `Active task: ${this.request.taskId}` : undefined,
         runtimeConstraints: ["Use task-action tool calls for create/discuss/report lifecycle updates."],
-        skillSegments: [...importedSkillPrompt.segments, ...skillPrompt.segments]
+        skillSegments: [...rolePromptSkillBundle.skillSegments, ...skillPrompt.segments]
       });
       const toolInjection = DefaultToolInjector.build(
         createProjectToolExecutionAdapter({

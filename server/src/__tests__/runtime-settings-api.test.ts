@@ -3,21 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("settings API returns and updates codex cli command", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-settings-api-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const initialRes = await fetch(`${baseUrl}/api/settings`);
@@ -51,7 +45,7 @@ test("settings API returns and updates codex cli command", async () => {
     const afterPayload = (await afterRes.json()) as { codexCliCommand?: string };
     assert.equal(afterPayload.codexCliCommand, "codex");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -59,14 +53,8 @@ test("settings API supports minimax clear and reset with null semantics", async 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-settings-api-minimax-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const setRes = await fetch(`${baseUrl}/api/settings`, {
@@ -142,6 +130,6 @@ test("settings API supports minimax clear and reset with null semantics", async 
     assert.equal(emptyStringClearPayload.minimaxApiKey, undefined);
     assert.equal(emptyStringClearPayload.minimaxApiBase, undefined);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });

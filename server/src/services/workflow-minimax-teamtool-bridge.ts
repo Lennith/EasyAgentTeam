@@ -7,6 +7,7 @@ import {
   releaseLock,
   renewLock
 } from "../data/lock-store.js";
+import { isManagerChatMessageType } from "../domain/models.js";
 import type {
   ProjectPaths,
   ProjectRecord,
@@ -16,6 +17,8 @@ import type {
   WorkflowTaskOutcome
 } from "../domain/models.js";
 import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/team/types.js";
+import { normalizeOrchestratorDiscussReference } from "./orchestrator/shared/index.js";
+import type { WorkflowRouteMessageInput } from "./orchestrator/workflow-message-routing-service.js";
 import { resolveDiscussRoundLimit } from "./discuss-policy-service.js";
 import { TeamToolBridgeError } from "./minimax-teamtool-bridge.js";
 import { resolveWorkflowRunRoleScope } from "./workflow-role-scope-service.js";
@@ -29,21 +32,7 @@ interface WorkflowTaskActionDefaults {
   parentRequestId?: string;
 }
 
-export interface WorkflowBridgeSendMessageInput {
-  fromAgent: string;
-  fromSessionId: string;
-  messageType: "MANAGER_MESSAGE" | "TASK_DISCUSS_REQUEST" | "TASK_DISCUSS_REPLY" | "TASK_DISCUSS_CLOSED";
-  toRole?: string;
-  toSessionId?: string;
-  taskId?: string;
-  content: string;
-  requestId?: string;
-  parentRequestId?: string;
-  discuss?: {
-    threadId?: string;
-    requestId?: string;
-  };
-}
+export type WorkflowBridgeSendMessageInput = Omit<WorkflowRouteMessageInput, "runId">;
 
 export interface WorkflowMiniMaxTeamToolBridgeContext {
   dataRoot: string;
@@ -410,12 +399,7 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
 
     async sendMessage(requestBody: Record<string, unknown>): Promise<Record<string, unknown>> {
       const messageType = readString(requestBody.message_type ?? requestBody.messageType);
-      if (
-        messageType !== "MANAGER_MESSAGE" &&
-        messageType !== "TASK_DISCUSS_REQUEST" &&
-        messageType !== "TASK_DISCUSS_REPLY" &&
-        messageType !== "TASK_DISCUSS_CLOSED"
-      ) {
+      if (!messageType || !isManagerChatMessageType(messageType)) {
         throw new TeamToolBridgeError(
           400,
           "MESSAGE_TYPE_INVALID",
@@ -424,7 +408,6 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
         );
       }
 
-      const discuss = readRecord(requestBody.discuss);
       const mapped: WorkflowBridgeSendMessageInput = {
         fromAgent: readString(requestBody.from_agent ?? requestBody.fromAgent) ?? context.agentRole,
         fromSessionId: readString(requestBody.from_session_id ?? requestBody.fromSessionId) ?? context.sessionId,
@@ -435,10 +418,7 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
         content: readString(requestBody.content ?? requestBody.message) ?? "",
         requestId: readString(requestBody.request_id ?? requestBody.requestId),
         parentRequestId: readString(requestBody.parent_request_id ?? requestBody.parentRequestId),
-        discuss: {
-          threadId: readString(discuss?.thread_id ?? discuss?.threadId),
-          requestId: readString(discuss?.request_id ?? discuss?.requestId)
-        }
+        discuss: normalizeOrchestratorDiscussReference(requestBody.discuss) ?? undefined
       };
 
       try {

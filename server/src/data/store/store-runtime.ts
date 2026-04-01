@@ -4,7 +4,7 @@ import { FileDocumentStore, FileLogStore } from "./file-store.js";
 import { MemoryDocumentStore, MemoryLogStore } from "./memory-store.js";
 import type { DocumentStore, LogStore } from "./store-interface.js";
 
-type StorageBackend = "file" | "memory";
+export type StorageBackend = "file" | "memory";
 
 function normalizeBackend(raw: string | undefined): StorageBackend {
   const normalized = String(raw ?? "file")
@@ -13,7 +13,14 @@ function normalizeBackend(raw: string | undefined): StorageBackend {
   return normalized === "memory" ? "memory" : "file";
 }
 
-const backend = normalizeBackend(process.env.AUTO_DEV_STORAGE_BACKEND);
+let backendOverride: StorageBackend | null = null;
+
+function resolveBackend(): StorageBackend {
+  if (backendOverride) {
+    return backendOverride;
+  }
+  return normalizeBackend(process.env.AUTO_DEV_STORAGE_BACKEND);
+}
 
 const fileDocumentStore = new FileDocumentStore<unknown>();
 const fileLogStore = new FileLogStore<unknown>();
@@ -21,21 +28,25 @@ const memoryDocumentStore = new MemoryDocumentStore<unknown>();
 const memoryLogStore = new MemoryLogStore<unknown>();
 
 function resolveDocumentStore<T>(): DocumentStore<T> {
-  if (backend === "memory") {
+  if (resolveBackend() === "memory") {
     return memoryDocumentStore as DocumentStore<T>;
   }
   return fileDocumentStore as DocumentStore<T>;
 }
 
 function resolveLogStore<T>(): LogStore<T> {
-  if (backend === "memory") {
+  if (resolveBackend() === "memory") {
     return memoryLogStore as LogStore<T>;
   }
   return fileLogStore as LogStore<T>;
 }
 
 export function getStorageBackend(): StorageBackend {
-  return backend;
+  return resolveBackend();
+}
+
+export function setStorageBackendForTests(backend: StorageBackend | null): void {
+  backendOverride = backend;
 }
 
 export function getDocumentStore<T>(): DocumentStore<T> {

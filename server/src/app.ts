@@ -1,7 +1,7 @@
 ﻿import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { registerControllers } from "./controllers/index.js";
+import { registerRoutes } from "./routes/index.js";
 import { createProviderRegistry } from "./services/provider-runtime.js";
 import { createOrchestratorService, createWorkflowOrchestratorService } from "./services/orchestrator/index.js";
 
@@ -25,9 +25,9 @@ export function resolveDataRoot(explicitDataRoot?: string): string {
 export function createApp(options: AppOptions = {}) {
   const app = express();
   const dataRoot = resolveDataRoot(options.dataRoot);
-  const orchestrator = createOrchestratorService(dataRoot);
-  const workflowOrchestrator = createWorkflowOrchestratorService(dataRoot);
   const providerRegistry = createProviderRegistry();
+  const orchestrator = createOrchestratorService(dataRoot, providerRegistry);
+  const workflowOrchestrator = createWorkflowOrchestratorService(dataRoot, providerRegistry);
 
   orchestrator.start();
   workflowOrchestrator.start();
@@ -58,7 +58,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.use(express.json({ limit: "10mb" }));
 
-  registerControllers(app, {
+  registerRoutes(app, {
     dataRoot,
     orchestrator,
     workflowOrchestrator,

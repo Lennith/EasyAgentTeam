@@ -1,3 +1,9 @@
+import {
+  buildOrchestratorContextSessionKey,
+  runOrchestratorKernelTick,
+  type OrchestratorKernelAdapter
+} from "./orchestrator/kernel/orchestrator-kernel.js";
+
 export interface OrchestratorLoopCoreOptions {
   enabled: boolean;
   intervalMs: number;
@@ -14,10 +20,7 @@ export interface OrchestratorLoopSnapshot {
   lastTickAt: string | null;
 }
 
-export interface OrchestratorAdapter<TContext> {
-  listContexts: () => Promise<readonly TContext[]>;
-  tickContext: (context: TContext) => Promise<void>;
-}
+export type OrchestratorAdapter<TContext> = OrchestratorKernelAdapter<TContext>;
 
 export class OrchestratorLoopCore {
   private timer: NodeJS.Timeout | null = null;
@@ -73,13 +76,8 @@ export class OrchestratorLoopCore {
   }
 }
 
-export function buildOrchestratorContextSessionKey(contextId: string, sessionId: string): string {
-  return `${contextId}::${sessionId}`;
-}
+export { buildOrchestratorContextSessionKey };
 
 export async function runOrchestratorAdapterTick<TContext>(adapter: OrchestratorAdapter<TContext>): Promise<void> {
-  const contexts = await adapter.listContexts();
-  for (const context of contexts) {
-    await adapter.tickContext(context);
-  }
+  await runOrchestratorKernelTick(adapter);
 }

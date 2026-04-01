@@ -3,21 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("message send resolves latest role session and writes route events", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step45-msg-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -76,7 +70,7 @@ test("message send resolves latest role session and writes route events", async 
     assert.equal(types.has("USER_MESSAGE_RECEIVED"), true);
     assert.equal(types.has("MESSAGE_ROUTED"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -84,14 +78,8 @@ test("message send skips dismissed sessions and auto-bootstraps when none usable
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step45-msg-dismiss-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -148,7 +136,7 @@ test("message send skips dismissed sessions and auto-bootstraps when none usable
     assert.equal(secondSendPayload.resolvedSessionId, firstSendPayload.resolvedSessionId);
     assert.equal(secondSendPayload.resolvedSessionId.startsWith("session-dev_backend-"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -156,14 +144,8 @@ test("message send rejects reserved or mismatched explicit target session", asyn
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step45-msg-target-guard-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -225,7 +207,7 @@ test("message send rejects reserved or mismatched explicit target session", asyn
     assert.equal(mismatchPayload.error?.details?.actualRole, "qa_guard");
     assert.equal(mismatchPayload.error?.details?.expectedRole, "dev_backend");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -233,14 +215,8 @@ test("message send rejects likely encoding-corrupted content", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step45-msg-encoding-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -277,7 +253,7 @@ test("message send rejects likely encoding-corrupted content", async () => {
     const rejectedPayload = (await rejectedRes.json()) as { error_code?: string };
     assert.equal(rejectedPayload.error_code, "MESSAGE_ENCODING_INVALID");
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -285,14 +261,8 @@ test.skip("message send supports directional discuss round limits from project r
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step45-msg-clarify-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     for (const agentId of ["agent_a", "agent_b"]) {
@@ -464,7 +434,7 @@ test.skip("message send supports directional discuss round limits from project r
     });
     assert.equal(reverseAllowedRes.status, 201);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -472,14 +442,8 @@ test.skip("discuss requests with parent_request_id are buffered before dispatch-
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step45-msg-clarify-buffer-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     for (const agentId of ["agent_a", "agent_b"]) {
@@ -569,6 +533,6 @@ test.skip("discuss requests with parent_request_id are buffered before dispatch-
     );
     assert.equal(routedEvents.length, 0);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });

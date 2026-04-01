@@ -4,8 +4,8 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createServer } from "node:http";
 import { createApp } from "../app.js";
+import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 async function seedAgent(baseUrl: string, agentId: string): Promise<void> {
   const res = await fetch(`${baseUrl}/api/agents`, {
@@ -24,13 +24,8 @@ test("retired task endpoints return 410", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-retired-endpoints-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     const projectRes = await fetch(`${baseUrl}/api/projects`, {
@@ -53,7 +48,7 @@ test("retired task endpoints return 410", async () => {
     assert.equal(reportsRes.status, 410);
     assert.equal(tasksRes.status, 410);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });
 
@@ -63,13 +58,8 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
   const workspacePath = path.join(tempRoot, "workspace");
   await fs.mkdir(workspacePath, { recursive: true });
   const app = createApp({ dataRoot });
-  const server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("failed to start test server");
-  }
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
 
   try {
     for (const agentId of ["manager", "dev"]) {
@@ -531,6 +521,6 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
       true
     );
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await serverHandle.close();
   }
 });

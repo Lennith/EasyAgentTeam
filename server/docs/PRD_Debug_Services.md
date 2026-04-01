@@ -2,6 +2,10 @@
 
 ## 1. 模块目标
 
+### 模块状态
+
+- `实装`
+
 ### 模块职责
 
 调试与时间线模块负责把后端运行事件转换为可分析输出，覆盖：
@@ -14,6 +18,7 @@
 
 - `server/src/services/agent-io-timeline-service.ts`
 - `server/src/services/agent-debug-service.ts`
+- `server/src/services/agent-chat-service.ts`
 - `server/src/services/task-detail-query-service.ts`
 
 ### 解决问题

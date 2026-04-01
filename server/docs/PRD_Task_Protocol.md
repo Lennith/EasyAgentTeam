@@ -6,6 +6,11 @@
 
 - `实装`
 
+### 本轮收敛约束（2026-03-29）
+
+- 仅收敛既有实现边界，不新增 shared contract 名词或第二套契约体系。
+- task-action 主链路继续向 repository/UoW 入口收敛，逐步去除直连底层 store 的调用点。
+
 ### 模块职责
 
 Task 协议模块定义任务驱动协作的统一写入入口、状态机、依赖门禁与任务查询能力。
@@ -13,6 +18,11 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 **源码路径**:
 
 - `server/src/services/task-action-service.ts`
+- `server/src/services/task-actions/**`
+- `server/src/services/task-actions/assignment-processing.ts`
+- `server/src/services/task-actions/update-processing.ts`
+- `server/src/services/task-actions/discuss-processing.ts`
+- `server/src/services/task-actions/report-processing.ts`
 - `server/src/data/taskboard-store.ts`
 - `server/src/services/task-tree-query-service.ts`
 - `server/src/services/task-detail-query-service.ts`
@@ -113,6 +123,12 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
   - 任务当前状态与目标状态
   - 明确等待依赖完成与撤回/降级冲突内容的提示
 - 全部拒绝返回 409（`TASK_RESULT_INVALID_TARGET` 或 `TASK_STATE_STALE`）。
+- task-action 主链路写入（taskboard/session/event/route-target resolve）已通过 `ProjectRepositoryBundle` 收口，不再扩散直连底层 store 写入。
+- `TASK_ASSIGNMENT` 消息构造统一由 `task-actions/shared.ts` 提供，task-action 与 project dispatch selection 共用同一字段装配逻辑。
+- `TASK_CREATE/TASK_ASSIGN` 的 assignment owner 解析与写后收口已下沉到 `task-actions/assignment-processing.ts`，`handlers.ts` 仅保留 action wiring。
+- `TASK_UPDATE` 主流程已下沉到 `task-actions/update-processing.ts`，`handlers.ts` 仅负责写上下文与 action 分发。
+- `TASK_DISCUSS_*` 主流程已下沉到 `task-actions/discuss-processing.ts`，`handlers.ts` 不再内嵌目标解析与路由细节。
+- `TASK_REPORT` 的 accepted/rejected 规则评估已下沉到 `task-actions/report-processing.ts`，handler 仅保留写上下文编排与副作用收口。
 
 #### 4.4 progress 校验
 
@@ -129,9 +145,11 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 
 ### 上游依赖
 
-- `taskboard-store`
-- `event-store`
-- `project-store`
+- `server/src/data/repository/project-repository-bundle.ts`
+- `server/src/data/repository/taskboard-repository.ts`
+- `server/src/data/repository/session-repository.ts`
+- `server/src/data/repository/event-repository.ts`
+- `server/src/data/repository/inbox-repository.ts`
 
 ### 下游影响
 
@@ -181,7 +199,28 @@ Task 协议模块定义任务驱动协作的统一写入入口、状态机、依
 
 ---
 
-## 9. 待确认问题
+## 9. 当前状态
 
-- `MAY_BE_DONE` 是否继续保留为独立状态。
-- Creator 回告是否需要项目级开关。
+- 本模块当前无阻塞待确认项，按现有协议继续执行。
+
+## 10. 当前实装快照（2026-03-29）
+
+- `TASK_CREATE/TASK_ASSIGN`
+  - 执行主体：`server/src/services/task-actions/assignment-processing.ts`
+  - `handlers.ts` 仅负责写上下文与 action 分发
+  - owner role/session 解析、写后统一流程（recompute + event + assignment route）在 processing 中集中实现
+- `TASK_UPDATE`
+  - 执行主体：`server/src/services/task-actions/update-processing.ts`
+  - patch 解析、写入与 `TASK_UPDATED` 事件写入在 processing 中集中实现
+- `TASK_DISCUSS_*`
+  - 执行主体：`server/src/services/task-actions/discuss-processing.ts`
+  - 目标解析、route gate、route message 执行集中在 processing 中实现
+- `TASK_REPORT`
+  - 执行主体：`server/src/services/task-actions/report-processing.ts`
+  - 通过 shared pipeline 固定 `parse -> authorize -> gate -> apply -> emit`
+  - `TASK_PROGRESS_VALIDATION_FAILED` 与 `TASK_REPORT_APPLIED` 事件语义保持不变
+- 外部协议冻结保持不变：
+  - API path/payload/status code、错误码、事件类型不变
+- 验证基线：
+  - `pnpm --filter @autodev/server build` 通过
+  - `pnpm --filter @autodev/server test` 通过

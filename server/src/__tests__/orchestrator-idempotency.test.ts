@@ -8,6 +8,7 @@ import { createProject, ensureProjectRuntime } from "../data/project-store.js";
 import { addSession } from "../data/session-store.js";
 import { createTask } from "../data/taskboard-store.js";
 import { OrchestratorService } from "../services/orchestrator/index.js";
+import { createProviderRegistry } from "../services/provider-runtime.js";
 
 test("dispatch skips duplicate open task dispatch for same task/session", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-orchestrator-idempotency-"));
@@ -56,6 +57,7 @@ test("dispatch skips duplicate open task dispatch for same task/session", async 
 
   const orchestrator = new OrchestratorService({
     dataRoot,
+    providerRegistry: createProviderRegistry(),
     enabled: true,
     intervalMs: 3000,
     maxConcurrentDispatches: 2,

@@ -13,7 +13,9 @@ import {
 import {
   buildManagerMessageRoutedPayload,
   buildMessageRoutedPayload,
-  buildUserMessageReceivedPayload
+  buildUserMessageReceivedPayload,
+  buildWorkflowMessageReceivedPayload,
+  buildWorkflowMessageRoutedPayload
 } from "../services/manager-routing-event-service.js";
 
 test("route event payload builders keep stable field contract", () => {
@@ -76,6 +78,46 @@ test("route event payload builders keep stable field contract", () => {
   assert.equal(Object.prototype.hasOwnProperty.call(managerPayload, "mode"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(managerPayload, "requestId"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(managerPayload, "content"), false);
+});
+
+test("workflow route event payload builders keep compact field contract stable", () => {
+  const receivedPayload = buildWorkflowMessageReceivedPayload({
+    requestId: "req-workflow-1",
+    content: "please continue",
+    toRole: "dev",
+    fromAgent: "manager"
+  });
+  assert.deepEqual(receivedPayload, {
+    fromAgent: "manager",
+    toRole: "dev",
+    requestId: "req-workflow-1",
+    content: "please continue",
+    sourceType: "manager",
+    originAgent: "manager"
+  });
+
+  const routedPayload = buildWorkflowMessageRoutedPayload({
+    fromAgent: "dev",
+    toRole: "qa",
+    resolvedSessionId: "session-qa-001",
+    requestId: "req-workflow-2",
+    messageId: "message-qa-001",
+    content: "need verification",
+    messageType: "TASK_DISCUSS_REPLY",
+    discuss: { threadId: "thread-1", requestId: "req-workflow-2" }
+  });
+  assert.deepEqual(routedPayload, {
+    fromAgent: "dev",
+    toRole: "qa",
+    resolvedSessionId: "session-qa-001",
+    requestId: "req-workflow-2",
+    messageId: "message-qa-001",
+    content: "need verification",
+    messageType: "TASK_DISCUSS_REPLY",
+    discuss: { threadId: "thread-1", requestId: "req-workflow-2" },
+    sourceType: "agent",
+    originAgent: "dev"
+  });
 });
 
 test("route event emitters persist normalized payload contract", async () => {
