@@ -83,6 +83,43 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
     );
   }
 
+  async function reportDoneWithRetry(taskId: string, timeoutMs = 12_000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const response = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action_type: "TASK_REPORT",
+          from_agent: "lead",
+          results: [{ task_id: taskId, outcome: "DONE", summary: `${taskId} done` }]
+        })
+      });
+
+      if (response.status !== 200) {
+        const bodyText = await response.text();
+        throw new Error(`TASK_REPORT failed for ${taskId}: status=${response.status}, body=${bodyText}`);
+      }
+
+      const payload = (await response.json()) as {
+        success?: boolean;
+        appliedTaskIds?: string[];
+        rejectedResults?: Array<{ taskId?: string; reasonCode?: string }>;
+      };
+      if (payload.success && payload.appliedTaskIds?.includes(taskId)) {
+        return payload;
+      }
+      const rejectedByDependency = (payload.rejectedResults ?? []).some(
+        (item) => item.taskId === taskId && item.reasonCode === "TASK_DEPENDENCY_NOT_READY"
+      );
+      if (!rejectedByDependency) {
+        throw new Error(`TASK_REPORT not applied for ${taskId}: ${JSON.stringify(payload)}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error(`timeout waiting TASK_REPORT applied for '${taskId}'`);
+  }
+
   async function waitForTerminalConverged(timeoutMs: number) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -178,29 +215,11 @@ test("workflow task runtime API exposes runtime fields, dependency gates, and te
       true
     );
 
-    const reportA = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-actions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action_type: "TASK_REPORT",
-        from_agent: "lead",
-        results: [{ task_id: "task_a", outcome: "DONE", summary: "task_a done" }]
-      })
-    });
-    assert.equal(reportA.status, 200);
-    await waitForTaskStateIn("task_b", ["READY", "DISPATCHED", "IN_PROGRESS", "MAY_BE_DONE", "DONE"], 12_000);
+    await reportDoneWithRetry("task_a", 18_000);
+    await waitForTaskStateIn("task_a", ["DONE"], 12_000);
+    await waitForTaskStateIn("task_b", ["READY", "DISPATCHED", "IN_PROGRESS", "MAY_BE_DONE", "DONE"], 20_000);
 
-    const reportB = await fetch(`${baseUrl}/api/workflow-runs/runtime_run_01/task-actions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action_type: "TASK_REPORT",
-        from_agent: "lead",
-        results: [{ task_id: "task_b", outcome: "DONE", summary: "task_b done" }]
-      })
-    });
-    assert.equal(reportB.status, 200);
-    const reportBPayload = (await reportB.json()) as {
+    const reportBPayload = (await reportDoneWithRetry("task_b", 18_000)) as {
       success?: boolean;
       partialApplied?: boolean;
       appliedTaskIds?: string[];

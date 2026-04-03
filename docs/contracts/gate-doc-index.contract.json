@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GateDocIndex",
+  "type": "object",
+  "required": [
+    "run_time",
+    "branch",
+    "commit",
+    "smoke",
+    "project",
+    "workflow",
+    "qa_report_path",
+    "waiver_applied",
+    "known_external_issue"
+  ],
+  "properties": {
+    "run_time": {
+      "type": "string",
+      "description": "Gate run timestamp from run_summary.md."
+    },
+    "branch": {
+      "type": "string"
+    },
+    "commit": {
+      "type": "string"
+    },
+    "smoke": {
+      "$ref": "#/$defs/gateStep"
+    },
+    "project": {
+      "$ref": "#/$defs/gateStep"
+    },
+    "workflow": {
+      "$ref": "#/$defs/gateStep"
+    },
+    "qa_report_path": {
+      "type": "string",
+      "description": "Relative path to matched release QA report; empty string when not found."
+    },
+    "waiver_applied": {
+      "type": "boolean"
+    },
+    "known_external_issue": {
+      "type": "string",
+      "description": "Concise external instability note; empty string when none."
+    },
+    "gate_summary_path": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "gateStep": {
+      "type": "object",
+      "required": ["success", "exit_code"],
+      "properties": {
+        "success": {
+          "type": ["boolean", "null"]
+        },
+        "exit_code": {
+          "type": ["integer", "null"]
+        }
+      }
+    }
+  }
+}

@@ -70,6 +70,17 @@ pnpm gate:standard
 
 Failure triage SOP: [docs/gates/standard-gate-sop.md](./docs/gates/standard-gate-sop.md)
 
+Gate-doc index (manual regenerate): `pnpm gate:index -- --summary <run_summary.md>`
+
+## Boundary Checks
+
+Advisory boundary checks for storage/orchestrator seams:
+
+```powershell
+pnpm check:boundaries
+pnpm check:boundaries:strict
+```
+
 ## Architecture / API Details
 
 Entry page: [docs/architecture-and-api.md](./docs/architecture-and-api.md)
@@ -86,12 +97,15 @@ Deep docs:
 pnpm dev
 pnpm build
 pnpm test
+pnpm check:boundaries
+pnpm check:boundaries:strict
 pnpm e2e:first-run
 pnpm e2e:standard
 pnpm e2e:discuss
 pnpm e2e:workflow
 pnpm e2e:baseline
 pnpm gate:standard
+pnpm gate:index -- --summary <run_summary.md>
 ```
 
 ## License

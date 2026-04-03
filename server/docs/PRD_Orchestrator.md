@@ -109,3 +109,36 @@
 - flaky 关注集额外回归通过：
   - `pnpm --filter @autodev/server run test -- --test-name-pattern "workflow-block-propagation|workflow-task-runtime-api|session-timeout-closure|bad port"`
 - 最新快照：`tests 313 / pass 308 / fail 0 / skipped 5`
+
+## 9. shared 边界冻结规则（2026-04-02）
+
+### 9.1 冻结目标
+
+- shared 骨架继续作为唯一主路径。
+- project/workflow 差异继续收敛在 adapter/policy，不回流到入口 service 拼装。
+- 本轮禁止扩展新的 shared 命名体系。
+
+### 9.2 禁止新增项（本轮）
+
+- 禁止新增 shared `compat` seam（含显式 compat 命名与等价兼容层）。
+- 禁止新增 shared `helper` 聚合入口用于兜底历史路径。
+- 禁止新增 shared `contract` 家族分叉（除非替换现有 contract 且完成一次性收口）。
+- 禁止恢复 `*-internal.ts` 旧式编排中间层来绕开模板主路径。
+
+### 9.3 允许变更项（本轮）
+
+- adapter/policy 细节修正（provider 差异、域事件映射、策略 gate 调整）。
+- shared 模板内部 bugfix（不新增命名层、不新增并行主路径）。
+- 现有 shared contract 的等价收窄与死代码移除。
+
+### 9.4 评审检查项（必查）
+
+1. 入口 orchestrator service 是否仍保持 façade + 依赖装配角色。
+2. 新增逻辑是否落在 adapter/policy，而不是额外的 shared compat/helper 层。
+3. shared 目录是否引入新的 contract/helper/compat 命名 seam。
+4. 对外 API path/payload/status/event type 是否保持冻结。
+
+### 9.5 轻量边界检查入口
+
+- 命令（默认非阻塞）：`pnpm check:boundaries`
+- 严格模式（用于后续 CI 阻断预演）：`pnpm check:boundaries:strict`

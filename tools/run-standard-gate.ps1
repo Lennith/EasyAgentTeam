@@ -86,9 +86,28 @@ try {
     $summary += "- log_file: $($step.log_file)"
     $summary += "- artifact_path: $($step.artifact_path)"
   }
-  [System.IO.File]::WriteAllLines((Join-Path $gateOutDir "run_summary.md"), $summary, [System.Text.UTF8Encoding]::new($false))
+  $summaryPath = Join-Path $gateOutDir "run_summary.md"
+  [System.IO.File]::WriteAllLines($summaryPath, $summary, [System.Text.UTF8Encoding]::new($false))
+
+  $gateIndexOutput = @()
+  $gateIndexExitCode = 0
+  try {
+    $gateIndexOutput = @(& node ".\tools\generate-gate-doc-index.mjs" "--summary" $summaryPath 2>&1)
+    $gateIndexExitCode = if ($LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+  } catch {
+    $gateIndexOutput += $_
+    $gateIndexExitCode = 1
+  }
+  foreach ($line in $gateIndexOutput) {
+    Write-Host "[gate_index] $line"
+  }
+
+  $gateIndexJsonPath = Join-Path $gateOutDir "gate_doc_index.json"
+  $gateIndexMdPath = Join-Path $gateOutDir "gate_doc_index.md"
+  $gateIndexArtifactsExist = (Test-Path -LiteralPath $gateIndexJsonPath) -and (Test-Path -LiteralPath $gateIndexMdPath)
 
   $failed = @($steps | Where-Object { -not $_.success })
+  $gateIndexFailed = ($gateIndexExitCode -ne 0) -or (-not $gateIndexArtifactsExist)
   if ($failed.Count -gt 0) {
     Write-Host "== Standard gate failed =="
     foreach ($step in $failed) {
@@ -98,12 +117,32 @@ try {
         Write-Host ("artifact_path={0}" -f $step.artifact_path)
       }
     }
-    Write-Host ("gate_summary={0}" -f (Join-Path $gateOutDir "run_summary.md"))
+    if ($gateIndexFailed) {
+      Write-Host "failed_step=gate_doc_index"
+      Write-Host ("exit_code={0}" -f $gateIndexExitCode)
+      if (-not $gateIndexArtifactsExist) {
+        Write-Host ("missing_artifact={0}" -f $gateIndexJsonPath)
+        Write-Host ("missing_artifact={0}" -f $gateIndexMdPath)
+      }
+    }
+    Write-Host ("gate_summary={0}" -f $summaryPath)
+    exit 2
+  }
+
+  if ($gateIndexFailed) {
+    Write-Host "== Standard gate failed =="
+    Write-Host "failed_step=gate_doc_index"
+    Write-Host ("exit_code={0}" -f $gateIndexExitCode)
+    if (-not $gateIndexArtifactsExist) {
+      Write-Host ("missing_artifact={0}" -f $gateIndexJsonPath)
+      Write-Host ("missing_artifact={0}" -f $gateIndexMdPath)
+    }
+    Write-Host ("gate_summary={0}" -f $summaryPath)
     exit 2
   }
 
   Write-Host "== Standard gate passed =="
-  Write-Host ("gate_summary={0}" -f (Join-Path $gateOutDir "run_summary.md"))
+  Write-Host ("gate_summary={0}" -f $summaryPath)
 } finally {
   Pop-Location
 }

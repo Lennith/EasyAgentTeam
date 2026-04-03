@@ -6,17 +6,39 @@ import { test } from "node:test";
 import { createApp } from "../app.js";
 import { startTestHttpServer } from "./helpers/http-test-server.js";
 
+function isBadPortFetchError(error: unknown): boolean {
+  if (!(error instanceof TypeError)) {
+    return false;
+  }
+  const cause = error.cause;
+  if (!(cause instanceof Error)) {
+    return false;
+  }
+  return String(cause.message).toLowerCase().includes("bad port");
+}
+
 async function seedAgent(baseUrl: string, agentId: string): Promise<void> {
-  const res = await fetch(`${baseUrl}/api/agents`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      agent_id: agentId,
-      display_name: agentId,
-      prompt: `${agentId} prompt`
-    })
-  });
-  assert.equal(res.status, 201);
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const res = await fetch(`${baseUrl}/api/agents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: agentId,
+          display_name: agentId,
+          prompt: `${agentId} prompt`
+        })
+      });
+      assert.equal(res.status, 201);
+      return;
+    } catch (error) {
+      if (!isBadPortFetchError(error) || attempt >= maxAttempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+  }
 }
 
 test("force dispatch returns clear task_not_found for stale task id", async () => {
