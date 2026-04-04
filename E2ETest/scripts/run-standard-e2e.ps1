@@ -25,7 +25,7 @@ if (-not (Test-Path -LiteralPath $ScenarioPath)) {
   throw "Scenario file not found: $ScenarioPath"
 }
 
-$scenario = Get-Content -LiteralPath $ScenarioPath -Raw | ConvertFrom-Json
+$scenario = Get-Content -LiteralPath $ScenarioPath -Encoding UTF8 -Raw | ConvertFrom-Json
 $projectId = [string]$scenario.project_id
 $projectName = [string]$scenario.project_name
 $seedTasks = $scenario.seed_tasks
@@ -184,7 +184,10 @@ function New-TaskCreateBody {
     [string]$OwnerRole,
     [int]$Priority,
     [array]$Dependencies,
-    [string]$Content
+    [string]$Content,
+    [array]$WriteSet = @(),
+    [array]$Acceptance = @(),
+    [array]$Artifacts = @()
   )
 
   return @{
@@ -199,6 +202,9 @@ function New-TaskCreateBody {
     owner_role = $OwnerRole
     priority = $Priority
     dependencies = @($Dependencies)
+    write_set = @($WriteSet)
+    acceptance = @($Acceptance)
+    artifacts = @($Artifacts)
     content = $Content
   }
 }
@@ -452,7 +458,7 @@ if ([string]::IsNullOrWhiteSpace($probeRole)) {
 
 $taskBodies = @(
   (New-TaskCreateBody -TaskId $gateTaskId -TaskKind "EXECUTION" -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title "Reminder gate task" -OwnerRole "manager" -Priority 110 -Dependencies @() -Content "E2E manager-owned gate task. The baseline script marks it DONE after reminder redispatch is observed."),
-  (New-TaskCreateBody -TaskId $probeTaskId -TaskKind "EXECUTION" -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title "Reminder probe task for role $probeRole" -OwnerRole $probeRole -Priority 105 -Dependencies @() -Content "Create docs/e2e/standard_reminder_probe.md with a short status note mentioning reminder probe done, then report this task DONE."),
+  (New-TaskCreateBody -TaskId $probeTaskId -TaskKind "EXECUTION" -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title "Reminder probe task for role $probeRole" -OwnerRole $probeRole -Priority 105 -Dependencies @() -WriteSet @("docs/e2e/standard_reminder_probe.md") -Acceptance @("Create docs/e2e/standard_reminder_probe.md with reminder status and completion timestamp.") -Artifacts @("docs/e2e/standard_reminder_probe.md") -Content "Create docs/e2e/standard_reminder_probe.md with a short status note mentioning reminder probe done, then report this task DONE."),
   (New-TaskCreateBody -TaskId $taskAId -TaskKind ([string]$seedTasks.task_a.task_kind) -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title ([string]$seedTasks.task_a.title) -OwnerRole $roleA -Priority ([int]$seedTasks.task_a.priority) -Dependencies @($seedTasks.task_a.dependencies) -Content ([string]$seedTasks.task_a.content)),
   (New-TaskCreateBody -TaskId $taskBId -TaskKind ([string]$seedTasks.task_b_placeholder.task_kind) -ParentTaskId $rootTaskId -RootTaskId $rootTaskId -Title ([string]$seedTasks.task_b_placeholder.title) -OwnerRole $roleA -Priority ([int]$seedTasks.task_b_placeholder.priority) -Dependencies @($seedTasks.task_b_placeholder.dependencies) -Content ([string]$seedTasks.task_b_placeholder.content)),
   (New-TaskCreateBody -TaskId $taskB1Id -TaskKind ([string]$seedTasks.task_b1_child.task_kind) -ParentTaskId $taskBId -RootTaskId $rootTaskId -Title ([string]$seedTasks.task_b1_child.title) -OwnerRole $roleB -Priority ([int]$seedTasks.task_b1_child.priority) -Dependencies @($seedTasks.task_b1_child.dependencies) -Content ([string]$seedTasks.task_b1_child.content)),
@@ -549,7 +555,7 @@ if ($SetupOnly) {
     $remaining = [int]$settingsNow.body.auto_dispatch_remaining
     $nodes = @($treeNow.body.nodes)
     $executionNodes = @($nodes | Where-Object { $_.task_kind -eq "EXECUTION" })
-    $terminalStates = @("DONE", "BLOCKED_DEP", "CANCELED")
+    $terminalStates = @("DONE", "CANCELED")
     $openExec = @($executionNodes | Where-Object { $terminalStates -notcontains $_.state })
     $running = @($sessionsNow.body.items | Where-Object { $_.status -eq "running" })
     Write-Host ("remaining={0} exec={1} open_exec={2} running={3}" -f $remaining, $executionNodes.Count, $openExec.Count, $running.Count)
@@ -659,7 +665,7 @@ if (-not $SetupOnly) {
     $analysisExit = 0
   } else {
     try {
-      & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir "analyze-core-logs.ps1") -ArtifactsDir $outDir -ScenarioPath $ScenarioPath -FinalReasonHint $finalReason
+      & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir "analyze-core-logs.ps1") -ArtifactsDir $outDir -ScenarioPath $ScenarioPath -FinalReasonHint $finalReason -WorkspaceRoot $workspace
       $analysisExit = if ($LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
     } catch {
       $analysisExit = 1
@@ -673,7 +679,7 @@ $finalTree = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/p
 $finalRemaining = [int]$finalSettings.body.auto_dispatch_remaining
 $consumed = $totalBudgetGranted - $finalRemaining
 $runningCount = @($finalSessions.body.items | Where-Object { $_.status -eq "running" }).Count
-$openExecCount = @(@($finalTree.body.nodes) | Where-Object { $_.task_kind -eq "EXECUTION" -and @("DONE", "BLOCKED_DEP", "CANCELED") -notcontains $_.state }).Count
+$openExecCount = @(@($finalTree.body.nodes) | Where-Object { $_.task_kind -eq "EXECUTION" -and @("DONE", "CANCELED") -notcontains $_.state }).Count
 $stabilityMetrics = Write-StabilityMetrics -OutDir $outDir -CaseId $script:stabilityCaseId -StartTime $start -FinalPass $pass -FinalReason $finalReason -ExitCode $(if ($pass -and $analysisExit -eq 0) { 0 } else { 2 })
 
 $summary = @()
