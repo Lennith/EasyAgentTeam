@@ -22,6 +22,8 @@ dashboard-v2/Agents/
 data/**
 .e2e-workspace/
 server/src.zip
+TemplateAgentWorkspace/
+server/workspace/
 
 # local-added skill packages (keep local, do not upload)
 data/skills/packages/dpvr-mail-agent/
