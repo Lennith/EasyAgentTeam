@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easyagentteam.local/contracts/agent-workspace-campaign-report.contract.json",
+  "title": "Agent Workspace Campaign Report Contract",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["campaign_id", "run_id", "summary", "rounds"],
+  "properties": {
+    "campaign_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["total_rounds", "pass_rounds", "fail_rounds"],
+      "properties": {
+        "total_rounds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pass_rounds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fail_rounds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workflow_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workflow_converged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workflow_convergence_rate": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "rounds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["round", "scenario", "status", "steps"],
+        "properties": {
+          "round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string"
+          },
+          "failure_category": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

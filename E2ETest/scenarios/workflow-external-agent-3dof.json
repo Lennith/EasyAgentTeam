@@ -1,0 +1,374 @@
+{
+  "scenario_id": "workflow_external_agent_3dof_v1",
+  "scenario_kind": "workflow_real_agent",
+  "project_id": "e2e_external_3dof_workflow_host",
+  "project_name": "E2E External Agent 3DoF Workflow Host",
+  "template_id": "e2e_external_3dof_workflow_template_v1",
+  "workflow_name": "E2E External Agent 3DoF Workflow Run",
+  "primary_goal": "帮我生成一个3DoF传感器温度标定应用：Android端负责采集，PC端负责标定整理，通过WiFi通信，并注册到EasyAgentTeam后端",
+  "agent_model": {
+    "provider_id": "minimax",
+    "model": "MiniMax-M2.5",
+    "effort": "high"
+  },
+  "roles": {
+    "product_owner": "e2e_mgr_product_owner",
+    "biz_analyst": "e2e_mgr_biz_analyst",
+    "ux_researcher": "e2e_mgr_ux_researcher",
+    "interaction_designer": "e2e_mgr_interaction_designer",
+    "ui_designer": "e2e_mgr_ui_designer",
+    "rd_lead": "e2e_mgr_rd_lead",
+    "android_dev": "e2e_mgr_android_dev",
+    "ml_engineer": "e2e_mgr_ml_engineer",
+    "qa_engineer": "e2e_mgr_qa_engineer",
+    "devops_release": "e2e_mgr_devops_release"
+  },
+  "route_table": {
+    "manager": [
+      "e2e_mgr_product_owner",
+      "e2e_mgr_biz_analyst",
+      "e2e_mgr_ux_researcher",
+      "e2e_mgr_interaction_designer",
+      "e2e_mgr_ui_designer",
+      "e2e_mgr_rd_lead",
+      "e2e_mgr_android_dev",
+      "e2e_mgr_ml_engineer",
+      "e2e_mgr_qa_engineer",
+      "e2e_mgr_devops_release"
+    ],
+    "e2e_mgr_product_owner": [
+      "e2e_mgr_biz_analyst",
+      "e2e_mgr_ux_researcher",
+      "e2e_mgr_rd_lead",
+      "e2e_mgr_qa_engineer",
+      "e2e_mgr_devops_release",
+      "manager"
+    ],
+    "e2e_mgr_biz_analyst": ["e2e_mgr_product_owner", "e2e_mgr_ux_researcher", "e2e_mgr_rd_lead", "manager"],
+    "e2e_mgr_ux_researcher": [
+      "e2e_mgr_biz_analyst",
+      "e2e_mgr_interaction_designer",
+      "e2e_mgr_ui_designer",
+      "e2e_mgr_rd_lead",
+      "manager"
+    ],
+    "e2e_mgr_interaction_designer": [
+      "e2e_mgr_ux_researcher",
+      "e2e_mgr_ui_designer",
+      "e2e_mgr_rd_lead",
+      "e2e_mgr_android_dev",
+      "manager"
+    ],
+    "e2e_mgr_ui_designer": ["e2e_mgr_interaction_designer", "e2e_mgr_rd_lead", "e2e_mgr_android_dev", "manager"],
+    "e2e_mgr_rd_lead": [
+      "e2e_mgr_product_owner",
+      "e2e_mgr_biz_analyst",
+      "e2e_mgr_ux_researcher",
+      "e2e_mgr_interaction_designer",
+      "e2e_mgr_ui_designer",
+      "e2e_mgr_android_dev",
+      "e2e_mgr_ml_engineer",
+      "e2e_mgr_qa_engineer",
+      "e2e_mgr_devops_release",
+      "manager"
+    ],
+    "e2e_mgr_android_dev": [
+      "e2e_mgr_rd_lead",
+      "e2e_mgr_ml_engineer",
+      "e2e_mgr_qa_engineer",
+      "e2e_mgr_ui_designer",
+      "manager"
+    ],
+    "e2e_mgr_ml_engineer": ["e2e_mgr_rd_lead", "e2e_mgr_android_dev", "e2e_mgr_qa_engineer", "manager"],
+    "e2e_mgr_qa_engineer": [
+      "e2e_mgr_rd_lead",
+      "e2e_mgr_android_dev",
+      "e2e_mgr_ml_engineer",
+      "e2e_mgr_devops_release",
+      "e2e_mgr_product_owner",
+      "manager"
+    ],
+    "e2e_mgr_devops_release": ["e2e_mgr_rd_lead", "e2e_mgr_qa_engineer", "e2e_mgr_product_owner", "manager"]
+  },
+  "task_assign_route_table": {
+    "e2e_mgr_rd_lead": ["e2e_mgr_android_dev", "e2e_mgr_ml_engineer", "e2e_mgr_qa_engineer", "e2e_mgr_devops_release"],
+    "e2e_mgr_product_owner": ["e2e_mgr_biz_analyst", "e2e_mgr_ux_researcher", "e2e_mgr_rd_lead"],
+    "e2e_mgr_ux_researcher": ["e2e_mgr_interaction_designer", "e2e_mgr_ui_designer"],
+    "e2e_mgr_biz_analyst": [],
+    "e2e_mgr_interaction_designer": [],
+    "e2e_mgr_ui_designer": [],
+    "e2e_mgr_android_dev": [],
+    "e2e_mgr_ml_engineer": [],
+    "e2e_mgr_qa_engineer": [],
+    "e2e_mgr_devops_release": []
+  },
+  "route_discuss_rounds": {
+    "e2e_mgr_product_owner": {
+      "e2e_mgr_biz_analyst": 3,
+      "e2e_mgr_ux_researcher": 3,
+      "e2e_mgr_rd_lead": 4,
+      "e2e_mgr_qa_engineer": 2,
+      "e2e_mgr_devops_release": 2
+    },
+    "e2e_mgr_biz_analyst": {
+      "e2e_mgr_product_owner": 3,
+      "e2e_mgr_ux_researcher": 3,
+      "e2e_mgr_rd_lead": 3
+    },
+    "e2e_mgr_ux_researcher": {
+      "e2e_mgr_biz_analyst": 3,
+      "e2e_mgr_interaction_designer": 3,
+      "e2e_mgr_ui_designer": 3,
+      "e2e_mgr_rd_lead": 3
+    },
+    "e2e_mgr_interaction_designer": {
+      "e2e_mgr_ux_researcher": 3,
+      "e2e_mgr_ui_designer": 3,
+      "e2e_mgr_rd_lead": 3,
+      "e2e_mgr_android_dev": 2
+    },
+    "e2e_mgr_ui_designer": {
+      "e2e_mgr_interaction_designer": 3,
+      "e2e_mgr_rd_lead": 3,
+      "e2e_mgr_android_dev": 2
+    },
+    "e2e_mgr_rd_lead": {
+      "e2e_mgr_product_owner": 4,
+      "e2e_mgr_biz_analyst": 3,
+      "e2e_mgr_ux_researcher": 3,
+      "e2e_mgr_interaction_designer": 3,
+      "e2e_mgr_ui_designer": 3,
+      "e2e_mgr_android_dev": 4,
+      "e2e_mgr_ml_engineer": 3,
+      "e2e_mgr_qa_engineer": 3,
+      "e2e_mgr_devops_release": 2
+    },
+    "e2e_mgr_android_dev": {
+      "e2e_mgr_rd_lead": 4,
+      "e2e_mgr_ml_engineer": 3,
+      "e2e_mgr_qa_engineer": 3,
+      "e2e_mgr_ui_designer": 2
+    },
+    "e2e_mgr_ml_engineer": {
+      "e2e_mgr_rd_lead": 3,
+      "e2e_mgr_android_dev": 3,
+      "e2e_mgr_qa_engineer": 3
+    },
+    "e2e_mgr_qa_engineer": {
+      "e2e_mgr_rd_lead": 3,
+      "e2e_mgr_android_dev": 3,
+      "e2e_mgr_ml_engineer": 3,
+      "e2e_mgr_devops_release": 2,
+      "e2e_mgr_product_owner": 2
+    },
+    "e2e_mgr_devops_release": {
+      "e2e_mgr_rd_lead": 2,
+      "e2e_mgr_qa_engineer": 2,
+      "e2e_mgr_product_owner": 2
+    }
+  },
+  "reminder_probe": {
+    "probe_task_id": "wf_reminder_probe",
+    "gate_task_id": "wf_reminder_gate",
+    "blocked_role_ref": "ui_designer",
+    "release_after": "first_reminder_dispatch"
+  },
+  "skill_probe": {
+    "fixture_path": "E2ETest/fixtures/skills/e2e-ui-skill",
+    "skill_list_id": "e2e_workflow_skill_list",
+    "bind_role_refs": ["ui_designer"],
+    "dispatch_role_ref": "ui_designer",
+    "artifact_path": "docs/ux/ui/01_ui_spec.md",
+    "required_markers": ["E2E_SKILL_MARKER_V1"]
+  },
+  "phase_tasks": [
+    {
+      "task_id": "wf_reminder_gate",
+      "title": "Reminder gate phase for baseline verification",
+      "owner_role": "e2e_mgr_rd_lead",
+      "dependencies": [],
+      "artifacts": [],
+      "acceptance": ["Internal gating task released by E2E after reminder redispatch is observed."]
+    },
+    {
+      "task_id": "wf_reminder_probe",
+      "title": "Reminder probe phase validates idle reminder redispatch",
+      "owner_role": "e2e_mgr_ui_designer",
+      "dependencies": [],
+      "artifacts": ["docs/e2e/workflow_reminder_probe.md"],
+      "acceptance": ["Create a small reminder probe artifact and report completion after reminder-driven wake-up."]
+    },
+    {
+      "task_id": "wf_plan_master",
+      "title": "Plan Task: global plan, decomposition rules, and collaboration protocol",
+      "owner_role": "e2e_mgr_rd_lead",
+      "dependencies": ["wf_reminder_gate"],
+      "artifacts": ["docs/plan/00_master_plan.md"],
+      "acceptance": [
+        "Define global plan and milestones for Android gesture recognition app.",
+        "Define subtask creation standards (title/dependencies/acceptance/artifacts) with strict dependency order.",
+        "Define reporting and discuss protocol across roles, with code-first delivery priority."
+      ]
+    },
+    {
+      "task_id": "wf_product_definition",
+      "title": "Define product scope, target users, and MVP boundaries",
+      "owner_role": "e2e_mgr_product_owner",
+      "dependencies": ["wf_plan_master"],
+      "artifacts": ["docs/product/01_product_scope.md"],
+      "acceptance": [
+        "Clarify target users and key scenarios.",
+        "Define MVP features and out-of-scope items.",
+        "Provide implementation-oriented MVP boundaries for Android code delivery."
+      ]
+    },
+    {
+      "task_id": "wf_interaction_design",
+      "title": "Produce interaction flow and key journey decisions",
+      "owner_role": "e2e_mgr_interaction_designer",
+      "dependencies": ["wf_product_definition"],
+      "artifacts": ["docs/ux/interaction/01_interaction_flow.md"],
+      "acceptance": [
+        "Cover end-to-end interaction flow and state transitions.",
+        "Include gesture interaction feedback rules.",
+        "Ensure interaction decisions can be directly mapped to Android implementation tasks."
+      ]
+    },
+    {
+      "task_id": "wf_ui_design",
+      "title": "Produce UI specification and visual component constraints",
+      "owner_role": "e2e_mgr_ui_designer",
+      "dependencies": ["wf_interaction_design"],
+      "artifacts": ["docs/ux/ui/01_ui_spec.md", "src/android/app/src/main/res/layout/activity_main.xml"],
+      "acceptance": [
+        "Define key screens and UI component rules.",
+        "Define accessibility and visual consistency baseline.",
+        "Provide UI specification that can be consumed by Android code implementation."
+      ]
+    },
+    {
+      "task_id": "wf_engineering_decomposition",
+      "title": "RD lead decomposes engineering plan and ownership",
+      "owner_role": "e2e_mgr_rd_lead",
+      "dependencies": ["wf_product_definition", "wf_interaction_design", "wf_ui_design"],
+      "artifacts": ["docs/engineering/01_dev_breakdown.md", "src/android/README.md"],
+      "acceptance": [
+        "Break down Android/ML/QA/Release work packages.",
+        "Include dependency order and integration checkpoints.",
+        "Define code package ownership and delivery order for src/android outputs."
+      ]
+    },
+    {
+      "task_id": "wf_engineering_execution",
+      "title": "Execute Android implementation and integration contracts",
+      "owner_role": "e2e_mgr_android_dev",
+      "dependencies": ["wf_engineering_decomposition"],
+      "artifacts": [
+        "src/android/app/src/main/AndroidManifest.xml",
+        "src/android/app/build.gradle",
+        "src/android/app/src/main/java/com/gesturerecognition/MainActivity.kt",
+        "app/integration/gesture_pipeline_contract.md"
+      ],
+      "acceptance": [
+        "Deliver Android module structure and core source code under src/android.",
+        "Define integration contract for gesture pipeline."
+      ]
+    },
+    {
+      "task_id": "wf_quality_release",
+      "title": "Define quality validation and release runbook",
+      "owner_role": "e2e_mgr_qa_engineer",
+      "dependencies": ["wf_engineering_execution"],
+      "artifacts": ["qa/01_test_plan.md", "release/01_release_runbook.md", "src/android/app/src/test"],
+      "acceptance": [
+        "Define test strategy and key acceptance tests for delivered source code.",
+        "Define release steps and rollback strategy."
+      ]
+    },
+    {
+      "task_id": "wf_final_delivery",
+      "title": "Prepare final delivery package for stakeholders",
+      "owner_role": "e2e_mgr_product_owner",
+      "dependencies": ["wf_quality_release"],
+      "artifacts": ["delivery/01_final_delivery_package.md", "src/android/build.bat"],
+      "acceptance": [
+        "Summarize final scope, quality status, and release readiness.",
+        "Provide final handoff package with clear next actions.",
+        "Final delivery must be completed only after quality/release dependency is DONE."
+      ]
+    }
+  ],
+  "code_output_requirements": [
+    {
+      "relative_path": "src/android/app/src/main/AndroidManifest.xml"
+    },
+    {
+      "relative_path": "src/android/app/build.gradle"
+    },
+    {
+      "dir_pattern": "src/android/app/src/main/java/**/*.kt",
+      "min_count": 1
+    },
+    {
+      "dir_pattern": "src/android/app/src/test/java/**/*.kt",
+      "min_count": 1
+    }
+  ],
+  "artifact_validations": [
+    {
+      "task_id": "wf_plan_master",
+      "path": "docs/plan/00_master_plan.md",
+      "keywords": ["plan", "android", "gesture"]
+    },
+    {
+      "task_id": "wf_product_definition",
+      "path": "docs/product/01_product_scope.md",
+      "keywords": ["scope", "mvp", "gesture"]
+    },
+    {
+      "task_id": "wf_interaction_design",
+      "path": "docs/ux/interaction/01_interaction_flow.md",
+      "keywords": ["interaction", "flow", "gesture"]
+    },
+    {
+      "task_id": "wf_ui_design",
+      "path": "docs/ux/ui/01_ui_spec.md",
+      "keywords": ["ui", "screen", "gesture", "e2e_skill_marker_v1"]
+    },
+    {
+      "task_id": "wf_reminder_probe",
+      "path": "docs/e2e/workflow_reminder_probe.md",
+      "keywords": ["reminder", "probe", "done"]
+    },
+    {
+      "task_id": "wf_engineering_decomposition",
+      "path": "docs/engineering/01_dev_breakdown.md",
+      "keywords": ["breakdown", "android", "ml"]
+    },
+    {
+      "task_id": "wf_engineering_execution",
+      "path": "app/android/README.md",
+      "keywords": ["android", "module", "gesture"]
+    },
+    {
+      "task_id": "wf_engineering_execution",
+      "path": "app/integration/gesture_pipeline_contract.md",
+      "keywords": ["contract", "pipeline", "gesture"]
+    },
+    {
+      "task_id": "wf_quality_release",
+      "path": "qa/01_test_plan.md",
+      "keywords": ["test", "plan", "acceptance"]
+    },
+    {
+      "task_id": "wf_quality_release",
+      "path": "release/01_release_runbook.md",
+      "keywords": ["release", "runbook", "rollback"]
+    },
+    {
+      "task_id": "wf_final_delivery",
+      "path": "delivery/01_final_delivery_package.md",
+      "keywords": ["delivery", "package", "summary"]
+    }
+  ]
+}

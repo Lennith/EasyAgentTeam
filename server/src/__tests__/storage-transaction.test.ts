@@ -12,6 +12,7 @@ import {
   runStorageTransaction,
   writeJsonFile
 } from "../data/file-utils.js";
+import { rollbackPreparedOperation } from "../data/storage/recovery-runner.js";
 
 test("runStorageTransaction rolls back staged writes when callback throws", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-storage-tx-rollback-"));
@@ -45,4 +46,22 @@ test("deleteDirectoryTransactional removes directory atomically", async () => {
   await assert.rejects(async () => fs.access(target), {
     code: "ENOENT"
   });
+});
+
+test("append rollback does not expand file with zero bytes when current file is already smaller", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-storage-tx-append-rollback-"));
+  const logFile = path.join(tempRoot, "events.jsonl");
+  await fs.writeFile(logFile, "abc", "utf8");
+
+  await rollbackPreparedOperation({
+    type: "appendJsonl",
+    filePath: logFile,
+    line: '{"event":"probe"}\n',
+    previousSize: 16
+  });
+
+  const bytes = await fs.readFile(logFile);
+  assert.equal(bytes.length, 3);
+  assert.equal(bytes.includes(0), false);
+  assert.equal(bytes.toString("utf8"), "abc");
 });

@@ -8,6 +8,7 @@ const appPath = path.join(repoRoot, "server", "src", "app.ts");
 const routesDir = path.join(repoRoot, "server", "src", "routes");
 const args = new Set(process.argv.slice(2));
 const jsonOutput = args.has("--json");
+const fileCache = new Map();
 
 function parseRoutes(appSource) {
   const routes = new Set();
@@ -43,6 +44,41 @@ async function listTsFilesRecursively(rootDir) {
   return output;
 }
 
+function buildPathCandidates(routePath) {
+  const normalized = String(routePath ?? "").trim();
+  if (!normalized) {
+    return [];
+  }
+  const variants = new Set([normalized]);
+  variants.add(normalized.replace(/:([A-Za-z0-9_]+)/g, "{$1}"));
+  variants.add(normalized.replace(/:([A-Za-z0-9_]+)/g, "<$1>"));
+  return [...variants];
+}
+
+function contentContainsRoutePath(content, routePath) {
+  if (typeof content !== "string" || content.length === 0) {
+    return false;
+  }
+  const candidates = buildPathCandidates(routePath);
+  return candidates.some((candidate) => candidate && content.includes(candidate));
+}
+
+async function readCached(filePath) {
+  if (fileCache.has(filePath)) {
+    return fileCache.get(filePath);
+  }
+  try {
+    const content = await fs.readFile(filePath, "utf8");
+    const result = { exists: true, content };
+    fileCache.set(filePath, result);
+    return result;
+  } catch {
+    const result = { exists: false, content: null };
+    fileCache.set(filePath, result);
+    return result;
+  }
+}
+
 function stringifyResult(payload) {
   if (jsonOutput) {
     return JSON.stringify(payload, null, 2);
@@ -69,7 +105,7 @@ function stringifyResult(payload) {
   if (payload.doc_missing_paths.length > 0) {
     lines.push("doc_missing_paths:");
     for (const item of payload.doc_missing_paths) {
-      lines.push(`- ${item.path} (required by ${item.method} ${item.pathRef})`);
+      lines.push(`- ${item.refs.join(", ")} (required by ${item.method} ${item.pathRef})`);
     }
   }
   return lines.join("\n");
@@ -109,18 +145,29 @@ async function main() {
     }
 
     const refs = Array.isArray(endpoint.docRefs) ? endpoint.docRefs : [];
+    const existingDocContents = [];
     for (const ref of refs) {
       const absoluteRef = path.join(repoRoot, ref);
-      let content = null;
-      try {
-        content = await fs.readFile(absoluteRef, "utf8");
-      } catch {
+      const readResult = await readCached(absoluteRef);
+      if (!readResult.exists) {
         docMissingRefs.push({ method, path: routePath, ref });
         continue;
       }
-      if (!content.includes(routePath)) {
-        docMissingPaths.push({ method, pathRef: routePath, path: ref });
+      existingDocContents.push({ ref, content: readResult.content });
+    }
+    if (existingDocContents.length === 0) {
+      if (refs.length === 0) {
+        docMissingPaths.push({ method, pathRef: routePath, refs: ["<no-docRefs>"] });
       }
+      continue;
+    }
+    const documented = existingDocContents.some((doc) => contentContainsRoutePath(doc.content, routePath));
+    if (!documented) {
+      docMissingPaths.push({
+        method,
+        pathRef: routePath,
+        refs: existingDocContents.map((doc) => doc.ref)
+      });
     }
   }
 

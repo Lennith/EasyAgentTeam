@@ -1,0 +1,25 @@
+{
+  "manifest_version": "1.0",
+  "campaign_id": "real_two_rounds_rnd_finance_v1",
+  "name": "TemplateAgent Real Two-Round Validation",
+  "scenarios": [
+    {
+      "id": "workflow_gesture_app_rnd",
+      "kind": "workflow",
+      "domain": "project_development",
+      "title": "Gesture Recognition R&D Workflow",
+      "goal": "Create a reusable workflow template for gesture recognition application R&D with explicit QA acceptance gates.",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_monthly_close_reconciliation",
+      "kind": "workflow",
+      "domain": "finance",
+      "title": "Monthly Close Reconciliation Workflow",
+      "goal": "Create a reusable workflow template for monthly close reconciliation and exception handling with explicit QA acceptance gates.",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    }
+  ]
+}

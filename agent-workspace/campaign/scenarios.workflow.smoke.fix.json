@@ -1,0 +1,16 @@
+{
+  "manifest_version": "1.0",
+  "campaign_id": "external_agent_workflow_smoke_fix_v1",
+  "name": "Smoke Fix",
+  "scenarios": [
+    {
+      "id": "workflow_customer_churn_alert",
+      "kind": "workflow",
+      "domain": "business_analysis",
+      "title": "客户流失预警",
+      "goal": "生成客户流失预警流程模板，覆盖建模、验证、告警策略验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    }
+  ]
+}

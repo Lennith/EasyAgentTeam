@@ -63,7 +63,8 @@ Boundary review helper:
 
 - E2E baseline entry: [E2ETest/README.md](../E2ETest/README.md)
 - First-run wrapper: `pnpm e2e:first-run`
-- Aggregate baseline: `pnpm e2e:baseline`
+- TemplateAgent 2-case baseline: `pnpm e2e:template-agent`
+- Aggregate baseline: `pnpm e2e:baseline` (includes template-agent)
 - Standard engineering gate: `pnpm gate:standard`
 - Gate SOP: [docs/gates/standard-gate-sop.md](./gates/standard-gate-sop.md)
 
@@ -71,6 +72,20 @@ Gate-to-doc index contract:
 
 - JSON contract: `docs/contracts/gate-doc-index.contract.json`
 - Manual generation command: `pnpm gate:index`
+
+## External Agent Workspace
+
+- Static copy-ready workspace: `TemplateAgentWorkspace/`
+- External workspace/import CLI: `agent-workspace/cli.mjs`
+- `agent-workspace init` mode: copy static template + patch `.agent-tools/config.json` `base_url`
+- Contract: `docs/contracts/agent-workspace-bundle.contract.json`
+- Navigation doc: `docs/agent-workspace/README.md`
+- Sample bundle: `agent-workspace/examples/bundle.sample.json`
+- Campaign entry: `pnpm agent-workspace:campaign -- --manifest <path> --base-url <url>`
+- Campaign contracts:
+  - `docs/contracts/agent-workspace-campaign-manifest.contract.json`
+  - `docs/contracts/agent-workspace-campaign-report.contract.json`
+- External-agent 3dof workflow E2E: `pnpm e2e:external-agent-3dof`
 
 ## Common Change Landing Map
 

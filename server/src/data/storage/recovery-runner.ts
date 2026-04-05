@@ -9,15 +9,15 @@ function lockPathsForOperation(operation: WalPreparedOperation): string[] {
     case "putJson":
     case "overwriteJsonl":
     case "appendJsonl":
-      return [operation.filePath];
+      return lockPathWithAncestors(operation.filePath, 2);
     case "mkdir":
-      return [operation.dirPath];
+      return lockPathWithAncestors(operation.dirPath, 2);
     case "renameDir":
-      return [operation.sourcePath, operation.targetPath];
+      return [...lockPathWithAncestors(operation.sourcePath, 2), ...lockPathWithAncestors(operation.targetPath, 2)];
     case "deleteDir":
-      return [operation.dirPath, operation.trashPath];
+      return [...lockPathWithAncestors(operation.dirPath, 2), ...lockPathWithAncestors(operation.trashPath, 2)];
     case "deleteFile":
-      return [operation.filePath, operation.trashPath];
+      return [...lockPathWithAncestors(operation.filePath, 2), ...lockPathWithAncestors(operation.trashPath, 2)];
     default:
       return [];
   }
@@ -95,6 +95,12 @@ export async function rollbackPreparedOperation(operation: WalPreparedOperation)
           return;
         }
         throw error;
+      }
+      const stat = await fs.stat(operation.filePath);
+      const currentSize = stat.size;
+      if (currentSize <= operation.previousSize) {
+        // Rollback for append must never expand file size; expansion introduces zero-filled gaps.
+        return;
       }
       await truncateFileAtomic(operation.filePath, operation.previousSize);
       return;
@@ -199,4 +205,19 @@ async function recoverWalDirectoryInternal(walDir: string): Promise<void> {
       await removeWalRecord(walDir, record.txId);
     });
   }
+}
+
+function lockPathWithAncestors(targetPath: string, maxAncestors: number): string[] {
+  const normalized = path.resolve(targetPath);
+  const result = [normalized];
+  let cursor = normalized;
+  for (let i = 0; i < maxAncestors; i += 1) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) {
+      break;
+    }
+    result.push(parent);
+    cursor = parent;
+  }
+  return result;
 }

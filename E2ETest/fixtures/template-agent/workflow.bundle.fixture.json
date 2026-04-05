@@ -1,0 +1,108 @@
+{
+  "bundle_id": "__PREFIX___workflow_bundle",
+  "skills_sources": ["../skills/workflow_toolkit"],
+  "skill_lists": [
+    {
+      "list_id": "__PREFIX___workflow_skill_list",
+      "display_name": "Template Agent Workflow Skill List",
+      "include_all": false,
+      "skill_ids": ["__SKILL_ID__"]
+    }
+  ],
+  "agents": [
+    {
+      "agent_id": "__PREFIX___planner",
+      "display_name": "Workflow Planner",
+      "prompt": "Role Function: design reusable workflow plan and milestones. Usable Tools: requirements docs and planning checklists. Method: milestone-first decomposition.",
+      "skill_list": ["__PREFIX___workflow_skill_list"]
+    },
+    {
+      "agent_id": "__PREFIX___executor",
+      "display_name": "Workflow Executor",
+      "prompt": "Role Function: execute planned implementation tasks and produce deliverables. Usable Tools: workspace files and verification scripts. Method: incremental delivery with evidence.",
+      "skill_list": ["__PREFIX___workflow_skill_list"]
+    },
+    {
+      "agent_id": "__PREFIX___qa_guard",
+      "display_name": "Workflow QA Guard",
+      "prompt": "Role Function: own acceptance review and final release decision. Usable Tools: QA checklist and traceability matrix. Method: criteria-first independent verification.",
+      "skill_list": ["__PREFIX___workflow_skill_list"]
+    }
+  ],
+  "project": {
+    "project_id": "__PREFIX___workflow_project",
+    "name": "Template Agent Workflow E2E Project",
+    "workspace_path": "__WORKSPACE_PATH__",
+    "agent_ids": ["__PREFIX___planner", "__PREFIX___executor", "__PREFIX___qa_guard"],
+    "route_table": {
+      "__PREFIX___planner": ["__PREFIX___executor", "__PREFIX___qa_guard"],
+      "__PREFIX___executor": ["__PREFIX___planner", "__PREFIX___qa_guard"],
+      "__PREFIX___qa_guard": ["__PREFIX___planner", "__PREFIX___executor"]
+    },
+    "task_assign_route_table": {
+      "__PREFIX___planner": ["__PREFIX___executor", "__PREFIX___qa_guard"],
+      "__PREFIX___executor": ["__PREFIX___qa_guard"],
+      "__PREFIX___qa_guard": ["__PREFIX___planner"]
+    }
+  },
+  "workflow_template": {
+    "template_id": "__PREFIX___workflow_template",
+    "name": "Template Agent Workflow E2E",
+    "tasks": [
+      {
+        "task_id": "phase_plan",
+        "title": "Plan",
+        "owner_role": "__PREFIX___planner",
+        "acceptance": [
+          "objective: freeze business objective and execution boundaries",
+          "input: initial requirement statement and constraints",
+          "output: planning notes and milestone table",
+          "constraints: no implementation code in this step",
+          "exception: unresolved assumptions must be listed with owner",
+          "verification: milestones contain owner and completion criteria"
+        ],
+        "artifacts": ["workspace/plan/plan.md"],
+        "write_set": ["workspace/plan/**"]
+      },
+      {
+        "task_id": "phase_execute",
+        "title": "Execute",
+        "owner_role": "__PREFIX___executor",
+        "dependencies": ["phase_plan"],
+        "acceptance": [
+          "objective: produce implementation evidence for agreed scope",
+          "input: approved plan and task boundary",
+          "output: implementation note and execution evidence",
+          "constraints: keep outputs within declared scope",
+          "exception: blockers include fallback and impact statement",
+          "verification: outputs map to plan acceptance criteria"
+        ],
+        "artifacts": ["workspace/exec/result.md"],
+        "write_set": ["workspace/exec/**"]
+      },
+      {
+        "task_id": "phase_qa",
+        "title": "QA",
+        "owner_role": "__PREFIX___qa_guard",
+        "dependencies": ["phase_execute"],
+        "acceptance": [
+          "objective: issue final pass or fail acceptance decision",
+          "input: planning and execution artifacts",
+          "output: final QA checklist and decision record",
+          "constraints: independent review with explicit rationale",
+          "exception: failed checks include corrective action owner",
+          "verification: final decision states pass/fail and blocker status"
+        ],
+        "artifacts": ["workspace/qa/final.md"],
+        "write_set": ["workspace/qa/**"]
+      }
+    ]
+  },
+  "workflow_run": {
+    "run_id": "__PREFIX___workflow_run",
+    "template_id": "__PREFIX___workflow_template",
+    "name": "Template Agent Workflow E2E Run",
+    "workspace_path": "__WORKSPACE_PATH__",
+    "auto_start": false
+  }
+}

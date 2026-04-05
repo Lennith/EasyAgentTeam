@@ -21,6 +21,7 @@ dashboard-v2/Agents/
 # runtime data (do not upload)
 data/**
 .e2e-workspace/
+server/src.zip
 
 # local-added skill packages (keep local, do not upload)
 data/skills/packages/dpvr-mail-agent/

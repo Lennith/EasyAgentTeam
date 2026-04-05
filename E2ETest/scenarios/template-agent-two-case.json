@@ -1,0 +1,16 @@
+{
+  "scenario_id": "template_agent_two_case_v1",
+  "scenario_kind": "template_agent_e2e",
+  "cases": [
+    {
+      "id": "workflow",
+      "fixture": "E2ETest/fixtures/template-agent/workflow.bundle.fixture.json",
+      "description": "TemplateAgent workflow fixture publish + real run start/finish"
+    },
+    {
+      "id": "project",
+      "fixture": "E2ETest/fixtures/template-agent/project.bundle.fixture.json",
+      "description": "TemplateAgent project fixture publish + registration verification"
+    }
+  ]
+}

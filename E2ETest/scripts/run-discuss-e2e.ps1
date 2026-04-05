@@ -23,7 +23,7 @@ if (-not (Test-Path -LiteralPath $ScenarioPath)) {
   throw "Scenario file not found: $ScenarioPath"
 }
 
-$scenario = Get-Content -LiteralPath $ScenarioPath -Raw | ConvertFrom-Json
+$scenario = Get-Content -LiteralPath $ScenarioPath -Encoding UTF8 -Raw | ConvertFrom-Json
 $projectId = [string]$scenario.project_id
 $projectName = [string]$scenario.project_name
 $seedTasks = $scenario.seed_tasks

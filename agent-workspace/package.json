@@ -1,0 +1,9 @@
+﻿{
+  "name": "agent-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "agent-workspace": "./cli.mjs"
+  }
+}

@@ -9,6 +9,7 @@ Supported baseline scripts:
 - `E2ETest/scripts/run-standard-e2e.ps1`
 - `E2ETest/scripts/run-discuss-e2e.ps1`
 - `E2ETest/scripts/run-workflow-e2e.ps1`
+- `E2ETest/scripts/run-template-agent-e2e.ps1`
 
 Coverage is scenario-first:
 
@@ -21,7 +22,8 @@ Coverage is scenario-first:
 - `standard`: project dependency-chain orchestration and close-loop completion
 - `discuss`: multi-agent architecture discussion and convergence flow
 - `workflow`: workflow template/run/session orchestration plus skill injection evidence
-- `multi`: aggregate launcher for `standard + discuss + workflow`
+- `template-agent`: static TemplateAgent workspace fixture publish flow (`workflow + project` two-case serial run)
+- `multi`: aggregate launcher for `standard + discuss + workflow + template-agent`
 
 ## E2E Usage Template
 
@@ -153,7 +155,7 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 
 
 1. Purpose
 
-- Run `chain + discuss + workflow` in one command.
+- Run `chain + discuss + workflow + template-agent` in one command.
 
 2. Prerequisites
 
@@ -180,11 +182,53 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1
 
 - one case has provider/path issue and fails aggregate run
 
+### TemplateAgent Baseline (`run-template-agent-e2e.ps1`)
+
+1. Purpose
+
+- Validate static `TemplateAgentWorkspace` fixture flow end-to-end:
+  - workflow case: `check -> publish -> start run -> finish`
+  - project case: `check -> publish -> registration verification`
+
+2. Prerequisites
+
+- backend is running and reachable at `BaseUrl`
+- repository root contains static workspace `TemplateAgentWorkspace/`
+
+3. Config to replace
+
+- `BaseUrl`
+- `WorkspaceRoot` (optional)
+- `DataRoot` (optional, default `data/`)
+- `MaxSeconds`
+
+4. Command
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-template-agent-e2e.ps1
+```
+
+5. Expected result
+
+- both sub-cases finish with `pass` or `pass_with_event_gap`
+- artifacts output includes:
+  - `template_agent_e2e_results.json|md`
+  - `workflow.result.json|md`
+  - `project.result.json|md`
+
+6. Common failure points
+
+- static workspace missing or corrupted
+- publish conflict from duplicated IDs
+- workflow run cannot reach terminal state in timeout
+
 ## Default Scenarios
 
 - `E2ETest/scenarios/a-self-decompose-chain.json`
 - `E2ETest/scenarios/team-discuss-framework.json`
 - `E2ETest/scenarios/workflow-gesture-real-agent.json`
+- `E2ETest/scenarios/workflow-external-agent-3dof.json`
+- `E2ETest/scenarios/template-agent-two-case.json`
 
 Scenario files include probe metadata:
 
@@ -219,3 +263,22 @@ Workflow extra outputs:
 - `workflow_subtask_dependency_validation.json`
 - `workflow_code_output_validation.json`
 - `workflow_agent_subtask_stats.json`
+
+Template-agent outputs:
+
+- `template_agent_e2e_results.json`
+- `template_agent_e2e_results.md`
+- `workflow.result.json`
+- `project.result.json`
+
+## Cleanup Script
+
+Safe cleanup for historical template-agent test artifacts and test data:
+
+```powershell
+node .\E2ETest\scripts\cleanup-template-agent-test-data.mjs
+node .\E2ETest\scripts\cleanup-template-agent-test-data.mjs --confirm
+```
+
+- default is dry-run
+- cleanup scope is repo-local allowlist paths + data IDs matching configured prefixes

@@ -1,9 +1,11 @@
 ﻿param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
-  [string[]]$Cases = @("chain", "discuss", "workflow"),
+  [string[]]$Cases = @("chain", "discuss", "workflow", "template-agent"),
   [string]$ChainScenarioPath = "",
   [string]$DiscussScenarioPath = "",
   [string]$WorkflowScenarioPath = "",
+  [string]$TemplateAgentWorkspaceRoot = "",
+  [string]$TemplateAgentDataRoot = "",
   [string]$ChainWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestRound20",
   [string]$DiscussWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss",
   [string]$WorkflowWorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace",
@@ -34,6 +36,12 @@ if (-not $DiscussScenarioPath) {
 if (-not $WorkflowScenarioPath) {
   $WorkflowScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\workflow-gesture-real-agent.json"
 }
+if (-not $TemplateAgentWorkspaceRoot) {
+  $TemplateAgentWorkspaceRoot = Join-Path $repoRoot ".e2e-workspace\TestTeam\TemplateAgent"
+}
+if (-not $TemplateAgentDataRoot) {
+  $TemplateAgentDataRoot = Join-Path $repoRoot "data"
+}
 
 $caseMap = @{
   "chain" = @{
@@ -51,13 +59,19 @@ $caseMap = @{
     scenario = $WorkflowScenarioPath
     workspace = $WorkflowWorkspaceRoot
   }
+  "template-agent" = @{
+    script = Join-Path $scriptDir "run-template-agent-e2e.ps1"
+    scenario = ""
+    workspace = $TemplateAgentWorkspaceRoot
+    dataRoot = $TemplateAgentDataRoot
+  }
 }
 
 $selected = @()
 foreach ($caseIdRaw in $Cases) {
   $caseId = $caseIdRaw.Trim().ToLower()
   if (-not $caseMap.Contains($caseId)) {
-    throw "Unknown case '$caseId'. Supported: chain, discuss, workflow"
+    throw "Unknown case '$caseId'. Supported: chain, discuss, workflow, template-agent"
   }
   $selected += $caseId
 }
@@ -75,42 +89,30 @@ Write-Host ("setup_only={0}" -f $SetupOnly.IsPresent)
 $strictMode = $StrictObserve.IsPresent -or (-not $LegacyMode.IsPresent)
 Write-Host ("strict_observe={0}" -f $strictMode)
 
-$jobs = @()
 $caseArtifacts = @{}
 $caseExitCodes = @{}
+$failed = @()
+
 foreach ($caseId in $selected) {
   $cfg = $caseMap[$caseId]
   $scriptPath = [string]$cfg.script
   $scenarioPath = [string]$cfg.scenario
   $workspace = [string]$cfg.workspace
+  $dataRoot = if ($cfg.ContainsKey("dataRoot")) { [string]$cfg.dataRoot } else { "" }
 
-  Write-Host ("[launch] case={0} script={1} workspace={2}" -f $caseId, $scriptPath, $workspace)
-  $jobs += Start-Job -Name $caseId -ScriptBlock {
-    param(
-      [string]$ScriptPath,
-      [string]$BaseUrl,
-      [string]$ScenarioPath,
-      [string]$WorkspaceRoot,
-      [int]$AutoDispatchBudget,
-      [int]$MaxMinutes,
-      [int]$PollSeconds,
-      [int]$AutoTopupStep,
-      [int]$MaxTopups,
-      [int]$MaxTotalBudget,
-      [bool]$SetupOnly,
-      [bool]$StrictObserve,
-      [string]$CaseId,
-      [string]$MiniMaxApiKeyOverride,
-      [string]$MiniMaxApiBaseOverride,
-      [bool]$ClearMiniMaxSettings
-    )
-
-    $args = @(
-      "-ExecutionPolicy", "Bypass",
-      "-File", $ScriptPath,
-      "-BaseUrl", $BaseUrl,
-      "-ScenarioPath", $ScenarioPath,
-      "-WorkspaceRoot", $WorkspaceRoot,
+  $args = @("-ExecutionPolicy", "Bypass", "-File", $scriptPath, "-BaseUrl", $BaseUrl, "-WorkspaceRoot", $workspace)
+  if ($caseId -eq "template-agent") {
+    $maxSeconds = [Math]::Max(60, ($MaxMinutes * 60))
+    $args += @("-MaxSeconds", "$maxSeconds")
+    if (-not [string]::IsNullOrWhiteSpace($dataRoot)) {
+      $args += @("-DataRoot", $dataRoot)
+    }
+    if ($SetupOnly) {
+      $args += "-SetupOnly"
+    }
+  } else {
+    $args += @(
+      "-ScenarioPath", $scenarioPath,
       "-AutoDispatchBudget", "$AutoDispatchBudget",
       "-MaxMinutes", "$MaxMinutes",
       "-PollSeconds", "$PollSeconds",
@@ -121,10 +123,10 @@ foreach ($caseId in $selected) {
     if ($SetupOnly) {
       $args += "-SetupOnly"
     }
-    if ($StrictObserve -and $CaseId -eq "chain") {
+    if ($strictMode -and $caseId -eq "chain") {
       $args += "-StrictObserve"
     }
-    if ($CaseId -eq "workflow") {
+    if ($caseId -eq "workflow") {
       if (-not [string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) {
         $args += @("-MiniMaxApiKeyOverride", $MiniMaxApiKeyOverride)
       }
@@ -135,50 +137,25 @@ foreach ($caseId in $selected) {
         $args += "-ClearMiniMaxSettings"
       }
     }
-    & powershell @args
-    [pscustomobject]@{
-      exitCode = $LASTEXITCODE
-    }
-  } -ArgumentList $scriptPath, $BaseUrl, $scenarioPath, $workspace, $AutoDispatchBudget, $MaxMinutes, $PollSeconds, $AutoTopupStep, $MaxTopups, $MaxTotalBudget, $SetupOnly.IsPresent, $strictMode, $caseId, $MiniMaxApiKeyOverride, $MiniMaxApiBaseOverride, $ClearMiniMaxSettings.IsPresent
-}
+  }
 
-$failed = @()
-foreach ($job in $jobs) {
-  Wait-Job -Id $job.Id | Out-Null
-  $output = @(Receive-Job -Id $job.Id)
-  $exitCode = 0
-  if ($output) {
-    foreach ($line in @($output)) {
-      Write-Host ("[{0}] {1}" -f $job.Name, $line)
-      if ($line -is [string] -and $line -like "artifacts=*") {
-        $caseArtifacts[$job.Name] = ($line -replace "^artifacts=", "").Trim()
-      }
+  Write-Host ("[launch] case={0} script={1} workspace={2}" -f $caseId, $scriptPath, $workspace)
+  $output = @(& powershell @args 2>&1)
+  $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+  foreach ($line in $output) {
+    $text = [string]$line
+    Write-Host ("[{0}] {1}" -f $caseId, $text)
+    if ($text -like "artifacts=*") {
+      $caseArtifacts[$caseId] = ($text -replace "^artifacts=", "").Trim()
     }
   }
-  if ($job.State -ne "Completed") {
-    $failed += $job.Name
-    Write-Host ("[failed] case={0} state={1}" -f $job.Name, $job.State)
-    continue
-  }
-  if ($job.ChildJobs.Count -gt 0 -and $job.ChildJobs[0].Error.Count -gt 0) {
-    $failed += $job.Name
-    Write-Host ("[failed] case={0} error={1}" -f $job.Name, $job.ChildJobs[0].Error[0])
-    continue
-  }
-  $exitCodeObj = $output | Where-Object { $_ -and $_.PSObject.Properties.Match("exitCode").Count -gt 0 } | Select-Object -Last 1
-  if ($exitCodeObj -and [int]$exitCodeObj.exitCode -ne 0) {
-    $exitCode = [int]$exitCodeObj.exitCode
-    $caseExitCodes[$job.Name] = $exitCode
-    $failed += $job.Name
-    Write-Host ("[failed] case={0} exitCode={1}" -f $job.Name, [int]$exitCodeObj.exitCode)
+  $caseExitCodes[$caseId] = $exitCode
+  if ($exitCode -ne 0) {
+    $failed += $caseId
+    Write-Host ("[failed] case={0} exitCode={1}" -f $caseId, $exitCode)
   } else {
-    $caseExitCodes[$job.Name] = 0
-    Write-Host ("[done] case={0}" -f $job.Name)
+    Write-Host ("[done] case={0}" -f $caseId)
   }
-}
-
-foreach ($job in $jobs) {
-  Remove-Job -Id $job.Id -Force -ErrorAction SilentlyContinue
 }
 
 function Build-PlaceholderMetrics {
@@ -265,4 +242,3 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "== Multi E2E Passed =="
-

@@ -129,6 +129,18 @@ Each appended run entry must include:
 - E2E scenario additions must declare which primary capability they cover and which existing scenario they cannot be absorbed into.
 - When reviewing E2E scripts, remove or fold cases that only prove internal plumbing without validating a top-level workflow outcome.
 
+## Agent Workspace Template Test Policy
+
+- Template feature testing (`validate`/`apply` contracts, parser/checker behavior, rollback logic) may use simulated bundle generation.
+- Real template verification must use a real external agent execution path for template generation; simulation is not allowed in this test type.
+- If no external agent is explicitly specified, default to `subagent` as the real external agent substitute.
+- Real verification evidence must include:
+  - agent prompt input,
+  - generated bundle path,
+  - backend registration results (`validate` + `apply`),
+  - workflow/project runtime observation results.
+- Test data injected during template tests must be cleaned after the run unless the requester explicitly asks to preserve them.
+
 ## Fast Start for Agents
 
 - If task is backend behavior: start in `server/src/services/` and related tests in `server/src/__tests__/`.

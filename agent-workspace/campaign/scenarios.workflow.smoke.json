@@ -1,0 +1,16 @@
+{
+  "manifest_version": "1.0",
+  "campaign_id": "external_agent_workflow_smoke_v1",
+  "name": "External Agent Workflow Smoke",
+  "scenarios": [
+    {
+      "id": "workflow_market_entry_assessment",
+      "kind": "workflow",
+      "domain": "business_analysis",
+      "title": "市场进入评估",
+      "goal": "生成市场进入评估流程模板，覆盖规划、执行、QA验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    }
+  ]
+}

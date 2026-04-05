@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easyagentteam.local/contracts/agent-workspace-bundle.contract.json",
+  "title": "AgentWorkspace TemplateBundle Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bundle_id", "skills_sources", "skill_lists", "agents", "project", "workflow_template", "workflow_run"],
+  "properties": {
+    "bundle_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "skills_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "skill_lists": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["list_id"],
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9._:-]+$"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "include_all": {
+            "type": "boolean"
+          },
+          "skill_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["agent_id", "prompt"],
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9._:-]+$"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "skill_list": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "description": "Project mode requires at least one bundle-defined QA Guard agent (`*_qa_guard`) included in routing and acceptance ownership.",
+      "additionalProperties": true,
+      "required": ["project_id", "name", "workspace_path"],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspace_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "workflow_template": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["template_id", "name", "tasks"],
+      "properties": {
+        "template_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tasks": {
+          "type": "array",
+          "minItems": 1
+        }
+      }
+    },
+    "workflow_run": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["run_id", "workspace_path"],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "template_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "workspace_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "auto_start": {
+          "type": "boolean",
+          "const": false
+        }
+      }
+    }
+  }
+}

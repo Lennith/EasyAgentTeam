@@ -1,0 +1,97 @@
+{
+  "manifest_version": "1.0",
+  "campaign_id": "external_agent_workflow_v1",
+  "name": "External Agent Workflow-Only Campaign",
+  "scenarios": [
+    {
+      "id": "workflow_market_entry_assessment",
+      "kind": "workflow",
+      "domain": "business_analysis",
+      "title": "市场进入评估",
+      "goal": "生成市场进入评估流程模板，输出策略建议与风险评估。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_customer_churn_alert",
+      "kind": "workflow",
+      "domain": "business_analysis",
+      "title": "客户流失预警",
+      "goal": "生成客户流失预警流程模板，覆盖建模、验证、告警策略验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_gesture_app_rnd",
+      "kind": "workflow",
+      "domain": "project_development",
+      "title": "手势识别应用研发",
+      "goal": "生成手势识别应用研发流程模板，覆盖方案、开发、QA验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_enterprise_portal_refactor",
+      "kind": "workflow",
+      "domain": "project_development",
+      "title": "企业门户重构",
+      "goal": "生成企业门户重构流程模板，覆盖架构重构、实现、质量验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_hiring_to_onboarding",
+      "kind": "workflow",
+      "domain": "human_resources",
+      "title": "招聘到入职",
+      "goal": "生成招聘到入职闭环流程模板，覆盖需求确认、执行、验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_performance_review_appeal",
+      "kind": "workflow",
+      "domain": "human_resources",
+      "title": "绩效评审与申诉",
+      "goal": "生成绩效评审与申诉流程模板，覆盖评审、申诉、结案验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_procurement_to_acceptance",
+      "kind": "workflow",
+      "domain": "administration",
+      "title": "采购申请到验收",
+      "goal": "生成采购申请到验收流程模板，覆盖审批、执行、验收检查。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_travel_approval_reimbursement",
+      "kind": "workflow",
+      "domain": "administration",
+      "title": "差旅审批与报销",
+      "goal": "生成差旅审批与报销流程模板，覆盖审批、执行、财务验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_monthly_close_reconciliation",
+      "kind": "workflow",
+      "domain": "finance",
+      "title": "月结对账与异常处理",
+      "goal": "生成月结对账与异常处理流程模板，覆盖对账、异常、结账验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    },
+    {
+      "id": "workflow_pitch_deck_script_production",
+      "kind": "workflow",
+      "domain": "presentation",
+      "title": "路演材料与讲稿生产",
+      "goal": "生成路演材料与讲稿生产流程模板，覆盖策划、产出、讲稿验收。",
+      "workflow_min_steps": 3,
+      "run_workflow": true
+    }
+  ]
+}

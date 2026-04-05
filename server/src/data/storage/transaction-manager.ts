@@ -110,15 +110,24 @@ function lockPathsForStagedOperation(operation: StagedOperation): string[] {
     case "putJson":
     case "overwriteJsonl":
     case "appendJsonl":
-      return [operation.filePath];
+      return lockPathWithAncestors(operation.filePath, 2);
     case "mkdir":
-      return [operation.dirPath];
+      return lockPathWithAncestors(operation.dirPath, 2);
     case "renameDir":
-      return [operation.sourcePath, operation.targetPath];
+      return [
+        ...lockPathWithAncestors(operation.sourcePath, 2),
+        ...lockPathWithAncestors(operation.targetPath, 2)
+      ];
     case "deleteDir":
-      return [operation.dirPath, trashDirForDelete(operation.dirPath)];
+      return [
+        ...lockPathWithAncestors(operation.dirPath, 2),
+        ...lockPathWithAncestors(trashDirForDelete(operation.dirPath), 2)
+      ];
     case "deleteFile":
-      return [operation.filePath, trashDirForDelete(operation.filePath)];
+      return [
+        ...lockPathWithAncestors(operation.filePath, 2),
+        ...lockPathWithAncestors(trashDirForDelete(operation.filePath), 2)
+      ];
     default:
       return [];
   }
@@ -136,21 +145,45 @@ function lockPathsForPreparedOperations(operations: WalPreparedOperation[]): str
           case "putJson":
           case "overwriteJsonl":
           case "appendJsonl":
-            return [operation.filePath];
+            return lockPathWithAncestors(operation.filePath, 2);
           case "mkdir":
-            return [operation.dirPath];
+            return lockPathWithAncestors(operation.dirPath, 2);
           case "renameDir":
-            return [operation.sourcePath, operation.targetPath];
+            return [
+              ...lockPathWithAncestors(operation.sourcePath, 2),
+              ...lockPathWithAncestors(operation.targetPath, 2)
+            ];
           case "deleteDir":
-            return [operation.dirPath, operation.trashPath];
+            return [
+              ...lockPathWithAncestors(operation.dirPath, 2),
+              ...lockPathWithAncestors(operation.trashPath, 2)
+            ];
           case "deleteFile":
-            return [operation.filePath, operation.trashPath];
+            return [
+              ...lockPathWithAncestors(operation.filePath, 2),
+              ...lockPathWithAncestors(operation.trashPath, 2)
+            ];
           default:
             return [];
         }
       })
     )
   );
+}
+
+function lockPathWithAncestors(targetPath: string, maxAncestors: number): string[] {
+  const normalized = path.resolve(targetPath);
+  const result = [normalized];
+  let cursor = normalized;
+  for (let i = 0; i < maxAncestors; i += 1) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) {
+      break;
+    }
+    result.push(parent);
+    cursor = parent;
+  }
+  return result;
 }
 
 function trashDirForDelete(dirPath: string): string {

@@ -56,7 +56,9 @@ E2E scripts are a first-class product entry, not auxiliary tests:
 - standard project baseline: `pnpm e2e:standard`
 - discuss baseline: `pnpm e2e:discuss`
 - workflow baseline: `pnpm e2e:workflow`
-- aggregate baseline suite: `pnpm e2e:baseline`
+- template-agent 2-case baseline (workflow + project): `pnpm e2e:template-agent`
+- external-agent 3dof workflow scenario: `pnpm e2e:external-agent-3dof`
+- aggregate baseline suite (includes template-agent): `pnpm e2e:baseline`
 
 Usage template for each E2E case: [E2ETest/README.md](./E2ETest/README.md)
 
@@ -81,6 +83,23 @@ pnpm check:boundaries
 pnpm check:boundaries:strict
 ```
 
+## External Agent Workspace
+
+External Agent working-directory generator and one-click importer (v1):
+Round highlight: static TemplateAgent is now maintained under `agent-workspace/template-agentstatic/`; other changes in this round focus on its tests and tooling.
+
+```powershell
+Copy-Item -Recurse -Force .\agent-workspace\template-agentstatic .\tmp\TemplateAgentWorkspace
+pnpm agent-workspace -- init --goal "build a gesture-recognition workflow" --base-url http://127.0.0.1:43123 --workspace .\tmp\external-agent-workspace
+pnpm agent-workspace -- validate --bundle .\agent-workspace\examples\bundle.sample.json --base-url http://127.0.0.1:43123
+pnpm agent-workspace -- apply --bundle .\agent-workspace\examples\bundle.sample.json --base-url http://127.0.0.1:43123 --dry-run
+pnpm agent-workspace:campaign -- --manifest .\agent-workspace\campaign\scenarios.manifest.json --base-url http://127.0.0.1:43123
+```
+
+Static template directory: `agent-workspace/template-agentstatic/` (copy-ready, no dynamic AGENTS generation).
+
+Details: [docs/agent-workspace/README.md](./docs/agent-workspace/README.md)
+
 ## Architecture / API Details
 
 Entry page: [docs/architecture-and-api.md](./docs/architecture-and-api.md)
@@ -103,9 +122,19 @@ pnpm e2e:first-run
 pnpm e2e:standard
 pnpm e2e:discuss
 pnpm e2e:workflow
+pnpm e2e:template-agent
+pnpm e2e:template-agent:cleanup:dry
+pnpm e2e:template-agent:cleanup
+pnpm e2e:external-agent-3dof
 pnpm e2e:baseline
 pnpm gate:standard
 pnpm gate:index -- --summary <run_summary.md>
+pnpm agent-workspace -- init --goal "<goal>" --base-url <url> [--workspace <path>]
+pnpm agent-workspace -- validate --bundle <bundle.json> --base-url <url>
+pnpm agent-workspace -- apply --bundle <bundle.json> --base-url <url> [--dry-run]
+pnpm agent-workspace -- module-check --module <module-name> --bundle <bundle.json> --base-url <url>
+pnpm agent-workspace:campaign -- --manifest <manifest.json> --base-url <url>
+pnpm agent-workspace:campaign:dry -- --manifest <manifest.json> --base-url <url>
 ```
 
 ## License

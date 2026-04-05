@@ -1,0 +1,108 @@
+{
+  "bundle_id": "__PREFIX___project_bundle",
+  "skills_sources": ["../skills/project_toolkit"],
+  "skill_lists": [
+    {
+      "list_id": "__PREFIX___project_skill_list",
+      "display_name": "Template Agent Project Skill List",
+      "include_all": false,
+      "skill_ids": ["__SKILL_ID__"]
+    }
+  ],
+  "agents": [
+    {
+      "agent_id": "__PREFIX___project_lead",
+      "display_name": "Project Lead",
+      "prompt": "Role Function: define project scope and cross-role alignment. Usable Tools: project charter and planning templates. Method: scope-first governance.",
+      "skill_list": ["__PREFIX___project_skill_list"]
+    },
+    {
+      "agent_id": "__PREFIX___project_executor",
+      "display_name": "Project Executor",
+      "prompt": "Role Function: execute project tasks and produce delivery artifacts. Usable Tools: workspace docs and execution checklists. Method: staged execution with evidence.",
+      "skill_list": ["__PREFIX___project_skill_list"]
+    },
+    {
+      "agent_id": "__PREFIX___project_qa_guard",
+      "display_name": "Project QA Guard",
+      "prompt": "Role Function: verify outputs and close project acceptance gate. Usable Tools: QA checklist and acceptance matrix. Method: objective pass/fail evaluation.",
+      "skill_list": ["__PREFIX___project_skill_list"]
+    }
+  ],
+  "project": {
+    "project_id": "__PREFIX___project_root",
+    "name": "Template Agent Project E2E",
+    "workspace_path": "__WORKSPACE_PATH__",
+    "agent_ids": ["__PREFIX___project_lead", "__PREFIX___project_executor", "__PREFIX___project_qa_guard"],
+    "route_table": {
+      "__PREFIX___project_lead": ["__PREFIX___project_executor", "__PREFIX___project_qa_guard"],
+      "__PREFIX___project_executor": ["__PREFIX___project_lead", "__PREFIX___project_qa_guard"],
+      "__PREFIX___project_qa_guard": ["__PREFIX___project_lead", "__PREFIX___project_executor"]
+    },
+    "task_assign_route_table": {
+      "__PREFIX___project_lead": ["__PREFIX___project_executor", "__PREFIX___project_qa_guard"],
+      "__PREFIX___project_executor": ["__PREFIX___project_qa_guard"],
+      "__PREFIX___project_qa_guard": ["__PREFIX___project_lead"]
+    }
+  },
+  "workflow_template": {
+    "template_id": "__PREFIX___project_template",
+    "name": "Template Agent Project Companion Workflow",
+    "tasks": [
+      {
+        "task_id": "project_scope",
+        "title": "Project Scope",
+        "owner_role": "__PREFIX___project_lead",
+        "acceptance": [
+          "objective: define project scope and delivery baseline",
+          "input: business request and constraints",
+          "output: project scope document",
+          "constraints: no implementation details in this phase",
+          "exception: unresolved scope points are listed",
+          "verification: each scope item has measurable target"
+        ],
+        "artifacts": ["workspace/project/scope.md"],
+        "write_set": ["workspace/project/scope.md"]
+      },
+      {
+        "task_id": "project_execute",
+        "title": "Project Execute",
+        "owner_role": "__PREFIX___project_executor",
+        "dependencies": ["project_scope"],
+        "acceptance": [
+          "objective: produce project execution deliverables",
+          "input: approved scope and boundaries",
+          "output: execution log and deliverable summary",
+          "constraints: remain inside project scope",
+          "exception: blockers include fallback owner",
+          "verification: outputs align with project scope"
+        ],
+        "artifacts": ["workspace/project/execute.md"],
+        "write_set": ["workspace/project/execute.md"]
+      },
+      {
+        "task_id": "project_qa",
+        "title": "Project QA",
+        "owner_role": "__PREFIX___project_qa_guard",
+        "dependencies": ["project_execute"],
+        "acceptance": [
+          "objective: final project acceptance decision",
+          "input: scope and execution artifacts",
+          "output: project QA acceptance record",
+          "constraints: independent acceptance review",
+          "exception: unresolved risks create fail decision",
+          "verification: acceptance explicitly states pass/fail"
+        ],
+        "artifacts": ["workspace/project/qa.md"],
+        "write_set": ["workspace/project/qa.md"]
+      }
+    ]
+  },
+  "workflow_run": {
+    "run_id": "__PREFIX___project_run",
+    "template_id": "__PREFIX___project_template",
+    "name": "Template Agent Project Companion Run",
+    "workspace_path": "__WORKSPACE_PATH__",
+    "auto_start": false
+  }
+}

@@ -27,7 +27,7 @@ if (-not (Test-Path -LiteralPath $ScenarioPath)) {
   throw "Scenario file not found: $ScenarioPath"
 }
 
-$scenario = Get-Content -LiteralPath $ScenarioPath -Raw | ConvertFrom-Json
+$scenario = Get-Content -LiteralPath $ScenarioPath -Encoding UTF8 -Raw | ConvertFrom-Json
 $modelCfg = $scenario.agent_model
 $providerIdRaw = if ($modelCfg.provider_id) { [string]$modelCfg.provider_id } else { [string]$modelCfg.tool }
 $providerId = $providerIdRaw.Trim().ToLower()
