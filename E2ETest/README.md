@@ -16,6 +16,7 @@ Coverage is scenario-first:
 - reminder behavior is validated inside all three baselines
 - skill import and runtime skill usage are validated inside workflow baseline
 - mechanism-only scripts are intentionally excluded from baseline entry
+- no standalone reminder-only or skill-import-only official E2E entry is maintained
 
 ## What Each E2E Validates
 

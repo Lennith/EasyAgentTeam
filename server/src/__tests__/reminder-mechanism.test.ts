@@ -3,8 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createProject } from "../data/project-store.js";
-import { getRoleReminderState, readRoleRemindersState, updateRoleReminderState } from "../data/role-reminder-store.js";
+import { createProject } from "../data/repository/project/runtime-repository.js";
+import {
+  getRoleReminderState,
+  readRoleRemindersState,
+  updateRoleReminderState
+} from "../data/repository/project/role-reminder-repository.js";
 import { calculateNextReminderTime, shouldAutoResetReminderOnRoleTransition } from "../services/orchestrator/index.js";
 
 test("calculateNextReminderTime: default values produce 1 minute initial wait", () => {

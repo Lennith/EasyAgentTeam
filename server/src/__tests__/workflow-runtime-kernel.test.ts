@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WorkflowRunRecord, WorkflowRunRuntimeState, WorkflowRunTaskRecord } from "../domain/models.js";
-import { evaluateWorkflowAutoFinishWindow } from "../services/orchestrator/runtime/workflow-auto-finish-window.js";
+import { evaluateWorkflowAutoFinishWindow } from "../services/orchestrator/shared/runtime/workflow-auto-finish-window.js";
 import {
   addWorkflowTaskTransition,
   convergeWorkflowRuntime,
   resolveWorkflowUnreadyDependencyTaskIds
-} from "../services/orchestrator/runtime/workflow-runtime-kernel.js";
+} from "../services/orchestrator/shared/runtime/workflow-runtime-kernel.js";
 
 function createRun(
   tasks: Array<

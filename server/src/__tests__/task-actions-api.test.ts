@@ -524,3 +524,152 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     await serverHandle.close();
   }
 });
+
+test("task-actions reject transitive ancestor dependency with diagnostic chain details", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-task-actions-transitive-ancestor-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspacePath = path.join(tempRoot, "workspace");
+  await fs.mkdir(workspacePath, { recursive: true });
+  const app = createApp({ dataRoot });
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
+
+  try {
+    await seedAgent(baseUrl, "manager");
+    await seedAgent(baseUrl, "dev");
+
+    const projectRes = await fetch(`${baseUrl}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: "tasktransitivegate",
+        name: "Task Transitive Ancestor Gate",
+        workspace_path: workspacePath,
+        agent_ids: ["dev"]
+      })
+    });
+    assert.equal(projectRes.status, 201);
+
+    const createRoot = await fetch(`${baseUrl}/api/projects/tasktransitivegate/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "project-root-tasktransitivegate",
+        task_kind: "PROJECT_ROOT",
+        title: "Project Root",
+        owner_role: "manager"
+      })
+    });
+    assert.equal(createRoot.status, 201);
+
+    const createUserRoot = await fetch(`${baseUrl}/api/projects/tasktransitivegate/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "user-root-1",
+        task_kind: "USER_ROOT",
+        parent_task_id: "project-root-tasktransitivegate",
+        title: "User Root",
+        owner_role: "manager"
+      })
+    });
+    assert.equal(createUserRoot.status, 201);
+
+    const createTaskA = await fetch(`${baseUrl}/api/projects/tasktransitivegate/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "task-a",
+        task_kind: "EXECUTION",
+        parent_task_id: "user-root-1",
+        root_task_id: "user-root-1",
+        title: "Task A",
+        owner_role: "dev"
+      })
+    });
+    assert.equal(createTaskA.status, 201);
+
+    const createTaskB = await fetch(`${baseUrl}/api/projects/tasktransitivegate/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "task-b",
+        task_kind: "EXECUTION",
+        parent_task_id: "user-root-1",
+        root_task_id: "user-root-1",
+        title: "Task B",
+        owner_role: "dev",
+        dependencies: ["task-a"]
+      })
+    });
+    assert.equal(createTaskB.status, 201);
+
+    const createTaskC = await fetch(`${baseUrl}/api/projects/tasktransitivegate/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "task-c",
+        task_kind: "EXECUTION",
+        parent_task_id: "user-root-1",
+        root_task_id: "user-root-1",
+        title: "Task C",
+        owner_role: "dev",
+        dependencies: ["task-b"]
+      })
+    });
+    assert.equal(createTaskC.status, 201);
+
+    const createInvalid = await fetch(`${baseUrl}/api/projects/tasktransitivegate/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "task-d",
+        task_kind: "EXECUTION",
+        parent_task_id: "task-a",
+        root_task_id: "user-root-1",
+        title: "Task D",
+        owner_role: "dev",
+        dependencies: ["task-c"]
+      })
+    });
+    assert.equal(createInvalid.status, 409);
+    const invalidPayload = (await createInvalid.json()) as {
+      error_code?: string;
+      error?: {
+        details?: {
+          transitive_forbidden_dependencies?: Array<{
+            dependency_task_id?: string;
+            hit_ancestor_task_id?: string;
+            dependency_chain?: string[];
+          }>;
+        };
+      };
+    };
+    assert.equal(invalidPayload.error_code, "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN");
+    const transitive = invalidPayload.error?.details?.transitive_forbidden_dependencies ?? [];
+    assert.equal(transitive.length > 0, true);
+    assert.equal(transitive[0]?.dependency_task_id, "task-c");
+    assert.equal(transitive[0]?.hit_ancestor_task_id, "task-a");
+    assert.deepEqual(transitive[0]?.dependency_chain ?? [], ["task-c", "task-b", "task-a"]);
+  } finally {
+    await serverHandle.close();
+  }
+});

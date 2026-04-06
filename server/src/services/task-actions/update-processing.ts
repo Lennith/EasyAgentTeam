@@ -1,6 +1,6 @@
 import type { ProjectPaths, ProjectRecord, TaskActionResult } from "../../domain/models.js";
-import type { ProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
-import type { TaskPatchInput } from "../../data/repository/taskboard-repository.js";
+import type { ProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
+import type { TaskPatchInput } from "../../data/repository/project/taskboard-repository.js";
 import { readString, readStringList } from "./shared.js";
 import { TaskActionError } from "./types.js";
 

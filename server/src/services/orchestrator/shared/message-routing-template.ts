@@ -1,4 +1,5 @@
 import type { OrchestratorMessageRoutingAdapter } from "./contracts.js";
+import { createTimestampRequestId, createTimestampedIdentifier } from "./orchestrator-identifiers.js";
 
 export interface OrchestratorMessageRouteEventPair<TEvent = unknown> {
   received: TEvent;
@@ -25,6 +26,21 @@ export interface OrchestratorMessageRouteResult {
   createdAt: string;
 }
 
+export interface ResolveOrchestratorMessageEnvelopeMetadataInput {
+  requestId?: string | null;
+  messageId?: string | null;
+  createdAt?: string | null;
+  createRequestId?: () => string;
+  createMessageId?: () => string;
+  createCreatedAt?: () => string;
+}
+
+export interface OrchestratorMessageEnvelopeMetadata {
+  requestId: string;
+  messageId: string;
+  createdAt: string;
+}
+
 export async function appendOrchestratorMessageRouteEventPair<TEvent>(
   appendEvent: (event: TEvent) => Promise<void>,
   pair: OrchestratorMessageRouteEventPair<TEvent>
@@ -40,6 +56,19 @@ export function buildOrchestratorMessageRouteResult<TExtra extends Record<string
     ...input,
     taskId: input.taskId ?? null,
     toRole: input.toRole ?? null
+  };
+}
+
+export function resolveOrchestratorMessageEnvelopeMetadata(
+  input: ResolveOrchestratorMessageEnvelopeMetadataInput = {}
+): OrchestratorMessageEnvelopeMetadata {
+  const createRequestId = input.createRequestId ?? createTimestampRequestId;
+  const createMessageId = input.createMessageId ?? createTimestampedIdentifier;
+  const createCreatedAt = input.createCreatedAt ?? (() => new Date().toISOString());
+  return {
+    requestId: input.requestId?.trim() || createRequestId(),
+    messageId: input.messageId?.trim() || createMessageId(),
+    createdAt: input.createdAt?.trim() || createCreatedAt()
   };
 }
 

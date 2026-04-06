@@ -1,7 +1,7 @@
-import { appendEvent } from "../data/event-store.js";
-import { listAgents } from "../data/agent-store.js";
-import { getProjectPaths } from "../data/project-store.js";
-import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
+import { appendEvent } from "../data/repository/project/event-repository.js";
+import { listAgents } from "../data/repository/catalog/agent-repository.js";
+import { getProjectPaths } from "../data/repository/project/runtime-repository.js";
+import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
 import { ensureAgentWorkspaces } from "./agent-workspace-service.js";
 import { buildOrchestratorAgentCatalog } from "./orchestrator/shared/index.js";
 import { ensureProjectAgentScripts } from "./project-agent-script-service.js";

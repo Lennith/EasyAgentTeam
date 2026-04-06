@@ -16,7 +16,9 @@
 
 **源码路径**:
 
+- `server/src/services/agent-io-timeline-core.ts`
 - `server/src/services/agent-io-timeline-service.ts`
+- `server/src/services/workflow-agent-io-timeline-service.ts`
 - `server/src/services/agent-debug-service.ts`
 - `server/src/services/agent-chat-service.ts`
 - `server/src/services/task-detail-query-service.ts`
@@ -102,11 +104,15 @@
 
 ### 核心处理规则
 
-1. 读取 `events.jsonl` 后按 event type 进行映射。
-2. `TASK_ACTION_REJECTED` 在 timeline 中保留 `error_code` 与 `hint`。
-3. `TASK_REPORT_APPLIED` 在 timeline 中归类为 `task_report`。
-4. `MESSAGE_ROUTED` 且 messageType 以 `TASK_DISCUSS` 开头时归类为 `task_discuss`。
-5. 全部项按 `createdAt` 排序，再按 `limit` 截断。
+1. project 与 workflow timeline 都通过 `agent-io-timeline-core.ts` 的同一条 event-to-row 主路径执行。
+2. 两个 facade 只保留事件读取差异：
+   - project：读取 project events
+   - workflow：读取 workflow run events
+3. `TASK_ACTION_REJECTED` 在 timeline 中保留 `error_code` 与 `hint`。
+4. `TASK_REPORT_APPLIED` 在 timeline 中归类为 `task_report`。
+5. `MESSAGE_ROUTED` 且 messageType 以 `TASK_DISCUSS` 开头时归类为 `task_discuss`。
+6. workflow dispatch 行在 `requestedSkillIds` 存在时继续写入 `content` 摘要；project timeline 不追加该字段。
+7. 全部项按 `createdAt` 排序，再按 `limit` 截断。
 
 ### run log 解析（内部）
 

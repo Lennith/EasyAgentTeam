@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WorkflowCompletionService } from "../services/orchestrator/workflow-completion-service.js";
+import { WorkflowCompletionService } from "../services/orchestrator/workflow/workflow-completion-service.js";
 
 test("workflow completion service marks tasks as MAY_BE_DONE when dispatch threshold and valid output are met", async () => {
   const now = new Date().toISOString();

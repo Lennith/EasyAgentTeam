@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OrchestratorSingleFlightGate } from "../services/orchestrator/kernel/single-flight.js";
+import { OrchestratorSingleFlightGate } from "../services/orchestrator/shared/kernel/single-flight.js";
 import {
   applyOrchestratorDispatchTerminalState,
   buildOrchestratorDispatchPayload,

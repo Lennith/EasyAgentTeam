@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearMemoryStore, setStorageBackendForTests } from "../data/store/store-runtime.js";
-import { getWorkflowRepositoryBundle } from "../data/repository/workflow-repository-bundle.js";
+import { clearMemoryStore, setStorageBackendForTests } from "../data/internal/persistence/store/store-runtime.js";
+import { getWorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
 
 test("workflow repository bundle persists run runtime/session/event/inbox/reminder under a shared unit-of-work", async () => {
   const dataRoot = "C:\\memory\\workflow-repository-bundle";

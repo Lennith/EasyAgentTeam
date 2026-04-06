@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { ProjectPaths, ProjectRecord, TaskActionType } from "../domain/models.js";
-import { appendEvent } from "../data/event-store.js";
-import { getSession } from "../data/session-store.js";
-import { TaskboardStoreError } from "../data/taskboard-store.js";
+import { appendEvent } from "../data/repository/project/event-repository.js";
+import { getSession } from "../data/repository/project/session-repository.js";
+import { TaskboardStoreError } from "../data/repository/project/taskboard-repository.js";
 import {
   buildTaskActionRejectedHint,
   buildTaskActionAuditPayload,

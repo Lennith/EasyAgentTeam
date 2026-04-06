@@ -1,6 +1,6 @@
 ﻿param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
-  [string[]]$Cases = @("chain", "discuss", "workflow", "template-agent"),
+  [string[]]$Cases = @("chain", "discuss", "workflow"),
   [string]$ChainScenarioPath = "",
   [string]$DiscussScenarioPath = "",
   [string]$WorkflowScenarioPath = "",
@@ -16,8 +16,6 @@
   [int]$MaxTopups = 10,
   [int]$MaxTotalBudget = 330,
   [switch]$SetupOnly,
-  [switch]$StrictObserve,
-  [switch]$LegacyMode,
   [string]$MiniMaxApiKeyOverride = "",
   [string]$MiniMaxApiBaseOverride = "",
   [switch]$ClearMiniMaxSettings
@@ -86,8 +84,7 @@ Write-Host "== Multi E2E Start =="
 Write-Host ("cases={0}" -f ($selected -join ","))
 Write-Host ("base_url={0}" -f $BaseUrl)
 Write-Host ("setup_only={0}" -f $SetupOnly.IsPresent)
-$strictMode = $StrictObserve.IsPresent -or (-not $LegacyMode.IsPresent)
-Write-Host ("strict_observe={0}" -f $strictMode)
+Write-Host "strict_observe=True"
 
 $caseArtifacts = @{}
 $caseExitCodes = @{}
@@ -123,7 +120,7 @@ foreach ($caseId in $selected) {
     if ($SetupOnly) {
       $args += "-SetupOnly"
     }
-    if ($strictMode -and $caseId -eq "chain") {
+    if ($caseId -eq "chain") {
       $args += "-StrictObserve"
     }
     if ($caseId -eq "workflow") {

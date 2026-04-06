@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OrchestratorSingleFlightGate } from "../services/orchestrator/kernel/single-flight.js";
+import { OrchestratorSingleFlightGate } from "../services/orchestrator/shared/kernel/single-flight.js";
 import { runOrchestratorDispatchTemplate } from "../services/orchestrator/shared/dispatch-template.js";
 
 type DispatchRow = {
@@ -139,4 +139,57 @@ test("dispatch template emits synthesized no-selection result when nothing is ch
     results: [{ outcome: "session_busy" }],
     dispatchedCount: 0
   });
+});
+
+test("dispatch template supports fire-and-forget background dispatches", async () => {
+  const gate = new OrchestratorSingleFlightGate();
+  const backgroundErrors: string[] = [];
+  let launched = false;
+
+  const result = await runOrchestratorDispatchTemplate<Record<string, never>, { key: string }, void, DispatchRow>({
+    state: {},
+    gate,
+    maxDispatches: 1,
+    preflight: {
+      beforeLoop: async () => null
+    },
+    mutation: {
+      prepareDispatch: async () => undefined
+    },
+    execution: {
+      selectNext: async () => ({ status: "selected" as const, selection: { key: "session-async-1" } }),
+      getSingleFlightKey: (selection) => selection.key,
+      createSingleFlightBusyResult: (selection) => ({
+        outcome: "session_busy",
+        key: selection.key
+      }),
+      dispatch: async (selection) => {
+        launched = true;
+        return {
+          mode: "background" as const,
+          result: {
+            outcome: "dispatched" as const,
+            key: selection.key
+          },
+          completion: Promise.reject(new Error("background boom")),
+          onError: async (error: unknown) => {
+            backgroundErrors.push(error instanceof Error ? error.message : String(error));
+          }
+        };
+      },
+      buildNoSelectionResult: () => ({ outcome: "no_task" }),
+      shouldCountAsDispatch: (dispatchRow) => dispatchRow.outcome === "dispatched",
+      shouldContinue: () => false
+    }
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(launched, true);
+  assert.deepEqual(result, {
+    results: [{ outcome: "dispatched", key: "session-async-1" }],
+    dispatchedCount: 1
+  });
+  assert.deepEqual(backgroundErrors, ["background boom"]);
 });

@@ -4,9 +4,9 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createProject, ensureProjectRuntime } from "../data/project-store.js";
-import { addSession } from "../data/session-store.js";
-import { createTask, getTask } from "../data/taskboard-store.js";
+import { createProject, ensureProjectRuntime } from "../data/repository/project/runtime-repository.js";
+import { addSession } from "../data/repository/project/session-repository.js";
+import { createTask, getTask } from "../data/repository/project/taskboard-repository.js";
 import { handleTaskAction } from "../services/task-action-service.js";
 
 test("TASK_REPORT allows owner or creator and supports partial apply", async () => {

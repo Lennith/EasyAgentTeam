@@ -1,4 +1,4 @@
-import { readPayloadString } from "../dispatch-engine.js";
+import { readPayloadString } from "./dispatch-engine.js";
 
 const DEFAULT_MAY_BE_DONE_DISPATCH_THRESHOLD = 5;
 const DEFAULT_MAY_BE_DONE_CHECK_WINDOW_MS = 60 * 60 * 1000;

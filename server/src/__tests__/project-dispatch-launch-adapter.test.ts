@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ProjectDispatchLaunchAdapter } from "../services/orchestrator/project-dispatch-launch-adapter.js";
+import { ProjectDispatchLaunchAdapter } from "../services/orchestrator/project/project-dispatch-launch-adapter.js";
 
 test("project dispatch launch adapter handles sync task dispatch and terminal event emission", async () => {
   const launchCalls: Array<{ providerId: string; input: Record<string, unknown> }> = [];

@@ -1,5 +1,5 @@
 import type { TaskActionHandler } from "./types.js";
-import { getProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
+import { getProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
 import { applyTaskReportAction } from "./report-processing.js";
 import { applyTaskAssignAction, applyTaskCreateAction } from "./assignment-processing.js";
 import { applyTaskUpdateAction } from "./update-processing.js";

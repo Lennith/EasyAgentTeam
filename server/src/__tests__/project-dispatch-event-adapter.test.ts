@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ProjectDispatchEventAdapter } from "../services/orchestrator/project-dispatch-event-adapter.js";
+import { ProjectDispatchEventAdapter } from "../services/orchestrator/project/project-dispatch-event-adapter.js";
 
 test("project dispatch event adapter preserves started and failed event contract", async () => {
   const appended: Array<{ paths: unknown; event: unknown }> = [];

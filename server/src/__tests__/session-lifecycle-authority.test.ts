@@ -3,9 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createProject, ensureProjectRuntime, getProject, setRoleSessionMapping } from "../data/project-store.js";
-import { appendEvent, listEvents } from "../data/event-store.js";
-import { addSession, getSession, touchSession } from "../data/session-store.js";
+import {
+  createProject,
+  ensureProjectRuntime,
+  getProject,
+  setRoleSessionMapping
+} from "../data/repository/project/runtime-repository.js";
+import { appendEvent, listEvents } from "../data/repository/project/event-repository.js";
+import { addSession, getSession, touchSession } from "../data/repository/project/session-repository.js";
 import { markRunnerTimeout, resolveActiveSessionForRole } from "../services/session-lifecycle-authority.js";
 
 test("resolveActiveSessionForRole dismisses conflicted sessions and updates role map", async () => {

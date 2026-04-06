@@ -1,6 +1,6 @@
-import { appendEvent } from "../data/event-store.js";
-import { clearRoleSessionMapping, setRoleSessionMapping } from "../data/project-store.js";
-import { getSession, listSessions, touchSession } from "../data/session-store.js";
+import { appendEvent } from "../data/repository/project/event-repository.js";
+import { clearRoleSessionMapping, setRoleSessionMapping } from "../data/repository/project/runtime-repository.js";
+import { getSession, listSessions, touchSession } from "../data/repository/project/session-repository.js";
 import type { ProviderId } from "@autodev/agent-library";
 import type { ProjectPaths, ProjectRecord, SessionRecord } from "../domain/models.js";
 import { isMiniMaxRunnerActive } from "./minimax-runner.js";

@@ -1,13 +1,13 @@
 import { isManagerChatMessageType } from "../domain/models.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
-import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
+import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
 import { validateExplicitTargetSession } from "./routing-guard-service.js";
 import { createTimestampRequestId } from "./orchestrator/shared/orchestrator-identifiers.js";
 import { normalizeOrchestratorDiscussReference } from "./orchestrator/shared/manager-message-contract.js";
 import {
   routeProjectManagerMessage,
   type ProjectRouteMessageType
-} from "./orchestrator/project-message-routing-service.js";
+} from "./orchestrator/project/project-message-routing-service.js";
 import { resolveTargetSession } from "./task-actions/shared.js";
 
 function readStringField(body: Record<string, unknown>, keys: string[], fallback?: string): string | undefined {

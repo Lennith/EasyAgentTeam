@@ -58,7 +58,7 @@ E2E scripts are a first-class product entry, not auxiliary tests:
 - workflow baseline: `pnpm e2e:workflow`
 - template-agent 2-case baseline (workflow + project): `pnpm e2e:template-agent`
 - external-agent 3dof workflow scenario: `pnpm e2e:external-agent-3dof`
-- aggregate baseline suite (includes template-agent): `pnpm e2e:baseline`
+- aggregate baseline suite (chain + discuss + workflow): `pnpm e2e:baseline`
 
 Usage template for each E2E case: [E2ETest/README.md](./E2ETest/README.md)
 

@@ -1,22 +1,22 @@
 import type express from "express";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import {
-  createWorkflowRun,
-  createWorkflowTemplate,
-  deleteWorkflowRun,
-  deleteWorkflowTemplate,
-  getWorkflowRun,
-  getWorkflowTemplate,
-  listWorkflowRuns,
-  listWorkflowTemplates,
-  patchWorkflowTemplate
-} from "../data/workflow-store.js";
-import { listAgents } from "../data/agent-store.js";
-import { listWorkflowRunEvents } from "../data/workflow-run-store.js";
 import { ensureAgentWorkspaces } from "../services/agent-workspace-service.js";
 import { buildWorkflowAgentIOTimeline } from "../services/workflow-agent-io-timeline-service.js";
 import { buildWorkflowTaskDetail, buildWorkflowTaskTreeResponse } from "../services/workflow-task-query-service.js";
+import {
+  createWorkflowRunForApi,
+  createWorkflowTemplateForApi,
+  deleteWorkflowRunForApi,
+  deleteWorkflowTemplateForApi,
+  listWorkflowCatalogAgents,
+  listWorkflowEventsForApi,
+  listWorkflowRunsForApi,
+  listWorkflowTemplatesForApi,
+  patchWorkflowTemplateForApi,
+  readWorkflowRunForApi,
+  readWorkflowTemplateForApi
+} from "../services/workflow-admin-service.js";
 import {
   buildOrchestratorAgentCatalog,
   buildOrchestratorAgentWorkspaceDir,
@@ -60,7 +60,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.get("/api/workflow-templates", async (_req, res, next) => {
     try {
-      const items = await listWorkflowTemplates(dataRoot);
+      const items = await listWorkflowTemplatesForApi(dataRoot);
       res.status(200).json({ items, total: items.length });
     } catch (error) {
       next(error);
@@ -69,7 +69,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.get("/api/workflow-templates/:template_id", async (req, res, next) => {
     try {
-      const template = await getWorkflowTemplate(dataRoot, req.params.template_id);
+      const template = await readWorkflowTemplateForApi(dataRoot, req.params.template_id);
       if (!template) {
         sendApiError(res, 404, "WORKFLOW_TEMPLATE_NOT_FOUND", `template '${req.params.template_id}' not found`);
         return;
@@ -96,7 +96,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         );
         return;
       }
-      const created = await createWorkflowTemplate(dataRoot, {
+      const created = await createWorkflowTemplateForApi(dataRoot, {
         templateId,
         name,
         description: readStringField(body, ["description"]),
@@ -115,7 +115,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
   app.patch("/api/workflow-templates/:template_id", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const updated = await patchWorkflowTemplate(dataRoot, req.params.template_id, {
+      const updated = await patchWorkflowTemplateForApi(dataRoot, req.params.template_id, {
         name: readStringField(body, ["name"]),
         description: Object.prototype.hasOwnProperty.call(body, "description")
           ? ((body.description as string | null | undefined) ?? null)
@@ -150,7 +150,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.delete("/api/workflow-templates/:template_id", async (req, res, next) => {
     try {
-      const removed = await deleteWorkflowTemplate(dataRoot, req.params.template_id);
+      const removed = await deleteWorkflowTemplateForApi(dataRoot, req.params.template_id);
       res.status(200).json(removed);
     } catch (error) {
       next(error);
@@ -159,7 +159,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.get("/api/workflow-runs", async (_req, res, next) => {
     try {
-      const items = await listWorkflowRuns(dataRoot);
+      const items = await listWorkflowRunsForApi(dataRoot);
       res.status(200).json({ items: items.map((item) => withDerivedWorkflowRunStatus(item)), total: items.length });
     } catch (error) {
       next(error);
@@ -174,7 +174,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         sendApiError(res, 400, "WORKFLOW_RUN_INPUT_INVALID", "template_id is required");
         return;
       }
-      const template = await getWorkflowTemplate(dataRoot, templateId);
+      const template = await readWorkflowTemplateForApi(dataRoot, templateId);
       if (!template) {
         sendApiError(res, 404, "WORKFLOW_TEMPLATE_NOT_FOUND", `template '${templateId}' not found`);
         return;
@@ -215,7 +215,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
       const runId = readStringField(body, ["run_id", "runId"]) ?? `workflow-run-${randomUUID().slice(0, 12)}`;
       const runName =
         readStringField(body, ["name"], `${template.name}-${runId.slice(-6)}`) ?? `${template.name}-${runId.slice(-6)}`;
-      const created = await createWorkflowRun(dataRoot, {
+      const created = await createWorkflowRunForApi(dataRoot, {
         runId,
         templateId: template.templateId,
         name: runName,
@@ -232,7 +232,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         holdEnabled: parseBoolean(body.hold_enabled ?? body.holdEnabled, false),
         reminderMode: parseReminderMode(body.reminder_mode ?? body.reminderMode) ?? "backoff"
       });
-      const agents = await listAgents(dataRoot);
+      const agents = await listWorkflowCatalogAgents(dataRoot);
       const agentCatalog = buildOrchestratorAgentCatalog(agents);
       const runRoles = Array.from(
         new Set(created.tasks.map((task) => task.ownerRole.trim()).filter((item) => item.length > 0))
@@ -258,7 +258,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         return;
       }
       const runtime = await workflowOrchestrator.startRun(runId);
-      const run = await getWorkflowRun(dataRoot, runId);
+      const run = await readWorkflowRunForApi(dataRoot, runId);
       res.status(201).json({ runtime, run: run ? withDerivedWorkflowRunStatus(run) : null });
     } catch (error) {
       next(error);
@@ -267,7 +267,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.get("/api/workflow-runs/:run_id", async (req, res, next) => {
     try {
-      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      const run = await readWorkflowRunForApi(dataRoot, req.params.run_id);
       if (!run) {
         sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", `run '${req.params.run_id}' not found`);
         return;
@@ -280,7 +280,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.delete("/api/workflow-runs/:run_id", async (req, res, next) => {
     try {
-      const removed = await deleteWorkflowRun(dataRoot, req.params.run_id);
+      const removed = await deleteWorkflowRunForApi(dataRoot, req.params.run_id);
       res.status(200).json(removed);
     } catch (error) {
       next(error);
@@ -290,7 +290,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
   app.post("/api/workflow-runs/:run_id/start", async (req, res, next) => {
     try {
       const runtime = await workflowOrchestrator.startRun(req.params.run_id);
-      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      const run = await readWorkflowRunForApi(dataRoot, req.params.run_id);
       res.status(200).json({ runtime, run: run ? withDerivedWorkflowRunStatus(run) : null });
     } catch (error) {
       next(error);
@@ -300,7 +300,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
   app.post("/api/workflow-runs/:run_id/stop", async (req, res, next) => {
     try {
       const runtime = await workflowOrchestrator.stopRun(req.params.run_id);
-      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      const run = await readWorkflowRunForApi(dataRoot, req.params.run_id);
       res.status(200).json({ runtime, run: run ? withDerivedWorkflowRunStatus(run) : null });
     } catch (error) {
       next(error);
@@ -361,7 +361,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.get("/api/workflow-runs/:run_id/task-tree", async (req, res, next) => {
     try {
-      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      const run = await readWorkflowRunForApi(dataRoot, req.params.run_id);
       if (!run) {
         sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", `run '${req.params.run_id}' not found`);
         return;
@@ -406,13 +406,13 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         res.status(400).json({ code: "TASK_ID_REQUIRED", error: "task_id is required" });
         return;
       }
-      const run = await getWorkflowRun(dataRoot, req.params.run_id);
+      const run = await readWorkflowRunForApi(dataRoot, req.params.run_id);
       if (!run) {
         sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", `run '${req.params.run_id}' not found`);
         return;
       }
       const runtime = await workflowOrchestrator.getRunTaskRuntime(req.params.run_id);
-      const events = await listWorkflowRunEvents(dataRoot, req.params.run_id);
+      const events = await listWorkflowEventsForApi(dataRoot, req.params.run_id);
       const payload = buildWorkflowTaskDetail({
         run,
         runtimeTasks: runtime.tasks,
@@ -597,7 +597,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         providerRegistry,
         {
           resolve: async (input) => {
-            const run = await getWorkflowRun(dataRoot, runId);
+            const run = await readWorkflowRunForApi(dataRoot, runId);
             if (!run) {
               throw new Error(`workflow run '${runId}' not found`);
             }

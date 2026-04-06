@@ -5,7 +5,7 @@ import {
   buildWorkflowRunStatusView,
   buildWorkflowRuntimeSnapshot,
   buildWorkflowTaskTreeView
-} from "../services/orchestrator/workflow-runtime-view.js";
+} from "../services/orchestrator/workflow/workflow-runtime-view.js";
 
 test("workflow runtime view builds snapshot and counters deterministically", () => {
   const snapshot = buildWorkflowRuntimeSnapshot(

@@ -7,7 +7,7 @@ import {
   type MiniMaxStartCallbacks
 } from "./minimax-runner.js";
 import { createMiniMaxAgent, type MiniMaxAgent, type MiniMaxRunResult } from "../minimax/index.js";
-import type { RuntimeSettings } from "../data/runtime-settings-store.js";
+import type { RuntimeSettings } from "../data/repository/system/runtime-settings-repository.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
 import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/team/types.js";
 import type { ProviderId } from "@autodev/agent-library";

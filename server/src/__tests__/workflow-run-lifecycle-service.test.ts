@@ -3,13 +3,21 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { getWorkflowRepositoryBundle } from "../data/repository/workflow-repository-bundle.js";
-import { createWorkflowRun, createWorkflowTemplate, getWorkflowRun } from "../data/workflow-store.js";
-import { listWorkflowRunEvents, listWorkflowSessions, upsertWorkflowSession } from "../data/workflow-run-store.js";
+import { getWorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
+import {
+  createWorkflowRun,
+  createWorkflowTemplate,
+  getWorkflowRun
+} from "../data/repository/workflow/run-repository.js";
+import {
+  listWorkflowRunEvents,
+  listWorkflowSessions,
+  upsertWorkflowSession
+} from "../data/repository/workflow/runtime-repository.js";
 import type { WorkflowRunRecord, WorkflowRunRuntimeState } from "../domain/models.js";
 import type { ProviderRegistry } from "../services/provider-runtime.js";
-import { WorkflowRunLifecycleService } from "../services/orchestrator/workflow-run-lifecycle-service.js";
-import { convergeWorkflowRuntime } from "../services/orchestrator/runtime/workflow-runtime-kernel.js";
+import { WorkflowRunLifecycleService } from "../services/orchestrator/workflow/workflow-run-lifecycle-service.js";
+import { convergeWorkflowRuntime } from "../services/orchestrator/shared/runtime/workflow-runtime-kernel.js";
 
 function createWorkflowRunHelpers(dataRoot: string) {
   const repositories = getWorkflowRepositoryBundle(dataRoot);

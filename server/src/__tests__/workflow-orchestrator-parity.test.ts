@@ -3,13 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createWorkflowRun, createWorkflowTemplate, getWorkflowRun, patchWorkflowRun } from "../data/workflow-store.js";
+import {
+  createWorkflowRun,
+  createWorkflowTemplate,
+  getWorkflowRun,
+  patchWorkflowRun
+} from "../data/repository/workflow/run-repository.js";
 import {
   appendWorkflowRunEvent,
   listWorkflowRunEvents,
   listWorkflowSessions,
   upsertWorkflowSession
-} from "../data/workflow-run-store.js";
+} from "../data/repository/workflow/runtime-repository.js";
 import { createWorkflowOrchestratorService } from "../services/orchestrator/index.js";
 import { createProviderRegistry } from "../services/provider-runtime.js";
 

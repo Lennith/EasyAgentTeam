@@ -43,6 +43,13 @@ export interface OrchestratorDispatchMutationAdapter<TState = unknown, TSelectio
   prepareDispatch(selection: TSelection, state: TState): Promise<TPrepared>;
 }
 
+export interface OrchestratorBackgroundDispatchResult<TResult = unknown> {
+  mode: "background";
+  result: TResult;
+  completion: Promise<unknown>;
+  onError?(error: unknown): void | Promise<void>;
+}
+
 export interface OrchestratorDispatchExecutionAdapter<
   TState = unknown,
   TSelection = unknown,
@@ -52,7 +59,11 @@ export interface OrchestratorDispatchExecutionAdapter<
   selectNext(state: TState): Promise<OrchestratorDispatchSelectionDecision<TSelection, TResult>>;
   getSingleFlightKey(selection: TSelection, state: TState): string;
   createSingleFlightBusyResult(selection: TSelection, state: TState): TResult;
-  dispatch(selection: TSelection, prepared: TPrepared, state: TState): Promise<TResult>;
+  dispatch(
+    selection: TSelection,
+    prepared: TPrepared,
+    state: TState
+  ): Promise<TResult | OrchestratorBackgroundDispatchResult<TResult>>;
   buildNoSelectionResult(state: TState, busyFound: boolean): TResult | null;
   shouldCountAsDispatch?(result: TResult, state: TState): boolean;
   shouldContinue?(result: TResult, state: TState): boolean;

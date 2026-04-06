@@ -1,4 +1,8 @@
-import { getRuntimeSettings, patchRuntimeSettings, type MCPServerConfig } from "../data/runtime-settings-store.js";
+import {
+  getRuntimeSettings,
+  patchRuntimeSettings,
+  type MCPServerConfig
+} from "../data/repository/system/runtime-settings-repository.js";
 import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 
 export interface PatchRuntimeSettingsApiInput {
@@ -71,6 +75,10 @@ function toRuntimeSettingsApiResponse(
 export async function getRuntimeSettingsForApi(dataRoot: string): Promise<RuntimeSettingsApiResponse> {
   const settings = await getRuntimeSettings(dataRoot);
   return toRuntimeSettingsApiResponse(settings);
+}
+
+export async function readRuntimeSettings(dataRoot: string) {
+  return getRuntimeSettings(dataRoot);
 }
 
 export async function patchRuntimeSettingsForApi(

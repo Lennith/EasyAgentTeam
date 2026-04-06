@@ -2,7 +2,7 @@ import {
   buildOrchestratorContextSessionKey,
   runOrchestratorKernelTick,
   type OrchestratorKernelAdapter
-} from "./orchestrator/kernel/orchestrator-kernel.js";
+} from "./orchestrator/shared/kernel/orchestrator-kernel.js";
 
 export interface OrchestratorLoopCoreOptions {
   enabled: boolean;

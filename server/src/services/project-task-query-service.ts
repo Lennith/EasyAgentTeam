@@ -1,6 +1,6 @@
-import { listEvents } from "../data/event-store.js";
-import { ensureProjectRuntime, getProject } from "../data/project-store.js";
-import { listTasks } from "../data/taskboard-store.js";
+import { listEvents } from "../data/repository/project/event-repository.js";
+import { ensureProjectRuntime, getProject } from "../data/repository/project/runtime-repository.js";
+import { listTasks } from "../data/repository/project/taskboard-repository.js";
 import { buildTaskDetailResponse } from "./task-detail-query-service.js";
 import { buildTaskTreeResponse } from "./task-tree-query-service.js";
 

@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createProject } from "../data/project-store.js";
-import { addSession, resolveLatestSessionByRole, touchSession } from "../data/session-store.js";
+import { createProject } from "../data/repository/project/runtime-repository.js";
+import { addSession, resolveLatestSessionByRole, touchSession } from "../data/repository/project/session-repository.js";
 
 test("resolve latest session by role uses lastActiveAt", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step45-session-"));

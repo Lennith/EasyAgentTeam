@@ -1,8 +1,8 @@
 import type express from "express";
-import { ensureProjectRuntime, getProject } from "../data/project-store.js";
 import { handleTaskAction, TaskActionError } from "../services/task-action-service.js";
 import { queryProjectTaskDetail, queryProjectTaskTree } from "../services/project-task-query-service.js";
 import { patchProjectTask } from "../services/project-task-use-cases.js";
+import { getProjectRuntimeContext, type ProjectTaskPatchInput } from "../services/project-runtime-api-service.js";
 import { logger } from "../utils/logger.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import { resolveTaskActionNextAction, retiredEndpoint } from "./shared/http.js";
@@ -19,8 +19,7 @@ export function registerProjectTaskRoutes(app: express.Application, context: App
     );
 
     try {
-      const project = await getProject(dataRoot, req.params.id);
-      const paths = await ensureProjectRuntime(dataRoot, project.projectId);
+      const { project, paths } = await getProjectRuntimeContext(dataRoot, req.params.id);
       const result = await handleTaskAction(dataRoot, project, paths, requestBody);
       const duration = Date.now() - startTime;
       logger.info(
@@ -122,15 +121,14 @@ export function registerProjectTaskRoutes(app: express.Application, context: App
 
   app.patch("/api/projects/:id/tasks/:task_id", async (req, res, next) => {
     try {
-      const project = await getProject(dataRoot, req.params.id);
-      const paths = await ensureProjectRuntime(dataRoot, project.projectId);
+      const { project, paths } = await getProjectRuntimeContext(dataRoot, req.params.id);
       const taskId = req.params.task_id?.trim();
       if (!taskId) {
         res.status(400).json({ code: "TASK_ID_REQUIRED", error: "task_id is required" });
         return;
       }
       const body = req.body as Record<string, unknown>;
-      const patch: import("../data/taskboard-store.js").TaskPatchInput = {};
+      const patch: ProjectTaskPatchInput = {};
       if (Object.prototype.hasOwnProperty.call(body, "title")) {
         patch.title = typeof body.title === "string" ? body.title.trim() || undefined : undefined;
       }

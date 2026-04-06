@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WorkflowDispatchEventAdapter } from "../services/orchestrator/workflow-dispatch-event-adapter.js";
+import { WorkflowDispatchEventAdapter } from "../services/orchestrator/workflow/workflow-dispatch-event-adapter.js";
 
 test("workflow dispatch event adapter preserves finished and failed event contract", async () => {
   const appended: Array<{ runId: string; event: unknown }> = [];

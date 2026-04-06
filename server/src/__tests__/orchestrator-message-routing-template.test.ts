@@ -3,7 +3,8 @@ import test from "node:test";
 import {
   createOrchestratorMessageRoutingUnitOfWorkRunner,
   executeOrchestratorMessageRouting,
-  executeOrchestratorMessageRoutingInUnitOfWork
+  executeOrchestratorMessageRoutingInUnitOfWork,
+  resolveOrchestratorMessageEnvelopeMetadata
 } from "../services/orchestrator/shared/message-routing-template.js";
 
 test("message routing template runs resolve -> normalize -> inbox -> route -> touch sequence", async () => {
@@ -136,4 +137,28 @@ test("message routing helper can wrap scope-only unit-of-work runner", async () 
   });
 
   assert.deepEqual(order, ["resolve", "normalize", "uow-begin", "inbox", "route", "touch", "uow-end"]);
+});
+
+test("message routing metadata helper preserves explicit values and fills missing fields", () => {
+  const explicit = resolveOrchestratorMessageEnvelopeMetadata({
+    requestId: "req-1",
+    messageId: "msg-1",
+    createdAt: "2026-04-05T12:00:00.000Z"
+  });
+  const generated = resolveOrchestratorMessageEnvelopeMetadata({
+    createRequestId: () => "req-generated",
+    createMessageId: () => "msg-generated",
+    createCreatedAt: () => "2026-04-05T12:01:00.000Z"
+  });
+
+  assert.deepEqual(explicit, {
+    requestId: "req-1",
+    messageId: "msg-1",
+    createdAt: "2026-04-05T12:00:00.000Z"
+  });
+  assert.deepEqual(generated, {
+    requestId: "req-generated",
+    messageId: "msg-generated",
+    createdAt: "2026-04-05T12:01:00.000Z"
+  });
 });

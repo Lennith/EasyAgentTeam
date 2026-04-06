@@ -4,9 +4,9 @@ import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
-import { appendEvent, listEvents } from "../data/event-store.js";
-import { createProject, ensureProjectRuntime } from "../data/project-store.js";
-import { addSession, touchSession } from "../data/session-store.js";
+import { appendEvent, listEvents } from "../data/repository/project/event-repository.js";
+import { createProject, ensureProjectRuntime } from "../data/repository/project/runtime-repository.js";
+import { addSession, touchSession } from "../data/repository/project/session-repository.js";
 import { OrchestratorService } from "../services/orchestrator/index.js";
 import { createProviderRegistry } from "../services/provider-runtime.js";
 

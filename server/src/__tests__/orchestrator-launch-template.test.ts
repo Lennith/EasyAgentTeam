@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { executeOrchestratorLaunch } from "../services/orchestrator/shared/launch-template.js";
+import {
+  createOrchestratorLaunchAdapter,
+  executeOrchestratorLaunch
+} from "../services/orchestrator/shared/launch-template.js";
 
 test("launch template executes started then success handlers", async () => {
   const order: string[] = [];
@@ -96,4 +99,30 @@ test("launch template forwards timeout classification and lifecycle hooks", asyn
 
   assert.equal(result, "failed");
   assert.deepEqual(order, ["started:launch-timeout", "timeout:deadline"]);
+});
+
+test("launch template can build a launch facade from lifecycle callbacks", async () => {
+  const order: string[] = [];
+  const adapter = createOrchestratorLaunchAdapter({
+    createContext: async (input: { id: string }) => ({ id: input.id }),
+    appendStarted: async (context: { id: string }) => {
+      order.push(`started:${context.id}`);
+    },
+    execute: async (context: { id: string }) => {
+      order.push(`execute:${context.id}`);
+      return { id: context.id };
+    },
+    onSuccess: async (_context: { id: string }, result: { id: string }) => {
+      order.push(`success:${result.id}`);
+      return result.id;
+    },
+    onFailure: async () => {
+      throw new Error("should not fail");
+    }
+  });
+
+  const result = await adapter.launch({ id: "launch-3" });
+
+  assert.equal(result, "launch-3");
+  assert.deepEqual(order, ["started:launch-3", "execute:launch-3", "success:launch-3"]);
 });

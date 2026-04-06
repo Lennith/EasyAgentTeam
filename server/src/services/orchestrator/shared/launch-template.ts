@@ -1,4 +1,4 @@
-import type { OrchestratorLaunchExecutionAdapter } from "./contracts.js";
+import type { OrchestratorDispatchLaunchAdapter, OrchestratorLaunchExecutionAdapter } from "./contracts.js";
 import { executeOrchestratorRunner } from "./runner-template.js";
 
 export async function executeOrchestratorLaunch<TInput, TContext, TExecutionResult, TOutput>(
@@ -35,4 +35,12 @@ export async function executeOrchestratorLaunch<TInput, TContext, TExecutionResu
         : undefined
     }
   );
+}
+
+export function createOrchestratorLaunchAdapter<TInput, TContext, TExecutionResult, TOutput>(
+  adapter: OrchestratorLaunchExecutionAdapter<TInput, TContext, TExecutionResult, TOutput>
+): OrchestratorDispatchLaunchAdapter<TInput, TOutput> {
+  return {
+    launch: async (input: TInput) => await executeOrchestratorLaunch(input, adapter)
+  };
 }

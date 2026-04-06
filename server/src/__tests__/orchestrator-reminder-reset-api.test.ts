@@ -4,9 +4,9 @@ import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
 import { createApp } from "../app.js";
-import { ensureProjectRuntime, getProjectPaths } from "../data/project-store.js";
-import { getRoleReminderState, updateRoleReminderState } from "../data/role-reminder-store.js";
-import { listEvents } from "../data/event-store.js";
+import { ensureProjectRuntime, getProjectPaths } from "../data/repository/project/runtime-repository.js";
+import { getRoleReminderState, updateRoleReminderState } from "../data/repository/project/role-reminder-repository.js";
+import { listEvents } from "../data/repository/project/event-repository.js";
 import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 async function createBasicProject(

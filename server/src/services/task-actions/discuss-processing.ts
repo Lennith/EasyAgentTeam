@@ -1,6 +1,6 @@
 import type { ProjectPaths, ProjectRecord, TaskActionResult } from "../../domain/models.js";
-import type { ProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
-import { routeProjectManagerMessage } from "../orchestrator/project-message-routing-service.js";
+import type { ProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
+import { routeProjectManagerMessage } from "../orchestrator/project/project-message-routing-service.js";
 import { readString, resolveTargetSession } from "./shared.js";
 import { TaskActionError } from "./types.js";
 

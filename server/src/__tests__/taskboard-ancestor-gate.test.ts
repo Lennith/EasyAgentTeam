@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createProject } from "../data/project-store.js";
+import { createProject } from "../data/repository/project/runtime-repository.js";
 import {
   createTask,
   ensureUserRootTask,
@@ -11,7 +11,7 @@ import {
   listRunnableTasksByRole,
   patchTask,
   recomputeRunnableStates
-} from "../data/taskboard-store.js";
+} from "../data/repository/project/taskboard-repository.js";
 
 test("leaf task is blocked when any ancestor dependency is unfinished", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-ancestor-gate-"));

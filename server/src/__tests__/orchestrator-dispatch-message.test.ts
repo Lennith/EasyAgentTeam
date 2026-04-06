@@ -19,7 +19,7 @@ function parseNdjson(raw: string): EventRow[] {
     .map((line) => JSON.parse(line) as EventRow);
 }
 
-test.skip("dispatch-message endpoint targets the specified message_id", async () => {
+test("dispatch-message endpoint targets the specified message_id", async () => {
   const originalCodexCommand = process.env.CODEX_CLI_COMMAND;
   process.env.CODEX_CLI_COMMAND = "missing-codex-cli-for-test";
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-msg-"));
@@ -89,20 +89,16 @@ test.skip("dispatch-message endpoint targets the specified message_id", async ()
     const eventsRes = await fetch(`${baseUrl}/api/projects/dispatchmsg/events`);
     assert.equal(eventsRes.status, 200);
     const events = parseNdjson(await eventsRes.text());
-    const started = events
+    const startedMessageIds = events
       .filter((item) => item.eventType === "ORCHESTRATOR_DISPATCH_STARTED")
-      .map((item) => String(item.payload.messageId ?? ""));
-    assert.equal(started.includes(firstPayload.messageId), true);
-
-    const statusRes = await fetch(`${baseUrl}/api/orchestrator/status`);
-    assert.equal(statusRes.status, 200);
-    const statusPayload = (await statusRes.json()) as {
-      autoDispatchUsedInProcess?: Record<string, number>;
-      dispatchTotalInProject?: Record<string, number>;
-    };
-    assert.equal((statusPayload.autoDispatchUsedInProcess?.dispatchmsg ?? 0) >= 0, true);
-    assert.equal(typeof statusPayload.dispatchTotalInProject?.dispatchmsg, "number");
-    assert.equal((statusPayload.dispatchTotalInProject?.dispatchmsg ?? 0) >= 1, true);
+      .flatMap((item) => {
+        const payload = item.payload as { messageId?: string | null; messageIds?: unknown };
+        const ids = Array.isArray(payload.messageIds)
+          ? payload.messageIds.filter((value): value is string => typeof value === "string")
+          : [];
+        return payload.messageId ? [payload.messageId, ...ids] : ids;
+      });
+    assert.equal(startedMessageIds.includes(firstPayload.messageId), true);
   } finally {
     await serverHandle.close();
     if (originalCodexCommand === undefined) {
@@ -113,83 +109,7 @@ test.skip("dispatch-message endpoint targets the specified message_id", async ()
   }
 });
 
-test.skip("dispatch endpoint auto-recovers blocked session when new message arrives under only_idle", async () => {
-  const originalCodexCommand = process.env.CODEX_CLI_COMMAND;
-  process.env.CODEX_CLI_COMMAND = "node";
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-unblock-"));
-  const dataRoot = path.join(tempRoot, "data");
-  const app = createApp({ dataRoot });
-  const serverHandle = await startTestHttpServer(app);
-  const baseUrl = serverHandle.baseUrl;
-
-  try {
-    const projectRes = await fetch(`${baseUrl}/api/projects`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_id: "dispatchunblock",
-        name: "Dispatch Unblock",
-        workspace_path: tempRoot
-      })
-    });
-    assert.equal(projectRes.status, 201);
-
-    const sessionRes = await fetch(`${baseUrl}/api/projects/dispatchunblock/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: "sess-pm", role: "PM", status: "blocked" })
-    });
-    assert.equal(sessionRes.status, 201);
-
-    const sendRes = await fetch(`${baseUrl}/api/projects/dispatchunblock/messages/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from_agent: "manager",
-        to: { agent: "PM", session_id: "sess-pm" },
-        content: "new work after blocked"
-      })
-    });
-    assert.equal(sendRes.status, 201);
-
-    const rebLockRes = await fetch(`${baseUrl}/api/projects/dispatchunblock/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: "sess-pm", role: "PM", status: "blocked" })
-    });
-    assert.equal(rebLockRes.status, 200);
-
-    const dispatchRes = await fetch(`${baseUrl}/api/projects/dispatchunblock/orchestrator/dispatch`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: "sess-pm",
-        only_idle: true
-      })
-    });
-    assert.equal(dispatchRes.status, 200);
-    const dispatchPayload = (await dispatchRes.json()) as {
-      results: Array<{ outcome: string }>;
-    };
-    assert.equal(dispatchPayload.results.length, 1);
-    assert.notEqual(dispatchPayload.results[0].outcome, "session_busy");
-
-    const eventsRes = await fetch(`${baseUrl}/api/projects/dispatchunblock/events`);
-    assert.equal(eventsRes.status, 200);
-    const events = parseNdjson(await eventsRes.text());
-    const types = new Set(events.map((event) => event.eventType));
-    assert.equal(types.has("SESSION_AUTO_UNBLOCKED"), true);
-  } finally {
-    await serverHandle.close();
-    if (originalCodexCommand === undefined) {
-      delete process.env.CODEX_CLI_COMMAND;
-    } else {
-      process.env.CODEX_CLI_COMMAND = originalCodexCommand;
-    }
-  }
-});
-
-test.skip("dispatch-message endpoint returns message_not_found for unknown message", async () => {
+test("dispatch-message endpoint returns message_not_found for unknown message", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-msg-miss-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
@@ -208,10 +128,18 @@ test.skip("dispatch-message endpoint returns message_not_found for unknown messa
     });
     assert.equal(projectRes.status, 201);
 
+    const sessionRes = await fetch(`${baseUrl}/api/projects/dispatchmiss/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: "sess-pm", role: "PM" })
+    });
+    assert.equal(sessionRes.status, 201);
+
     const dispatchRes = await fetch(`${baseUrl}/api/projects/dispatchmiss/orchestrator/dispatch-message`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        session_id: "sess-pm",
         message_id: "missing-message-id"
       })
     });

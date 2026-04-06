@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createAdapterBackedOrchestratorTickPipeline,
-  createOrchestratorTickPipeline
+  createOrchestratorTickPipeline,
+  runAdapterBackedOrchestratorTickLoop,
+  syncOrchestratorHoldState
 } from "../services/orchestrator/shared/tick-pipeline.js";
 
 test("shared tick pipeline preserves configured order and stops on directive", async () => {
@@ -98,4 +100,72 @@ test("adapter-backed tick pipeline stops when finalize adapter requests terminat
 
   assert.deepEqual(pipeline.phaseOrder, ["timeout", "finalize", "reminder", "completion"]);
   assert.deepEqual(order, ["timeout", "finalize"]);
+});
+
+test("adapter-backed tick loop resolves scopes and skips null contexts", async () => {
+  const visited: string[] = [];
+  await runAdapterBackedOrchestratorTickLoop({
+    kernel: {
+      runTick: async ({ listContexts, tickContext }: any) => {
+        const contexts = await listContexts();
+        for (const context of contexts) {
+          await tickContext(context);
+        }
+      }
+    } as any,
+    listContexts: async () => [{ scopeId: "a" }, { scopeId: "skip" }, { scopeId: "b" }],
+    resolveScope: async (context) => (context.scopeId === "skip" ? null : context),
+    beforeScope: async (scope) => {
+      visited.push(`before:${scope.scopeId}`);
+    },
+    tickPipeline: {
+      phaseOrder: [],
+      run: async (scope) => {
+        visited.push(`run:${scope.scopeId}`);
+      }
+    }
+  });
+
+  assert.deepEqual(visited, ["before:a", "run:a", "before:b", "run:b"]);
+});
+
+test("hold-state sync emits only when value changes", async () => {
+  const emitted: boolean[] = [];
+  const previousState = new Map<string, boolean>();
+
+  assert.equal(
+    await syncOrchestratorHoldState({
+      scopeId: "scope-1",
+      holdEnabled: true,
+      previousState,
+      appendEvent: async (holdEnabled) => {
+        emitted.push(holdEnabled);
+      }
+    }),
+    true
+  );
+  assert.equal(
+    await syncOrchestratorHoldState({
+      scopeId: "scope-1",
+      holdEnabled: true,
+      previousState,
+      appendEvent: async (holdEnabled) => {
+        emitted.push(holdEnabled);
+      }
+    }),
+    false
+  );
+  assert.equal(
+    await syncOrchestratorHoldState({
+      scopeId: "scope-1",
+      holdEnabled: false,
+      previousState,
+      appendEvent: async (holdEnabled) => {
+        emitted.push(holdEnabled);
+      }
+    }),
+    true
+  );
+
+  assert.deepEqual(emitted, [true, false]);
 });

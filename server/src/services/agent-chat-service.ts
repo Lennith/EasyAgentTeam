@@ -1,6 +1,6 @@
 import type express from "express";
 import type { ProviderId } from "@autodev/agent-library";
-import { getRuntimeSettings, type RuntimeSettings } from "../data/runtime-settings-store.js";
+import { getRuntimeSettings, type RuntimeSettings } from "../data/repository/system/runtime-settings-repository.js";
 import type { ProviderRegistry } from "./provider-runtime.js";
 import {
   buildOrchestratorToolSessionInput,

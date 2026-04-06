@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { upsertWorkflowSession } from "../data/workflow-run-store.js";
+import { upsertWorkflowSession } from "../data/repository/workflow/runtime-repository.js";
 import type { WorkflowRunRecord } from "../domain/models.js";
 import {
   createWorkflowMiniMaxTeamToolBridge,

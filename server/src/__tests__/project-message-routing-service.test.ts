@@ -5,7 +5,7 @@ import {
   deliverProjectMessage,
   routeProjectManagerMessage,
   routeProjectTaskAssignmentMessage
-} from "../services/orchestrator/project-message-routing-service.js";
+} from "../services/orchestrator/project/project-message-routing-service.js";
 import { buildTaskAssignmentMessageForTask } from "../services/task-actions/shared.js";
 
 test("project deliver message uses shared template and bootstraps missing target session", async () => {

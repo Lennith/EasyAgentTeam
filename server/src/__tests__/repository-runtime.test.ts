@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import test from "node:test";
-import { createRepository, createUnitOfWork } from "../data/repository/runtime.js";
+import { createRepository, createUnitOfWork } from "../data/repository/shared/runtime.js";
 
 test("repository file backend keeps json/jsonl semantics with unit-of-work", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-repository-file-"));

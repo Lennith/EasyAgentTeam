@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WorkflowTaskActionService } from "../services/orchestrator/workflow-task-action-service.js";
+import { WorkflowTaskActionService } from "../services/orchestrator/workflow/workflow-task-action-service.js";
 
 function buildSnapshot(tasks: Array<Record<string, unknown>>) {
   return {

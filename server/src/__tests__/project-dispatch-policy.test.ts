@@ -6,7 +6,7 @@ import {
   isForceDispatchableState,
   resolveTaskDiscuss,
   sessionMatchesOwnerToken
-} from "../services/orchestrator/project-dispatch-policy.js";
+} from "../services/orchestrator/project/project-dispatch-policy.js";
 
 test("project dispatch policy builds pending session ids and matches owner token", () => {
   const sessionId = buildPendingSessionId("dev-role");

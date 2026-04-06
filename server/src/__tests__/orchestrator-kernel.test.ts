@@ -3,8 +3,8 @@ import { test } from "node:test";
 import {
   OrchestratorKernel,
   buildOrchestratorContextSessionKey
-} from "../services/orchestrator/kernel/orchestrator-kernel.js";
-import { OrchestratorSingleFlightGate } from "../services/orchestrator/kernel/single-flight.js";
+} from "../services/orchestrator/shared/kernel/orchestrator-kernel.js";
+import { OrchestratorSingleFlightGate } from "../services/orchestrator/shared/kernel/single-flight.js";
 
 test("OrchestratorKernel runs contexts in deterministic order", async () => {
   const kernel = new OrchestratorKernel();

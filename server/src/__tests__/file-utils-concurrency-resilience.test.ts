@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { test } from "node:test";
-import { readJsonFile, readJsonlLines } from "../data/file-utils.js";
+import { readJsonFile, readJsonlLines } from "../data/internal/persistence/file-utils.js";
 
 test("readJsonlLines keeps valid prefix when last line is half-written", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-file-utils-jsonl-tail-"));

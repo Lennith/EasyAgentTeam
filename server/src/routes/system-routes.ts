@@ -1,9 +1,12 @@
 import type express from "express";
-import { getRuntimeSettings } from "../data/runtime-settings-store.js";
-import { getProjectPaths } from "../data/project-store.js";
 import { BASE_PROMPT_TEXT, BASE_PROMPT_VERSION } from "../services/agent-prompt-service.js";
 import { createModelManagerService } from "../services/model-manager-service.js";
-import { getRuntimeSettingsForApi, patchRuntimeSettingsForApi } from "../services/runtime-settings-service.js";
+import { getProjectPathsForId } from "../services/project-admin-service.js";
+import {
+  getRuntimeSettingsForApi,
+  patchRuntimeSettingsForApi,
+  readRuntimeSettings
+} from "../services/runtime-settings-service.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import { readNullableStringPatch, readStringField } from "./shared/http.js";
 
@@ -106,7 +109,7 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
       const refresh = typeof req.query.refresh === "string" && req.query.refresh === "true";
 
       if (!projectId) {
-        const runtimeSettings = await getRuntimeSettings(dataRoot);
+        const runtimeSettings = await readRuntimeSettings(dataRoot);
         const minimaxModel = runtimeSettings.minimaxModel?.trim() || "MiniMax-M2.5-High-speed";
         const defaultModels = [
           { vendor: "codex", model: "gpt-5.3-codex", description: "Codex recommended model" },
@@ -124,7 +127,7 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
         return;
       }
 
-      const paths = getProjectPaths(dataRoot, projectId);
+      const paths = getProjectPathsForId(dataRoot, projectId);
       const modelManager = createModelManagerService(paths, dataRoot);
       const result = refresh ? await modelManager.refreshModels() : await modelManager.getAvailableModels();
       res.status(200).json({

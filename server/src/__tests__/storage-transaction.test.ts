@@ -11,8 +11,8 @@ import {
   readJsonlLines,
   runStorageTransaction,
   writeJsonFile
-} from "../data/file-utils.js";
-import { rollbackPreparedOperation } from "../data/storage/recovery-runner.js";
+} from "../data/internal/persistence/file-utils.js";
+import { rollbackPreparedOperation } from "../data/internal/persistence/storage/recovery-runner.js";
 
 test("runStorageTransaction rolls back staged writes when callback throws", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-storage-tx-rollback-"));

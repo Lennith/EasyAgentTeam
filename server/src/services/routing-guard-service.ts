@@ -1,5 +1,5 @@
 import type { ProjectPaths } from "../domain/models.js";
-import { getSession } from "../data/session-store.js";
+import { getSession } from "../data/repository/project/session-repository.js";
 
 export const RESERVED_TARGET_SESSION_IDS = new Set(["dashboard-ui", "manager-system"]);
 

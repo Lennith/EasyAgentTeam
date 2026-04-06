@@ -11,7 +11,7 @@ import {
   evaluateReminderEligibility,
   shouldAutoResetReminderOnRoleTransition,
   type ReminderEligibilityInput
-} from "../project-reminder-policy.js";
+} from "../project/project-reminder-policy.js";
 import { buildOrchestratorMessageEnvelope } from "./manager-message-contract.js";
 
 export interface OrchestratorReminderTimingOptions {
@@ -53,6 +53,52 @@ export interface OrchestratorReminderOpenTaskSummary {
   openTaskIds: string[];
   openTaskTitles: Array<{ task_id: string; title: string }>;
   openTaskTitlePreview: string;
+}
+
+export interface OrchestratorReminderStateLike {
+  idleSince?: string;
+  reminderCount: number;
+  nextReminderAt?: string;
+  lastRoleState?: RoleRuntimeState;
+}
+
+export interface OrchestratorReminderRoleDescriptor<TSession, TOpenTask> {
+  currentRoleState: RoleRuntimeState;
+  idleSession: TSession | null;
+  sessionIdleSince?: string;
+  openTasks: TOpenTask[];
+}
+
+export interface OrchestratorReminderTriggerArgs<
+  TReminderState extends OrchestratorReminderStateLike,
+  TSession,
+  TOpenTask
+> {
+  role: string;
+  reminderMode: ReminderMode;
+  reminderState: TReminderState;
+  idleSession: TSession;
+  openTasks: TOpenTask[];
+}
+
+export interface RunOrchestratorReminderLoopInput<
+  TReminderState extends OrchestratorReminderStateLike,
+  TSession,
+  TOpenTask
+> {
+  roles: Iterable<string>;
+  reminderMode: ReminderMode;
+  maxRetries: number;
+  nowMs: number;
+  timing: OrchestratorReminderTimingOptions;
+  describeRole(role: string): Promise<OrchestratorReminderRoleDescriptor<TSession, TOpenTask>>;
+  getReminderState(role: string): Promise<TReminderState | null>;
+  initializeReminderState(
+    role: string,
+    initial: Pick<OrchestratorReminderStateLike, "idleSince" | "reminderCount" | "lastRoleState">
+  ): Promise<TReminderState>;
+  updateReminderState(role: string, patch: Partial<OrchestratorReminderStateLike>): Promise<TReminderState>;
+  triggerReminder(input: OrchestratorReminderTriggerArgs<TReminderState, TSession, TOpenTask>): Promise<void>;
 }
 
 export interface BuildOrchestratorReminderMessageInput {
@@ -253,4 +299,88 @@ export function evaluateOrchestratorReminderEligibility(
   input: OrchestratorReminderEligibilityInput
 ): ReturnType<typeof evaluateReminderEligibility> {
   return evaluateReminderEligibility(input);
+}
+
+export async function runOrchestratorReminderLoop<
+  TReminderState extends OrchestratorReminderStateLike,
+  TSession,
+  TOpenTask
+>(input: RunOrchestratorReminderLoopInput<TReminderState, TSession, TOpenTask>): Promise<void> {
+  for (const role of input.roles) {
+    const descriptor = await input.describeRole(role);
+    let reminderState = await input.getReminderState(role);
+    if (!reminderState) {
+      reminderState = await input.initializeReminderState(role, {
+        idleSince: descriptor.sessionIdleSince,
+        reminderCount: 0,
+        lastRoleState: descriptor.currentRoleState
+      });
+    }
+
+    reminderState = await input.updateReminderState(
+      role,
+      buildOrchestratorReminderRoleStatePatch({
+        previousRoleState: reminderState.lastRoleState ?? "INACTIVE",
+        currentRoleState: descriptor.currentRoleState,
+        reminderMode: input.reminderMode,
+        reminderCount: reminderState.reminderCount,
+        nowMs: input.nowMs,
+        idleSince: descriptor.sessionIdleSince,
+        timing: input.timing
+      })
+    );
+
+    const eligibility = evaluateOrchestratorReminderEligibility({
+      currentRoleState: descriptor.currentRoleState,
+      hasIdleSession: Boolean(descriptor.idleSession),
+      hasOpenTask: descriptor.openTasks.length > 0,
+      reminderCount: reminderState.reminderCount,
+      maxRetries: input.maxRetries,
+      idleSince: reminderState.idleSince,
+      nextReminderAt: reminderState.nextReminderAt,
+      nowMs: input.nowMs
+    });
+
+    if (eligibility.reason === "skip_no_open_task") {
+      await input.updateReminderState(role, {
+        reminderCount: 0,
+        nextReminderAt: undefined,
+        lastRoleState: "IDLE"
+      });
+      continue;
+    }
+    if (eligibility.reason === "schedule_missing_next_reminder") {
+      await input.updateReminderState(
+        role,
+        buildOrchestratorReminderSchedulePatch({
+          reminderMode: input.reminderMode,
+          reminderCount: reminderState.reminderCount,
+          nowMs: input.nowMs,
+          timing: input.timing
+        })
+      );
+      continue;
+    }
+    if (!eligibility.eligible || !descriptor.idleSession) {
+      continue;
+    }
+
+    reminderState = await input.updateReminderState(
+      role,
+      buildOrchestratorReminderTriggeredPatch({
+        reminderMode: input.reminderMode,
+        reminderCount: reminderState.reminderCount,
+        nowMs: input.nowMs,
+        timing: input.timing
+      })
+    );
+
+    await input.triggerReminder({
+      role,
+      reminderMode: input.reminderMode,
+      reminderState,
+      idleSession: descriptor.idleSession,
+      openTasks: descriptor.openTasks
+    });
+  }
 }

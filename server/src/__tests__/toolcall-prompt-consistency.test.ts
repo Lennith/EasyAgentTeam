@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createProject } from "../data/project-store.js";
+import { createProject } from "../data/repository/project/runtime-repository.js";
 import { BASE_PROMPT_TEXT } from "../services/agent-prompt-service.js";
 import { buildAgentWorkspaceAgentsMd, ensureAgentWorkspaces } from "../services/agent-workspace-service.js";
 import { composeSystemPrompt } from "../services/prompt-composer.js";
@@ -41,8 +41,8 @@ function resolveTeamToolsListPath(): string {
 
 function resolveOrchestratorServicePath(): string {
   const candidates = [
-    path.resolve(process.cwd(), "src", "services", "orchestrator", "project-orchestrator.ts"),
-    path.resolve(process.cwd(), "server", "src", "services", "orchestrator", "project-orchestrator.ts")
+    path.resolve(process.cwd(), "src", "services", "orchestrator", "project", "project-orchestrator.ts"),
+    path.resolve(process.cwd(), "server", "src", "services", "orchestrator", "project", "project-orchestrator.ts")
   ];
   for (const candidate of candidates) {
     if (!existsSync(candidate)) {
@@ -53,7 +53,7 @@ function resolveOrchestratorServicePath(): string {
       return candidate;
     }
   }
-  throw new Error("project-orchestrator.ts not found from current test working directory");
+  throw new Error("project/project-orchestrator.ts not found from current test working directory");
 }
 
 test("agent-visible prompts/doc index use registered TeamTools names consistently", async () => {

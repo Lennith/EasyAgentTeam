@@ -3,15 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { appendEvent, listEvents } from "../data/event-store.js";
-import { createProject } from "../data/project-store.js";
+import { appendEvent, listEvents } from "../data/repository/project/event-repository.js";
+import { createProject } from "../data/repository/project/runtime-repository.js";
 import {
   createTask,
   ensureUserRootTask,
   readTaskboard,
   recomputeRunnableStates,
   updateTaskboardFromTaskReport
-} from "../data/taskboard-store.js";
+} from "../data/repository/project/taskboard-repository.js";
 
 test("event append is append-only and readable", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step1-event-"));

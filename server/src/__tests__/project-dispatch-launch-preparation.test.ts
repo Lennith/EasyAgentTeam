@@ -3,7 +3,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { prepareProjectDispatchLaunch } from "../services/orchestrator/project-dispatch-launch-preparation.js";
+import { prepareProjectDispatchLaunch } from "../services/orchestrator/project/project-dispatch-launch-preparation.js";
 import { writeOrchestratorPromptArtifact } from "../services/orchestrator/shared/prompt-artifact-writer.js";
 
 test("project dispatch launch preparation resolves model config and writes prompt artifact", async () => {

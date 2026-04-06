@@ -3,9 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { getWorkflowRepositoryBundle } from "../data/repository/workflow-repository-bundle.js";
-import { createWorkflowRun, createWorkflowTemplate, getWorkflowRun, patchWorkflowRun } from "../data/workflow-store.js";
-import { WorkflowRuntimeSupportService } from "../services/orchestrator/workflow-runtime-support-service.js";
+import { getWorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
+import {
+  createWorkflowRun,
+  createWorkflowTemplate,
+  getWorkflowRun,
+  patchWorkflowRun
+} from "../data/repository/workflow/run-repository.js";
+import { WorkflowRuntimeSupportService } from "../services/orchestrator/workflow/workflow-runtime-support-service.js";
 
 test("workflow runtime support service converges runtime and builds active snapshot", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-runtime-support-"));

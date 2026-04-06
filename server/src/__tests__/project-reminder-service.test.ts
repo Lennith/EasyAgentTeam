@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createMemoryProjectFixture } from "./helpers/project-orchestrator-fixtures.js";
-import { ProjectReminderService } from "../services/orchestrator/project-reminder-service.js";
+import { ProjectReminderService } from "../services/orchestrator/project/project-reminder-service.js";
 
 function createReminderService(
   fixture: ReturnType<typeof createMemoryProjectFixture>,

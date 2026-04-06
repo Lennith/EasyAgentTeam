@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ProjectTickService } from "../services/orchestrator/project-tick-service.js";
+import { ProjectTickService } from "../services/orchestrator/project/project-tick-service.js";
 
 test("project tick service executes timeout -> reminder -> may-be-done -> observability -> budget update order", async () => {
   const order: string[] = [];

@@ -11,7 +11,7 @@ import {
   resolveImportedSkillPromptSegments,
   resolveSkillIdsForAgent,
   validateSkillListIds
-} from "../data/skill-store.js";
+} from "../data/repository/catalog/skill-repository.js";
 
 async function writeSkillPackage(
   root: string,

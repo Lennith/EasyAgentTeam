@@ -7,7 +7,7 @@ import {
   buildProjectDispatchStartedDetails,
   buildProjectProviderDispatchInput,
   buildProjectRunnerPayload
-} from "../services/orchestrator/project-dispatch-launch-adapter.js";
+} from "../services/orchestrator/project/project-dispatch-launch-lifecycle.js";
 
 test("project dispatch launch support builds provider and runner payloads with stable fields", () => {
   const providerInput = buildProjectProviderDispatchInput({

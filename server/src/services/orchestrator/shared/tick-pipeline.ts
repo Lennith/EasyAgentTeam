@@ -3,6 +3,7 @@ import type {
   OrchestratorReminderAdapter,
   OrchestratorSessionRuntimeAdapter
 } from "./contracts.js";
+import type { OrchestratorKernel } from "./kernel/orchestrator-kernel.js";
 
 export type OrchestratorTickPhaseName =
   | "timeout"
@@ -30,6 +31,21 @@ export interface OrchestratorTickPhase<TScopeContext = unknown> {
 export interface OrchestratorTickPipeline<TScopeContext = unknown> {
   readonly phaseOrder: readonly OrchestratorTickPhaseName[];
   run(scope: TScopeContext): Promise<void>;
+}
+
+export interface AdapterBackedOrchestratorTickLoopOptions<TContext = unknown, TScopeContext = unknown> {
+  kernel: OrchestratorKernel;
+  listContexts(): Promise<readonly TContext[]>;
+  resolveScope(context: TContext): Promise<TScopeContext | null>;
+  beforeScope?(scope: TScopeContext, context: TContext): Promise<void>;
+  tickPipeline: OrchestratorTickPipeline<TScopeContext>;
+}
+
+export interface OrchestratorHoldStateSyncOptions {
+  scopeId: string;
+  holdEnabled: boolean;
+  previousState: Map<string, boolean>;
+  appendEvent(holdEnabled: boolean): Promise<void>;
 }
 
 export interface AdapterBackedOrchestratorTickPipelineOptions<TScopeContext = unknown> {
@@ -175,4 +191,32 @@ export function createAdapterBackedOrchestratorTickPipeline<TScopeContext>(
   }
 
   return createOrchestratorTickPipeline(phases);
+}
+
+export async function runAdapterBackedOrchestratorTickLoop<TContext, TScopeContext>(
+  options: AdapterBackedOrchestratorTickLoopOptions<TContext, TScopeContext>
+): Promise<void> {
+  await options.kernel.runTick({
+    listContexts: options.listContexts,
+    tickContext: async (context) => {
+      const scope = await options.resolveScope(context);
+      if (!scope) {
+        return;
+      }
+      if (options.beforeScope) {
+        await options.beforeScope(scope, context);
+      }
+      await options.tickPipeline.run(scope);
+    }
+  });
+}
+
+export async function syncOrchestratorHoldState(options: OrchestratorHoldStateSyncOptions): Promise<boolean> {
+  const previousHold = options.previousState.get(options.scopeId);
+  if (previousHold !== undefined && previousHold === options.holdEnabled) {
+    return false;
+  }
+  await options.appendEvent(options.holdEnabled);
+  options.previousState.set(options.scopeId, options.holdEnabled);
+  return true;
 }

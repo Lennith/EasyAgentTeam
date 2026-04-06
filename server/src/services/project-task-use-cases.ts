@@ -1,5 +1,5 @@
-import type { TaskPatchInput } from "../data/taskboard-store.js";
-import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
+import type { TaskPatchInput } from "../data/repository/project/taskboard-repository.js";
+import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
 
 export async function patchProjectTask(input: {
   dataRoot: string;

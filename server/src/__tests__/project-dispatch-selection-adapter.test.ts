@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
+import type { ProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
 import type {
   ManagerToAgentMessage,
   ProjectPaths,
@@ -8,7 +8,7 @@ import type {
   SessionRecord,
   TaskRecord
 } from "../domain/models.js";
-import { ProjectDispatchSelectionAdapter } from "../services/orchestrator/project-dispatch-selection-adapter.js";
+import { ProjectDispatchSelectionAdapter } from "../services/orchestrator/project/project-dispatch-selection-adapter.js";
 
 function createTask(overrides: Partial<TaskRecord> & Pick<TaskRecord, "taskId" | "ownerRole" | "state">): TaskRecord {
   const now = "2026-03-28T10:00:00.000Z";

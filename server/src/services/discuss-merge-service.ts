@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
-import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
+import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
 import {
   clearBufferedDiscussMessages,
   listBufferedDiscussMessages,
   type BufferedDiscussMessage
-} from "../data/discuss-buffer-store.js";
-import { routeProjectManagerMessage } from "./orchestrator/project-message-routing-service.js";
+} from "../data/repository/project/discuss-buffer-repository.js";
+import { routeProjectManagerMessage } from "./orchestrator/project/project-message-routing-service.js";
 import { clampDiscussRounds } from "./discuss-policy-service.js";
 
 interface MergeGroupKey {

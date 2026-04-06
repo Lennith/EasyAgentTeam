@@ -1,4 +1,4 @@
-import { appendEvent } from "../../../data/event-store.js";
+import { appendEvent } from "../../../data/repository/project/event-repository.js";
 import { Tool, errorResult, successResult } from "../Tool.js";
 import type { TeamToolBridge, TeamToolErrorPayload, TeamToolExecutionContext } from "./types.js";
 import { TeamToolBridgeError } from "../../../services/minimax-teamtool-bridge.js";

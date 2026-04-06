@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareWorkflowDispatchLaunch } from "../services/orchestrator/workflow-dispatch-launch-preparation.js";
+import { prepareWorkflowDispatchLaunch } from "../services/orchestrator/workflow/workflow-dispatch-launch-preparation.js";
 
 test("workflow dispatch launch preparation resolves fallback role prompt, skills, and provider config", async () => {
   const workspaceCalls: Array<{ projectId: string; agentIds: string[] }> = [];

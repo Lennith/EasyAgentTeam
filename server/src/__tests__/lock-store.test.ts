@@ -4,8 +4,14 @@ import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
-import { acquireLock, createProjectLockScope, listActiveLocks, releaseLock, renewLock } from "../data/lock-store.js";
-import { createProject } from "../data/project-store.js";
+import {
+  acquireLock,
+  createProjectLockScope,
+  listActiveLocks,
+  releaseLock,
+  renewLock
+} from "../data/repository/project/lock-repository.js";
+import { createProject } from "../data/repository/project/runtime-repository.js";
 
 test("lock acquire conflict then steal after expiry", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-step2-lock-"));

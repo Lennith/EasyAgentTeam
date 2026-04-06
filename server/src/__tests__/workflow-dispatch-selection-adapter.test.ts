@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { WorkflowRepositoryBundle } from "../data/repository/workflow-repository-bundle.js";
+import type { WorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
 import type {
   WorkflowManagerToAgentMessage,
   WorkflowRunRecord,
   WorkflowRunRuntimeState,
   WorkflowSessionRecord
 } from "../domain/models.js";
-import { OrchestratorSingleFlightGate } from "../services/orchestrator/kernel/single-flight.js";
-import { WorkflowDispatchSelectionAdapter } from "../services/orchestrator/workflow-dispatch-selection-adapter.js";
+import { OrchestratorSingleFlightGate } from "../services/orchestrator/shared/kernel/single-flight.js";
+import { WorkflowDispatchSelectionAdapter } from "../services/orchestrator/workflow/workflow-dispatch-selection-adapter.js";
 
 function createRun(overrides: Partial<WorkflowRunRecord> = {}): WorkflowRunRecord {
   return {

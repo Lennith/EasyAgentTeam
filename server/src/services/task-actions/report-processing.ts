@@ -6,7 +6,7 @@ import type {
   TaskReport,
   TaskState
 } from "../../domain/models.js";
-import type { ProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
+import type { ProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
 import {
   buildDependencyNotReadyHint,
   isAllowedTaskReportTransition,

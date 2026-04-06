@@ -1,5 +1,6 @@
 export type {
   OrchestratorCompletionAdapter,
+  OrchestratorBackgroundDispatchResult,
   OrchestratorDispatchExecutionAdapter,
   OrchestratorDispatchFinalizeAdapter,
   OrchestratorDispatchSelectionAdapter,
@@ -25,6 +26,8 @@ export { writeOrchestratorPromptArtifact } from "./prompt-artifact-writer.js";
 export type { WriteOrchestratorPromptArtifactInput } from "./prompt-artifact-writer.js";
 export type {
   AdapterBackedOrchestratorTickPipelineOptions,
+  AdapterBackedOrchestratorTickLoopOptions,
+  OrchestratorHoldStateSyncOptions,
   OrchestratorTickDirective,
   OrchestratorTickPhase,
   OrchestratorTickPhaseName,
@@ -33,11 +36,14 @@ export type {
 export {
   createAdapterBackedOrchestratorTickPipeline,
   createOrchestratorTickPipeline,
-  DEFAULT_ORCHESTRATOR_TICK_PHASE_ORDER
+  DEFAULT_ORCHESTRATOR_TICK_PHASE_ORDER,
+  runAdapterBackedOrchestratorTickLoop,
+  syncOrchestratorHoldState
 } from "./tick-pipeline.js";
 export {
   applyOrchestratorDispatchTerminalState,
   buildOrchestratorDispatchPayload,
+  createOrchestratorDispatchLifecycleEventAdapter,
   isOrchestratorDispatchClosed,
   loadOrchestratorDispatchTerminalState,
   resolveOrchestratorErrorMessage,
@@ -65,9 +71,11 @@ export type {
 export { resolveOrchestratorDispatchCandidate } from "./dispatch-selection-candidate.js";
 export type { OrchestratorDispatchTemplateOptions, OrchestratorDispatchTemplateResult } from "./dispatch-template.js";
 export { runOrchestratorDispatchTemplate } from "./dispatch-template.js";
-export { executeOrchestratorLaunch } from "./launch-template.js";
+export { createOrchestratorLaunchAdapter, executeOrchestratorLaunch } from "./launch-template.js";
 export type {
   BuildOrchestratorMessageRouteResultInput,
+  ResolveOrchestratorMessageEnvelopeMetadataInput,
+  OrchestratorMessageEnvelopeMetadata,
   OrchestratorMessageRouteResult,
   OrchestratorMessageRouteEventPair
 } from "./message-routing-template.js";
@@ -76,7 +84,8 @@ export {
   buildOrchestratorMessageRouteResult,
   createOrchestratorMessageRoutingUnitOfWorkRunner,
   executeOrchestratorMessageRouting,
-  executeOrchestratorMessageRoutingInUnitOfWork
+  executeOrchestratorMessageRoutingInUnitOfWork,
+  resolveOrchestratorMessageEnvelopeMetadata
 } from "./message-routing-template.js";
 export { executeOrchestratorRunner } from "./runner-template.js";
 export type {
@@ -112,6 +121,8 @@ export {
 export type {
   OrchestratorDispatchTerminalState,
   OrchestratorDispatchEventLike,
+  OrchestratorDispatchLifecycleEventAdapterFactoryOptions,
+  OrchestratorDispatchLifecyclePayloadDefinition,
   OrchestratorDispatchLifecyclePayloadOptions
 } from "./dispatch-lifecycle.js";
 export {
@@ -133,6 +144,11 @@ export {
   resolveOrchestratorManagerUrl,
   resolveOrchestratorProviderSessionId
 } from "./orchestrator-runtime-helpers.js";
+export {
+  hasOrchestratorSessionHeartbeatTimedOut,
+  parseIsoMs,
+  resolveLatestSessionActivityMs
+} from "./session-manager.js";
 export type { OrchestratorAgentCatalog, OrchestratorAgentCatalogEntry } from "./orchestrator-agent-catalog.js";
 export { buildOrchestratorAgentCatalog } from "./orchestrator-agent-catalog.js";
 export type { BuildOrchestratorToolSessionInput } from "./tool-session-input.js";
@@ -164,7 +180,11 @@ export type {
   BuildOrchestratorReminderSchedulePatchInput,
   OrchestratorReminderEligibilityInput,
   OrchestratorReminderRoleStatePatch,
-  OrchestratorReminderTimingOptions
+  OrchestratorReminderTimingOptions,
+  OrchestratorReminderRoleDescriptor,
+  OrchestratorReminderStateLike,
+  OrchestratorReminderTriggerArgs,
+  RunOrchestratorReminderLoopInput
 } from "./reminder-runtime.js";
 export {
   buildOrchestratorReminderMessage,
@@ -173,7 +193,8 @@ export {
   buildOrchestratorReminderRoleStatePatch,
   buildOrchestratorReminderSchedulePatch,
   buildOrchestratorReminderTriggeredPatch,
-  evaluateOrchestratorReminderEligibility
+  evaluateOrchestratorReminderEligibility,
+  runOrchestratorReminderLoop
 } from "./reminder-runtime.js";
 export type {
   ResolveOrchestratorRolePromptSkillBundleInput,

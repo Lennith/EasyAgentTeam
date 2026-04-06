@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ProjectRecord } from "../domain/models.js";
-import { ensureDirectory } from "../data/file-utils.js";
+import { ensureDirectory } from "../utils/file-utils.js";
 
 export interface ProjectTemplateApplyResult {
   templateId: string;

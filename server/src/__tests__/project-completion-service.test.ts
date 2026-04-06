@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createMemoryProjectFixture } from "./helpers/project-orchestrator-fixtures.js";
-import { ProjectCompletionService } from "../services/orchestrator/project-completion-service.js";
+import { ProjectCompletionService } from "../services/orchestrator/project/project-completion-service.js";
 
 function createCompletionService(fixture: ReturnType<typeof createMemoryProjectFixture>) {
   return new ProjectCompletionService({

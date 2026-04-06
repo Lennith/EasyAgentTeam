@@ -7,8 +7,8 @@ import type {
   TaskReport,
   TaskState
 } from "../../domain/models.js";
-import { getProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
-import { TaskboardStoreError } from "../../data/taskboard-store.js";
+import { getProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
+import { TaskboardStoreError } from "../../data/repository/project/taskboard-repository.js";
 import {
   isReservedTargetSessionId,
   validateExplicitTargetSession,

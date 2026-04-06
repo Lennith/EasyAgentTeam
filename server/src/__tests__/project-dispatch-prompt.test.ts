@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProjectRecord, SessionRecord, TaskRecord } from "../domain/models.js";
-import { buildProjectDispatchPromptContext } from "../services/orchestrator/project-dispatch-prompt-context.js";
-import { buildProjectDispatchPrompt } from "../services/orchestrator/project-dispatch-prompt.js";
+import { buildProjectDispatchPromptContext } from "../services/orchestrator/project/project-dispatch-prompt-context.js";
+import { buildProjectDispatchPrompt } from "../services/orchestrator/project/project-dispatch-prompt.js";
 
 test("project dispatch prompt keeps routing snapshot, focus task, and discuss guide contract", () => {
   const project = {

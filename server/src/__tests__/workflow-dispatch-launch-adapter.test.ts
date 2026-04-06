@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WorkflowDispatchLaunchAdapter } from "../services/orchestrator/workflow-dispatch-launch-adapter.js";
+import { WorkflowDispatchLaunchAdapter } from "../services/orchestrator/workflow/workflow-dispatch-launch-adapter.js";
 
 test("workflow dispatch launch adapter dismisses session when minimax is not configured", async () => {
   const emitted: Array<{ kind: string; scope: unknown; details: unknown }> = [];

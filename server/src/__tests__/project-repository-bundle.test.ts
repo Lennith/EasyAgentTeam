@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
-import { clearMemoryStore, setStorageBackendForTests } from "../data/store/store-runtime.js";
+import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
+import { clearMemoryStore, setStorageBackendForTests } from "../data/internal/persistence/store/store-runtime.js";
 
 test("project repository bundle exposes shared scope methods over one project unit-of-work", async () => {
   const dataRoot = "C:\\memory\\project-repository-bundle";

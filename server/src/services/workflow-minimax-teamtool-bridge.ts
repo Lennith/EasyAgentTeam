@@ -1,12 +1,6 @@
 import path from "node:path";
-import { listWorkflowSessions } from "../data/workflow-run-store.js";
-import {
-  acquireLock,
-  createWorkflowRunLockScope,
-  listActiveLocks,
-  releaseLock,
-  renewLock
-} from "../data/lock-store.js";
+import { listWorkflowSessions } from "../data/repository/workflow/runtime-repository.js";
+import { createWorkflowRunLockScope } from "../data/repository/project/lock-repository.js";
 import { isManagerChatMessageType } from "../domain/models.js";
 import type {
   ProjectPaths,
@@ -18,12 +12,21 @@ import type {
 } from "../domain/models.js";
 import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/team/types.js";
 import { normalizeOrchestratorDiscussReference } from "./orchestrator/shared/index.js";
-import type { WorkflowRouteMessageInput } from "./orchestrator/workflow-message-routing-service.js";
+import type { WorkflowRouteMessageInput } from "./orchestrator/workflow/workflow-message-routing-service.js";
 import { resolveDiscussRoundLimit } from "./discuss-policy-service.js";
-import { TeamToolBridgeError } from "./minimax-teamtool-bridge.js";
+import {
+  asCode,
+  asStatus,
+  createMiniMaxTeamToolBridgeBase,
+  normalizeErrorMessage,
+  readRecord,
+  readString,
+  readStringList,
+  TeamToolBridgeError
+} from "./minimax-teamtool-bridge-core.js";
 import { resolveWorkflowRunRoleScope } from "./workflow-role-scope-service.js";
 
-export { TeamToolBridgeError } from "./minimax-teamtool-bridge.js";
+export { TeamToolBridgeError } from "./minimax-teamtool-bridge-core.js";
 
 interface WorkflowTaskActionDefaults {
   agentRole: string;
@@ -44,44 +47,6 @@ export interface WorkflowMiniMaxTeamToolBridgeContext {
   parentRequestId?: string;
   applyTaskAction: (request: WorkflowTaskActionRequest) => Promise<Record<string, unknown>>;
   sendRunMessage: (input: WorkflowBridgeSendMessageInput) => Promise<Record<string, unknown>>;
-}
-
-function readString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function readInteger(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.floor(value);
-  }
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value.trim());
-    if (Number.isFinite(parsed)) {
-      return Math.floor(parsed);
-    }
-  }
-  return undefined;
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
-}
-
-function readStringList(input: unknown): string[] {
-  if (Array.isArray(input)) {
-    return input.map((item) => String(item).trim()).filter((item) => item.length > 0);
-  }
-  if (typeof input === "string") {
-    return input
-      .split(/[,\n\r|]+/)
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-  }
-  return [];
 }
 
 function readTaskOutcome(input: unknown): WorkflowTaskOutcome | null {
@@ -262,25 +227,6 @@ function resolveMessageNextAction(code: string): string | null {
   }
 }
 
-function normalizeErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
-function asStatus(value: unknown, fallback: number): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 100 && value <= 599) {
-    return Math.floor(value);
-  }
-  return fallback;
-}
-
-function asCode(value: unknown, fallback: string): string {
-  const code = readString(value);
-  return code ?? fallback;
-}
-
 function uniq(items: string[]): string[] {
   return Array.from(new Set(items));
 }
@@ -367,7 +313,9 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
     parentRequestId: context.parentRequestId
   };
 
-  return {
+  return createMiniMaxTeamToolBridgeBase({
+    lockScope,
+    defaultSessionId: context.sessionId,
     async taskAction(requestBody: Record<string, unknown>): Promise<Record<string, unknown>> {
       const mapped = mapWorkflowTaskActionRequest(requestBody, defaults);
       if (!mapped) {
@@ -396,7 +344,6 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
         );
       }
     },
-
     async sendMessage(requestBody: Record<string, unknown>): Promise<Record<string, unknown>> {
       const messageType = readString(requestBody.message_type ?? requestBody.messageType);
       if (!messageType || !isManagerChatMessageType(messageType)) {
@@ -438,7 +385,6 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
         );
       }
     },
-
     async getRouteTargets(fromAgent: string): Promise<Record<string, unknown>> {
       const normalizedFrom = fromAgent.trim();
       const sessions = await listWorkflowSessions(context.dataRoot, context.run.runId);
@@ -466,111 +412,6 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
         hasExplicitRouteTable,
         allowedTargets
       };
-    },
-
-    async lockAcquire(input: Record<string, unknown>): Promise<Record<string, unknown>> {
-      const sessionId = readString(input.session_id ?? input.sessionId) ?? context.sessionId;
-      const lockKey = readString(input.lock_key ?? input.lockKey);
-      const ttlSeconds = readInteger(input.ttl_seconds ?? input.ttlSeconds) ?? 300;
-      const targetTypeRaw = readString(input.target_type ?? input.targetType);
-      const targetType = targetTypeRaw === "file" || targetTypeRaw === "dir" ? targetTypeRaw : undefined;
-      const purpose = readString(input.purpose);
-      if (!lockKey) {
-        throw new TeamToolBridgeError(
-          400,
-          "LOCK_KEY_REQUIRED",
-          "lock_key is required",
-          "Set lock_key to a workspace-relative path."
-        );
-      }
-      const acquired = await acquireLock(lockScope, {
-        sessionId,
-        lockKey,
-        targetType,
-        ttlSeconds,
-        purpose
-      });
-      if (acquired.kind === "acquired") {
-        return { result: "acquired", lock: acquired.lock };
-      }
-      if (acquired.kind === "stolen") {
-        return { result: "stolen", lock: acquired.lock, previousLock: acquired.previousLock };
-      }
-      throw new TeamToolBridgeError(
-        409,
-        "LOCK_ACQUIRE_FAILED",
-        acquired.reason,
-        "Wait for lock expiry or choose a different file.",
-        acquired.existingLock
-      );
-    },
-
-    async lockRenew(input: Record<string, unknown>): Promise<Record<string, unknown>> {
-      const sessionId = readString(input.session_id ?? input.sessionId) ?? context.sessionId;
-      const lockKey = readString(input.lock_key ?? input.lockKey);
-      if (!lockKey) {
-        throw new TeamToolBridgeError(
-          400,
-          "LOCK_KEY_REQUIRED",
-          "lock_key is required",
-          "Set lock_key to renew (workspace-relative path)."
-        );
-      }
-      const renewed = await renewLock(lockScope, { sessionId, lockKey });
-      if (renewed.kind === "renewed") {
-        return { result: "renewed", lock: renewed.lock };
-      }
-      if (renewed.kind === "not_found") {
-        throw new TeamToolBridgeError(404, "LOCK_NOT_FOUND", "lock not found", "Acquire lock first.");
-      }
-      if (renewed.kind === "not_owner") {
-        throw new TeamToolBridgeError(
-          403,
-          "LOCK_NOT_OWNER",
-          "lock owned by another session",
-          "Use owner session or reacquire after expiry.",
-          renewed.existingLock
-        );
-      }
-      throw new TeamToolBridgeError(
-        409,
-        "LOCK_EXPIRED",
-        "lock expired",
-        "Reacquire lock before editing.",
-        renewed.existingLock
-      );
-    },
-
-    async lockRelease(input: Record<string, unknown>): Promise<Record<string, unknown>> {
-      const sessionId = readString(input.session_id ?? input.sessionId) ?? context.sessionId;
-      const lockKey = readString(input.lock_key ?? input.lockKey);
-      if (!lockKey) {
-        throw new TeamToolBridgeError(
-          400,
-          "LOCK_KEY_REQUIRED",
-          "lock_key is required",
-          "Set lock_key to release (workspace-relative path)."
-        );
-      }
-      const released = await releaseLock(lockScope, { sessionId, lockKey });
-      if (released.kind === "released") {
-        return { result: "released", lock: released.lock };
-      }
-      if (released.kind === "not_found") {
-        throw new TeamToolBridgeError(404, "LOCK_NOT_FOUND", "lock not found", "Lock may already be released.");
-      }
-      throw new TeamToolBridgeError(
-        403,
-        "LOCK_NOT_OWNER",
-        "lock owned by another session",
-        "Only lock owner can release.",
-        released.existingLock
-      );
-    },
-
-    async lockList(): Promise<Record<string, unknown>> {
-      const items = await listActiveLocks(lockScope);
-      return { items, total: items.length };
     }
-  };
+  });
 }

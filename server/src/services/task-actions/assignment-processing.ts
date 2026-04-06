@@ -1,6 +1,6 @@
 import type { ProjectPaths, ProjectRecord, TaskActionResult, TaskRecord } from "../../domain/models.js";
-import type { ProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
-import { routeProjectTaskAssignmentMessage } from "../orchestrator/project-message-routing-service.js";
+import type { ProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
+import { routeProjectTaskAssignmentMessage } from "../orchestrator/project/project-message-routing-service.js";
 import {
   buildTaskAssignmentMessageForTask,
   mergeDependencies,

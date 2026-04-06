@@ -5,7 +5,7 @@ import { createApp, resolveDataRoot } from "./app.js";
 import {
   cleanupCommittedWalRecordsForPaths,
   ensureStorageRecoveryForPaths
-} from "./data/storage/transaction-manager.js";
+} from "./data/internal/persistence/storage/transaction-manager.js";
 import { logger } from "./utils/logger.js";
 
 const port = Number(process.env.PORT ?? 43123);

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import test from "node:test";
-import { createProject, ensureProjectRuntime } from "../data/project-store.js";
+import { createProject, ensureProjectRuntime } from "../data/repository/project/runtime-repository.js";
 import { createMiniMaxTeamToolBridge, TeamToolBridgeError } from "../services/minimax-teamtool-bridge.js";
 import { handleTaskAction } from "../services/task-action-service.js";
 

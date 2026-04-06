@@ -1,5 +1,8 @@
-import { listAgents } from "../../../data/agent-store.js";
-import { resolveImportedSkillPromptSegments, resolveSkillIdsForAgent } from "../../../data/skill-store.js";
+import { listAgents } from "../../../data/repository/catalog/agent-repository.js";
+import {
+  resolveImportedSkillPromptSegments,
+  resolveSkillIdsForAgent
+} from "../../../data/repository/catalog/skill-repository.js";
 
 type OrchestratorAgentRecord = Awaited<ReturnType<typeof listAgents>>[number];
 

@@ -5,7 +5,7 @@ import {
   buildWorkflowMessageReceivedPayload,
   buildWorkflowMessageRoutedPayload,
   buildWorkflowRoutedMessage
-} from "../services/orchestrator/workflow-message-routing-service.js";
+} from "../services/orchestrator/workflow/workflow-message-routing-service.js";
 
 test("workflow message routing service routes to authoritative session and persists inbox plus events", async () => {
   const appendedInbox: Array<{ role: string; message: Record<string, unknown> }> = [];

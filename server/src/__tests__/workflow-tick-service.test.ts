@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WorkflowTickService } from "../services/orchestrator/workflow-tick-service.js";
+import { WorkflowTickService } from "../services/orchestrator/workflow/workflow-tick-service.js";
 
 test("workflow tick service executes timeout -> finalize -> reminder -> may-be-done -> dispatch order", async () => {
   const order: string[] = [];

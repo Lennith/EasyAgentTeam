@@ -1,5 +1,11 @@
-import { acquireLock, createProjectLockScope, listActiveLocks, releaseLock, renewLock } from "../data/lock-store.js";
-import { ensureProjectRuntime, getProject } from "../data/project-store.js";
+import {
+  acquireLock,
+  createProjectLockScope,
+  listActiveLocks,
+  releaseLock,
+  renewLock
+} from "../data/repository/project/lock-repository.js";
+import { ensureProjectRuntime, getProject } from "../data/repository/project/runtime-repository.js";
 
 type ProjectLockTargetType = "file" | "dir";
 

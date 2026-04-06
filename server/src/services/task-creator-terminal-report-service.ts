@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ProjectPaths, ProjectRecord, TaskRecord } from "../domain/models.js";
-import { getProjectRepositoryBundle } from "../data/repository/project-repository-bundle.js";
-import { deliverProjectMessage } from "./orchestrator/project-message-routing-service.js";
+import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
+import { deliverProjectMessage } from "./orchestrator/project/project-message-routing-service.js";
 import { resolveActiveSessionForRole } from "./session-lifecycle-authority.js";
 
 const TERMINAL = new Set(["DONE", "BLOCKED_DEP", "CANCELED"]);

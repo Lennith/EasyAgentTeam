@@ -3,10 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createProject, ensureProjectRuntime } from "../data/project-store.js";
-import { addSession } from "../data/session-store.js";
-import { createTask, patchTask } from "../data/taskboard-store.js";
-import { listEvents } from "../data/event-store.js";
+import { createProject, ensureProjectRuntime } from "../data/repository/project/runtime-repository.js";
+import { addSession } from "../data/repository/project/session-repository.js";
+import { createTask, patchTask } from "../data/repository/project/taskboard-repository.js";
+import { listEvents } from "../data/repository/project/event-repository.js";
 import { emitCreatorTerminalReportsIfReady } from "../services/task-creator-terminal-report-service.js";
 
 test("creator terminal report dedupe ignores close_report_id changes", async () => {

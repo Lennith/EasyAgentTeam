@@ -1,5 +1,5 @@
 import type { EventRecord, ProjectPaths } from "../domain/models.js";
-import { appendEvent } from "../data/event-store.js";
+import { appendEvent } from "../data/repository/project/event-repository.js";
 import {
   buildManagerMessageRoutedPayload,
   buildMessageRoutedPayload,

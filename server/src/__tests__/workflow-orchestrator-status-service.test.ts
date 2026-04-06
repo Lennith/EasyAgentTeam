@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { getWorkflowRepositoryBundle } from "../data/repository/workflow-repository-bundle.js";
-import { createWorkflowRun, createWorkflowTemplate } from "../data/workflow-store.js";
-import { WorkflowOrchestratorStatusService } from "../services/orchestrator/workflow-orchestrator-status-service.js";
+import { getWorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
+import { createWorkflowRun, createWorkflowTemplate } from "../data/repository/workflow/run-repository.js";
+import { WorkflowOrchestratorStatusService } from "../services/orchestrator/workflow/workflow-orchestrator-status-service.js";
 
 test("workflow orchestrator status service maps loop snapshot and run summaries deterministically", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-status-service-"));

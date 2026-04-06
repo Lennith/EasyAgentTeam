@@ -1,6 +1,7 @@
 import { withOrchestratorDispatchGate } from "./dispatch-lifecycle.js";
-import type { OrchestratorSingleFlightGate } from "../kernel/single-flight.js";
+import type { OrchestratorSingleFlightGate } from "./kernel/single-flight.js";
 import type {
+  OrchestratorBackgroundDispatchResult,
   OrchestratorDispatchExecutionAdapter,
   OrchestratorDispatchFinalizeAdapter,
   OrchestratorDispatchMutationAdapter,
@@ -25,6 +26,12 @@ export interface OrchestratorDispatchTemplateOptions<
 export interface OrchestratorDispatchTemplateResult<TResult = unknown> {
   results: TResult[];
   dispatchedCount: number;
+}
+
+function isOrchestratorBackgroundDispatchResult<TResult>(
+  result: TResult | OrchestratorBackgroundDispatchResult<TResult>
+): result is OrchestratorBackgroundDispatchResult<TResult> {
+  return typeof result === "object" && result !== null && "mode" in result && result.mode === "background";
 }
 
 export async function runOrchestratorDispatchTemplate<TState, TSelection, TPrepared, TResult>(
@@ -70,7 +77,14 @@ export async function runOrchestratorDispatchTemplate<TState, TSelection, TPrepa
             () => execution.createSingleFlightBusyResult(decision.selection, state),
             async () => {
               const prepared = await mutation.prepareDispatch(decision.selection, state);
-              return await execution.dispatch(decision.selection, prepared, state);
+              const dispatchResult = await execution.dispatch(decision.selection, prepared, state);
+              if (!isOrchestratorBackgroundDispatchResult(dispatchResult)) {
+                return dispatchResult;
+              }
+              void dispatchResult.completion.catch(async (error) => {
+                await dispatchResult.onError?.(error);
+              });
+              return dispatchResult.result;
             }
           );
 

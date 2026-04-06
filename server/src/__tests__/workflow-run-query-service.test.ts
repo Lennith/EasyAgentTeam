@@ -3,11 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { getWorkflowRepositoryBundle } from "../data/repository/workflow-repository-bundle.js";
-import { createWorkflowRun, createWorkflowTemplate, patchWorkflowRun } from "../data/workflow-store.js";
+import { getWorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
+import {
+  createWorkflowRun,
+  createWorkflowTemplate,
+  patchWorkflowRun
+} from "../data/repository/workflow/run-repository.js";
 import type { WorkflowRunRecord, WorkflowRunRuntimeState } from "../domain/models.js";
-import { WorkflowRunQueryService } from "../services/orchestrator/workflow-run-query-service.js";
-import { convergeWorkflowRuntime } from "../services/orchestrator/runtime/workflow-runtime-kernel.js";
+import { WorkflowRunQueryService } from "../services/orchestrator/workflow/workflow-run-query-service.js";
+import { convergeWorkflowRuntime } from "../services/orchestrator/shared/runtime/workflow-runtime-kernel.js";
 
 function createWorkflowRunHelpers(dataRoot: string) {
   const repositories = getWorkflowRepositoryBundle(dataRoot);

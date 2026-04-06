@@ -1,20 +1,18 @@
 import type express from "express";
 import type { ProviderId } from "@autodev/agent-library";
-import { listAgents } from "../data/agent-store.js";
-import { appendEvent } from "../data/event-store.js";
-import {
-  deleteProject,
-  ensureProjectRuntime,
-  getProject,
-  getProjectOverview,
-  listProjects,
-  ProjectStoreError,
-  updateProjectOrchestratorSettings,
-  updateProjectRouting,
-  updateTaskAssignRouting
-} from "../data/project-store.js";
-import { getTeam } from "../data/team-store.js";
 import { buildProjectRoutingSnapshot } from "../services/project-routing-snapshot-service.js";
+import {
+  appendProjectAuditEvent,
+  deleteProjectById,
+  listProjectSummaries,
+  listRegisteredAgents,
+  readProject,
+  readProjectOverview,
+  readTeamDefinition,
+  updateProjectOrchestratorConfig,
+  updateProjectRoutingConfig,
+  updateProjectTaskAssignRouting
+} from "../services/project-admin-service.js";
 import { createProjectWithAudit } from "../services/project-meta-use-cases.js";
 import { logger } from "../utils/logger.js";
 import type { AppRuntimeContext } from "./shared/context.js";
@@ -48,7 +46,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         | undefined;
 
       if (teamId) {
-        const team = await getTeam(dataRoot, teamId);
+        const team = await readTeamDefinition(dataRoot, teamId);
         if (team) {
           teamAgentIds = team.agentIds;
           teamRouteTable = team.routeTable;
@@ -95,7 +93,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         ? Array.from(new Set(agentIds.map((item) => String(item).trim()).filter((item) => item.length > 0)))
         : [];
       if (normalizedAgentIds.length > 0) {
-        const registry = await listAgents(dataRoot);
+        const registry = await listRegisteredAgents(dataRoot);
         const known = new Set(registry.map((item) => item.agentId));
         const missing = normalizedAgentIds.filter((item) => !known.has(item));
         if (missing.length > 0) {
@@ -120,11 +118,11 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
       });
 
       if (taskAssignRouteTable && Object.keys(taskAssignRouteTable).length > 0) {
-        await updateTaskAssignRouting(dataRoot, created.projectId, taskAssignRouteTable);
+        await updateProjectTaskAssignRouting(dataRoot, created.projectId, taskAssignRouteTable);
       }
 
       if (agentModelConfigs && Object.keys(agentModelConfigs).length > 0) {
-        await updateProjectRouting(dataRoot, created.projectId, {
+        await updateProjectRoutingConfig(dataRoot, created.projectId, {
           agentIds: created.agentIds ?? [],
           routeTable: created.routeTable ?? {},
           agentModelConfigs
@@ -139,7 +137,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
 
   app.get("/api/projects", async (_req, res, next) => {
     try {
-      const items = await listProjects(dataRoot);
+      const items = await listProjectSummaries(dataRoot);
       res.json({ items, total: items.length });
     } catch (error) {
       next(error);
@@ -148,7 +146,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
 
   app.get("/api/projects/:id", async (req, res, next) => {
     try {
-      const project = await getProjectOverview(dataRoot, req.params.id);
+      const project = await readProjectOverview(dataRoot, req.params.id);
       res.json({
         ...project,
         autoDispatchEnabled: project.autoDispatchEnabled ?? true,
@@ -161,7 +159,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
 
   app.get("/api/projects/:id/task-assign-routing", async (req, res, next) => {
     try {
-      const project = await getProject(dataRoot, req.params.id);
+      const project = await readProject(dataRoot, req.params.id);
       res.status(200).json({
         project_id: project.projectId,
         task_assign_route_table: project.taskAssignRouteTable ?? {},
@@ -185,8 +183,8 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         res.status(400).json({ error: "from_agent is required" });
         return;
       }
-      const project = await getProject(dataRoot, req.params.id);
-      const registry = await listAgents(dataRoot);
+      const project = await readProject(dataRoot, req.params.id);
+      const registry = await listRegisteredAgents(dataRoot);
       const snapshot = buildProjectRoutingSnapshot(
         project,
         fromAgentTrim,
@@ -212,7 +210,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         });
         return;
       }
-      const project = await getProject(dataRoot, req.params.id);
+      const project = await readProject(dataRoot, req.params.id);
       const agentIds = Array.isArray(body.agent_ids ?? body.agentIds)
         ? ((body.agent_ids ?? body.agentIds) as string[])
         : null;
@@ -228,7 +226,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
       const normalizedAgentIds = Array.from(
         new Set(agentIds.map((item) => String(item).trim()).filter((item) => item.length > 0))
       );
-      const registry = await listAgents(dataRoot);
+      const registry = await listRegisteredAgents(dataRoot);
       const known = new Set(registry.map((item) => item.agentId));
       const missing = normalizedAgentIds.filter((item) => !known.has(item));
       if (missing.length > 0) {
@@ -236,14 +234,14 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         return;
       }
 
-      const updated = await updateProjectRouting(dataRoot, project.projectId, {
+      const updated = await updateProjectRoutingConfig(dataRoot, project.projectId, {
         agentIds: normalizedAgentIds,
         routeTable,
         routeDiscussRounds,
         agentModelConfigs
       });
 
-      await appendEvent(await ensureProjectRuntime(dataRoot, project.projectId), {
+      await appendProjectAuditEvent(dataRoot, project.projectId, {
         projectId: project.projectId,
         eventType: "PROJECT_ROUTING_UPDATED",
         source: "dashboard",
@@ -269,7 +267,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         });
         return;
       }
-      const updated = await updateTaskAssignRouting(
+      const updated = await updateProjectTaskAssignRouting(
         dataRoot,
         req.params.id,
         taskAssignRouteTable as Record<string, string[]>
@@ -280,7 +278,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         updated_at: updated.updatedAt
       });
     } catch (error) {
-      if (error instanceof ProjectStoreError) {
+      if (error instanceof Error && error.constructor?.name === "ProjectStoreError") {
         res.status(400).json({
           code: "TASK_ASSIGN_ROUTING_INVALID",
           error: error.message
@@ -293,7 +291,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
 
   app.get("/api/projects/:id/orchestrator/settings", async (req, res, next) => {
     try {
-      const project = await getProject(dataRoot, req.params.id);
+      const project = await readProject(dataRoot, req.params.id);
       res.status(200).json({
         project_id: project.projectId,
         auto_dispatch_enabled: project.autoDispatchEnabled ?? true,
@@ -342,7 +340,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         });
         return;
       }
-      const updated = await updateProjectOrchestratorSettings(dataRoot, req.params.id, {
+      const updated = await updateProjectOrchestratorConfig(dataRoot, req.params.id, {
         autoDispatchEnabled: hasEnabled ? Boolean(enabledRaw) : undefined,
         autoDispatchRemaining: hasRemaining ? remainingParsed : undefined,
         holdEnabled: hasHold ? Boolean(holdRaw) : undefined,
@@ -363,7 +361,10 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
 
   app.delete("/api/projects/:id", async (req, res, next) => {
     try {
-      const removed = await deleteProject(dataRoot, req.params.id);
+      const removed = await deleteProjectById(dataRoot, req.params.id, {
+        orchestrator: context.orchestrator,
+        providerRegistry: context.providerRegistry
+      });
       res.status(200).json(removed);
     } catch (error) {
       next(error);

@@ -1,5 +1,21 @@
 $ErrorActionPreference = "Stop"
 
+function Format-ApiErrorMessage {
+  param(
+    [Parameter(Mandatory = $true)][int]$Status,
+    [Parameter(Mandatory = $true)][string]$Method,
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string]$Raw = ""
+  )
+
+  $normalized = if ($null -eq $Raw) { "" } else { [string]$Raw }
+  $normalized = ($normalized -replace "`r", " " -replace "`n", " ").Trim()
+  if (-not $normalized) {
+    $normalized = "(empty)"
+  }
+  return "HTTP $Status on $Method $Path response=$normalized"
+}
+
 function Invoke-ApiJson {
   param(
     [Parameter(Mandatory = $true)][string]$BaseUrl,
@@ -23,7 +39,7 @@ function Invoke-ApiJson {
     }
     $status = [int]$resp.StatusCode
     if ($AllowStatus -notcontains $status) {
-      throw "Unexpected status $status for $Method $Path`n$([string]$resp.Content)"
+      throw (Format-ApiErrorMessage -Status $status -Method $Method -Path $Path -Raw ([string]$resp.Content))
     }
     $raw = if ($resp.Content -is [byte[]]) {
       [System.Text.Encoding]::UTF8.GetString($resp.Content)
@@ -48,7 +64,7 @@ function Invoke-ApiJson {
         }
         return [pscustomobject]@{ status = $status; body = $bodyObj; raw = $raw }
       }
-      throw "HTTP $status on $Method $Path`n$raw"
+      throw (Format-ApiErrorMessage -Status $status -Method $Method -Path $Path -Raw $raw)
     }
     throw
   }
@@ -82,7 +98,7 @@ function Invoke-ApiJsonWithRetry {
         continue
       }
       if (($RetryOnStatus -contains $status) -and $attempt -ge $MaxAttempts) {
-        throw "HTTP $status on $Method $Path after $MaxAttempts attempts`n$([string]$resp.raw)"
+        throw (Format-ApiErrorMessage -Status $status -Method $Method -Path $Path -Raw ([string]$resp.raw))
       }
       return $resp
     } catch {

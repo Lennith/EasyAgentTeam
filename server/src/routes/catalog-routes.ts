@@ -1,23 +1,28 @@
 import type express from "express";
-import { createAgent, deleteAgent, listAgents, patchAgent } from "../data/agent-store.js";
-import {
-  createCustomAgentTemplate,
-  deleteCustomAgentTemplate,
-  listCustomAgentTemplates,
-  patchCustomAgentTemplate
-} from "../data/agent-template-store.js";
-import { createTeam, deleteTeam, getTeam, listTeams, updateTeam } from "../data/team-store.js";
-import {
-  createSkillList,
-  deleteSkill,
-  deleteSkillList,
-  importSkills,
-  listSkillLists,
-  listSkills,
-  patchSkillList,
-  validateSkillListIds
-} from "../data/skill-store.js";
 import { getBuiltInAgents } from "../services/agent-prompt-service.js";
+import {
+  createCatalogAgent,
+  createCatalogAgentTemplate,
+  createCatalogSkillList,
+  createCatalogTeam,
+  deleteCatalogAgent,
+  deleteCatalogAgentTemplate,
+  deleteCatalogSkill,
+  deleteCatalogSkillList,
+  deleteCatalogTeam,
+  importCatalogSkills,
+  listCatalogAgentTemplates,
+  listCatalogAgents,
+  listCatalogSkillLists,
+  listCatalogSkills,
+  listCatalogTeams,
+  patchCatalogAgent,
+  patchCatalogAgentTemplate,
+  patchCatalogSkillList,
+  readCatalogTeam,
+  updateCatalogTeam,
+  validateCatalogSkillListIds
+} from "../services/catalog-admin-service.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import {
   parseBoolean,
@@ -33,7 +38,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   const { dataRoot } = context;
   app.get("/api/agents", async (_req, res, next) => {
     try {
-      const custom = await listAgents(dataRoot);
+      const custom = await listCatalogAgents(dataRoot);
       res.status(200).json({
         items: custom.map((item) => {
           const { defaultCliTool, skillList, ...rest } = item;
@@ -58,7 +63,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         prompt: item.prompt,
         source: "built-in" as const
       }));
-      const customItems = (await listCustomAgentTemplates(dataRoot)).map((item) => ({
+      const customItems = (await listCatalogAgentTemplates(dataRoot)).map((item) => ({
         ...item,
         source: "custom" as const
       }));
@@ -71,7 +76,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.post("/api/agent-templates", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const created = await createCustomAgentTemplate(dataRoot, {
+      const created = await createCatalogAgentTemplate(dataRoot, {
         templateId: (body.template_id ?? body.templateId) as string,
         displayName: (body.display_name ?? body.displayName) as string | undefined,
         prompt: body.prompt as string,
@@ -87,7 +92,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
     try {
       const templateId = req.params.template_id;
       const body = req.body as Record<string, unknown>;
-      const updated = await patchCustomAgentTemplate(dataRoot, templateId, {
+      const updated = await patchCatalogAgentTemplate(dataRoot, templateId, {
         displayName: (body.display_name ?? body.displayName) as string | undefined,
         prompt: body.prompt as string | undefined,
         basedOnTemplateId:
@@ -103,7 +108,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.delete("/api/agent-templates/:template_id", async (req, res, next) => {
     try {
-      const removed = await deleteCustomAgentTemplate(dataRoot, req.params.template_id);
+      const removed = await deleteCatalogAgentTemplate(dataRoot, req.params.template_id);
       res.status(200).json(removed);
     } catch (error) {
       next(error);
@@ -112,7 +117,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.get("/api/teams", async (_req, res, next) => {
     try {
-      const teams = await listTeams(dataRoot);
+      const teams = await listCatalogTeams(dataRoot);
       res.status(200).json({ items: teams, total: teams.length });
     } catch (error) {
       next(error);
@@ -121,7 +126,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.get("/api/teams/:teamId", async (req, res, next) => {
     try {
-      const team = await getTeam(dataRoot, req.params.teamId);
+      const team = await readCatalogTeam(dataRoot, req.params.teamId);
       if (!team) {
         res.status(404).json({ error: `Team '${req.params.teamId}' not found` });
         return;
@@ -135,7 +140,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.post("/api/teams", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const created = await createTeam(dataRoot, {
+      const created = await createCatalogTeam(dataRoot, {
         teamId: (body.team_id ?? body.teamId) as string,
         name: (body.name ?? body.team_id ?? body.teamId) as string,
         description: (body.description ?? body.description) as string | undefined,
@@ -158,7 +163,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.put("/api/teams/:teamId", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const updated = await updateTeam(dataRoot, req.params.teamId, {
+      const updated = await updateCatalogTeam(dataRoot, req.params.teamId, {
         name: (body.name ?? body.name) as string | undefined,
         description: (body.description ?? body.description) as string | undefined,
         agentIds: (body.agent_ids ?? body.agentIds) as string[] | undefined,
@@ -179,7 +184,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.delete("/api/teams/:teamId", async (req, res, next) => {
     try {
-      const removed = await deleteTeam(dataRoot, req.params.teamId);
+      const removed = await deleteCatalogTeam(dataRoot, req.params.teamId);
       if (!removed) {
         res.status(404).json({ error: `Team '${req.params.teamId}' not found` });
         return;
@@ -224,13 +229,13 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         return;
       }
       if (skillList && skillList.length > 0) {
-        const missing = await validateSkillListIds(dataRoot, skillList);
+        const missing = await validateCatalogSkillListIds(dataRoot, skillList);
         if (missing.length > 0) {
           sendApiError(res, 400, "AGENT_SKILL_LIST_INVALID", `unknown skill lists: ${missing.join(", ")}`);
           return;
         }
       }
-      const created = await createAgent(dataRoot, {
+      const created = await createCatalogAgent(dataRoot, {
         agentId,
         displayName,
         prompt,
@@ -274,13 +279,13 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         }
       }
       if (skillListPatch && skillListPatch.length > 0) {
-        const missing = await validateSkillListIds(dataRoot, skillListPatch);
+        const missing = await validateCatalogSkillListIds(dataRoot, skillListPatch);
         if (missing.length > 0) {
           sendApiError(res, 400, "AGENT_SKILL_LIST_INVALID", `unknown skill lists: ${missing.join(", ")}`);
           return;
         }
       }
-      const updated = await patchAgent(dataRoot, agentId, {
+      const updated = await patchCatalogAgent(dataRoot, agentId, {
         displayName: (body.display_name ?? body.displayName) as string | undefined,
         prompt: body.prompt as string | undefined,
         summary: readNullableStringPatch(body, ["summary"]),
@@ -303,7 +308,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.delete("/api/agents/:agent_id", async (req, res, next) => {
     try {
-      const removed = await deleteAgent(dataRoot, req.params.agent_id);
+      const removed = await deleteCatalogAgent(dataRoot, req.params.agent_id);
       res.status(200).json(removed);
     } catch (error) {
       next(error);
@@ -312,7 +317,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.get("/api/skills", async (_req, res, next) => {
     try {
-      const items = await listSkills(dataRoot);
+      const items = await listCatalogSkills(dataRoot);
       res.status(200).json({ items, total: items.length });
     } catch (error) {
       next(error);
@@ -335,7 +340,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         return;
       }
       const recursive = parseBoolean(body.recursive, true);
-      const result = await importSkills(dataRoot, { sources, recursive });
+      const result = await importCatalogSkills(dataRoot, { sources, recursive });
       res.status(200).json(result);
     } catch (error) {
       next(error);
@@ -344,7 +349,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.delete("/api/skills/:skill_id", async (req, res, next) => {
     try {
-      const removed = await deleteSkill(dataRoot, req.params.skill_id);
+      const removed = await deleteCatalogSkill(dataRoot, req.params.skill_id);
       res.status(200).json(removed);
     } catch (error) {
       next(error);
@@ -353,7 +358,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.get("/api/skill-lists", async (_req, res, next) => {
     try {
-      const items = await listSkillLists(dataRoot);
+      const items = await listCatalogSkillLists(dataRoot);
       res.status(200).json({ items, total: items.length });
     } catch (error) {
       next(error);
@@ -368,7 +373,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         sendApiError(res, 400, "SKILL_LIST_INPUT_INVALID", "list_id is required");
         return;
       }
-      const created = await createSkillList(dataRoot, {
+      const created = await createCatalogSkillList(dataRoot, {
         listId,
         displayName: readStringField(body, ["display_name", "displayName"]),
         description: readStringField(body, ["description"]),
@@ -390,7 +395,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
       const hasSkillIds =
         Object.prototype.hasOwnProperty.call(body, "skill_ids") ||
         Object.prototype.hasOwnProperty.call(body, "skillIds");
-      const updated = await patchSkillList(dataRoot, req.params.list_id, {
+      const updated = await patchCatalogSkillList(dataRoot, req.params.list_id, {
         displayName: (body.display_name ?? body.displayName) as string | undefined,
         description: readNullableStringPatch(body, ["description"]),
         includeAll: hasInclude ? parseBoolean(body.include_all ?? body.includeAll, false) : undefined,
@@ -405,7 +410,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.delete("/api/skill-lists/:list_id", async (req, res, next) => {
     try {
       const listId = req.params.list_id;
-      const agents = await listAgents(dataRoot);
+      const agents = await listCatalogAgents(dataRoot);
       const inUseBy = agents.find((agent) => (agent.skillList ?? []).includes(listId));
       if (inUseBy) {
         sendApiError(
@@ -416,7 +421,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         );
         return;
       }
-      const removed = await deleteSkillList(dataRoot, listId);
+      const removed = await deleteCatalogSkillList(dataRoot, listId);
       res.status(200).json(removed);
     } catch (error) {
       next(error);

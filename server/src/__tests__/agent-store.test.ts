@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createAgent, deleteAgent, listAgents, patchAgent } from "../data/agent-store.js";
+import { createAgent, deleteAgent, listAgents, patchAgent } from "../data/repository/catalog/agent-repository.js";
 
 test("agent registry is empty by default (built-ins are templates only)", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-agent-seed-"));

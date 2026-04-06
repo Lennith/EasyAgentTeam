@@ -2,6 +2,10 @@
 
 ## 1. 模块目标
 
+### 模块状态
+
+- `实装`
+
 ### 模块职责
 
 MiniMax 支撑模块负责把编排器 dispatch 请求转换为可执行的 MiniMax run，并处理运行期恢复、日志与事件闭环。
@@ -12,7 +16,9 @@ MiniMax 支撑模块负责把编排器 dispatch 请求转换为可执行的 Mini
 - `server/src/minimax/index.ts`
 - `server/src/minimax/storage/**`
 - `server/src/minimax/compression/**`
+- `server/src/services/minimax-teamtool-bridge-core.ts`
 - `server/src/services/minimax-teamtool-bridge.ts`
+- `server/src/services/workflow-minimax-teamtool-bridge.ts`
 
 ### 解决问题
 
@@ -75,10 +81,15 @@ MiniMax 支撑模块负责把编排器 dispatch 请求转换为可执行的 Mini
 ### 核心处理规则
 
 1. 创建 MiniMaxAgent，注入 workspace、sessionDir、model、tokenLimit、shell 参数。
-2. 注入 TeamToolExecutionContext + TeamToolBridge（直连后端 service）。
-3. 注入运行时环境变量（`AUTO_DEV_ACTIVE_TASK_*` 等）。
-4. 运行中周期性 heartbeat 更新 `lastActiveAt`。
-5. 结束后写 run finished 事件并触发 completion callback。
+2. TeamToolBridge 统一走 `minimax-teamtool-bridge-core.ts` 的共享骨架：
+   - `TeamToolBridgeError`
+   - lock acquire / renew / release / list
+   - 通用输入读取与错误转换骨架
+3. project / workflow bridge 只保留各自的 task action、message、route target 语义与 payload 映射。
+4. 注入 TeamToolExecutionContext + TeamToolBridge（直连后端 service）。
+5. 注入运行时环境变量（`AUTO_DEV_ACTIVE_TASK_*` 等）。
+6. 运行中周期性 heartbeat 更新 `lastActiveAt`。
+7. 结束后写 run finished 事件并触发 completion callback。
 
 ### 恢复策略
 

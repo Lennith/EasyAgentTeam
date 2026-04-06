@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { clearMemoryStore, setStorageBackendForTests } from "../../data/store/store-runtime.js";
-import { getProjectRepositoryBundle } from "../../data/repository/project-repository-bundle.js";
+import { clearMemoryStore, setStorageBackendForTests } from "../../data/internal/persistence/store/store-runtime.js";
+import { getProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
 
 export function createMemoryProjectFixture(prefix: string) {
   const dataRoot = `C:\\memory\\${prefix}-${randomUUID()}`;

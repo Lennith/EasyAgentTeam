@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveProjectOrchestratorOptionsFromEnv } from "../services/orchestrator/project-orchestrator-options.js";
-import { resolveWorkflowOrchestratorOptionsFromEnv } from "../services/orchestrator/workflow-orchestrator-options.js";
+import { resolveProjectOrchestratorOptionsFromEnv } from "../services/orchestrator/project/project-orchestrator-options.js";
+import { resolveWorkflowOrchestratorOptionsFromEnv } from "../services/orchestrator/workflow/workflow-orchestrator-options.js";
 
 test("project orchestrator options resolve shared env thresholds", () => {
   const options = resolveProjectOrchestratorOptionsFromEnv("C:\\data", {} as any, {

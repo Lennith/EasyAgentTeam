@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { appendJsonlLine } from "../data/file-utils.js";
-import { appendEvent } from "../data/event-store.js";
+import { appendJsonlLine } from "../utils/file-utils.js";
+import { appendEvent } from "../data/repository/project/event-repository.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
-import type { RuntimeSettings } from "../data/runtime-settings-store.js";
+import type { RuntimeSettings } from "../data/repository/system/runtime-settings-repository.js";
 import { runMiniMaxForProject, type MiniMaxRunResultInternal } from "./minimax-runner.js";
 
 export interface ModelRunRequest {

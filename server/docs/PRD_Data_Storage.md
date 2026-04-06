@@ -4,65 +4,44 @@
 
 ### 模块状态
 
-- `改动中`
-
-### 本轮收敛约束（2026-03-29）
-
-- 继续扩展既有 `ProjectRepositoryBundle` 覆盖面，不新增新的 shared contract 概念。
-- 路由权限判定与 role-session 映射写入优先通过 `projectRuntime` repository seam 暴露。
+- `实装`
 
 ### 模块职责
 
-数据存储模块负责后端运行数据的持久化与事务边界承载，覆盖：
-
-- project / workflow 文档型状态读写（JSON）
-- event / inbox 日志型追加写（JSONL）
-- repository + UnitOfWork 抽象
-- file backend 与 memory backend 一致语义
+数据存储模块负责 backend runtime 的持久化、repository/UoW 边界、WAL 恢复与提交一致性。
 
 ### 当前有效源码
 
-- 共享抽象：
-  - `server/src/data/repository/types.ts`
-  - `server/src/data/repository/runtime.ts`
-- Project repository：
-  - `project-repository-bundle.ts`
-  - `project-runtime-repository.ts`
-  - `taskboard-repository.ts`
-  - `session-repository.ts`
-  - `event-repository.ts`
-  - `inbox-repository.ts`
-- Workflow repository：
-  - `workflow-repository-bundle.ts`
-  - `workflow-run-repository.ts`
-  - `workflow-session-repository.ts`
-  - `workflow-event-repository.ts`
-  - `workflow-inbox-repository.ts`
-  - `workflow-reminder-repository.ts`
+- `server/src/data/repository/**`
+- `server/src/data/internal/persistence/**`
+- `server/src/services/project-admin-service.ts`
+- `server/src/services/project-runtime-api-service.ts`
+- `server/src/services/workflow-admin-service.ts`
 
-## 2. 数据边界与原则
+## 2. 当前有效结构
 
-1. route 层不直接开启事务。
-2. application service 是 `UnitOfWork.run(...)` 的拥有者。
-3. service 必须通过 repository bundle 访问主链路数据，不绕过 repository 直连 file util。
-4. 文档型状态保持 JSON；事件与 inbox 保持 JSONL，不强行混成一套过宽接口。
-5. role reminder 状态保持落在 runtime 文档：
-   - project：project runtime 文档
-   - workflow：workflow reminder/runtime 文档
+### 唯一公开数据 seam
 
-## 3. 统一 scope contract（当前有效）
+- `server/src/data/repository/project/**`
+- `server/src/data/repository/workflow/**`
+- `server/src/data/repository/catalog/**`
+- `server/src/data/repository/system/**`
+- `server/src/data/repository/shared/**`
 
-Project / Workflow repository bundle 都统一提供：
+### 内部持久化实现
 
-- `resolveScope(scopeId)`
-- `runInUnitOfWork(scope, operation)`
-- `runWithResolvedScope(scopeId, operation)`
+- `server/src/data/internal/persistence/**`
 
-编排 shared contract 仅依赖这组统一 seam，不再依赖历史分叉命名。
+### 边界规则
 
-## 4. 主链路入口
+- route 不得直接持有事务边界。
+- application service 通过 repository 或 repository bundle 访问数据。
+- `internal/persistence` 只承载存储机制，不承载业务决策。
+- 顶层 `data/*-store.ts` 已退役，不再作为公开 seam。
 
-### 4.1 Project
+## 3. 主链路 contract
+
+### Project
 
 - `ProjectRepositoryBundle`
   - `projectRuntime`
@@ -71,7 +50,7 @@ Project / Workflow repository bundle 都统一提供：
   - `events`
   - `inbox`
 
-### 4.2 Workflow
+### Workflow
 
 - `WorkflowRepositoryBundle`
   - `workflowRuns`
@@ -80,21 +59,48 @@ Project / Workflow repository bundle 都统一提供：
   - `inbox`
   - `reminders`
 
-## 5. 事务语义（硬约束）
+### 统一 scope/UoW 入口
+
+- `resolveScope(scopeId)`
+- `runInUnitOfWork(scope, operation)`
+- `runWithResolvedScope(scopeId, operation)`
+
+## 4. 事务与 durability 规则
 
 - 同一用例内的关键写入必须处于同一 UoW 边界，尤其是：
-  - taskboard
   - runtime
+  - taskboard
   - sessions
   - events
   - inbox
-- callback 抛错时：
-  - file backend 回滚 staged writes
-  - memory backend 提供等价事务语义用于测试
+- file backend 与 memory backend 都必须提供等价提交语义。
+- callback 抛错时必须回滚 staged writes，不能返回伪成功。
+- 成功返回的写入必须对下一条同 scope 请求立即可见。
 
-## 6. 目录布局（当前有效）
+## 5. Project 删除与 runtime drain 规则
 
-### 6.1 Project
+- `DELETE /api/projects/:id` 删除 project 目录前，必须先 drain 当前 project 的 runtime。
+- drain 至少覆盖：
+  - active session provider runtime
+  - 仍在运行或仍可取消的 dispatch runner
+  - 已注册但未完成清理的 callback/run 句柄
+- 若 runtime 在超时窗口内未退出，删除必须失败，不允许直接硬删目录后让旧 runner 继续写回已复用的 project 路径。
+- 目标是防止出现：
+  - API 成功但 taskboard/session 写入未稳定落盘
+  - 旧 project runner 在 project 复用后继续写 WAL / heartbeat
+  - WAL 文件竞争导致 `EPERM`、脏可见性或 success-without-durability
+
+## 6. WAL 与恢复规则
+
+- server 启动时继续对已发现的 `.storage-wal` 根执行 recovery + committed cleanup。
+- runtime 删除/复用路径的前提是：
+  - 相关 provider/session 已经退出或被显式终止
+  - 不再存在会继续写入该 project scope 的活跃回调
+- WAL 清理不能替代 runtime drain；它只负责提交后的恢复与收尾。
+
+## 7. 目录布局
+
+### Project
 
 - `data/projects/<projectId>/project.json`
 - `data/projects/<projectId>/collab/state/taskboard.json`
@@ -103,7 +109,7 @@ Project / Workflow repository bundle 都统一提供：
 - `data/projects/<projectId>/collab/events.jsonl`
 - `data/projects/<projectId>/collab/inbox/*.jsonl`
 
-### 6.2 Workflow
+### Workflow
 
 - `data/workflows/templates/<templateId>.json`
 - `data/workflows/runs/<runId>/run.json`
@@ -113,56 +119,24 @@ Project / Workflow repository bundle 都统一提供：
 - `data/workflows/runs/<runId>/inbox/<role>.jsonl`
 - `data/workflows/runs/<runId>/role-reminders.json`
 
-## 7. 异常与边界
+## 8. 异常与边界
 
-| 场景                | 处理                                      |
-| ------------------- | ----------------------------------------- |
-| 文件不存在          | 返回默认状态或按需初始化                  |
-| JSON/JSONL 解析失败 | 抛数据层错误，不伪装业务成功              |
-| 事务回调抛错        | UoW 回滚                                  |
-| scope 不存在        | repository 返回空，由上层决定业务错误映射 |
+| 场景                          | 处理                                                |
+| ----------------------------- | --------------------------------------------------- |
+| 文件不存在                    | 返回默认状态或按需初始化                            |
+| JSON/JSONL 解析失败           | 抛数据层错误，不伪装业务成功                        |
+| UoW 回调失败                  | 回滚 staged writes                                  |
+| scope 不存在                  | repository 返回空或抛 not found，由上层翻译业务错误 |
+| project runtime 未 drain 完成 | 拒绝删除 project                                    |
 
-## 8. 验证基线（当前）
+## 9. 验证基线
 
 - `server/src/__tests__/repository-runtime.test.ts`
-- `server/src/__tests__/project-repository-bundle.test.ts`
-- `server/src/__tests__/workflow-repository-bundle.test.ts`
+- `server/src/__tests__/storage-transaction.test.ts`
+- `server/src/__tests__/task-actions-durability.test.ts`
+- `server/src/__tests__/project-admin-service.test.ts`
+- `pnpm check:boundaries:strict`
 - `pnpm --filter @autodev/server build`
 - `pnpm --filter @autodev/server test`
-
-## 9. 收尾边界清单（2026-04-02）
-
-### 9.1 改动落点清单（允许）
-
-- `route` 层只做参数解析、鉴权、错误翻译与 service 调用，不持有事务边界。
-- `application service` 负责业务用例事务边界，通过 repository bundle 调用 `resolveScope / runInUnitOfWork / runWithResolvedScope`。
-- `repository bundle` 负责主链路读写聚合入口；新增主链路数据点时，优先扩展 bundle 能力而非新增临时穿透路径。
-- `store/storage` 负责底层持久化机制（WAL、原子写、恢复等），不承载业务语义分支。
-
-### 9.2 禁止改动清单（冻结）
-
-- 禁止在 `server/src/routes/**` 直接调用 `UnitOfWork.run(...)` 或等价事务入口。
-- 禁止在 `server/src/services/**` 主链路直接依赖 `server/src/data/store/**`、`server/src/data/storage/**` 或 `file-utils` 进行业务写入。
-- 禁止新增绕过 repository bundle 的“临时 store 直连”代码路径。
-- 禁止对外暴露新的 storage/store 命名体系来替代既有 repository seam。
-
-### 9.3 评审检查项（必查）
-
-1. 主链路写入是否全部经过 repository bundle。
-2. 单一用例关键写入是否在同一 UoW 边界内完成。
-3. route 层是否保持无事务边界。
-4. 若出现边界告警，是否记录到 tech debt 并给出退出条件。
-
-### 9.4 轻量边界检查入口
-
-- 命令（默认非阻塞）：`pnpm check:boundaries`
-- 严格模式（用于后续 CI 阻断预演）：`pnpm check:boundaries:strict`
-
-### 9.5 “谁改哪里”责任矩阵
-
-| 变更类型                        | 应改目录                                                 | 禁止触达                                                                                  | 责任说明                                                |
-| ------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| HTTP 参数解析/返回码映射        | `server/src/routes/**`                                   | `server/src/data/repository/**`、`server/src/data/store/**`、`server/src/data/storage/**` | route 只处理协议层，不承载事务和持久化细节              |
-| 业务用例事务编排                | `server/src/services/**`                                 | 直接写 `store/storage/file-utils` 主链路                                                  | service 持有 UoW 与业务流程，统一通过 repository bundle |
-| 主链路数据聚合读写              | `server/src/data/repository/**`                          | 在 bundle 之外新增临时穿透路径                                                            | repository bundle 作为 project/workflow 主链路单入口    |
-| 存储引擎能力（WAL/原子写/恢复） | `server/src/data/storage/**`、`server/src/data/store/**` | 业务语义分支和 route/service 协议决策                                                     | storage/store 仅负责持久化机制与一致性                  |
+- `pnpm test`
+- discuss E2E baseline 复验通过，delete/recreate 后不再复现旧的 seed task 可见性丢失

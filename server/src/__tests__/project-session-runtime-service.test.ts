@@ -5,7 +5,7 @@ import { createMemoryProjectFixture } from "./helpers/project-orchestrator-fixtu
 import {
   ProjectSessionRuntimeService,
   terminateProcessByPid
-} from "../services/orchestrator/project-session-runtime-service.js";
+} from "../services/orchestrator/project/project-session-runtime-service.js";
 
 test("project session runtime service terminates a live child process by pid", async () => {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {

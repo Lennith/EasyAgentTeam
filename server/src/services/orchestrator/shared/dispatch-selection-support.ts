@@ -1,4 +1,4 @@
-import { hasOpenTaskDispatch } from "../dispatch-engine.js";
+import { hasOpenTaskDispatch } from "./dispatch-engine.js";
 import type { OrchestratorDispatchSelectionKind, NormalizedDispatchSelectionResult } from "./contracts.js";
 
 export interface OrchestratorDispatchSessionAvailabilityInput {

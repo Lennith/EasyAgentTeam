@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { listEvents } from "../data/event-store.js";
-import { createProject } from "../data/project-store.js";
+import { listEvents } from "../data/repository/project/event-repository.js";
+import { createProject } from "../data/repository/project/runtime-repository.js";
 import {
   emitManagerMessageRouted,
   emitMessageRouted,
