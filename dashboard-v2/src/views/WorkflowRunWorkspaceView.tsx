@@ -10,6 +10,8 @@ import type {
   SessionRecord,
   TaskTreeNode,
   WorkflowRunRecord,
+  WorkflowRunMode,
+  WorkflowRunOrchestratorSettings,
   WorkflowRunState,
   WorkflowSessionRecord,
   WorkflowTaskState,
@@ -23,6 +25,8 @@ interface WorkflowRunWorkspaceViewProps {
 }
 
 const TERMINAL_TASK_STATES = new Set<WorkflowTaskState>(["DONE", "CANCELED"]);
+const WORKFLOW_SCHEDULE_EXPRESSION_RE =
+  /^(XX|0[1-9]|1[0-2])-(XX|0[1-9]|[12][0-9]|3[01]) ([01][0-9]|2[0-3]):(XX|[0-5][0-9])$/i;
 
 function getEffectiveRunStatus(run: WorkflowRunRecord | null, runtimeStatus?: WorkflowRunState): WorkflowRunState {
   const raw = runtimeStatus ?? run?.status ?? "created";
@@ -92,13 +96,11 @@ export function WorkflowRunWorkspaceView({ runId, view }: WorkflowRunWorkspaceVi
   const [timelineError, setTimelineError] = useState<string | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
 
-  const [orchestratorSettings, setOrchestratorSettings] = useState<{
-    auto_dispatch_enabled: boolean;
-    auto_dispatch_remaining: number;
-    hold_enabled: boolean;
-    reminder_mode: "backoff" | "fixed_interval";
-    updated_at: string;
-  } | null>(null);
+  const [orchestratorSettings, setOrchestratorSettings] = useState<WorkflowRunOrchestratorSettings | null>(null);
+  const [runModeDraft, setRunModeDraft] = useState<WorkflowRunMode>("none");
+  const [scheduleExpressionDraft, setScheduleExpressionDraft] = useState("XX-XX 09:00");
+  const [savingRecurringSettings, setSavingRecurringSettings] = useState(false);
+  const [recurringSettingsError, setRecurringSettingsError] = useState<string | null>(null);
 
   const [template, setTemplate] = useState<{
     templateId: string;
@@ -303,6 +305,14 @@ export function WorkflowRunWorkspaceView({ runId, view }: WorkflowRunWorkspaceVi
     void loadOrchestratorSettings();
   }, [loadOrchestratorSettings]);
 
+  useEffect(() => {
+    if (!orchestratorSettings) {
+      return;
+    }
+    setRunModeDraft(orchestratorSettings.mode);
+    setScheduleExpressionDraft(orchestratorSettings.schedule_expression ?? "XX-XX 09:00");
+  }, [orchestratorSettings]);
+
   const onStartStop = async (action: "start" | "stop") => {
     setWorking(action);
     try {
@@ -324,6 +334,31 @@ export function WorkflowRunWorkspaceView({ runId, view }: WorkflowRunWorkspaceVi
       window.alert(err instanceof Error ? err.message : `Failed to ${action} workflow run`);
     } finally {
       setWorking(null);
+    }
+  };
+
+  const saveRecurringSettings = async () => {
+    const normalizedExpression = scheduleExpressionDraft.trim().toUpperCase();
+    if (runModeDraft === "schedule" && !WORKFLOW_SCHEDULE_EXPRESSION_RE.test(normalizedExpression)) {
+      setRecurringSettingsError("schedule_expression must match MM-DD HH:MM (MM/DD/minute allow XX)");
+      return;
+    }
+    setSavingRecurringSettings(true);
+    setRecurringSettingsError(null);
+    try {
+      const updated = await workflowApi.patchOrchestratorSettings(runId, {
+        mode: runModeDraft,
+        loop_enabled: runModeDraft === "loop",
+        schedule_enabled: runModeDraft === "schedule",
+        schedule_expression: runModeDraft === "schedule" ? normalizedExpression : null,
+        is_schedule_seed: runModeDraft === "schedule"
+      });
+      setOrchestratorSettings(updated);
+      await loadRun();
+    } catch (err) {
+      setRecurringSettingsError(err instanceof Error ? err.message : "Failed to update recurring settings");
+    } finally {
+      setSavingRecurringSettings(false);
     }
   };
 
@@ -478,6 +513,48 @@ export function WorkflowRunWorkspaceView({ runId, view }: WorkflowRunWorkspaceVi
                 <div style={{ fontWeight: 600 }}>{status?.stoppedAt ?? run.stoppedAt ?? "-"}</div>
               </div>
               <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Mode</div>
+                <div style={{ fontWeight: 600 }}>{orchestratorSettings?.mode ?? run.mode ?? "none"}</div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Loop Enabled</div>
+                <div style={{ fontWeight: 600 }}>{orchestratorSettings?.loop_enabled ? "Yes" : "No"}</div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Schedule Enabled</div>
+                <div style={{ fontWeight: 600 }}>{orchestratorSettings?.schedule_enabled ? "Yes" : "No"}</div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Schedule Expression</div>
+                <div style={{ fontWeight: 600 }}>{orchestratorSettings?.schedule_expression ?? "-"}</div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Next Trigger</div>
+                <div style={{ fontWeight: 600 }}>{orchestratorSettings?.recurring_status.next_trigger_at ?? "-"}</div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Instance Occupied</div>
+                <div style={{ fontWeight: 600 }}>
+                  {orchestratorSettings?.recurring_status.occupied
+                    ? `Yes (${orchestratorSettings.recurring_status.active_run_id ?? "-"})`
+                    : "No"}
+                </div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Last Triggered</div>
+                <div style={{ fontWeight: 600 }}>{orchestratorSettings?.recurring_status.last_triggered_at ?? "-"}</div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Origin Run</div>
+                <div style={{ fontWeight: 600 }}>{orchestratorSettings?.origin_run_id ?? run.originRunId ?? "-"}</div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Last Spawned Run</div>
+                <div style={{ fontWeight: 600 }}>
+                  {orchestratorSettings?.last_spawned_run_id ?? run.lastSpawnedRunId ?? "-"}
+                </div>
+              </div>
+              <div style={{ padding: "12px", borderRadius: "8px", background: "var(--bg-surface)" }}>
                 <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Auto Dispatch Enabled</div>
                 <div style={{ fontWeight: 600 }}>{orchestratorSettings?.auto_dispatch_enabled ? "Yes" : "No"}</div>
               </div>
@@ -497,6 +574,38 @@ export function WorkflowRunWorkspaceView({ runId, view }: WorkflowRunWorkspaceVi
                 <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Orchestrator Active Runs</div>
                 <div style={{ fontWeight: 600 }}>{orchestratorStatus?.activeRunCount ?? 0}</div>
               </div>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header">
+              <h3>Execution Strategy</h3>
+            </div>
+            {recurringSettingsError && <div className="error-message">{recurringSettingsError}</div>}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: "12px", alignItems: "end" }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>mode</label>
+                <select value={runModeDraft} onChange={(e) => setRunModeDraft(e.target.value as WorkflowRunMode)}>
+                  <option value="none">default</option>
+                  <option value="loop">loop</option>
+                  <option value="schedule">schedule</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>schedule_expression</label>
+                <input
+                  value={scheduleExpressionDraft}
+                  onChange={(e) => setScheduleExpressionDraft(e.target.value.toUpperCase())}
+                  placeholder="MM-DD HH:MM"
+                  disabled={runModeDraft !== "schedule"}
+                />
+              </div>
+              <button
+                className="btn btn-primary"
+                disabled={savingRecurringSettings}
+                onClick={() => void saveRecurringSettings()}
+              >
+                {savingRecurringSettings ? "Saving..." : "Save"}
+              </button>
             </div>
           </div>
         </>

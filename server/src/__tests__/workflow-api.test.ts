@@ -78,8 +78,25 @@ test("workflow template CRUD and run lifecycle work with workspace_path-only cre
 
     const listRuns = await fetch(`${baseUrl}/api/workflow-runs`);
     assert.equal(listRuns.status, 200);
-    const listPayload = (await listRuns.json()) as { total: number };
+    const listPayload = (await listRuns.json()) as {
+      total: number;
+      items: Array<{ runId: string; autoDispatchRemaining?: number; autoDispatchInitialRemaining?: number }>;
+    };
     assert.equal(listPayload.total, 1);
+    assert.equal(listPayload.items[0]?.runId, "travel_run_01");
+    assert.equal(listPayload.items[0]?.autoDispatchRemaining, 5);
+    assert.equal(listPayload.items[0]?.autoDispatchInitialRemaining, 5);
+
+    const getRun = await fetch(`${baseUrl}/api/workflow-runs/travel_run_01`);
+    assert.equal(getRun.status, 200);
+    const getRunPayload = (await getRun.json()) as {
+      runId: string;
+      autoDispatchRemaining?: number;
+      autoDispatchInitialRemaining?: number;
+    };
+    assert.equal(getRunPayload.runId, "travel_run_01");
+    assert.equal(getRunPayload.autoDispatchRemaining, 5);
+    assert.equal(getRunPayload.autoDispatchInitialRemaining, 5);
 
     const startRun = await fetch(`${baseUrl}/api/workflow-runs/travel_run_01/start`, { method: "POST" });
     assert.equal(startRun.status, 200);
@@ -212,24 +229,44 @@ test("workflow orchestrator defaults/settings and task-tree/detail parity endpoi
     const runPayload = (await createRun.json()) as {
       autoDispatchEnabled?: boolean;
       autoDispatchRemaining?: number;
+      autoDispatchInitialRemaining?: number;
       holdEnabled?: boolean;
       reminderMode?: string;
+      mode?: string;
+      loopEnabled?: boolean;
+      scheduleEnabled?: boolean;
+      scheduleExpression?: string;
     };
     assert.equal(runPayload.autoDispatchEnabled, true);
     assert.equal(runPayload.autoDispatchRemaining, 5);
+    assert.equal(runPayload.autoDispatchInitialRemaining, 5);
     assert.equal(runPayload.holdEnabled, false);
     assert.equal(runPayload.reminderMode, "backoff");
+    assert.equal(runPayload.mode, "none");
+    assert.equal(runPayload.loopEnabled, false);
+    assert.equal(runPayload.scheduleEnabled, false);
+    assert.equal(runPayload.scheduleExpression, undefined);
 
     const getSettings = await fetch(`${baseUrl}/api/workflow-runs/wf_defaults_run/orchestrator/settings`);
     assert.equal(getSettings.status, 200);
     const settingsPayload = (await getSettings.json()) as {
+      mode: string;
+      loop_enabled: boolean;
+      schedule_enabled: boolean;
+      schedule_expression?: string;
       auto_dispatch_enabled: boolean;
       auto_dispatch_remaining: number;
+      auto_dispatch_initial_remaining: number;
       hold_enabled: boolean;
       reminder_mode: string;
     };
+    assert.equal(settingsPayload.mode, "none");
+    assert.equal(settingsPayload.loop_enabled, false);
+    assert.equal(settingsPayload.schedule_enabled, false);
+    assert.equal(settingsPayload.schedule_expression, undefined);
     assert.equal(settingsPayload.auto_dispatch_enabled, true);
     assert.equal(settingsPayload.auto_dispatch_remaining, 5);
+    assert.equal(settingsPayload.auto_dispatch_initial_remaining, 5);
     assert.equal(settingsPayload.hold_enabled, false);
     assert.equal(settingsPayload.reminder_mode, "backoff");
 
@@ -237,6 +274,10 @@ test("workflow orchestrator defaults/settings and task-tree/detail parity endpoi
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        mode: "schedule",
+        loop_enabled: false,
+        schedule_enabled: true,
+        schedule_expression: "XX-XX 09:XX",
         hold_enabled: true,
         reminder_mode: "fixed_interval",
         auto_dispatch_remaining: 3
@@ -244,13 +285,23 @@ test("workflow orchestrator defaults/settings and task-tree/detail parity endpoi
     });
     assert.equal(patchSettings.status, 200);
     const patchedPayload = (await patchSettings.json()) as {
+      mode: string;
+      loop_enabled: boolean;
+      schedule_enabled: boolean;
+      schedule_expression?: string;
       hold_enabled: boolean;
       reminder_mode: string;
       auto_dispatch_remaining: number;
+      auto_dispatch_initial_remaining: number;
     };
+    assert.equal(patchedPayload.mode, "schedule");
+    assert.equal(patchedPayload.loop_enabled, false);
+    assert.equal(patchedPayload.schedule_enabled, true);
+    assert.equal(patchedPayload.schedule_expression, "XX-XX 09:XX");
     assert.equal(patchedPayload.hold_enabled, true);
     assert.equal(patchedPayload.reminder_mode, "fixed_interval");
     assert.equal(patchedPayload.auto_dispatch_remaining, 3);
+    assert.equal(patchedPayload.auto_dispatch_initial_remaining, 3);
 
     const startRun = await fetch(`${baseUrl}/api/workflow-runs/wf_defaults_run/start`, { method: "POST" });
     assert.equal(startRun.status, 200);
@@ -332,6 +383,71 @@ test("workflow dispatch can auto-select READY task even without inbox messages",
     assert.equal(first?.outcome, "dispatched");
     assert.equal(first?.taskId, "wf_ready_task");
     assert.equal(first?.dispatchKind, "task");
+  } finally {
+    await server.close();
+  }
+});
+
+test("workflow recurring settings reject loop and schedule coexistence", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recurring-conflict-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  await mkdir(workspaceRoot, { recursive: true });
+
+  const app = createApp({ dataRoot });
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+  const fetch = globalThis.fetch;
+
+  try {
+    const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "wf_recurring_tpl",
+        name: "Workflow Recurring Template",
+        tasks: [{ task_id: "task_a", title: "Task A", owner_role: "lead" }]
+      })
+    });
+    assert.equal(createTemplate.status, 201);
+
+    const createRunConflict = await fetch(`${baseUrl}/api/workflow-runs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "wf_recurring_tpl",
+        run_id: "wf_recurring_run",
+        workspace_path: workspaceRoot,
+        mode: "schedule",
+        loop_enabled: true,
+        schedule_enabled: true,
+        schedule_expression: "XX-XX 09:00"
+      })
+    });
+    assert.equal(createRunConflict.status, 400);
+
+    const createRun = await fetch(`${baseUrl}/api/workflow-runs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "wf_recurring_tpl",
+        run_id: "wf_recurring_run",
+        workspace_path: workspaceRoot
+      })
+    });
+    assert.equal(createRun.status, 201);
+
+    const patchConflict = await fetch(`${baseUrl}/api/workflow-runs/wf_recurring_run/orchestrator/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "loop",
+        loop_enabled: true,
+        schedule_enabled: true,
+        schedule_expression: "XX-XX 09:00"
+      })
+    });
+    assert.equal(patchConflict.status, 400);
   } finally {
     await server.close();
   }

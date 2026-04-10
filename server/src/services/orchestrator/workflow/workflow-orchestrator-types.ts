@@ -1,6 +1,8 @@
 import type {
   ReminderMode,
+  WorkflowRunMode,
   WorkflowRunRuntimeSnapshot,
+  WorkflowRunSpawnState,
   WorkflowRunState,
   WorkflowTaskRuntimeRecord
 } from "../../../domain/models.js";
@@ -64,9 +66,24 @@ export interface WorkflowTaskTreeRuntimeResponse {
 
 export interface WorkflowRunOrchestratorSettings {
   run_id: string;
+  mode: WorkflowRunMode;
+  loop_enabled: boolean;
+  schedule_enabled: boolean;
+  schedule_expression?: string;
+  is_schedule_seed: boolean;
+  origin_run_id?: string;
+  last_spawned_run_id?: string;
+  spawn_state?: WorkflowRunSpawnState;
   auto_dispatch_enabled: boolean;
   auto_dispatch_remaining: number;
+  auto_dispatch_initial_remaining: number;
   hold_enabled: boolean;
   reminder_mode: ReminderMode;
+  recurring_status: {
+    occupied: boolean;
+    active_run_id?: string;
+    next_trigger_at?: string;
+    last_triggered_at?: string;
+  };
   updated_at: string;
 }

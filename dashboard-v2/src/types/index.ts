@@ -480,6 +480,19 @@ export interface WorkflowRunTaskRecord extends WorkflowTemplateTaskRecord {
 }
 
 export type WorkflowRunState = "created" | "running" | "stopped" | "finished" | "failed";
+export type WorkflowRunMode = "none" | "loop" | "schedule";
+
+export interface WorkflowRunSpawnState {
+  isActive?: boolean;
+  activeRunId?: string;
+  lastWindowKey?: string;
+  lastSpawnedRunId?: string;
+  lastSpawnedAt?: string;
+  lastTriggeredAt?: string;
+  lastWindowStartAt?: string;
+  lastWindowEndAt?: string;
+  nextAvailableAt?: string;
+}
 
 export type WorkflowTaskState =
   | "PLANNED"
@@ -541,8 +554,17 @@ export interface WorkflowRunRecord {
   taskOverrides?: Record<string, string>;
   tasks: WorkflowRunTaskRecord[];
   status: WorkflowRunState;
+  mode?: WorkflowRunMode;
+  loopEnabled?: boolean;
+  scheduleEnabled?: boolean;
+  scheduleExpression?: string;
+  isScheduleSeed?: boolean;
+  originRunId?: string;
+  lastSpawnedRunId?: string;
+  spawnState?: WorkflowRunSpawnState;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
+  autoDispatchInitialRemaining?: number;
   holdEnabled?: boolean;
   reminderMode?: ReminderMode;
   createdAt: string;
@@ -556,6 +578,30 @@ export interface WorkflowRunRecord {
     transitionSeq: number;
     tasks: WorkflowTaskRuntimeRecord[];
   };
+}
+
+export interface WorkflowRunOrchestratorSettings {
+  run_id: string;
+  mode: WorkflowRunMode;
+  loop_enabled: boolean;
+  schedule_enabled: boolean;
+  schedule_expression?: string;
+  is_schedule_seed: boolean;
+  origin_run_id?: string;
+  last_spawned_run_id?: string;
+  spawn_state?: WorkflowRunSpawnState;
+  auto_dispatch_enabled: boolean;
+  auto_dispatch_remaining: number;
+  auto_dispatch_initial_remaining: number;
+  hold_enabled: boolean;
+  reminder_mode: "backoff" | "fixed_interval";
+  recurring_status: {
+    occupied: boolean;
+    active_run_id?: string;
+    next_trigger_at?: string;
+    last_triggered_at?: string;
+  };
+  updated_at: string;
 }
 
 export interface WorkflowRunRuntimeStatus {

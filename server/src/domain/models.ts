@@ -13,6 +13,19 @@ export type TaskState =
 export type TaskKind = "PROJECT_ROOT" | "USER_ROOT" | "EXECUTION";
 export type ReminderMode = "backoff" | "fixed_interval";
 export type RoleRuntimeState = "INACTIVE" | "IDLE" | "RUNNING";
+export type WorkflowRunMode = "none" | "loop" | "schedule";
+
+export interface WorkflowRunSpawnState {
+  isActive?: boolean;
+  activeRunId?: string;
+  lastWindowKey?: string;
+  lastSpawnedRunId?: string;
+  lastSpawnedAt?: string;
+  lastTriggeredAt?: string;
+  lastWindowStartAt?: string;
+  lastWindowEndAt?: string;
+  nextAvailableAt?: string;
+}
 
 export interface ProjectRecord {
   schemaVersion: "1.0";
@@ -696,8 +709,17 @@ export interface WorkflowRunRecord {
   taskOverrides?: Record<string, string>;
   tasks: WorkflowRunTaskRecord[];
   status: WorkflowRunState;
+  mode?: WorkflowRunMode;
+  loopEnabled?: boolean;
+  scheduleEnabled?: boolean;
+  scheduleExpression?: string;
+  isScheduleSeed?: boolean;
+  originRunId?: string;
+  lastSpawnedRunId?: string;
+  spawnState?: WorkflowRunSpawnState;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
+  autoDispatchInitialRemaining?: number;
   holdEnabled?: boolean;
   reminderMode?: ReminderMode;
   createdAt: string;

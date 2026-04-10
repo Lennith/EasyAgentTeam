@@ -19,6 +19,19 @@ function getEffectiveRunStatus(run: WorkflowRunRecord): WorkflowRunState {
   return allTerminal ? "finished" : raw;
 }
 
+function getRecurringMode(run: WorkflowRunRecord): "none" | "loop" | "schedule" {
+  if (run.mode === "loop" || run.mode === "schedule" || run.mode === "none") {
+    return run.mode;
+  }
+  if (run.scheduleEnabled) {
+    return "schedule";
+  }
+  if (run.loopEnabled) {
+    return "loop";
+  }
+  return "none";
+}
+
 export function WorkflowRunsView() {
   const { items, loading, error, reload } = useWorkflowRuns();
   const {
@@ -119,6 +132,10 @@ export function WorkflowRunsView() {
                   <th>Run Name</th>
                   <th>Template</th>
                   <th>Status</th>
+                  <th>Mode</th>
+                  <th>Schedule</th>
+                  <th>Next Trigger</th>
+                  <th>Instance</th>
                   <th>Workspace</th>
                   <th>Started</th>
                   <th>Stopped</th>
@@ -166,6 +183,12 @@ export function WorkflowRunsView() {
                           {effectiveStatus}
                         </span>
                       </td>
+                      <td>
+                        <code>{getRecurringMode(run)}</code>
+                      </td>
+                      <td>{run.scheduleExpression ?? "-"}</td>
+                      <td>{run.spawnState?.nextAvailableAt ?? "-"}</td>
+                      <td>{run.spawnState?.isActive ? `occupied (${run.spawnState.activeRunId ?? "-"})` : "idle"}</td>
                       <td
                         style={{ maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis" }}
                         title={run.workspacePath}

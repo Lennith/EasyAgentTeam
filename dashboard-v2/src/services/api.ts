@@ -33,6 +33,8 @@ import type {
   WorkflowTaskActionRequest,
   WorkflowTaskActionResult,
   WorkflowOrchestratorStatus,
+  WorkflowRunMode,
+  WorkflowRunOrchestratorSettings,
   WorkflowSessionRecord,
   SkillDefinition,
   SkillImportResult,
@@ -673,6 +675,11 @@ export const workflowApi = {
     variables?: Record<string, string>;
     task_overrides?: Record<string, string>;
     auto_start?: boolean;
+    mode?: WorkflowRunMode;
+    loop_enabled?: boolean;
+    schedule_enabled?: boolean;
+    schedule_expression?: string;
+    is_schedule_seed?: boolean;
     auto_dispatch_enabled?: boolean;
     auto_dispatch_remaining?: number;
   }) =>
@@ -822,14 +829,9 @@ export const workflowApi = {
   },
 
   getOrchestratorSettings: (runId: string) =>
-    fetchJSON<{
-      run_id: string;
-      auto_dispatch_enabled: boolean;
-      auto_dispatch_remaining: number;
-      hold_enabled: boolean;
-      reminder_mode: "backoff" | "fixed_interval";
-      updated_at: string;
-    }>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/orchestrator/settings`),
+    fetchJSON<WorkflowRunOrchestratorSettings>(
+      `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/orchestrator/settings`
+    ),
 
   patchOrchestratorSettings: (
     runId: string,
@@ -838,19 +840,20 @@ export const workflowApi = {
       auto_dispatch_remaining?: number;
       hold_enabled?: boolean;
       reminder_mode?: "backoff" | "fixed_interval";
+      mode?: WorkflowRunMode;
+      loop_enabled?: boolean;
+      schedule_enabled?: boolean;
+      schedule_expression?: string | null;
+      is_schedule_seed?: boolean;
     }
   ) =>
-    fetchJSON<{
-      run_id: string;
-      auto_dispatch_enabled: boolean;
-      auto_dispatch_remaining: number;
-      hold_enabled: boolean;
-      reminder_mode: "backoff" | "fixed_interval";
-      updated_at: string;
-    }>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/orchestrator/settings`, {
-      method: "PATCH",
-      body: JSON.stringify(data)
-    }),
+    fetchJSON<WorkflowRunOrchestratorSettings>(
+      `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/orchestrator/settings`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data)
+      }
+    ),
 
   dispatch: (runId: string, data: { role?: string; task_id?: string; force?: boolean; only_idle?: boolean } = {}) =>
     fetchJSON<{

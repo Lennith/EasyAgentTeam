@@ -1,6 +1,7 @@
 ﻿import express from "express";
 import { getBuiltInAgents } from "../../services/agent-prompt-service.js";
 import type { ProviderId } from "@autodev/agent-library";
+import type { WorkflowRunMode } from "../../domain/models.js";
 import { buildRoleScopedSessionId } from "../../services/orchestrator/shared/orchestrator-identifiers.js";
 
 export function readStringField(body: Record<string, unknown>, keys: string[], fallback?: string): string | undefined {
@@ -67,6 +68,25 @@ export function parseReminderMode(raw: unknown): "backoff" | "fixed_interval" | 
     return normalized;
   }
   return undefined;
+}
+
+export function parseWorkflowRunMode(raw: unknown): WorkflowRunMode | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "none" || normalized === "loop" || normalized === "schedule") {
+    return normalized;
+  }
+  return undefined;
+}
+
+export function parseScheduleExpression(raw: unknown): string | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const normalized = raw.trim().toUpperCase();
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 export function readStringArray(raw: unknown): string[] | undefined {

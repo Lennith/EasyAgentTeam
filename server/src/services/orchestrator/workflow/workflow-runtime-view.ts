@@ -1,11 +1,23 @@
 import type {
   ReminderMode,
   WorkflowRunRecord,
+  WorkflowRunMode,
   WorkflowRunRuntimeSnapshot,
   WorkflowRunRuntimeState,
   WorkflowTaskRuntimeRecord
 } from "../../../domain/models.js";
 import { normalizeReminderMode } from "../shared/reminder-service.js";
+import {
+  computeNextWorkflowScheduleTriggerAt,
+  parseWorkflowScheduleExpression
+} from "./workflow-recurring-schedule.js";
+
+function normalizeWorkflowRunMode(mode: WorkflowRunMode | undefined): WorkflowRunMode {
+  if (mode === "loop" || mode === "schedule" || mode === "none") {
+    return mode;
+  }
+  return "none";
+}
 
 export function computeWorkflowRuntimeCounters(
   tasks: WorkflowTaskRuntimeRecord[]
@@ -88,18 +100,65 @@ export function buildWorkflowTaskTreeView(
 
 export function buildWorkflowRunSettingsView(run: WorkflowRunRecord): {
   run_id: string;
+  mode: WorkflowRunMode;
+  loop_enabled: boolean;
+  schedule_enabled: boolean;
+  schedule_expression?: string;
+  is_schedule_seed: boolean;
+  origin_run_id?: string;
+  last_spawned_run_id?: string;
+  spawn_state?: WorkflowRunRecord["spawnState"];
   auto_dispatch_enabled: boolean;
   auto_dispatch_remaining: number;
+  auto_dispatch_initial_remaining: number;
   hold_enabled: boolean;
   reminder_mode: ReminderMode;
+  recurring_status: {
+    occupied: boolean;
+    active_run_id?: string;
+    next_trigger_at?: string;
+    last_triggered_at?: string;
+  };
   updated_at: string;
 } {
+  const normalizedMode = normalizeWorkflowRunMode(run.mode);
+  const mode: WorkflowRunMode =
+    normalizedMode === "none" ? (run.scheduleEnabled ? "schedule" : run.loopEnabled ? "loop" : "none") : normalizedMode;
+  const loopEnabled = run.loopEnabled ?? mode === "loop";
+  const scheduleEnabled = run.scheduleEnabled ?? mode === "schedule";
+  const isScheduleSeed = run.isScheduleSeed ?? (mode === "schedule" && scheduleEnabled);
+  const schedulePattern = parseWorkflowScheduleExpression(run.scheduleExpression ?? undefined);
+  const nextTriggerAt =
+    mode === "schedule" && scheduleEnabled && isScheduleSeed && schedulePattern
+      ? computeNextWorkflowScheduleTriggerAt(schedulePattern)
+      : undefined;
+  const occupied = Boolean(run.spawnState?.isActive && run.spawnState?.activeRunId);
+  const autoDispatchRemaining = Math.max(0, Math.floor(run.autoDispatchRemaining ?? 5));
+  const autoDispatchInitialRemaining = Math.max(
+    0,
+    Math.floor(run.autoDispatchInitialRemaining ?? run.autoDispatchRemaining ?? 5)
+  );
   return {
     run_id: run.runId,
+    mode,
+    loop_enabled: loopEnabled,
+    schedule_enabled: scheduleEnabled,
+    schedule_expression: run.scheduleExpression,
+    is_schedule_seed: isScheduleSeed,
+    origin_run_id: run.originRunId,
+    last_spawned_run_id: run.lastSpawnedRunId,
+    spawn_state: run.spawnState,
     auto_dispatch_enabled: run.autoDispatchEnabled ?? true,
-    auto_dispatch_remaining: Math.max(0, Math.floor(run.autoDispatchRemaining ?? 5)),
+    auto_dispatch_remaining: autoDispatchRemaining,
+    auto_dispatch_initial_remaining: autoDispatchInitialRemaining,
     hold_enabled: Boolean(run.holdEnabled),
     reminder_mode: normalizeReminderMode(run.reminderMode),
+    recurring_status: {
+      occupied,
+      active_run_id: occupied ? run.spawnState?.activeRunId : undefined,
+      next_trigger_at: nextTriggerAt ?? undefined,
+      last_triggered_at: run.spawnState?.lastTriggeredAt ?? run.spawnState?.lastSpawnedAt
+    },
     updated_at: run.updatedAt
   };
 }

@@ -1,5 +1,10 @@
 import type { WorkflowRepositoryBundle } from "../../../data/repository/workflow/repository-bundle.js";
-import type { ReminderMode, WorkflowRunRecord, WorkflowRunRuntimeState } from "../../../domain/models.js";
+import type {
+  ReminderMode,
+  WorkflowRunMode,
+  WorkflowRunRecord,
+  WorkflowRunRuntimeState
+} from "../../../domain/models.js";
 import {
   buildWorkflowRunSettingsView,
   buildWorkflowRuntimeSnapshot,
@@ -54,9 +59,17 @@ export class WorkflowRunQueryService {
       autoDispatchRemaining?: number;
       holdEnabled?: boolean;
       reminderMode?: ReminderMode;
+      mode?: WorkflowRunMode;
+      loopEnabled?: boolean;
+      scheduleEnabled?: boolean;
+      scheduleExpression?: string | null;
+      isScheduleSeed?: boolean;
     }
   ): Promise<WorkflowRunOrchestratorSettings> {
-    const updated = await this.context.repositories.workflowRuns.patchRun(runId, patch);
+    const updated = await this.context.repositories.workflowRuns.patchRun(runId, {
+      ...patch,
+      autoDispatchInitialRemaining: patch.autoDispatchRemaining === undefined ? undefined : patch.autoDispatchRemaining
+    });
     return buildWorkflowRunSettingsView(updated);
   }
 }

@@ -1,6 +1,7 @@
 import type {
   WorkflowBlockReasonCode,
   ReminderMode,
+  WorkflowRunMode,
   WorkflowManagerToAgentMessage,
   WorkflowRunRecord,
   WorkflowSessionRecord,
@@ -173,6 +174,11 @@ export class WorkflowOrchestratorService {
       autoDispatchRemaining?: number;
       holdEnabled?: boolean;
       reminderMode?: ReminderMode;
+      mode?: WorkflowRunMode;
+      loopEnabled?: boolean;
+      scheduleEnabled?: boolean;
+      scheduleExpression?: string | null;
+      isScheduleSeed?: boolean;
     }
   ): Promise<WorkflowRunOrchestratorSettings> {
     return this.runQueryService.patchRunOrchestratorSettings(runId, patch);

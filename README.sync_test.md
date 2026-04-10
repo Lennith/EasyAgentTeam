@@ -46,7 +46,7 @@ E2E scripts are a first-class product entry, not auxiliary tests:
 - standard project baseline: `pnpm e2e:standard`
 - discuss baseline: `pnpm e2e:discuss`
 - workflow baseline: `pnpm e2e:workflow`
-- aggregate baseline suite: `pnpm e2e:baseline`
+- aggregate baseline suite (chain + discuss + workflow): `pnpm e2e:baseline`
 
 Usage template for each E2E case: [E2ETest/README.md](./E2ETest/README.md)
 

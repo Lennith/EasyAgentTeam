@@ -4,6 +4,8 @@ import type {
   WorkflowRunRecord,
   WorkflowRunRegistryState,
   WorkflowRunRuntimeState,
+  WorkflowRunMode,
+  WorkflowRunSpawnState,
   WorkflowRunState,
   WorkflowRunTaskRecord,
   WorkflowTaskBlockReason,
@@ -77,8 +79,17 @@ interface CreateWorkflowRunInput {
   routeTable?: Record<string, string[]>;
   taskAssignRouteTable?: Record<string, string[]>;
   routeDiscussRounds?: Record<string, Record<string, number>>;
+  mode?: WorkflowRunMode;
+  loopEnabled?: boolean;
+  scheduleEnabled?: boolean;
+  scheduleExpression?: string;
+  isScheduleSeed?: boolean;
+  originRunId?: string;
+  lastSpawnedRunId?: string;
+  spawnState?: WorkflowRunSpawnState;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
+  autoDispatchInitialRemaining?: number;
   holdEnabled?: boolean;
   reminderMode?: "backoff" | "fixed_interval";
   roleSessionMap?: Record<string, string>;
@@ -92,8 +103,17 @@ interface PatchWorkflowRunInput {
   description?: string | null;
   runtime?: WorkflowRunRuntimeState | null;
   tasks?: WorkflowRunTaskRecord[];
+  mode?: WorkflowRunMode;
+  loopEnabled?: boolean;
+  scheduleEnabled?: boolean;
+  scheduleExpression?: string | null;
+  isScheduleSeed?: boolean;
+  originRunId?: string | null;
+  lastSpawnedRunId?: string | null;
+  spawnState?: WorkflowRunSpawnState | null;
   autoDispatchEnabled?: boolean;
   autoDispatchRemaining?: number;
+  autoDispatchInitialRemaining?: number;
   holdEnabled?: boolean;
   reminderMode?: "backoff" | "fixed_interval";
   roleSessionMap?: Record<string, string>;
@@ -187,6 +207,88 @@ function normalizeRoleSessionMap(raw: Record<string, string> | undefined): Recor
     return undefined;
   }
   return Object.fromEntries(entries);
+}
+
+function normalizeRunMode(raw: unknown): WorkflowRunMode | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "none" || normalized === "loop" || normalized === "schedule") {
+    return normalized;
+  }
+  return undefined;
+}
+
+function normalizeBoolean(raw: unknown): boolean | undefined {
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  return undefined;
+}
+
+function normalizeMaybeRunId(raw: unknown): string | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function normalizeScheduleExpression(raw: unknown): string | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const trimmed = raw.trim().toUpperCase();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeSpawnState(raw: unknown): WorkflowRunSpawnState | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const record = raw as Record<string, unknown>;
+  const normalized: WorkflowRunSpawnState = {};
+  const isActive = normalizeBoolean(record.isActive ?? record.is_active);
+  if (isActive !== undefined) {
+    normalized.isActive = isActive;
+  }
+  const activeRunId = normalizeMaybeRunId(record.activeRunId ?? record.active_run_id);
+  if (activeRunId) {
+    normalized.activeRunId = activeRunId;
+  }
+  const lastWindowKey =
+    typeof (record.lastWindowKey ?? record.last_window_key) === "string"
+      ? String(record.lastWindowKey ?? record.last_window_key).trim()
+      : "";
+  if (lastWindowKey) {
+    normalized.lastWindowKey = lastWindowKey;
+  }
+  const lastSpawnedRunId = normalizeMaybeRunId(record.lastSpawnedRunId ?? record.last_spawned_run_id);
+  if (lastSpawnedRunId) {
+    normalized.lastSpawnedRunId = lastSpawnedRunId;
+  }
+  const stringFields: Array<
+    [
+      "lastSpawnedAt" | "lastTriggeredAt" | "lastWindowStartAt" | "lastWindowEndAt" | "nextAvailableAt",
+      unknown
+    ]
+  > = [
+    ["lastSpawnedAt", record.lastSpawnedAt ?? record.last_spawned_at],
+    ["lastTriggeredAt", record.lastTriggeredAt ?? record.last_triggered_at],
+    ["lastWindowStartAt", record.lastWindowStartAt ?? record.last_window_start_at],
+    ["lastWindowEndAt", record.lastWindowEndAt ?? record.last_window_end_at],
+    ["nextAvailableAt", record.nextAvailableAt ?? record.next_available_at]
+  ];
+  for (const [field, value] of stringFields) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      normalized[field] = value.trim();
+    }
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function normalizeRouteTable(raw: Record<string, string[]> | undefined): Record<string, string[]> | undefined {
@@ -375,6 +477,12 @@ async function normalizeRunRecord(
     statusRaw === "created" || statusRaw === "running" || statusRaw === "stopped" || statusRaw === "finished" || statusRaw === "failed"
       ? statusRaw
       : "created";
+  const modeFromRaw = normalizeRunMode(raw.mode);
+  const loopEnabledRaw = normalizeBoolean(raw.loopEnabled ?? raw.loop_enabled);
+  const scheduleEnabledRaw = normalizeBoolean(raw.scheduleEnabled ?? raw.schedule_enabled);
+  const loopEnabled = loopEnabledRaw ?? modeFromRaw === "loop";
+  const scheduleEnabled = scheduleEnabledRaw ?? modeFromRaw === "schedule";
+  const mode: WorkflowRunMode = modeFromRaw ?? (scheduleEnabled ? "schedule" : loopEnabled ? "loop" : "none");
   const autoDispatchEnabled =
     typeof raw.autoDispatchEnabled === "boolean"
       ? raw.autoDispatchEnabled
@@ -390,6 +498,15 @@ async function normalizeRunRecord(
   const autoDispatchRemaining = Number.isFinite(autoDispatchRemainingRaw)
     ? Math.max(0, Math.floor(autoDispatchRemainingRaw))
     : 5;
+  const autoDispatchInitialRemainingRaw =
+    typeof raw.autoDispatchInitialRemaining === "number"
+      ? raw.autoDispatchInitialRemaining
+      : typeof raw.auto_dispatch_initial_remaining === "number"
+        ? raw.auto_dispatch_initial_remaining
+        : autoDispatchRemaining;
+  const autoDispatchInitialRemaining = Number.isFinite(autoDispatchInitialRemainingRaw)
+    ? Math.max(0, Math.floor(autoDispatchInitialRemainingRaw))
+    : autoDispatchRemaining;
   const holdEnabled =
     typeof raw.holdEnabled === "boolean"
       ? raw.holdEnabled
@@ -403,6 +520,9 @@ async function normalizeRunRecord(
         ? raw.reminder_mode
         : "backoff";
   const reminderMode = reminderModeRaw === "fixed_interval" ? "fixed_interval" : "backoff";
+  const scheduleExpression = normalizeScheduleExpression(raw.scheduleExpression ?? raw.schedule_expression);
+  const isScheduleSeedRaw = normalizeBoolean(raw.isScheduleSeed ?? raw.is_schedule_seed);
+  const isScheduleSeed = isScheduleSeedRaw ?? (mode === "schedule" && scheduleEnabled);
   const record: WorkflowRunRecord = {
     schemaVersion: "2.0",
     runId,
@@ -419,8 +539,17 @@ async function normalizeRunRecord(
     taskOverrides: normalizeStringMap(raw.taskOverrides as Record<string, string> | undefined),
     tasks: normalizedTasks,
     status,
+    mode,
+    loopEnabled,
+    scheduleEnabled,
+    scheduleExpression,
+    isScheduleSeed,
+    originRunId: normalizeMaybeRunId(raw.originRunId ?? raw.origin_run_id),
+    lastSpawnedRunId: normalizeMaybeRunId(raw.lastSpawnedRunId ?? raw.last_spawned_run_id),
+    spawnState: normalizeSpawnState(raw.spawnState ?? raw.spawn_state),
     autoDispatchEnabled,
     autoDispatchRemaining,
+    autoDispatchInitialRemaining,
     holdEnabled,
     reminderMode,
     createdAt,
@@ -729,6 +858,18 @@ export async function createWorkflowRun(dataRoot: string, input: CreateWorkflowR
     if (state.runs.some((item) => item.runId === runId)) {
       throw new WorkflowStoreError(`run '${runId}' already exists`, "RUN_EXISTS");
     }
+    const mode = normalizeRunMode(input.mode) ?? "none";
+    const loopEnabled = input.loopEnabled === undefined ? mode === "loop" : Boolean(input.loopEnabled);
+    const scheduleEnabled = input.scheduleEnabled === undefined ? mode === "schedule" : Boolean(input.scheduleEnabled);
+    const scheduleExpression = normalizeScheduleExpression(input.scheduleExpression);
+    const isScheduleSeed =
+      input.isScheduleSeed === undefined ? mode === "schedule" && scheduleEnabled : Boolean(input.isScheduleSeed);
+    const autoDispatchRemaining = Number.isFinite(input.autoDispatchRemaining)
+      ? Math.max(0, Math.floor(input.autoDispatchRemaining ?? 0))
+      : 5;
+    const autoDispatchInitialRemaining = Number.isFinite(input.autoDispatchInitialRemaining)
+      ? Math.max(0, Math.floor(input.autoDispatchInitialRemaining ?? 0))
+      : autoDispatchRemaining;
     const now = new Date().toISOString();
     const created: WorkflowRunRecord = {
       schemaVersion: "2.0",
@@ -744,10 +885,17 @@ export async function createWorkflowRun(dataRoot: string, input: CreateWorkflowR
       taskOverrides: normalizeStringMap(input.taskOverrides),
       tasks: normalizedTasks,
       status: "created",
+      mode,
+      loopEnabled,
+      scheduleEnabled,
+      scheduleExpression,
+      isScheduleSeed,
+      originRunId: normalizeMaybeRunId(input.originRunId),
+      lastSpawnedRunId: normalizeMaybeRunId(input.lastSpawnedRunId),
+      spawnState: normalizeSpawnState(input.spawnState),
       autoDispatchEnabled: input.autoDispatchEnabled === undefined ? true : Boolean(input.autoDispatchEnabled),
-      autoDispatchRemaining: Number.isFinite(input.autoDispatchRemaining)
-        ? Math.max(0, Math.floor(input.autoDispatchRemaining ?? 0))
-        : 5,
+      autoDispatchRemaining,
+      autoDispatchInitialRemaining,
       holdEnabled: Boolean(input.holdEnabled),
       reminderMode: input.reminderMode === "fixed_interval" ? "fixed_interval" : "backoff",
       createdAt: now,
@@ -797,6 +945,39 @@ export async function patchWorkflowRun(
             ? undefined
             : patch.description.trim() || undefined,
       tasks: patch.tasks === undefined ? existing.tasks : patch.tasks.map((item, index) => normalizeRunTask(item, index)),
+      mode:
+        patch.mode === undefined
+          ? existing.mode
+          : normalizeRunMode(patch.mode) ?? existing.mode ?? "none",
+      loopEnabled: patch.loopEnabled === undefined ? existing.loopEnabled : Boolean(patch.loopEnabled),
+      scheduleEnabled:
+        patch.scheduleEnabled === undefined ? existing.scheduleEnabled : Boolean(patch.scheduleEnabled),
+      scheduleExpression:
+        patch.scheduleExpression === undefined
+          ? existing.scheduleExpression
+          : patch.scheduleExpression === null
+            ? undefined
+            : normalizeScheduleExpression(patch.scheduleExpression),
+      isScheduleSeed:
+        patch.isScheduleSeed === undefined ? existing.isScheduleSeed : Boolean(patch.isScheduleSeed),
+      originRunId:
+        patch.originRunId === undefined
+          ? existing.originRunId
+          : patch.originRunId === null
+            ? undefined
+            : normalizeMaybeRunId(patch.originRunId),
+      lastSpawnedRunId:
+        patch.lastSpawnedRunId === undefined
+          ? existing.lastSpawnedRunId
+          : patch.lastSpawnedRunId === null
+            ? undefined
+            : normalizeMaybeRunId(patch.lastSpawnedRunId),
+      spawnState:
+        patch.spawnState === undefined
+          ? existing.spawnState
+          : patch.spawnState === null
+            ? undefined
+            : normalizeSpawnState(patch.spawnState),
       autoDispatchEnabled:
         patch.autoDispatchEnabled === undefined ? existing.autoDispatchEnabled : Boolean(patch.autoDispatchEnabled),
       autoDispatchRemaining:
@@ -805,6 +986,12 @@ export async function patchWorkflowRun(
           : Number.isFinite(patch.autoDispatchRemaining)
             ? Math.max(0, Math.floor(patch.autoDispatchRemaining))
             : existing.autoDispatchRemaining,
+      autoDispatchInitialRemaining:
+        patch.autoDispatchInitialRemaining === undefined
+          ? existing.autoDispatchInitialRemaining
+          : Number.isFinite(patch.autoDispatchInitialRemaining)
+            ? Math.max(0, Math.floor(patch.autoDispatchInitialRemaining))
+            : existing.autoDispatchInitialRemaining,
       holdEnabled: patch.holdEnabled === undefined ? existing.holdEnabled : Boolean(patch.holdEnabled),
       reminderMode:
         patch.reminderMode === undefined

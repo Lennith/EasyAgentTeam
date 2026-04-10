@@ -10,6 +10,10 @@ export {
   WorkflowRuntimeError,
   createWorkflowOrchestratorService
 } from "./workflow/workflow-orchestrator.js";
+export {
+  WorkflowRecurringDispatcherService,
+  createWorkflowRecurringDispatcherService
+} from "./workflow/workflow-recurring-dispatcher.js";
 export { findLatestOpenDispatch, hasOpenTaskDispatch, readPayloadString } from "./shared/dispatch-engine.js";
 export { parseIsoMs, resolveLatestIdleSession, resolveRoleRuntimeState } from "./shared/session-manager.js";
 export {

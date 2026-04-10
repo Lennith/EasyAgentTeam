@@ -1,4 +1,4 @@
-﻿# Workflow Mode Backend API
+# Workflow Mode Backend API
 
 ## 1. Scope
 
@@ -12,6 +12,7 @@ It covers:
 - workflow task actions
 - workflow sessions and routed messages
 - workflow orchestrator settings and dispatch
+- workflow recurring loop and schedule semantics
 - workflow agent chat entrypoints
 
 ## 2. Conventions
@@ -68,14 +69,24 @@ It covers:
   "workspacePath": "D:\\AgentWorkSpace\\TestTeam\\TestWorkflowSpace",
   "tasks": [],
   "status": "created",
+  "mode": "loop",
+  "loopEnabled": true,
+  "scheduleEnabled": false,
+  "originRunId": "gesture_seed_run",
   "autoDispatchEnabled": true,
   "autoDispatchRemaining": 5,
+  "autoDispatchInitialRemaining": 5,
   "holdEnabled": false,
   "reminderMode": "backoff",
   "createdAt": "2026-03-12T00:00:00.000Z",
   "updatedAt": "2026-03-12T00:00:00.000Z"
 }
 ```
+
+Semantics:
+
+- `autoDispatchRemaining` is the current run's remaining auto-dispatch quota.
+- `autoDispatchInitialRemaining` is the baseline quota used when recurring creates the next child run.
 
 ### 3.4 WorkflowRunRuntimeSnapshot
 
@@ -200,10 +211,17 @@ Optional fields:
 - `variables`
 - `task_overrides`
 - `auto_start`
+- `mode`
+- `loop_enabled`
+- `schedule_enabled`
+- `schedule_expression`
+- `is_schedule_seed`
 - `auto_dispatch_enabled`
 - `auto_dispatch_remaining`
 
-Current run creation does not use project binding mode.
+Run create semantics:
+
+- `auto_dispatch_remaining` initializes both `autoDispatchRemaining` and `autoDispatchInitialRemaining`.
 
 ### 6.3 `GET /api/workflow-runs/:run_id`
 
@@ -328,10 +346,20 @@ Accepted fields include:
 Returns:
 
 - `run_id`
+- `mode`
+- `loop_enabled`
+- `schedule_enabled`
+- `schedule_expression`
+- `is_schedule_seed`
+- `origin_run_id`
+- `last_spawned_run_id`
+- `spawn_state`
 - `auto_dispatch_enabled`
 - `auto_dispatch_remaining`
+- `auto_dispatch_initial_remaining`
 - `hold_enabled`
 - `reminder_mode`
+- `recurring_status`
 - `updated_at`
 
 ### 10.2 `PATCH /api/workflow-runs/:run_id/orchestrator/settings`
@@ -342,6 +370,15 @@ Allows partial update of:
 - `auto_dispatch_remaining`
 - `hold_enabled`
 - `reminder_mode`
+- `mode`
+- `loop_enabled`
+- `schedule_enabled`
+- `schedule_expression`
+- `is_schedule_seed`
+
+Patch semantics:
+
+- if `auto_dispatch_remaining` is provided, backend updates both the current remaining quota and the recurring baseline quota
 
 ### 10.3 `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
 
@@ -370,15 +407,23 @@ Response includes:
 - `outcome`
 - `reason`
 
-## 11. Agent Chat API
+## 11. Workflow Recurring Semantics
 
-### 11.1 `POST /api/workflow-runs/:run_id/agent-chat`
+### 11.1 Loop
 
-Starts workflow agent chat SSE for the selected session.
+- `mode=loop` and `loop_enabled=true`
+- parent run must be `finished`
+- recurring creates a new child run and starts it
+- child run uses:
+  - `autoDispatchInitialRemaining = parent.autoDispatchInitialRemaining`
+  - `autoDispatchRemaining = parent.autoDispatchInitialRemaining`
 
-### 11.2 `POST /api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt`
+### 11.2 Schedule
 
-Interrupts the selected workflow agent chat session.
+- `mode=schedule` and `schedule_enabled=true`
+- schedule seed is the only record that owns the trigger
+- child run is not a new seed
+- child run also resets quota from `autoDispatchInitialRemaining`
 
 ## 12. Runtime Semantics
 
@@ -398,9 +443,11 @@ Workflow reminders use the shared task-aware reminder payload contract with:
 
 Task-bound reminder messages are eligible for message dispatch selection. This keeps workflow reminders actionable instead of remaining as undelivered inbox entries.
 
-### 12.3 Skill Injection
+### 12.3 Auto Dispatch Budget
 
-Workflow MiniMax dispatch resolves imported skills from agent `skill_list` references and injects those skill prompt segments only on the MiniMax path.
+- `autoDispatchRemaining` is a runtime-depleting counter
+- only successful automatic task dispatch consumes the counter
+- recurring child creation does not inherit the already-depleted current value
 
 ## 13. Retired Workflow API
 

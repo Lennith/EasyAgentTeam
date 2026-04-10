@@ -78,6 +78,7 @@ test("workflow run query service returns runtime, tree, and settings views throu
   await patchWorkflowRun(tempRoot, runId, {
     status: "running",
     autoDispatchRemaining: 7,
+    autoDispatchInitialRemaining: 7,
     holdEnabled: false,
     reminderMode: "backoff"
   });
@@ -109,7 +110,11 @@ test("workflow run query service returns runtime, tree, and settings views throu
   );
 
   const settings = await service.getRunOrchestratorSettings(runId);
+  assert.equal(settings.mode, "none");
+  assert.equal(settings.loop_enabled, false);
+  assert.equal(settings.schedule_enabled, false);
   assert.equal(settings.auto_dispatch_remaining, 7);
+  assert.equal(settings.auto_dispatch_initial_remaining, 7);
   assert.equal(settings.hold_enabled, false);
   assert.equal(settings.reminder_mode, "backoff");
 
@@ -117,10 +122,19 @@ test("workflow run query service returns runtime, tree, and settings views throu
     autoDispatchEnabled: false,
     autoDispatchRemaining: 2,
     holdEnabled: true,
-    reminderMode: "fixed_interval"
+    reminderMode: "fixed_interval",
+    mode: "loop",
+    loopEnabled: true,
+    scheduleEnabled: false,
+    scheduleExpression: null,
+    isScheduleSeed: false
   });
+  assert.equal(patched.mode, "loop");
+  assert.equal(patched.loop_enabled, true);
+  assert.equal(patched.schedule_enabled, false);
   assert.equal(patched.auto_dispatch_enabled, false);
   assert.equal(patched.auto_dispatch_remaining, 2);
+  assert.equal(patched.auto_dispatch_initial_remaining, 2);
   assert.equal(patched.hold_enabled, true);
   assert.equal(patched.reminder_mode, "fixed_interval");
 });

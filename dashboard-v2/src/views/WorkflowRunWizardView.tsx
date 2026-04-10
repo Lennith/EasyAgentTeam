@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Plus, Trash2 } from "lucide-react";
 import { workflowApi } from "@/services/api";
-import type { WorkflowTemplateRecord } from "@/types";
+import type { WorkflowRunMode, WorkflowTemplateRecord } from "@/types";
 
 interface KeyValueRow {
   key: string;
@@ -30,6 +30,9 @@ function rowsToMap(rows: KeyValueRow[]): Record<string, string> | undefined {
   return Object.fromEntries(entries);
 }
 
+const WORKFLOW_SCHEDULE_EXPRESSION_RE =
+  /^(XX|0[1-9]|1[0-2])-(XX|0[1-9]|[12][0-9]|3[01]) ([01][0-9]|2[0-3]):(XX|[0-5][0-9])$/i;
+
 export function WorkflowRunWizardView() {
   const [step, setStep] = useState(1);
   const [templates, setTemplates] = useState<WorkflowTemplateRecord[]>([]);
@@ -46,6 +49,8 @@ export function WorkflowRunWizardView() {
   const [description, setDescription] = useState("");
   const [variableRows, setVariableRows] = useState<KeyValueRow[]>([{ key: "", value: "" }]);
   const [overrideRows, setOverrideRows] = useState<KeyValueRow[]>([]);
+  const [runMode, setRunMode] = useState<WorkflowRunMode>("none");
+  const [scheduleExpression, setScheduleExpression] = useState("XX-XX 09:00");
 
   useEffect(() => {
     let closed = false;
@@ -105,9 +110,19 @@ export function WorkflowRunWizardView() {
   const canGoStep3 = workspacePath.trim().length > 0;
   const variableMap = useMemo(() => rowsToMap(variableRows), [variableRows]);
   const overrideMap = useMemo(() => rowsToMap(overrideRows), [overrideRows]);
+  const scheduleExpressionValid = useMemo(() => {
+    if (runMode !== "schedule") {
+      return true;
+    }
+    return WORKFLOW_SCHEDULE_EXPRESSION_RE.test(scheduleExpression.trim().toUpperCase());
+  }, [runMode, scheduleExpression]);
 
   const createRun = async () => {
     if (!selectedTemplateId) {
+      return;
+    }
+    if (!scheduleExpressionValid) {
+      setError("schedule_expression must match MM-DD HH:MM (MM/DD/minute allow XX)");
       return;
     }
     setCreating(true);
@@ -120,7 +135,12 @@ export function WorkflowRunWizardView() {
         description: description.trim() || undefined,
         workspace_path: workspacePath.trim(),
         variables: variableMap,
-        task_overrides: overrideMap
+        task_overrides: overrideMap,
+        mode: runMode,
+        loop_enabled: runMode === "loop",
+        schedule_enabled: runMode === "schedule",
+        schedule_expression: runMode === "schedule" ? scheduleExpression.trim().toUpperCase() : undefined,
+        is_schedule_seed: runMode === "schedule"
       });
       window.location.hash = `#/workflow/runs/${payload.runId}/overview`;
     } catch (err) {
@@ -263,6 +283,35 @@ export function WorkflowRunWizardView() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Run description"
               />
+            </div>
+
+            <div className="card" style={{ padding: "12px", marginTop: "8px" }}>
+              <div className="card-header">
+                <h3>Execution Strategy</h3>
+              </div>
+              <div className="form-group">
+                <label>mode</label>
+                <select value={runMode} onChange={(e) => setRunMode(e.target.value as WorkflowRunMode)}>
+                  <option value="none">default</option>
+                  <option value="loop">loop</option>
+                  <option value="schedule">schedule</option>
+                </select>
+              </div>
+              {runMode === "schedule" && (
+                <div className="form-group">
+                  <label>schedule_expression</label>
+                  <input
+                    value={scheduleExpression}
+                    onChange={(e) => setScheduleExpression(e.target.value.toUpperCase())}
+                    placeholder="MM-DD HH:MM (MM/DD/minute support XX)"
+                  />
+                  {!scheduleExpressionValid && (
+                    <p style={{ marginTop: "6px", fontSize: "12px", color: "var(--accent-danger)" }}>
+                      Format must be MM-DD HH:MM and supports XX in MM/DD/minute.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="card" style={{ padding: "12px", marginTop: "8px" }}>

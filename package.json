@@ -25,6 +25,7 @@
     "e2e:standard": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-standard-e2e.ps1",
     "e2e:discuss": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-discuss-e2e.ps1",
     "e2e:workflow": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-workflow-e2e.ps1",
+    "e2e:workflow:loop30": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-workflow-loop-30-validation.ps1",
     "e2e:external-agent-3dof": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-external-agent-3dof-e2e.ps1",
     "e2e:template-agent": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-template-agent-e2e.ps1",
     "e2e:template-agent:cleanup:dry": "node E2ETest/scripts/cleanup-template-agent-test-data.mjs",

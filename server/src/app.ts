@@ -3,7 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerRoutes } from "./routes/index.js";
 import { createProviderRegistry } from "./services/provider-runtime.js";
-import { createOrchestratorService, createWorkflowOrchestratorService } from "./services/orchestrator/index.js";
+import {
+  createOrchestratorService,
+  createWorkflowOrchestratorService,
+  createWorkflowRecurringDispatcherService
+} from "./services/orchestrator/index.js";
 
 export interface AppOptions {
   dataRoot?: string;
@@ -28,9 +32,11 @@ export function createApp(options: AppOptions = {}) {
   const providerRegistry = createProviderRegistry();
   const orchestrator = createOrchestratorService(dataRoot, providerRegistry);
   const workflowOrchestrator = createWorkflowOrchestratorService(dataRoot, providerRegistry);
+  const workflowRecurringDispatcher = createWorkflowRecurringDispatcherService(dataRoot, workflowOrchestrator);
 
   orchestrator.start();
   workflowOrchestrator.start();
+  workflowRecurringDispatcher.start();
 
   const corsAllowList = (
     process.env.AUTO_DEV_CORS_ORIGINS ??

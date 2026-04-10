@@ -55,6 +55,7 @@ test("workflow runtime view builds task tree edges and settings summaries", () =
     updatedAt: "2026-03-28T12:00:00.000Z",
     autoDispatchEnabled: true,
     autoDispatchRemaining: 4.8,
+    autoDispatchInitialRemaining: 6.8,
     holdEnabled: false,
     reminderMode: undefined,
     tasks: [
@@ -81,10 +82,25 @@ test("workflow runtime view builds task tree edges and settings summaries", () =
   assert.equal((tree.nodes[1] as any).runtime?.taskId, "child");
   assert.deepEqual(buildWorkflowRunSettingsView(run), {
     run_id: "run-1",
+    mode: "none",
+    loop_enabled: false,
+    schedule_enabled: false,
+    schedule_expression: undefined,
+    is_schedule_seed: false,
+    origin_run_id: undefined,
+    last_spawned_run_id: undefined,
+    spawn_state: undefined,
     auto_dispatch_enabled: true,
     auto_dispatch_remaining: 4,
+    auto_dispatch_initial_remaining: 6,
     hold_enabled: false,
     reminder_mode: "backoff",
+    recurring_status: {
+      occupied: false,
+      active_run_id: undefined,
+      next_trigger_at: undefined,
+      last_triggered_at: undefined
+    },
     updated_at: "2026-03-28T12:00:00.000Z"
   });
   assert.deepEqual(buildWorkflowRunStatusView(run), {

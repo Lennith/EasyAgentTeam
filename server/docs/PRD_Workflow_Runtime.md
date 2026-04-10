@@ -3,85 +3,117 @@
 ## 1. 状态
 
 - 模块状态：`实装`
-- 范围：`server` 内部 workflow orchestrator/runtime
-- 外部冻结：HTTP API、SSE、event type、task state、退役接口 `410` 语义不变
-- 本轮目标：workflow 侧 routing + task-action（apply/converge/emit）已收口到 shared 骨架，外部行为与错误码语义保持不变
+- 范围：`server` 内部 workflow orchestrator / runtime / recurring dispatcher
+- 外部冻结：HTTP API、event type、task state、retired `410` 语义保持兼容
 
-## 2. 当前生效结构
+## 2. 当前目标
 
-- façade 与装配：
-  - `workflow-orchestrator.ts`
-  - `workflow-orchestrator-composition.ts`
-- 运行态服务：
-  - `workflow-dispatch-service.ts`
-  - `workflow-message-routing-service.ts`
-  - `workflow-task-action-service.ts`
-  - `workflow-session-runtime-service.ts`
-  - `workflow-reminder-service.ts`
-  - `workflow-completion-service.ts`
-  - `workflow-tick-service.ts`
-- 纯规则内核：
-  - `runtime/workflow-runtime-kernel.ts`
-  - `runtime/workflow-auto-finish-window.ts`
-  - `workflow-dispatch-policy.ts`
+- Workflow 仅在 `workflow run` 维度支持自动循环与定时派生
+- `workflow-recurring-dispatcher` 独立于 `workflow-orchestrator` tick core
+- Loop / Schedule 新建子 run 时复用父 run 的业务配置，但不复用 `runId`
+- 需要区分：
+  - `autoDispatchRemaining`：当前 run 的剩余自动派发预算
+  - `autoDispatchInitialRemaining`：当前 run 以及未来 recurring 子 run 的初始预算基线
 
-## 3. Launch 生效规则
+## 3. Run 模型
 
-- dispatch launch 生命周期由 shared launch/runner template 驱动
-- workflow adapter 仅保留：
-  - provider/tool bridge 细节
-  - runtime/session 最小写回
-  - workflow 域事件映射
-- terminal-state 去重与超时判定统一通过 `shared/dispatch-lifecycle.ts`
-- workflow provider runner 已并入 `workflow-dispatch-launch-adapter.ts`，不再维护独立 runner 文件
-- `workflow-dispatch-launch-support.ts` 已删除，旧 lifecycle helper 分支不再并存
+`WorkflowRunRecord` 当前有效字段：
 
-## 4. Message Routing 生效规则
+- `mode`: `none | loop | schedule`
+- `loopEnabled`
+- `scheduleEnabled`
+- `scheduleExpression`
+- `isScheduleSeed`
+- `originRunId`
+- `lastSpawnedRunId`
+- `spawnState`
+- `autoDispatchEnabled`
+- `autoDispatchRemaining`
+- `autoDispatchInitialRemaining`
+- `holdEnabled`
+- `reminderMode`
 
-- 固定流程：`resolve -> normalize -> inbox -> route event -> session touch`
-- `workflow-message-routing-service.ts` 仅做上下文装配与 route gate
-- 持久化执行统一由 shared message-routing template 承载
-- UoW 入口统一为 `executeOrchestratorMessageRoutingInUnitOfWork`
-- routing 输入契约复用 shared 基础类型：
-  - `OrchestratorRouteMessageInputBase`
-  - `OrchestratorDiscussReference`
-  - `normalizeOrchestratorDiscussReference(...)`
-- routing service 使用 shared scope-only UoW runner helper：
-  - `createOrchestratorMessageRoutingUnitOfWorkRunner(...)`
-- `workflow-message-routing-internal.ts` 已删除，route target/envelope/event 流程收口到 service 主路径
+约束：
 
-## 5. Completion 生效规则
+- `loop` 与 `schedule` 互斥
+- 旧数据若缺失 `autoDispatchInitialRemaining`，读取时默认回退到 `autoDispatchRemaining`
 
-- `MAY_BE_DONE` 环境配置读取统一复用：
-  - `resolveOrchestratorMayBeDoneSettings(...)`
-- 与 project 侧共享 completion 规则 helper：
-  - `countOrchestratorTaskDispatches(...)`
-  - `hasOrchestratorSuccessfulRunFinishEvent(...)`
-  - `isOrchestratorTerminalTaskState(...)`
-  - `isOrchestratorValidProgressContent(...)`
-- workflow completion service 不再内置同构的 dispatch 计数和 progress 内容判定实现
+## 4. Auto Dispatch 语义
 
-## 6. Task Action 生效规则
+- `autoDispatchRemaining` 是运行时字段，只表示当前 run 还剩多少次自动 task dispatch
+- 自动 task dispatch 成功时，仅扣减当前 run 的 `autoDispatchRemaining`
+- `autoDispatchInitialRemaining` 是配置基线：
+  - `POST /api/workflow-runs` 中 `auto_dispatch_remaining` 同时写入 `autoDispatchRemaining` 与 `autoDispatchInitialRemaining`
+  - `PATCH /api/workflow-runs/:run_id/orchestrator/settings` 中若传入 `auto_dispatch_remaining`，同时更新两个字段
+- Loop / Schedule 派生子 run 时：
+  - 子 run `autoDispatchInitialRemaining = source.autoDispatchInitialRemaining`
+  - 子 run `autoDispatchRemaining = source.autoDispatchInitialRemaining`
 
-- 使用 shared pipeline：
-  - `parse -> authorize -> dependency gate -> apply -> converge -> emit`
-- workflow 仅保留 domain validator 差异与既有错误码语义
+## 5. Recurring 语义
 
-## 7. 事务边界
+### 5.1 Loop
 
-- route 层不直接开事务
-- workflow application service 通过 repository/UoW 统一写入 runtime/session/event/inbox
-- 单用例关键写入保持单事务边界
+- 触发条件：`mode=loop && loopEnabled=true && run.status=finished`
+- 动作：对单个 source run 获取带心跳的派生租约，创建新的 workflow run 并立即启动
+- 子 run 继承：
+  - template / workspace
+  - variables / task overrides / resolved tasks
+  - route table / discuss rounds / role session map
+  - recurring 运行模式
+  - auto dispatch / hold / reminder 配置
+- 追踪：
+  - 子 run 写入 `originRunId`
+  - 仅当子 run 启动成功后，父 run 才回填 `lastSpawnedRunId`
+- 若子 run 启动失败：
+  - 失败子 run 标记为 `failed`
+  - 父 run 不消费本次 loop 机会，后续 tick 可继续重试
+- 若 dispatcher 在派生过程中失去租约：
+  - 不提交本次 spawn 的父 run 追踪状态
+  - 已创建但未安全提交的子 run 标记为 `failed`
 
-## 8. 本轮稳定性修正（2026-03-31）
+### 5.2 Schedule
 
-- `workflow-task-runtime-api`：测试改为显式关闭 `MAY_BE_DONE`（`MAY_BE_DONE_ENABLED=0`）以消除终态窗口抖动
-- `session-timeout-closure`：断言改为 heartbeat + dispatch/run 任一 terminal 屏障，runner timeout 事件保持可选补充断言
+- 触发对象：`mode=schedule && scheduleEnabled=true && isScheduleSeed=true`
+- 表达式格式：`MM-DD HH:MM`
+- `MM / DD / 分钟` 支持 `XX`
+- 同一个 schedule seed 任一时刻最多只有一个活跃子 run
+- dispatcher 对单个 schedule seed 获取带心跳的派生租约，避免重叠 tick / 多进程重复 spawn
+- schedule 派生子 run 不再继承 schedule seed 身份：
+  - `mode=none`
+  - `scheduleEnabled=false`
+  - `isScheduleSeed=false`
+- 仅当子 run 启动成功后，才更新 `lastSpawnedRunId` 与 `spawnState.lastWindowKey/activeRunId`
+- 若子 run 启动失败：
+  - 失败子 run 标记为 `failed`
+  - 当前窗口不视为已消费，后续分钟仍可重试
+- 若 dispatcher 在派生过程中失去租约：
+  - 不提交 `lastSpawnedRunId` 与窗口状态
+  - 已创建但未安全提交的子 run 标记为 `failed`
 
-## 9. 验证快照（2026-03-31）
+## 6. API 生效口径
 
-- `pnpm --filter @autodev/server build`：通过
-- `pnpm --filter @autodev/server test`：连续 2 次通过
-- flaky 关注集额外回归通过：
-  - `pnpm --filter @autodev/server run test -- --test-name-pattern "workflow-block-propagation|workflow-task-runtime-api|session-timeout-closure|bad port"`
-- 最新快照：`tests 313 / pass 308 / fail 0 / skipped 5`
+### 6.1 Run 创建 / 查询
+
+- `POST /api/workflow-runs`
+  - `auto_dispatch_remaining` 设定当前 run 的剩余额度与初始额度
+- `GET /api/workflow-runs`
+- `GET /api/workflow-runs/:run_id`
+  - 返回 `autoDispatchRemaining`
+  - 返回 `autoDispatchInitialRemaining`
+
+### 6.2 Orchestrator Settings
+
+- `GET /api/workflow-runs/:run_id/orchestrator/settings`
+  - 返回 `auto_dispatch_remaining`
+  - 返回 `auto_dispatch_initial_remaining`
+- `PATCH /api/workflow-runs/:run_id/orchestrator/settings`
+  - 若请求体带 `auto_dispatch_remaining`，同时更新 remaining 与 initial
+
+## 7. 验收口径
+
+- Loop 链路中新子 run 的 `originRunId` 连续可追踪
+- `autoDispatchInitialRemaining` 在同一 recurring 链路中保持继承一致
+- `autoDispatchRemaining` 允许因自动派发而递减，不再作为父子 run 配置一致性校验字段
+- 停止 recurring 后不得继续产生新 run
+- `pnpm e2e:workflow:loop30` 通过
+- `pnpm e2e:workflow` 通过
