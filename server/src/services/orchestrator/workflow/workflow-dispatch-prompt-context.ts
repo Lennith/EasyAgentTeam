@@ -1,4 +1,5 @@
 import type {
+  TaskSubtreePayload,
   WorkflowManagerToAgentMessage,
   WorkflowRunRecord,
   WorkflowTaskRuntimeRecord,
@@ -21,6 +22,7 @@ export interface WorkflowDispatchPromptContext {
   message: WorkflowManagerToAgentMessage | null;
   messageType: string;
   messageContent: string;
+  taskSubtree: TaskSubtreePayload | null;
   taskState: WorkflowTaskState | null;
   task: WorkflowRunRecord["tasks"][number] | null;
   dependencyStatus: string;
@@ -105,6 +107,7 @@ export function buildWorkflowDispatchPromptContext(
     input.message && typeof (input.message.body as Record<string, unknown>).content === "string"
       ? String((input.message.body as Record<string, unknown>).content)
       : "";
+  const taskSubtreeRaw = input.message ? (input.message.body as Record<string, unknown>).task_subtree : null;
   return {
     frame,
     run: input.run,
@@ -114,6 +117,8 @@ export function buildWorkflowDispatchPromptContext(
     message: input.message,
     messageType,
     messageContent,
+    taskSubtree:
+      typeof taskSubtreeRaw === "object" && taskSubtreeRaw !== null ? (taskSubtreeRaw as TaskSubtreePayload) : null,
     taskState: input.taskState,
     task,
     dependencyStatus,

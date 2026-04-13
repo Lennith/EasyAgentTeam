@@ -47,9 +47,10 @@ export class WorkflowRuntimeError extends Error {
       | "MESSAGE_TARGET_REQUIRED"
       | "TASK_OWNER_ROLE_NOT_FOUND"
       | "TASK_DEPENDENCY_NOT_READY"
+      | "TASK_EXISTS"
       | "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN",
     public readonly status: number = 400,
-    public readonly hint?: string,
+    public readonly nextAction?: string,
     public readonly details?: Record<string, unknown>
   ) {
     super(message);
@@ -72,8 +73,8 @@ export class WorkflowOrchestratorService {
       dataRoot,
       options,
       providerRegistry,
-      createRuntimeError: (message, code, status = 400, hint, details) =>
-        new WorkflowRuntimeError(message, code as WorkflowRuntimeErrorCode, status, hint, details)
+      createRuntimeError: (message, code, status = 400, nextAction, details) =>
+        new WorkflowRuntimeError(message, code as WorkflowRuntimeErrorCode, status, nextAction, details)
     });
     this.loopCore = composition.loopCore;
     this.activeRunIds = composition.activeRunIds;
@@ -146,7 +147,7 @@ export class WorkflowOrchestratorService {
       sessionId?: string;
       status?: string;
       providerSessionId?: string;
-      provider?: "codex" | "trae" | "minimax";
+      provider?: "codex" | "minimax";
     }
   ): Promise<{ session: WorkflowSessionRecord; created: boolean }> {
     return this.sessionRuntimeService.registerRunSession(runId, input);

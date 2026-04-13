@@ -373,6 +373,31 @@ export interface ReminderTaskPayload {
   artifacts?: string[];
 }
 
+export interface TaskSubtreeDescendantCounts {
+  total: number;
+  unresolved: number;
+  done: number;
+  blocked: number;
+  canceled: number;
+}
+
+export interface TaskSubtreeTerminalReport {
+  task_id: string;
+  state: TaskState;
+  owner_role: string;
+  owner_session: string | null;
+  close_report_id: string | null;
+  last_summary: string | null;
+}
+
+export interface TaskSubtreePayload {
+  focus_task_id: string;
+  descendant_ids: string[];
+  descendant_counts: TaskSubtreeDescendantCounts;
+  unresolved_descendant_ids: string[];
+  terminal_descendant_reports: TaskSubtreeTerminalReport[];
+}
+
 export interface ReminderOpenTaskTitleItem {
   task_id: string;
   title: string;

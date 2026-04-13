@@ -7,7 +7,12 @@ compatibility: minimax
 
 # E2E UI Skill
 
-Use this skill only when you are editing or creating `docs/ux/ui/01_ui_spec.md`.
+Use this skill only when you are editing or creating the workflow UI spec document.
+
+Preferred target paths:
+
+- `docs/design/ui/01_ui_spec.md`
+- `docs/ui/01_ui_spec.md`
 
 Requirements:
 

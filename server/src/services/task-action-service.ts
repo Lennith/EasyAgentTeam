@@ -4,7 +4,7 @@ import { appendEvent } from "../data/repository/project/event-repository.js";
 import { getSession } from "../data/repository/project/session-repository.js";
 import { TaskboardStoreError } from "../data/repository/project/taskboard-repository.js";
 import {
-  buildTaskActionRejectedHint,
+  buildTaskActionRejectedNextAction,
   buildTaskActionAuditPayload,
   mapTaskboardStoreError,
   readDefaultTaskId,
@@ -141,7 +141,7 @@ export async function handleTaskAction(
       }
     }
     if (normalizedError instanceof TaskActionError) {
-      const hint = normalizedError.hint ?? buildTaskActionRejectedHint(normalizedError.code);
+      const nextAction = normalizedError.nextAction ?? buildTaskActionRejectedNextAction(normalizedError.code);
       await appendEvent(paths, {
         projectId: project.projectId,
         eventType: "TASK_ACTION_REJECTED",
@@ -156,7 +156,7 @@ export async function handleTaskAction(
           toSessionId: toSessionId ?? null,
           error_code: normalizedError.code,
           reason: normalizedError.message,
-          hint,
+          next_action: nextAction,
           details: normalizedError.details ?? null
         }
       });

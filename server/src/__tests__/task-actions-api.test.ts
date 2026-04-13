@@ -447,12 +447,12 @@ test("task-actions create task tree and TASK_REPORT enforces progress validation
     const dependencyNotReadyPayload = (await reportDependencyNotReady.json()) as {
       error_code?: string;
       error?: { details?: { task_id?: string; dependency_task_ids?: string[] } };
-      hint?: string | null;
+      next_action?: string | null;
     };
     assert.equal(dependencyNotReadyPayload.error_code, "TASK_DEPENDENCY_NOT_READY");
     assert.equal(dependencyNotReadyPayload.error?.details?.task_id, "exec-task-3");
     assert.deepEqual(dependencyNotReadyPayload.error?.details?.dependency_task_ids ?? [], ["exec-task-2"]);
-    assert.match(String(dependencyNotReadyPayload.hint ?? ""), /Wait for dependenc/i);
+    assert.match(String(dependencyNotReadyPayload.next_action ?? ""), /Wait for dependenc/i);
 
     const reportOrderedDependencyResolved = await fetch(`${baseUrl}/api/projects/taskactions/task-actions`, {
       method: "POST",

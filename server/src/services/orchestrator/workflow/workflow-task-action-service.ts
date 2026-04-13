@@ -23,7 +23,7 @@ interface WorkflowTaskActionServiceContext {
     message: string,
     code: string,
     status?: number,
-    hint?: string,
+    nextAction?: string,
     details?: Record<string, unknown>
   ): Error;
 }
@@ -101,8 +101,8 @@ export class WorkflowTaskActionService {
           state: baseState,
           repositories: this.context.repositories,
           buildSnapshot: (run, runtime) => this.context.buildSnapshot(run, runtime),
-          createRuntimeError: (message, code, status, hint, details) =>
-            this.context.createRuntimeError(message, code, status, hint, details)
+          createRuntimeError: (message, code, status, nextAction, details) =>
+            this.context.createRuntimeError(message, code, status, nextAction, details)
         });
       }
       if (actionType === "TASK_REPORT") {
@@ -113,8 +113,8 @@ export class WorkflowTaskActionService {
           state: baseState,
           repositories: this.context.repositories,
           buildSnapshot: (run, runtime) => this.context.buildSnapshot(run, runtime),
-          createRuntimeError: (message, code, status, hint, details) =>
-            this.context.createRuntimeError(message, code, status, hint, details)
+          createRuntimeError: (message, code, status, nextAction, details) =>
+            this.context.createRuntimeError(message, code, status, nextAction, details)
         });
       }
       throw this.context.createRuntimeError(`unsupported action_type '${actionType}'`, "INVALID_TRANSITION", 400);

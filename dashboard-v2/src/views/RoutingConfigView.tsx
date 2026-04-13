@@ -168,7 +168,7 @@ export function RoutingConfigView({ projectId, project, reload }: RoutingConfigV
     return routeTable[from] ?? [];
   }
 
-  function getModelsForProvider(providerId: "codex" | "trae" | "minimax"): ModelInfo[] {
+  function getModelsForProvider(providerId: "codex" | "minimax"): ModelInfo[] {
     return availableModels.filter((m) => m.vendor === providerId);
   }
 
@@ -353,18 +353,17 @@ export function RoutingConfigView({ projectId, project, reload }: RoutingConfigV
                       onClick={(e) => e.stopPropagation()}
                     >
                       <select
-                        value={modelConfigs[from]?.provider_id ?? "codex"}
+                        value={modelConfigs[from]?.provider_id ?? "minimax"}
                         onChange={(e) =>
                           setModelConfigs((prev) => ({
                             ...prev,
-                            [from]: { ...prev[from], provider_id: e.target.value as "codex" | "trae" | "minimax" }
+                            [from]: { ...prev[from], provider_id: e.target.value as "codex" | "minimax" }
                           }))
                         }
                         style={{ fontSize: "11px", padding: "2px 6px", width: "70px" }}
                       >
-                        <option value="codex">Codex</option>
-                        <option value="trae">Trae</option>
                         <option value="minimax">MiniMax</option>
+                        <option value="codex">Codex</option>
                       </select>
                       <select
                         value={modelConfigs[from]?.model ?? ""}
@@ -377,7 +376,7 @@ export function RoutingConfigView({ projectId, project, reload }: RoutingConfigV
                         style={{ fontSize: "11px", padding: "2px 6px", width: "100px" }}
                       >
                         <option value="">Model...</option>
-                        {getModelsForProvider(modelConfigs[from]?.provider_id ?? "codex").map((m) => (
+                        {getModelsForProvider(modelConfigs[from]?.provider_id ?? "minimax").map((m) => (
                           <option key={m.model} value={m.model}>
                             {m.model.length > 12 ? m.model.slice(0, 12) + "..." : m.model}
                           </option>

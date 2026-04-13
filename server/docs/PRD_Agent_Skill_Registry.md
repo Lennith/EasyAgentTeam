@@ -7,7 +7,7 @@ This document defines the backend behavior for:
 - global agent registry
 - imported skill registry
 - reusable skill lists
-- MiniMax skill resolution for project and workflow runtime
+- provider runtime skill resolution for project and workflow runtime
 - team document consumption of agent summaries
 
 This module is the backend source of truth for reusable agent metadata and imported local skills.
@@ -232,20 +232,19 @@ Missing registry entries or missing entry files produce warnings and are skipped
 
 ### 6.3 Injection Boundary
 
-Imported local skills are injected only on MiniMax execution paths.
+Imported local skills are injected on provider runtime execution paths for both MiniMax and Codex.
 
-Current MiniMax injection points:
+Current TeamTool injection points:
 
-- project orchestrator dispatch via `server/src/services/minimax-runner.ts`
-- project agent chat via the same prompt composition path
-- workflow orchestrator dispatch via `server/src/services/orchestrator/workflow-orchestrator.ts`
-- workflow agent chat via the workflow MiniMax path
+- project orchestrator dispatch via provider runtime / runner launch
+- project agent chat via provider runtime + TeamTool injection
+- workflow orchestrator dispatch via provider runtime + TeamTool injection
+- workflow agent chat via provider runtime + TeamTool injection
 
 Current non-injected paths:
 
-- `codex`
-- `trae`
-- any external execution path that does not use the MiniMax prompt composer
+- any external execution path that does not use the provider runtime TeamTool injection path
+- Codex native/global skills remain owned by Codex CLI / `CODEX_HOME` and are not managed by this registry injection path
 
 ## 7. Team Document Consumption
 
@@ -280,4 +279,4 @@ The project or workflow workspace does not own the `summary` value and does not 
 
 ## 9. Current Status
 
-Status: `ACTIVE`
+Status: `改动中`

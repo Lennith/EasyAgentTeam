@@ -31,7 +31,7 @@ export async function validateProjectForceDispatchTask(
       outcome: "task_not_found",
       dispatchKind: "task",
       taskId: input.taskId,
-      reason: `task '${input.taskId}' does not exist (hint: refresh task-tree and retry with current task_id)`
+      reason: `task '${input.taskId}' does not exist (next_action: refresh task-tree and retry with current task_id)`
     };
   }
   if (!isForceDispatchableState(targetTask.state)) {

@@ -409,7 +409,6 @@ export const agentApi = {
           updatedAt: (raw.updatedAt ?? raw.updated_at) as string,
           defaultCliTool: (raw.defaultCliTool ?? raw.default_cli_tool ?? raw.provider_id ?? raw.providerId) as
             | "codex"
-            | "trae"
             | "minimax"
             | undefined,
           defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
@@ -430,7 +429,6 @@ export const agentApi = {
           updatedAt: (raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()) as string,
           defaultCliTool: (raw.defaultCliTool ?? raw.default_cli_tool ?? raw.provider_id ?? raw.providerId) as
             | "codex"
-            | "trae"
             | "minimax"
             | undefined,
           defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
@@ -450,7 +448,6 @@ export const agentApi = {
           updatedAt: (raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()) as string,
           defaultCliTool: (raw.defaultCliTool ?? raw.default_cli_tool ?? raw.provider_id ?? raw.providerId) as
             | "codex"
-            | "trae"
             | "minimax"
             | undefined,
           defaultModelParams: raw.defaultModelParams as Record<string, unknown> | undefined,
@@ -468,7 +465,7 @@ export const agentApi = {
     prompt: string;
     summary?: string;
     skill_list?: string[];
-    provider_id?: "codex" | "trae" | "minimax";
+    provider_id?: "codex" | "minimax";
   }) =>
     fetchJSON<{ agentId: string }>(`${API_BASE}/agents`, {
       method: "POST",
@@ -482,7 +479,7 @@ export const agentApi = {
       prompt?: string;
       summary?: string | null;
       skill_list?: string[];
-      provider_id?: "codex" | "trae" | "minimax";
+      provider_id?: "codex" | "minimax";
     }
   ) =>
     fetchJSON<{ agentId: string }>(`${API_BASE}/agents/${encodeURIComponent(agentId)}`, {
@@ -759,8 +756,8 @@ export const workflowApi = {
       role: string;
       session_id?: string;
       status?: "running" | "idle" | "blocked" | "dismissed";
-      provider_id?: "codex" | "trae" | "minimax";
-      provider?: "codex" | "trae" | "minimax";
+      provider_id?: "codex" | "minimax";
+      provider?: "codex" | "minimax";
       provider_session_id?: string;
     }
   ) =>

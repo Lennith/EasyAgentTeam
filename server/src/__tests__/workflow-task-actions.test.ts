@@ -144,12 +144,12 @@ test("workflow task-actions support create/discuss/report with partial apply and
     const createInvalidRolePayload = (await createInvalidRoleTask.json()) as {
       error_code?: string;
       message?: string;
-      hint?: string | null;
+      next_action?: string | null;
       details?: { owner_role?: string; available_roles?: string[] };
     };
     assert.equal(createInvalidRolePayload.error_code, "TASK_OWNER_ROLE_NOT_FOUND");
     assert.match(String(createInvalidRolePayload.message ?? ""), /ghost_role/);
-    assert.match(String(createInvalidRolePayload.hint ?? ""), /route_targets_get/i);
+    assert.match(String(createInvalidRolePayload.next_action ?? ""), /route_targets_get/i);
 
     const discussRequest = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
       method: "POST",
@@ -196,12 +196,35 @@ test("workflow task-actions support create/discuss/report with partial apply and
     const dependencyNotReadyPayload = (await dependencyNotReadyReport.json()) as {
       error_code?: string;
       error?: { details?: { task_id?: string; dependency_task_ids?: string[] } };
-      hint?: string | null;
+      next_action?: string | null;
     };
     assert.equal(dependencyNotReadyPayload.error_code, "TASK_DEPENDENCY_NOT_READY");
     assert.equal(dependencyNotReadyPayload.error?.details?.task_id, "task_b");
     assert.deepEqual(dependencyNotReadyPayload.error?.details?.dependency_task_ids ?? [], ["task_a"]);
-    assert.match(String(dependencyNotReadyPayload.hint ?? ""), /Wait until/);
+    assert.match(String(dependencyNotReadyPayload.next_action ?? ""), /Wait until/);
+
+    const duplicateCreate = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "architect",
+        from_session_id: "session-architect-01",
+        task: {
+          task_id: "task_c",
+          title: "Task C Duplicate",
+          owner_role: "architect",
+          parent_task_id: "task_b"
+        }
+      })
+    });
+    assert.equal(duplicateCreate.status, 409);
+    const duplicateCreatePayload = (await duplicateCreate.json()) as {
+      error_code?: string;
+      next_action?: string | null;
+    };
+    assert.equal(duplicateCreatePayload.error_code, "TASK_EXISTS");
+    assert.match(String(duplicateCreatePayload.next_action ?? ""), /Do not recreate the same task_id/i);
 
     const blockedDependencyReport = await fetch(`${baseUrl}/api/workflow-runs/task_action_run_01/task-actions`, {
       method: "POST",

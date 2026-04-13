@@ -119,6 +119,22 @@ function createMessage(messageId: string, taskId: string): WorkflowManagerToAgen
   };
 }
 
+function createReminderMessage(messageId: string, taskId: string): WorkflowManagerToAgentMessage {
+  const message = createMessage(messageId, taskId);
+  message.body = {
+    ...message.body,
+    reminder: {
+      role: "dev",
+      reminder_mode: "backoff",
+      reminder_count: 1,
+      open_task_ids: [taskId],
+      open_task_titles: [{ task_id: taskId, title: taskId }],
+      next_reminder_at: null
+    }
+  };
+  return message;
+}
+
 function createRepositories(options: {
   inboxByRole?: Record<string, WorkflowManagerToAgentMessage[]>;
   events?: Array<Record<string, unknown>>;
@@ -181,6 +197,35 @@ test("workflow dispatch selection reports busy when session is cooling down", as
   const result = await adapter.select(
     { run, runtime, sessions: [session] },
     { force: false, onlyIdle: false, requestId: "request-2", remainingBudget: 3 }
+  );
+
+  assert.equal(result.status, "none");
+  if (result.status !== "none") {
+    return;
+  }
+  assert.equal(result.busyFound, true);
+});
+
+test("workflow dispatch selection reports busy when session is already running with pending message", async () => {
+  const run = createRun();
+  const runtime = createRuntime([{ taskId: "task_a", state: "READY" }]);
+  const session = createSession({
+    status: "running",
+    currentTaskId: "task_a"
+  });
+  const { repositories } = createRepositories({
+    inboxByRole: { dev: [createMessage("msg-running", "task_a")] }
+  });
+  const adapter = new WorkflowDispatchSelectionAdapter({
+    repositories,
+    inFlightDispatchSessionKeys: new OrchestratorSingleFlightGate(),
+    buildRunSessionKey: (runId, sessionId) => `${runId}:${sessionId}`,
+    resolveAuthoritativeSession: async () => session
+  });
+
+  const result = await adapter.select(
+    { run, runtime, sessions: [session] },
+    { force: false, onlyIdle: false, requestId: "request-running", remainingBudget: 3 }
   );
 
   assert.equal(result.status, "none");
@@ -273,4 +318,66 @@ test("workflow dispatch selection allows force redispatch for dispatched task", 
     return;
   }
   assert.equal(result.selection.taskId, "task_a");
+});
+
+test("workflow dispatch selection synthesizes fresh task assignment with subtree from reminder source", async () => {
+  const run = createRun({
+    tasks: [
+      {
+        taskId: "task_parent",
+        title: "Parent Task",
+        ownerRole: "dev",
+        resolvedTitle: "Parent Task",
+        dependencies: [],
+        acceptance: [],
+        artifacts: []
+      },
+      {
+        taskId: "task_child",
+        title: "Child Task",
+        ownerRole: "qa",
+        resolvedTitle: "Child Task",
+        parentTaskId: "task_parent",
+        dependencies: [],
+        acceptance: [],
+        artifacts: []
+      }
+    ]
+  });
+  const runtime = createRuntime([
+    { taskId: "task_parent", state: "READY" },
+    { taskId: "task_child", state: "DONE" }
+  ]);
+  const session = createSession();
+  const { repositories } = createRepositories({
+    inboxByRole: { dev: [createReminderMessage("msg-reminder", "task_parent")] }
+  });
+  const adapter = new WorkflowDispatchSelectionAdapter({
+    repositories,
+    inFlightDispatchSessionKeys: new OrchestratorSingleFlightGate(),
+    buildRunSessionKey: (runId, sessionId) => `${runId}:${sessionId}`,
+    resolveAuthoritativeSession: async () => session
+  });
+
+  const result = await adapter.select(
+    { run, runtime, sessions: [session] },
+    { force: false, onlyIdle: false, requestId: "request-6", remainingBudget: 3 }
+  );
+
+  assert.equal(result.status, "selected");
+  if (result.status !== "selected") {
+    return;
+  }
+  assert.equal(result.selection.dispatchKind, "task");
+  assert.deepEqual(result.selection.selectedMessageIds, ["msg-reminder"]);
+  const body = result.selection.message?.body as Record<string, unknown>;
+  assert.equal(body.messageType, "TASK_ASSIGNMENT");
+  const taskSubtree = body.task_subtree as {
+    descendant_counts?: { total?: number; done?: number; unresolved?: number };
+    terminal_descendant_reports?: Array<{ task_id: string }>;
+  };
+  assert.equal(taskSubtree.descendant_counts?.total, 1);
+  assert.equal(taskSubtree.descendant_counts?.done, 1);
+  assert.equal(taskSubtree.descendant_counts?.unresolved, 0);
+  assert.equal(taskSubtree.terminal_descendant_reports?.[0]?.task_id, "task_child");
 });

@@ -2,10 +2,18 @@ import type { ProviderId } from "@autodev/agent-library";
 import { BASE_PROMPT_TEXT } from "./agent-prompt-service.js";
 import type { HostPlatform } from "../runtime-platform.js";
 import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
+import { buildTeamToolAliasGuidance } from "./teamtool-contract.js";
 
 const PROVIDER_BASELINES: Record<ProviderId, string> = {
-  codex: "Provider policy: Codex CLI runtime. Prefer deterministic, tool-driven execution.",
-  trae: "Provider policy: Trae CLI runtime. Keep actions explicit and auditable.",
+  codex: [
+    "Provider policy: Codex CLI runtime. Prefer deterministic, tool-driven execution.",
+    buildTeamToolAliasGuidance(),
+    "TeamTool entries are exposed as model-callable tools in the runtime tool registry.",
+    "Do not verify TeamTool via shell commands, local CLI wrappers, file search, or MCP resource listing.",
+    "Shell output is never evidence that TeamTool is unavailable.",
+    "If a TeamTool action is required, call the exact exposed tool name directly.",
+    "If a required TeamTool call fails, quote the returned error_code and next_action instead of inventing a missing-tool explanation."
+  ].join(" "),
   minimax:
     "Provider policy: MiniMax runtime. Keep tool-call ordering valid and avoid stale tool_result reuse. Use summary_messages when context noise is high."
 };

@@ -101,7 +101,7 @@ export default function App() {
 
   const debugViews = [
     { id: "agent-sessions", label: t.debugSessions },
-    { id: "codex-output", label: t.codexOutput }
+    { id: "agent-output", label: t.agentOutput }
   ];
 
   const workflowViews = [
@@ -263,7 +263,7 @@ export default function App() {
     if (route.l1 === "debug") {
       const debugView = route.debugView ?? "agent-sessions";
       if (debugView === "agent-sessions") return <DebugAgentSessionsView />;
-      if (debugView === "codex-output") return <AgentLogView />;
+      if (debugView === "agent-output") return <AgentLogView />;
     }
 
     if (route.l1 === "settings") {

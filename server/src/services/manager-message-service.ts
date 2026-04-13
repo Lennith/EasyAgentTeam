@@ -45,7 +45,7 @@ export class ManagerMessageServiceError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
-    public readonly hint?: string,
+    public readonly nextAction?: string,
     public readonly details?: Record<string, unknown>,
     public readonly replacement?: string
   ) {

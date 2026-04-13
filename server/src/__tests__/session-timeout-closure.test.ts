@@ -189,3 +189,118 @@ test("running session timeout appends dispatch/run closure events", async () => 
     }
   }
 });
+
+test("running minimax session timeout appends minimax synthetic run closure event", async () => {
+  const previousTerminationTimeout = process.env.SESSION_PROCESS_TERMINATION_TIMEOUT_MS;
+  const previousEscalationThreshold = process.env.SESSION_TIMEOUT_ESCALATION_THRESHOLD;
+  process.env.SESSION_PROCESS_TERMINATION_TIMEOUT_MS = "200";
+  process.env.SESSION_TIMEOUT_ESCALATION_THRESHOLD = "2";
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-session-timeout-minimax-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspacePath = path.join(tempRoot, "workspace");
+  try {
+    const created = await createProject(dataRoot, {
+      projectId: "sessiontimeoutminimax",
+      name: "Session Timeout MiniMax",
+      workspacePath
+    });
+    const project = created.project;
+    const paths = await ensureProjectRuntime(dataRoot, project.projectId);
+
+    await addSession(paths, project.projectId, {
+      sessionId: "sess-timeout-minimax",
+      role: "dev_impl",
+      provider: "minimax",
+      status: "running",
+      currentTaskId: "task-timeout-minimax",
+      lastRunId: "run-timeout-minimax-1",
+      lastDispatchId: "dispatch-timeout-minimax-1"
+    });
+    await touchSession(paths, project.projectId, "sess-timeout-minimax", {
+      status: "running",
+      currentTaskId: "task-timeout-minimax",
+      lastActiveAt: new Date(Date.now() - 60_000).toISOString()
+    });
+
+    await appendEvent(paths, {
+      projectId: project.projectId,
+      eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+      source: "manager",
+      sessionId: "sess-timeout-minimax",
+      taskId: "task-timeout-minimax",
+      payload: {
+        dispatchId: "dispatch-timeout-minimax-1",
+        mode: "loop",
+        dispatchKind: "task",
+        messageId: "msg-timeout-minimax-1",
+        requestId: "req-timeout-minimax-1"
+      }
+    });
+    await appendEvent(paths, {
+      projectId: project.projectId,
+      eventType: "MINIMAX_RUN_STARTED",
+      source: "manager",
+      sessionId: "sess-timeout-minimax",
+      taskId: "task-timeout-minimax",
+      payload: {
+        runId: "run-timeout-minimax-1",
+        mode: "exec",
+        provider: "minimax"
+      }
+    });
+
+    const orchestrator = new OrchestratorService({
+      dataRoot,
+      providerRegistry: createProviderRegistry(),
+      enabled: true,
+      intervalMs: 50,
+      maxConcurrentDispatches: 1,
+      sessionRunningTimeoutMs: 1_000
+    });
+
+    function isTimeoutMiniMaxRunFinished(item: { eventType: string; sessionId?: string; payload: unknown }) {
+      if (item.eventType !== "MINIMAX_RUN_FINISHED") {
+        return false;
+      }
+      if (item.sessionId !== "sess-timeout-minimax") {
+        return false;
+      }
+      const payload = item.payload as Record<string, unknown>;
+      return payload.timedOut === true || payload.status === "timeout";
+    }
+
+    orchestrator.start();
+    let events = await listEvents(paths);
+    let runFinished = events.find((item) => isTimeoutMiniMaxRunFinished(item));
+    try {
+      const deadline = Date.now() + 15_000;
+      while (!runFinished && Date.now() < deadline) {
+        await sleep(100);
+        events = await listEvents(paths);
+        runFinished = events.find((item) => isTimeoutMiniMaxRunFinished(item));
+      }
+    } finally {
+      orchestrator.stop();
+    }
+
+    events = await listEvents(paths);
+    runFinished = events.find((item) => isTimeoutMiniMaxRunFinished(item));
+    assert.ok(runFinished);
+    assert.equal((runFinished.payload as Record<string, unknown>).provider, "minimax");
+    assert.equal(
+      events.some((item) => item.eventType === "CODEX_RUN_FINISHED" && item.sessionId === "sess-timeout-minimax"),
+      false
+    );
+  } finally {
+    if (previousTerminationTimeout === undefined) {
+      delete process.env.SESSION_PROCESS_TERMINATION_TIMEOUT_MS;
+    } else {
+      process.env.SESSION_PROCESS_TERMINATION_TIMEOUT_MS = previousTerminationTimeout;
+    }
+    if (previousEscalationThreshold === undefined) {
+      delete process.env.SESSION_TIMEOUT_ESCALATION_THRESHOLD;
+    } else {
+      process.env.SESSION_TIMEOUT_ESCALATION_THRESHOLD = previousEscalationThreshold;
+    }
+  }
+});

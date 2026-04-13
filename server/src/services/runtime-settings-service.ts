@@ -7,7 +7,6 @@ import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 
 export interface PatchRuntimeSettingsApiInput {
   codexCliCommand?: string;
-  traeCliCommand?: string;
   theme?: "dark" | "vibrant" | "lively";
   minimaxApiKey?: string | null;
   minimaxApiBase?: string | null;
@@ -25,7 +24,6 @@ export interface PatchRuntimeSettingsApiInput {
 
 export interface RuntimeSettingsApiResponse {
   codexCliCommand: string;
-  traeCliCommand: string;
   theme: string;
   minimaxApiKey?: string;
   minimaxApiBase?: string;
@@ -40,7 +38,6 @@ export interface RuntimeSettingsApiResponse {
   supportedShellTypes: string[];
   defaultShellType: string;
   codexCliCommandDefault: string;
-  traeCliCommandDefault: string;
   macosUntested: boolean;
   updatedAt: string;
 }
@@ -51,7 +48,6 @@ function toRuntimeSettingsApiResponse(
   const runtime = getRuntimePlatformCapabilities();
   return {
     codexCliCommand: settings.codexCliCommand,
-    traeCliCommand: settings.traeCliCommand,
     theme: settings.theme ?? "dark",
     minimaxApiKey: settings.minimaxApiKey,
     minimaxApiBase: settings.minimaxApiBase,
@@ -66,7 +62,6 @@ function toRuntimeSettingsApiResponse(
     supportedShellTypes: runtime.supportedShells,
     defaultShellType: runtime.defaultShell,
     codexCliCommandDefault: runtime.codexCliCommandDefault,
-    traeCliCommandDefault: runtime.traeCliCommandDefault,
     macosUntested: runtime.macosUntested,
     updatedAt: settings.updatedAt
   };

@@ -99,7 +99,7 @@ try {
 if ($raw) {
   $code = if ($raw.error_code) { [string]$raw.error_code } elseif ($raw.error -and $raw.error.code) { [string]$raw.error.code } else { 'DISCUSS_REMOTE_ERROR' }
   $msg = if ($raw.error -and $raw.error.message) { [string]$raw.error.message } elseif ($raw.message) { [string]$raw.message } else { 'Discuss request rejected by backend.' }
-  $nextAction = if ($raw.next_action) { [string]$raw.next_action } elseif ($raw.hint) { [string]$raw.hint } else { 'Check route target, task_id, thread_id, and round then retry once.' }
+  $nextAction = if ($raw.next_action) { [string]$raw.next_action } else { 'Check route target, task_id, thread_id, and round then retry once.' }
   Write-ToolError $code $msg $nextAction $raw
 }
 

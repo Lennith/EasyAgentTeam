@@ -6,9 +6,17 @@ import type {
   SessionRecord,
   TaskRecord
 } from "../../../domain/models.js";
-import { sortTasksForDispatch } from "../../orchestrator-dispatch-core.js";
+import {
+  extractTaskIdFromMessage,
+  readMessageTypeUpper,
+  sortTasksForDispatch
+} from "../../orchestrator-dispatch-core.js";
 import { buildTaskAssignmentMessageForTask } from "../../task-actions/shared.js";
-import { buildNormalizedDispatchSelectionResult } from "../shared/index.js";
+import {
+  buildNormalizedDispatchSelectionResult,
+  buildOrchestratorTaskSubtreePayload,
+  buildOrchestratorTaskSubtreeSummary
+} from "../shared/index.js";
 import type { DispatchKind, DispatchProjectInput, SessionDispatchResult } from "./project-orchestrator-types.js";
 import type { NormalizedDispatchSelectionResult, OrchestratorDispatchSelectionAdapter } from "../shared/contracts.js";
 import {
@@ -44,6 +52,45 @@ export type ProjectDispatchSelectionResult =
       result: SessionDispatchResult;
     };
 
+function isAutomaticTaskRedispatchSource(message: ManagerToAgentMessage, focusTaskId: string): boolean {
+  const body = message.body as Record<string, unknown>;
+  if ((extractTaskIdFromMessage(message) ?? "") !== focusTaskId) {
+    return false;
+  }
+  const messageType = readMessageTypeUpper(message);
+  if (messageType === "TASK_ASSIGNMENT" || messageType === "TASK_CREATOR_TERMINAL_REPORT") {
+    return true;
+  }
+  return messageType === "MANAGER_MESSAGE" && typeof body.reminder === "object" && body.reminder !== null;
+}
+
+function buildSyntheticTaskDispatchMessage(
+  project: ProjectRecord,
+  task: TaskRecord,
+  allTasks: TaskRecord[],
+  sourceMessages: ManagerToAgentMessage[]
+): ManagerToAgentMessage {
+  const firstSourceMessage = sourceMessages[0];
+  const taskSubtree = buildOrchestratorTaskSubtreePayload(
+    task.taskId,
+    allTasks.map((item) => ({
+      taskId: item.taskId,
+      parentTaskId: item.parentTaskId,
+      state: item.state,
+      ownerRole: item.ownerRole,
+      ownerSession: item.ownerSession ?? null,
+      closeReportId: item.closeReportId ?? null,
+      lastSummary: item.lastSummary ?? null
+    }))
+  );
+  return buildTaskAssignmentMessageForTask(project, task, {
+    requestId: firstSourceMessage?.envelope.correlation.request_id,
+    parentRequestId: firstSourceMessage?.envelope.correlation.parent_request_id,
+    summary: buildOrchestratorTaskSubtreeSummary(taskSubtree, task.lastSummary),
+    taskSubtree
+  });
+}
+
 export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSelectionAdapter<
   ProjectDispatchSelectionScope,
   DispatchProjectInput,
@@ -56,6 +103,7 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
     input: DispatchProjectInput
   ): Promise<ProjectDispatchSelectionResult> {
     const { project, paths, session } = scope;
+    const explicitMessageDispatch = Boolean(input.messageId?.trim());
     const inboxMessages = await this.repositories.inbox.listInboxMessages(paths, session.role);
 
     const runnableGroups = await this.repositories.taskboard.listRunnableTasksByRole(paths, project.projectId);
@@ -70,6 +118,7 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
     let selectedTaskId = "";
     let dispatchKind: DispatchKind = null;
     let selectedTask: TaskRecord | null = null;
+    let selectedMessageIds: string[] = [];
 
     const messageSelection = resolveProjectDispatchMessageSelection({
       project,
@@ -84,6 +133,7 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
     selectedTaskId = messageSelection.selectedTaskId;
     dispatchKind = messageSelection.dispatchKind;
     selectedTask = messageSelection.selectedTask;
+    selectedMessageIds = selectedMessages.map((message) => message.envelope.message_id);
 
     if (selectedMessages.length === 0) {
       const taskSelection = await resolveProjectTaskSelection({
@@ -101,9 +151,21 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
       }
       if (taskSelection.task) {
         selectedTask = taskSelection.task;
-        selectedMessages = [buildTaskAssignmentMessageForTask(project, taskSelection.task)];
+        selectedMessages = [buildSyntheticTaskDispatchMessage(project, taskSelection.task, allTasks, [])];
         selectedTaskId = taskSelection.task.taskId;
         dispatchKind = "task";
+        selectedMessageIds = [];
+      }
+    } else if (!explicitMessageDispatch && selectedTask) {
+      const focusTask = selectedTask;
+      if (!selectedMessages.every((message) => isAutomaticTaskRedispatchSource(message, focusTask.taskId))) {
+        selectedMessageIds = selectedMessages.map((message) => message.envelope.message_id);
+      } else {
+        const sourceMessages = selectedMessages;
+        selectedMessages = [buildSyntheticTaskDispatchMessage(project, focusTask, allTasks, sourceMessages)];
+        selectedTaskId = focusTask.taskId;
+        dispatchKind = "task";
+        selectedMessageIds = sourceMessages.map((message) => message.envelope.message_id);
       }
     }
 
@@ -141,7 +203,6 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
     }
 
     const firstMessage = selectedMessages[0];
-    const selectedMessageIds = selectedMessages.map((message) => message.envelope.message_id);
     if (!input.force && dispatchKind === "message" && session.lastInboxMessageId === firstMessage.envelope.message_id) {
       return {
         status: "skipped",

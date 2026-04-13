@@ -47,7 +47,7 @@ export const mockProjectDetail: ProjectDetail = {
   routeDiscussRounds: { pm: { backend_dev: 2 } },
   agentModelConfigs: {
     backend_dev: { provider_id: "codex", model: "gpt-4", effort: "high" },
-    frontend_dev: { provider_id: "trae", model: "claude-3", effort: "medium" }
+    frontend_dev: { provider_id: "minimax", model: "MiniMax-M2.5-High-speed", effort: "medium" }
   },
   autoDispatchEnabled: true,
   autoDispatchRemaining: 5,
@@ -457,8 +457,8 @@ export const mockAgents: AgentDefinition[] = [
     summary: "Builds product UI and interaction flows with frontend tooling.",
     skillList: ["default-core"],
     updatedAt: hourAgo,
-    defaultCliTool: "trae",
-    defaultModelParams: { model: "claude-3" }
+    defaultCliTool: "minimax",
+    defaultModelParams: { model: "MiniMax-M2.5-High-speed" }
   },
   {
     agentId: "qa",

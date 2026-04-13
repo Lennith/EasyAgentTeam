@@ -16,7 +16,15 @@ import {
 import { createProjectWithAudit } from "../services/project-meta-use-cases.js";
 import { logger } from "../utils/logger.js";
 import type { AppRuntimeContext } from "./shared/context.js";
-import { parseBoolean, parseInteger, parseReminderMode, readAgentModelConfigsField } from "./shared/http.js";
+import {
+  hasLegacyTraeAgentModelConfigs,
+  parseBoolean,
+  parseInteger,
+  parseReminderMode,
+  readAgentModelConfigsField,
+  validateAgentModelConfigsForApi,
+  sendApiError
+} from "./shared/http.js";
 
 export function registerProjectMetaRoutes(app: express.Application, context: AppRuntimeContext): void {
   const { dataRoot } = context;
@@ -70,6 +78,11 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
           | undefined) ?? teamRouteDiscussRounds;
       const agentModelConfigs =
         readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs) ?? teamAgentModelConfigs;
+      const modelValidation = validateAgentModelConfigsForApi(agentModelConfigs);
+      if (modelValidation) {
+        sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
+        return;
+      }
       const autoDispatchEnabled = parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, true);
       const autoDispatchRemaining = parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining) ?? 5;
       const holdEnabled = parseBoolean(body.hold_enabled ?? body.holdEnabled, false);
@@ -80,6 +93,10 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
           code: "ORCHESTRATOR_SETTINGS_INVALID",
           error: "reminder_mode must be backoff|fixed_interval"
         });
+        return;
+      }
+      if (hasLegacyTraeAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
         return;
       }
       const roleSessionMap = (body.role_session_map ?? body.roleSessionMap) as Record<string, string> | undefined;
@@ -218,7 +235,16 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
       const routeDiscussRounds = (body.route_discuss_rounds ?? body.routeDiscussRounds) as
         | Record<string, Record<string, number>>
         | undefined;
+      if (hasLegacyTraeAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+        return;
+      }
       const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
+      const modelValidation = validateAgentModelConfigsForApi(agentModelConfigs);
+      if (modelValidation) {
+        sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
+        return;
+      }
       if (!agentIds || !routeTable || typeof routeTable !== "object") {
         res.status(400).json({ error: "agent_ids and route_table are required" });
         return;

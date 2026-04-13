@@ -26,7 +26,7 @@ interface WorkflowTaskReportResultContext {
 
 export async function applyWorkflowTaskReportMutation<TState extends WorkflowTaskReportMutableState>(
   state: TState,
-  repositories: WorkflowRepositoryBundle
+  _repositories: WorkflowRepositoryBundle
 ): Promise<TState> {
   for (const result of state.input.results ?? []) {
     const task = state.byTask.get(result.taskId);
@@ -76,14 +76,6 @@ export async function applyWorkflowTaskReportMutation<TState extends WorkflowTas
     }
     addWorkflowTaskTransition(state.currentRuntime, task, target, result.summary);
     state.appliedTaskIds.push(result.taskId);
-    if (state.input.fromSessionId) {
-      await repositories.sessions
-        .touchSession(state.runId, state.input.fromSessionId, {
-          status: target === "DONE" || target === "CANCELED" ? "idle" : "running",
-          currentTaskId: target === "DONE" || target === "CANCELED" ? null : result.taskId
-        })
-        .catch(() => {});
-    }
   }
   return state;
 }

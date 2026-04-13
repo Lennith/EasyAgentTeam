@@ -5,6 +5,7 @@ export type TaskActionErrorCode =
   | "TASK_BINDING_REQUIRED"
   | "TASK_BINDING_MISMATCH"
   | "TASK_ROUTE_DENIED"
+  | "TASK_EXISTS"
   | "TASK_DEPENDENCY_CYCLE"
   | "TASK_DEPENDENCY_CROSS_ROOT"
   | "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN"
@@ -22,7 +23,7 @@ export class TaskActionError extends Error {
     public readonly code: TaskActionErrorCode,
     status?: number,
     public readonly details?: Record<string, unknown>,
-    public readonly hint?: string
+    public readonly nextAction?: string
   ) {
     super(message);
     this.status = status ?? getDefaultStatusForCode(code);
@@ -44,6 +45,7 @@ function getDefaultStatusForCode(code: TaskActionErrorCode): number {
       return 404;
     case "TASK_REPORT_NO_STATE_CHANGE":
     case "TASK_STATE_STALE":
+    case "TASK_EXISTS":
     case "TASK_DEPENDENCY_NOT_READY":
     case "TASK_BINDING_MISMATCH":
     case "TASK_DEPENDENCY_CYCLE":

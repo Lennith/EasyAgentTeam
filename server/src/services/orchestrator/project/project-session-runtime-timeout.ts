@@ -21,6 +21,12 @@ export interface ProjectSessionTimeoutDependencies {
   ): Promise<unknown>;
 }
 
+function resolveSyntheticRunFinishedEventType(
+  provider: string | null | undefined
+): "CODEX_RUN_FINISHED" | "MINIMAX_RUN_FINISHED" {
+  return provider === "codex" ? "CODEX_RUN_FINISHED" : "MINIMAX_RUN_FINISHED";
+}
+
 export async function markProjectTimedOutSessions(
   dependencies: ProjectSessionTimeoutDependencies,
   project: ProjectRecord,
@@ -125,9 +131,10 @@ export async function markProjectTimedOutSessions(
 
     if (runIdCandidate && !hasRunClosed) {
       const payload = (openRun?.event.payload ?? {}) as Record<string, unknown>;
+      const providerId = typeof payload.provider === "string" ? payload.provider : (session.provider ?? null);
       await dependencies.repositories.events.appendEvent(paths, {
         projectId: project.projectId,
-        eventType: "CODEX_RUN_FINISHED",
+        eventType: resolveSyntheticRunFinishedEventType(providerId),
         source: "manager",
         sessionId: session.sessionId,
         taskId: session.currentTaskId ?? openRun?.event.taskId,
@@ -136,7 +143,7 @@ export async function markProjectTimedOutSessions(
           exitCode: null,
           timedOut: true,
           status: "timeout",
-          provider: payload.provider ?? session.provider ?? null,
+          provider: providerId,
           mode: payload.mode ?? "exec",
           providerSessionId: payload.providerSessionId ?? session.providerSessionId ?? session.sessionId ?? null,
           synthetic: true,

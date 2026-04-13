@@ -32,7 +32,7 @@ export function registerProjectTaskRoutes(app: express.Application, context: App
         `[API] POST /api/projects/${projectId}/task-actions - error after ${duration}ms: ${error}, body=${JSON.stringify(requestBody)}`
       );
       if (error instanceof TaskActionError) {
-        const nextAction = error.hint ?? resolveTaskActionNextAction(error.code);
+        const nextAction = error.nextAction ?? resolveTaskActionNextAction(error.code);
         res.status(error.status).json({
           error_code: error.code,
           error: {
@@ -41,7 +41,6 @@ export function registerProjectTaskRoutes(app: express.Application, context: App
             ...(error.details ? { details: error.details } : {})
           },
           message: error.message,
-          hint: nextAction,
           next_action: nextAction
         });
         return;

@@ -20,6 +20,8 @@ test("orchestrator tool session input builder applies provider session and minim
   assert.equal(built.providerSessionId, "session-dev-001");
   assert.equal(built.sessionDirFallback, path.join(workspaceRoot, ".minimax", "sessions"));
   assert.deepEqual(built.runtimeConstraints, ["Report DONE via TASK_REPORT."]);
+  assert.equal(built.model, undefined);
+  assert.equal(built.reasoningEffort, undefined);
 });
 
 test("orchestrator tool session input builder preserves explicit overrides and optional fields", () => {
@@ -30,6 +32,8 @@ test("orchestrator tool session input builder preserves explicit overrides and o
       providerSessionId: " provider-qa-001 ",
       workspaceDir: "C:\\workspace\\Agents\\qa",
       workspaceRoot: "C:\\workspace",
+      model: "gpt-5.3-codex",
+      reasoningEffort: "medium",
       role: "qa",
       rolePrompt: "You are QA.",
       skillSegments: ["skill prompt"],
@@ -51,6 +55,8 @@ test("orchestrator tool session input builder preserves explicit overrides and o
 
   assert.equal(built.providerSessionId, "provider-qa-001");
   assert.equal(built.sessionDirFallback, "C:\\custom\\.minimax\\sessions");
+  assert.equal(built.model, "gpt-5.3-codex");
+  assert.equal(built.reasoningEffort, "medium");
   assert.equal(built.rolePrompt, "You are QA.");
   assert.deepEqual(built.skillIds, ["skill-1"]);
   assert.deepEqual(built.skillSegments, ["skill prompt"]);

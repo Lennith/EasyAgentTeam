@@ -1,6 +1,7 @@
 import type express from "express";
 import { WorkflowRuntimeError } from "../services/orchestrator/index.js";
 import { TeamToolsTemplateError } from "../services/project-agent-script-service.js";
+import { buildTaskExistsNextAction } from "../services/teamtool-contract.js";
 import { logger } from "../utils/logger.js";
 import { sendApiError } from "./shared/http.js";
 
@@ -91,7 +92,7 @@ export function translateApiError(error: unknown, req: express.Request, res: exp
       error.status,
       error.code,
       error.message,
-      error.hint,
+      error.nextAction,
       error.details ? { details: error.details } : undefined
     );
     return true;
@@ -137,7 +138,7 @@ export function translateApiError(error: unknown, req: express.Request, res: exp
   const taskboardStoreError = asNamedError(error, "TaskboardStoreError");
   if (taskboardStoreError) {
     if (taskboardStoreError.code === "TASK_EXISTS") {
-      sendApiError(res, 409, "TASK_EXISTS", taskboardStoreError.message, "Use unique task_id.");
+      sendApiError(res, 409, "TASK_EXISTS", taskboardStoreError.message, buildTaskExistsNextAction());
       return true;
     }
     if (taskboardStoreError.code === "TASK_NOT_FOUND") {

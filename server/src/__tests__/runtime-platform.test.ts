@@ -17,12 +17,10 @@ test("runtime platform capabilities provide platform-specific shell and CLI defa
   assert.deepEqual(windows.supportedShells, ["powershell", "cmd"]);
   assert.equal(windows.defaultShell, "powershell");
   assert.match(windows.codexCliCommandDefault, /codex\.cmd$/i);
-  assert.match(windows.traeCliCommandDefault, /trae\.cmd$/i);
 
   assert.deepEqual(linux.supportedShells, ["bash", "sh"]);
   assert.equal(linux.defaultShell, "bash");
   assert.equal(linux.codexCliCommandDefault, "codex");
-  assert.equal(linux.traeCliCommandDefault, "trae");
 
   assert.equal(mac.macosUntested, true);
   assert.deepEqual(mac.supportedShells, ["bash", "sh"]);

@@ -14,12 +14,66 @@ import {
   resolveOrchestratorManagerUrl,
   resolveOrchestratorProviderSessionId
 } from "../shared/index.js";
+import { createProviderCliUnavailableError } from "../../provider-launch-error.js";
+import type { ProviderObservationEvent } from "../../provider-session-types.js";
 
 export class WorkflowDispatchConfigurationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "WorkflowDispatchConfigurationError";
   }
+}
+
+function resolveObservedProviderSessionId(event: ProviderObservationEvent): string {
+  const providerSessionId = event.providerSessionId?.trim();
+  return providerSessionId && providerSessionId.length > 0 ? providerSessionId : "";
+}
+
+async function persistWorkflowProviderSessionObservation(
+  adapterContext: WorkflowDispatchLaunchAdapterContext,
+  context: WorkflowDispatchLaunchContext,
+  event: ProviderObservationEvent
+): Promise<void> {
+  if (event.providerId !== "codex" || event.kind !== "thread_started") {
+    return;
+  }
+  const observedProviderSessionId = resolveObservedProviderSessionId(event);
+  if (!observedProviderSessionId || observedProviderSessionId === context.lifecycleContext.providerSessionId) {
+    return;
+  }
+  context.lifecycleContext.providerSessionId = observedProviderSessionId;
+  await adapterContext.repositories.sessions
+    .touchSession(context.input.run.runId, context.input.session.sessionId, {
+      providerSessionId: observedProviderSessionId
+    })
+    .catch(() => {});
+}
+
+async function appendWorkflowProviderObservationEvent(
+  adapterContext: WorkflowDispatchLaunchAdapterContext,
+  context: WorkflowDispatchLaunchContext,
+  event: ProviderObservationEvent
+): Promise<void> {
+  await persistWorkflowProviderSessionObservation(adapterContext, context, event);
+  await adapterContext.repositories.events.appendEvent(context.input.run.runId, {
+    eventType: "PROVIDER_OBSERVATION_RECORDED",
+    source: "system",
+    sessionId: context.input.session.sessionId,
+    taskId: context.input.taskId ?? undefined,
+    payload: {
+      requestId: context.input.requestId,
+      dispatchId: context.input.dispatchId,
+      runId: context.input.run.runId,
+      dispatchKind: context.input.dispatchKind,
+      messageId: context.input.messageId ?? null,
+      role: context.input.role,
+      providerId: event.providerId,
+      providerSessionId: resolveObservedProviderSessionId(event) || context.lifecycleContext.providerSessionId,
+      step: event.step ?? null,
+      kind: event.kind,
+      details: event.details ?? {}
+    }
+  });
 }
 
 async function runWorkflowDispatchProviderSession(
@@ -60,6 +114,8 @@ async function runWorkflowDispatchProviderSession(
         providerSessionId,
         workspaceDir: agentWorkspaceDir,
         workspaceRoot: context.input.run.workspacePath,
+        model: context.prepared.model,
+        reasoningEffort: context.prepared.reasoningEffort,
         role: context.input.role,
         rolePrompt: context.prepared.rolePrompt,
         skillIds: context.prepared.requestedSkillIds,
@@ -81,12 +137,17 @@ async function runWorkflowDispatchProviderSession(
       {
         teamToolContext: toolInjection.teamToolContext,
         teamToolBridge: toolInjection.teamToolBridge,
+        codexTeamToolContext: toolInjection.codexTeamToolContext,
         callback: {
           onThinking: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
           onToolCall: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
           onToolResult: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
           onMessage: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
           onError: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
+          onProviderObservation: async (event) => {
+            await adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
+            await appendWorkflowProviderObservationEvent(adapterContext, context, event);
+          },
           onMaxTokensRecovery: async (event) => {
             await adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
             await appendWorkflowMaxTokensRecoveryEvent(adapterContext.repositories, context.lifecycleContext, event);
@@ -103,6 +164,9 @@ export async function runWorkflowDispatchProviderLaunch(
 ): Promise<Awaited<ReturnType<ProviderRegistry["runSessionWithTools"]>>> {
   if (context.prepared.providerId === "minimax" && !context.prepared.settings.minimaxApiKey) {
     throw new WorkflowDispatchConfigurationError("minimax_not_configured");
+  }
+  if (context.prepared.providerId === "codex" && !context.prepared.settings.codexCliCommand?.trim()) {
+    throw createProviderCliUnavailableError("codex", "codex");
   }
   const runtime = await adapterContext.ensureRuntime(context.input.run);
   const runtimeTask = context.input.taskId

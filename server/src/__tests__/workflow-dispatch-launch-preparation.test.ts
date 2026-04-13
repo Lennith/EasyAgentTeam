@@ -20,7 +20,7 @@ test("workflow dispatch launch preparation resolves fallback role prompt, skills
       session: {
         sessionId: "session-1",
         role: "dev",
-        provider: "trae"
+        provider: "codex"
       } as any
     },
     {
@@ -30,7 +30,11 @@ test("workflow dispatch launch preparation resolves fallback role prompt, skills
             agentId: "dev",
             prompt: "   ",
             summary: "developer",
-            skillList: ["skill-list-1"]
+            skillList: ["skill-list-1"],
+            defaultModelParams: {
+              model: "gpt-5.3-codex",
+              effort: "medium"
+            }
           }
         ] as any,
       resolveSkillIdsForAgent: async (_dataRoot: string, skillList: string[] | undefined) => {
@@ -63,7 +67,9 @@ test("workflow dispatch launch preparation resolves fallback role prompt, skills
   assert.equal(prepared.rolePrompt, "default:dev");
   assert.deepEqual(prepared.requestedSkillIds, ["skill-a"]);
   assert.deepEqual(prepared.importedSkillPrompt, { segments: ["skill prompt"] });
-  assert.equal(prepared.providerId, "trae");
+  assert.equal(prepared.providerId, "codex");
+  assert.equal(prepared.model, "gpt-5.3-codex");
+  assert.equal(prepared.reasoningEffort, "medium");
   assert.equal(prepared.tokenLimit, 2048);
   assert.equal(prepared.maxOutputTokens, 512);
 });

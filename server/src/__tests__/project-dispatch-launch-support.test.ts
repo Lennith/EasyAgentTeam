@@ -23,7 +23,7 @@ test("project dispatch launch support builds provider and runner payloads with s
     requestId: "req-1",
     parentRequestId: "parent-req-1",
     agentRole: "dev",
-    modelCommand: "trae",
+    modelCommand: "codex",
     modelParams: { model: "gpt-test" }
   });
   const messageRunnerPayload = buildProjectRunnerPayload(
@@ -64,7 +64,7 @@ test("project dispatch launch support builds provider and runner payloads with s
     activeRequestId: "req-1",
     parentRequestId: "parent-req-1",
     agentRole: "dev",
-    modelCommand: "trae",
+    modelCommand: "codex",
     modelParams: { model: "gpt-test" }
   });
   assert.equal(messageRunnerPayload.messageId, "msg-1");

@@ -6,6 +6,7 @@ import type {
   WorkflowDispatchStartedDetails
 } from "./workflow-dispatch-event-adapter.js";
 import { applyOrchestratorDispatchTerminalState, resolveOrchestratorErrorMessage } from "../shared/index.js";
+import { isProviderLaunchError } from "../../provider-launch-error.js";
 
 type WorkflowDispatchEventWriter = {
   appendStarted(scope: WorkflowDispatchEventScope, details: WorkflowDispatchStartedDetails): Promise<void>;
@@ -29,6 +30,8 @@ export interface WorkflowDispatchLifecycleContext {
 }
 
 export interface WorkflowDispatchRunResultMeta {
+  sessionId?: string | null;
+  providerSessionId?: string | null;
   finishReason?: string | null;
   usage?: unknown;
   maxOutputTokens?: number;
@@ -135,6 +138,8 @@ export async function handleWorkflowDispatchLaunchResult(
   context: WorkflowDispatchLifecycleContext,
   dispatchRunResult: WorkflowDispatchRunResultMeta
 ): Promise<void> {
+  const resolvedProviderSessionId =
+    dispatchRunResult.providerSessionId ?? dispatchRunResult.sessionId ?? context.providerSessionId;
   const dispatchTerminalState = await applyOrchestratorDispatchTerminalState(
     async () => await dependencies.repositories.events.listEvents(context.runId),
     context.sessionId,
@@ -170,7 +175,7 @@ export async function handleWorkflowDispatchLaunchResult(
   await dependencies.repositories.sessions.touchSession(context.runId, context.sessionId, {
     status: "idle",
     currentTaskId: null,
-    providerSessionId: context.providerSessionId,
+    providerSessionId: resolvedProviderSessionId,
     timeoutStreak: 0,
     errorStreak: 0,
     lastFailureAt: null,
@@ -224,9 +229,10 @@ export async function handleWorkflowDispatchLaunchError(
   }
 
   const latestSession = await dependencies.repositories.sessions.getSession(context.runId, context.sessionId);
+  const blockedByConfig = isProviderLaunchError(error) && error.category === "config";
   await dependencies.repositories.sessions
     .touchSession(context.runId, context.sessionId, {
-      status: "dismissed",
+      status: blockedByConfig ? "blocked" : "dismissed",
       errorStreak: (latestSession?.errorStreak ?? 0) + 1,
       lastFailureAt: new Date().toISOString(),
       lastFailureKind: "error",

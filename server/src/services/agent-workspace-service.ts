@@ -4,6 +4,7 @@ import type { ProjectRecord } from "../domain/models.js";
 import { ensureDirectory } from "../utils/file-utils.js";
 import type { HostPlatform } from "../runtime-platform.js";
 import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
+import { TEAM_TOOL_NAMES, buildTeamToolAliasGuidance, formatTeamToolNameWithCodexAlias } from "./teamtool-contract.js";
 
 const AGENTS_DIR = "Agents";
 const WORKSPACE_TEMPLATE_DIR = path.join("TeamTools", "templates", "agent-workspace");
@@ -51,24 +52,29 @@ export function buildAgentWorkspaceAgentsMd(hostPlatform?: HostPlatform): string
     "## Startup Checklist",
     runtimeGuide,
     "1. Read `./role.md` for your role-specific objective and output contract.",
-    "2. Read `./TEAM.md` to understand current team members.",
-    "3. Use built-in ToolCalls directly:",
-    "   - task_create_assign",
-    "   - task_report_in_progress / task_report_done / task_report_block",
-    "   - discuss_request / discuss_reply / discuss_close",
-    "   - route_targets_get",
-    "   - lock_manage",
-    "4. All $env values are set in your runtime.",
+    "2. Read `../TEAM.md` to understand current team members.",
+    "3. Use TeamTool built-in ToolCalls directly from the runtime tool registry:",
+    ...TEAM_TOOL_NAMES.map((name) => `   - ${formatTeamToolNameWithCodexAlias(name)}`),
+    `4. ${buildTeamToolAliasGuidance()}`,
+    "5. These TeamTool entries are model-callable tools, not shell commands, not local CLI commands, and not workspace files.",
+    "6. Do not use Get-Command, which, file search, or MCP resource browsing to check whether TeamTool exists. If you need one, call the exact tool name directly.",
+    "7. All $env values are set in your runtime.",
     "",
     "## Task Progress Discipline (CRITICAL)",
     "- If you have an assigned task (taskId in your session), you MUST report progress via built-in ToolCalls: task_report_in_progress, task_report_done, task_report_block.",
     "- discuss_request/discuss_reply/discuss_close are for discuss flow only; they do NOT count as task progress.",
     "- Failure to report task progress will cause task to remain in 'granted' state indefinitely.",
+    "- A natural-language completion/blocker message without the corresponding ToolCall is invalid and will be treated as unfinished work.",
+    "- Shell output is never evidence that TeamTool is unavailable. Only an actual failed ToolCall result counts as unavailability evidence.",
+    "- Before writing any final completion/blocker summary, call the required TeamTool first. If the ToolCall fails, quote its returned error_code and next_action instead of inventing a missing-tool explanation.",
+    "- Only call task_report_* for tasks owned by your role or created by your role.",
+    "- If task_create_assign returns TASK_EXISTS, do not retry the same create call. Inspect the existing task first and recover via next_action.",
+    '- Exact progress examples: `mcp__teamtool__task_report_in_progress({"content":"Started <task>","progress_file":"./progress.md"})` and `mcp__teamtool__task_report_done({"task_report_path":"./progress.md"})`.',
     "",
     "## Error Handling (CRITICAL)",
     "- When a ToolCall fails, ALWAYS check the `error_code` field in the JSON output.",
     "- DO NOT infer error meaning from HTTP status codes alone (e.g., 409 does NOT always mean 'task already done').",
-    "- The `hint` field provides actionable guidance - follow it exactly.",
+    "- The `next_action` field provides actionable guidance - follow it exactly.",
     "- Common error codes:",
     "  - `TASK_PROGRESS_REQUIRED`: progress.md must include the task_id. Update progress.md and resend.",
     "  - `TASK_REPORT_NO_STATE_CHANGE`: Report would not change task state. Add new progress/evidence.",
@@ -291,6 +297,8 @@ function buildRoleMdTemplate(role: string, prompt: string): string {
     "",
     "## Tool Reference",
     "Tool schemas are exposed directly by runtime tool registry. Use exact names from the available tools list.",
+    "TeamTool entries are model-callable tools. Do not probe them via shell commands, local CLI wrappers, script search, or MCP resource listing.",
+    "If a TeamTool action is required, call the exact exposed tool name directly.",
     "",
     "## Prompt Integrity",
     promptMissing

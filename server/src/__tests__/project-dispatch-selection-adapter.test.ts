@@ -65,6 +65,22 @@ function createMessage(messageId: string, taskId: string, content = "hello"): Ma
   };
 }
 
+function createReminderMessage(messageId: string, taskId: string): ManagerToAgentMessage {
+  const message = createMessage(messageId, taskId, "reminder");
+  message.body = {
+    ...message.body,
+    reminder: {
+      role: "dev",
+      reminder_mode: "backoff",
+      reminder_count: 1,
+      open_task_ids: [taskId],
+      open_task_titles: [{ task_id: taskId, title: taskId }],
+      next_reminder_at: null
+    }
+  };
+  return message;
+}
+
 function createSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
   const now = "2026-03-28T10:00:00.000Z";
   return {
@@ -284,4 +300,51 @@ test("project dispatch selection honors onlyIdle gate", async () => {
     return;
   }
   assert.equal(result.result.outcome, "session_busy");
+});
+
+test("project dispatch selection synthesizes fresh task assignment with subtree from reminder source", async () => {
+  const parent = createTask({
+    taskId: "task_parent",
+    ownerRole: "dev",
+    state: "READY",
+    lastSummary: "stale parent summary"
+  });
+  const child = createTask({
+    taskId: "task_child",
+    ownerRole: "qa",
+    state: "DONE",
+    parentTaskId: "task_parent",
+    rootTaskId: "root",
+    lastSummary: "child done"
+  });
+  const reminder = createReminderMessage("msg-reminder", "task_parent");
+  const { repositories } = createRepositories({
+    messages: [reminder],
+    tasks: [parent, child],
+    runnableTasks: [parent]
+  });
+  const adapter = new ProjectDispatchSelectionAdapter(repositories);
+
+  const result = await adapter.select(
+    { project: createProject(), paths: createPaths(), session: createSession() },
+    { mode: "loop" }
+  );
+
+  assert.equal(result.status, "selected");
+  if (result.status !== "selected") {
+    return;
+  }
+  assert.equal(result.selection.dispatchKind, "task");
+  assert.deepEqual(result.selection.selectedMessageIds, ["msg-reminder"]);
+  const body = result.selection.messages[0]?.body as Record<string, unknown>;
+  assert.equal(body.messageType, "TASK_ASSIGNMENT");
+  assert.match(String(body.summary), /task_subtree:/i);
+  const taskSubtree = body.task_subtree as {
+    descendant_counts?: { total?: number; done?: number; unresolved?: number };
+    terminal_descendant_reports?: Array<{ task_id: string }>;
+  };
+  assert.equal(taskSubtree.descendant_counts?.total, 1);
+  assert.equal(taskSubtree.descendant_counts?.done, 1);
+  assert.equal(taskSubtree.descendant_counts?.unresolved, 0);
+  assert.equal(taskSubtree.terminal_descendant_reports?.[0]?.task_id, "task_child");
 });

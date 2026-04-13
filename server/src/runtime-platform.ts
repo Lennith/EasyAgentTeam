@@ -13,7 +13,6 @@ export interface RuntimePlatformCapabilities {
   promptBaseline: string;
   agentWorkspaceGuide: string;
   codexCliCommandDefault: string;
-  traeCliCommandDefault: string;
 }
 
 function normalizeHostPlatform(raw: NodeJS.Platform | string | undefined): HostPlatform {
@@ -83,16 +82,6 @@ function defaultCodexCliCommand(platform: HostPlatform, env: NodeJS.ProcessEnv):
   return "codex";
 }
 
-function defaultTraeCliCommand(platform: HostPlatform, env: NodeJS.ProcessEnv): string {
-  if (platform === "win32") {
-    const appData = env.APPDATA;
-    if (appData) {
-      return path.join(appData, "npm", "trae.cmd");
-    }
-  }
-  return "trae";
-}
-
 export function getRuntimePlatformCapabilities(
   rawPlatform: NodeJS.Platform | string | undefined = process.platform,
   env: NodeJS.ProcessEnv = process.env
@@ -110,8 +99,7 @@ export function getRuntimePlatformCapabilities(
     defaultShell,
     promptBaseline: buildPromptBaseline(platform),
     agentWorkspaceGuide: buildAgentWorkspaceGuide(platform),
-    codexCliCommandDefault: defaultCodexCliCommand(platform, env),
-    traeCliCommandDefault: defaultTraeCliCommand(platform, env)
+    codexCliCommandDefault: defaultCodexCliCommand(platform, env)
   };
 }
 

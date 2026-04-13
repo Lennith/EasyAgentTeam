@@ -8,10 +8,10 @@ interface AgentOutputLine {
   content: string;
   cliCommand?: string;
   prompt?: string;
-  provider?: "codex" | "trae" | "minimax";
+  provider?: "codex" | "minimax";
 }
 
-type ParseMode = "thinking" | "exec" | "agent" | "codex" | "trae" | null;
+type ParseMode = "thinking" | "exec" | "agent" | "codex" | null;
 
 export type DebugAgentParsedLineType =
   | "system"
@@ -83,7 +83,7 @@ export interface DebugAgentRunDetail {
   };
   summary: DebugAgentRunSummary;
   parsedLines: DebugAgentParsedLine[];
-  provider?: "codex" | "trae" | "minimax";
+  provider?: "codex" | "minimax";
 }
 
 interface ParseRunOptions {
@@ -189,7 +189,6 @@ function extractPromptFromStderrUserBlock(rows: AgentOutputLine[]): string | und
       lower === "exec" ||
       lower === "agent" ||
       lower === "codex" ||
-      lower === "trae" ||
       lower.startsWith("reconnecting")
     ) {
       break;
@@ -228,10 +227,9 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
           (row) =>
             row.stream === "system" &&
             typeof row.content === "string" &&
-            (normalizeText(row.content).toLowerCase().startsWith("starting codex run") ||
-              normalizeText(row.content).toLowerCase().startsWith("starting trae run"))
+            normalizeText(row.content).toLowerCase().startsWith("starting codex run")
         )
-        ?.content.replace(/^(Starting codex run|Starting trae run)(?:\s+\([^)]+\))?:\s*/i, ""),
+        ?.content.replace(/^Starting codex run(?:\s+\([^)]+\))?:\s*/i, ""),
     initialPrompt: rows.find((row) => typeof row.prompt === "string" && row.prompt.trim().length > 0)?.prompt,
     initialPromptSource: rows.some((row) => typeof row.prompt === "string" && row.prompt.trim().length > 0)
       ? "embedded"
@@ -274,7 +272,7 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
 
     if (row.stream === "system") {
       type = "system";
-      if (lower.startsWith("starting codex run") || lower.startsWith("starting trae run")) {
+      if (lower.startsWith("starting codex run")) {
         startedAt = row.timestamp;
       }
       const finishedMatch = clean.match(FINISHED_PATTERN);
@@ -294,7 +292,7 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
       } else if (lower === "exec") {
         mode = "exec";
         type = "marker";
-      } else if (lower === "agent" || lower === "codex" || lower === "trae") {
+      } else if (lower === "agent" || lower === "codex") {
         mode = lower as ParseMode;
         type = "marker";
       } else if (lower.includes("tokens used")) {
@@ -310,7 +308,7 @@ function parseSingleRun(rows: AgentOutputLine[], options: ParseRunOptions): Debu
       } else if (mode === "thinking" && clean.startsWith("**")) {
         summary.reasoning.push(clean.replace(/^\*+|\*+$/g, "").trim());
         type = "reasoning";
-      } else if (mode === "agent" || mode === "codex" || mode === "trae") {
+      } else if (mode === "agent" || mode === "codex") {
         summary.assistantNotes.push(clean);
         type = "assistant_note";
       } else if (parseMetaLine(summary, clean)) {

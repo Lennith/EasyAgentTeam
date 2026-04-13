@@ -1,4 +1,6 @@
 import { runModelForProject, type ModelRunResult } from "./codex-runner.js";
+import { buildProjectCodexTeamToolContext, type ProjectCodexTeamToolContext } from "./codex-teamtool-mcp.js";
+import { CodexSessionRuntime } from "./codex-session-runtime.js";
 import {
   cancelMiniMaxRunner,
   isMiniMaxRunnerActive,
@@ -9,8 +11,8 @@ import {
 import { createMiniMaxAgent, type MiniMaxAgent, type MiniMaxRunResult } from "../minimax/index.js";
 import type { RuntimeSettings } from "../data/repository/system/runtime-settings-repository.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
-import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/team/types.js";
 import type { ProviderId } from "@autodev/agent-library";
+import type { ProviderSessionRunInput } from "./provider-session-types.js";
 import { composeSystemPrompt } from "./prompt-composer.js";
 import { resolveSkillPromptSegments } from "./skill-catalog.js";
 import { getDefaultShellType } from "../runtime-platform.js";
@@ -20,6 +22,7 @@ type ProjectSyncRunResult = ModelRunResult | MiniMaxRunResultInternal;
 export interface ProjectDispatchInput {
   sessionId: string;
   prompt: string;
+  dataRoot?: string;
   dispatchId?: string;
   taskId?: string;
   activeTaskTitle?: string;
@@ -45,82 +48,7 @@ export type ProjectDispatchLaunchResult =
       sessionId: string;
     };
 
-export interface MiniMaxSessionRunInput {
-  prompt: string;
-  providerSessionId: string;
-  workspaceDir: string;
-  workspaceRoot: string;
-  role?: string;
-  rolePrompt?: string;
-  contextKind?: string;
-  contextOverride?: string;
-  runtimeConstraints?: string[];
-  skillManifestPath?: string;
-  skillSegments?: string[];
-  skillIds?: string[];
-  requiredSkillIds?: string[];
-  env?: Record<string, string>;
-  teamToolContext?: TeamToolExecutionContext;
-  teamToolBridge?: TeamToolBridge;
-  sessionDirFallback: string;
-  apiBaseFallback: string;
-  modelFallback: string;
-  callback?: {
-    onThinking?: (thinking: string) => void;
-    onToolCall?: (name: string, args: Record<string, unknown>) => void;
-    onToolResult?: (name: string, result: { success: boolean; content: string; error?: string }) => void;
-    onStep?: (step: number, maxSteps: number) => void;
-    onMessage?: (role: string, content: string) => void;
-    onError?: (error: Error) => void;
-    onSummaryMessagesAccepted?: (event: {
-      checkpointId: string;
-      keepRecentMessages: number;
-      summaryChars: number;
-      availableCheckpoints: number;
-    }) => void;
-    onSummaryMessagesApplied?: (event: {
-      checkpointId: string;
-      keepRecentMessages: number;
-      summaryChars: number;
-      beforeMessages: number;
-      afterMessages: number;
-      compactedMessages: number;
-      beforeChars: number;
-      afterChars: number;
-    }) => void;
-    onMaxTokensRecovery?: (event: {
-      observedAt: string;
-      step: number;
-      attempt: number;
-      maxAttempts: number;
-      recovered: boolean;
-      finishReason: "max_tokens";
-      usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
-      preCompressMessageCount: number;
-      preCompressChars: number;
-      postCompressMessageCount: number;
-      postCompressChars: number;
-      compactedToolCallChains: number;
-      compactedToolMessages: number;
-      compressionMode: "llm_compressor" | "deterministic_trim" | "none";
-      compressionError?: string;
-      continuationInjected: boolean;
-      maxTokensSnapshotPath?: string | null;
-    }) => void | Promise<void>;
-    onComplete?: (
-      result: string,
-      finishReason?: string,
-      meta?: {
-        finishReason?: string;
-        usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
-        step: number;
-        recoveredFromMaxTokens?: boolean;
-        maxTokensRecoveryAttempt?: number;
-        maxTokensSnapshotPath?: string | null;
-      }
-    ) => void;
-  };
-}
+export type MiniMaxSessionRunInput = ProviderSessionRunInput;
 
 export interface ProviderRuntime {
   providerId: ProviderId;
@@ -136,8 +64,9 @@ export interface ProviderRuntime {
   isSessionActive(sessionId: string): boolean;
 }
 
-class CliProviderRuntime implements ProviderRuntime {
-  constructor(public readonly providerId: ProviderId) {}
+class CodexProviderRuntime implements ProviderRuntime {
+  public readonly providerId: ProviderId = "codex";
+  private readonly sessionRuntime = new CodexSessionRuntime();
 
   async launchProjectDispatch(
     project: ProjectRecord,
@@ -145,6 +74,22 @@ class CliProviderRuntime implements ProviderRuntime {
     input: ProjectDispatchInput,
     settings: RuntimeSettings
   ): Promise<ProjectDispatchLaunchResult> {
+    const codexTeamToolContext: ProjectCodexTeamToolContext | undefined =
+      input.dataRoot && input.agentRole
+        ? buildProjectCodexTeamToolContext({
+            dataRoot: input.dataRoot,
+            project,
+            paths,
+            agentRole: input.agentRole,
+            sessionId: input.sessionId,
+            activeTaskId: input.taskId,
+            activeTaskTitle: input.activeTaskTitle,
+            activeParentTaskId: input.activeParentTaskId,
+            activeRootTaskId: input.activeRootTaskId,
+            activeRequestId: input.activeRequestId,
+            parentRequestId: input.parentRequestId
+          })
+        : undefined;
     const result = await runModelForProject(
       project,
       paths,
@@ -159,10 +104,11 @@ class CliProviderRuntime implements ProviderRuntime {
         active_request_id: input.activeRequestId,
         parent_request_id: input.parentRequestId,
         agent_role: input.agentRole,
-        cli_tool: this.providerId,
+        cli_tool: "codex",
         model_command: input.modelCommand,
         model_params: input.modelParams,
-        resume_session_id: input.resumeSessionId
+        resume_session_id: input.resumeSessionId,
+        codex_teamtool_context: codexTeamToolContext
       },
       settings
     );
@@ -172,12 +118,16 @@ class CliProviderRuntime implements ProviderRuntime {
     };
   }
 
-  cancelSession(_sessionId: string): boolean {
-    return false;
+  async runSessionWithTools(settings: RuntimeSettings, input: MiniMaxSessionRunInput): Promise<MiniMaxRunResult> {
+    return await this.sessionRuntime.runSessionWithTools(settings, input);
   }
 
-  isSessionActive(_sessionId: string): boolean {
-    return false;
+  cancelSession(sessionId: string): boolean {
+    return this.sessionRuntime.cancelSession(sessionId);
+  }
+
+  isSessionActive(sessionId: string): boolean {
+    return this.sessionRuntime.isSessionActive(sessionId);
   }
 }
 
@@ -315,8 +265,7 @@ export class ProviderRegistry {
   private readonly runtimes = new Map<ProviderId, ProviderRuntime>();
 
   constructor() {
-    this.register(new CliProviderRuntime("codex"));
-    this.register(new CliProviderRuntime("trae"));
+    this.register(new CodexProviderRuntime());
     this.register(new MiniMaxProviderRuntime());
   }
 
@@ -326,8 +275,9 @@ export class ProviderRegistry {
 
   resolve(providerId: string | undefined | null): ProviderRuntime {
     const normalized = (providerId ?? "minimax").trim().toLowerCase();
-    if (normalized === "codex" || normalized === "trae" || normalized === "minimax") {
-      const runtime = this.runtimes.get(normalized);
+    const resolvedProviderId = normalized === "trae" ? "minimax" : normalized;
+    if (resolvedProviderId === "codex" || resolvedProviderId === "minimax") {
+      const runtime = this.runtimes.get(resolvedProviderId);
       if (runtime) {
         return runtime;
       }
@@ -391,7 +341,10 @@ export function resolveSessionProviderId(
   }
   const modelConfig = modelConfigs[normalizedRole];
   const providerIdRaw = modelConfig?.provider_id;
-  if (providerIdRaw === "codex" || providerIdRaw === "trae" || providerIdRaw === "minimax") {
+  if (providerIdRaw === "trae") {
+    return "minimax";
+  }
+  if (providerIdRaw === "codex" || providerIdRaw === "minimax") {
     return providerIdRaw;
   }
   return fallback;

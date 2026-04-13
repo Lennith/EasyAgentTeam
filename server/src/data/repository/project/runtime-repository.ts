@@ -178,7 +178,7 @@ function normalizeAgentModelConfigs(
       continue;
     }
     const providerId =
-      config.provider_id === "trae" ? "trae" : config.provider_id === "minimax" ? "minimax" : "codex";
+      config.provider_id === "trae" || config.provider_id === "minimax" ? "minimax" : "codex";
     const model = typeof config.model === "string" ? config.model.trim() : "";
     const effortRaw = typeof config.effort === "string" ? config.effort.trim().toLowerCase() : "";
     const effort = effortRaw === "low" || effortRaw === "medium" || effortRaw === "high"
@@ -414,6 +414,7 @@ export async function getProject(dataRoot: string, projectId: string): Promise<P
   }
   return {
     ...project,
+    agentModelConfigs: normalizeAgentModelConfigs(project.agentModelConfigs, project.agentIds),
     autoDispatchEnabled: normalizeAutoDispatchEnabled(project.autoDispatchEnabled, true),
     autoDispatchRemaining: normalizeAutoDispatchRemaining(project.autoDispatchRemaining, 5),
     holdEnabled: normalizeHoldEnabled(project.holdEnabled, false),

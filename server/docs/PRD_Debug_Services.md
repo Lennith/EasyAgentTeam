@@ -108,7 +108,7 @@
 2. 两个 facade 只保留事件读取差异：
    - project：读取 project events
    - workflow：读取 workflow run events
-3. `TASK_ACTION_REJECTED` 在 timeline 中保留 `error_code` 与 `hint`。
+3. `TASK_ACTION_REJECTED` 在 timeline 中保留 `error_code` 与 `next_action`。
 4. `TASK_REPORT_APPLIED` 在 timeline 中归类为 `task_report`。
 5. `MESSAGE_ROUTED` 且 messageType 以 `TASK_DISCUSS` 开头时归类为 `task_discuss`。
 6. workflow dispatch 行在 `requestedSkillIds` 存在时继续写入 `content` 摘要；project timeline 不追加该字段。
@@ -118,6 +118,13 @@
 
 - `agent_output.jsonl` 按 runId 聚合
 - 识别 tool call / tool output / error / token usage
+- Codex MCP 的 tool_result 必须优先解析 `structuredContent`，回退解析 `content[0].text`，避免把 TeamTool 错误退化成不可读数组字符串
+- provider 启动配置错误必须在 debug / timeline / agent chat 错误流中保持同一语义：
+  - `code`
+  - `message`
+  - `next_action`
+  - 可选 `details`
+- `ORCHESTRATOR_DISPATCH_FAILED` 的错误摘要必须可稳定追溯到 provider launch error，不再只暴露裸的 `Unknown model` 或 `exitCode=1`
 - 生成 run summary（便于脚本和离线诊断）
 
 ---

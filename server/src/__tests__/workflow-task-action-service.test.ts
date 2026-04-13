@@ -204,7 +204,7 @@ test("workflow task action service creates task with merged dependencies and upd
   assert.equal(appendedEvents[0]?.eventType, "TASK_ACTION_RECEIVED");
 });
 
-test("workflow task action service reports partial apply and appends TASK_REPORT_APPLIED", async () => {
+test("workflow task action service reports partial apply without mutating session lifecycle", async () => {
   const touchedSessions: Array<{ sessionId: string; patch: Record<string, unknown> }> = [];
   const appendedEvents: Array<Record<string, unknown>> = [];
   const writtenRuntimes: Array<Record<string, unknown>> = [];
@@ -280,15 +280,7 @@ test("workflow task action service reports partial apply and appends TASK_REPORT
       reason: "task 'task-missing' not found"
     }
   ]);
-  assert.deepEqual(touchedSessions, [
-    {
-      sessionId: "session-lead-01",
-      patch: {
-        status: "idle",
-        currentTaskId: null
-      }
-    }
-  ]);
+  assert.deepEqual(touchedSessions, []);
   assert.equal(writtenRuntimes.length, 1);
   assert.equal(appendedEvents[0]?.eventType, "TASK_ACTION_RECEIVED");
   assert.equal(appendedEvents[1]?.eventType, "TASK_REPORT_APPLIED");

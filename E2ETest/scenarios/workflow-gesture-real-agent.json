@@ -1,15 +1,22 @@
-{
+﻿{
   "scenario_id": "workflow_gesture_real_agent_v1",
   "scenario_kind": "workflow_real_agent",
   "project_id": "e2e_gesture_workflow_host",
   "project_name": "E2E Gesture Workflow Host",
   "template_id": "e2e_gesture_workflow_template_v1",
   "workflow_name": "E2E Gesture Workflow Run",
-  "primary_goal": "帮我做一个安卓端的手势识别应用",
-  "agent_model": {
-    "provider_id": "minimax",
-    "model": "MiniMax-M2.5",
-    "effort": "high"
+  "primary_goal": "Build an Android gesture recognition app",
+  "agent_model_matrix": {
+    "product_owner": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" },
+    "biz_analyst": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "ux_researcher": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" },
+    "interaction_designer": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "ui_designer": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "rd_lead": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "android_dev": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" },
+    "ml_engineer": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "qa_engineer": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" },
+    "devops_release": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" }
   },
   "roles": {
     "product_owner": "e2e_mgr_product_owner",
@@ -178,7 +185,7 @@
     "skill_list_id": "e2e_workflow_skill_list",
     "bind_role_refs": ["ui_designer"],
     "dispatch_role_ref": "ui_designer",
-    "artifact_path": "docs/ux/ui/01_ui_spec.md",
+    "artifact_paths": ["docs/design/ui/01_ui_spec.md", "docs/ui/01_ui_spec.md"],
     "required_markers": ["E2E_SKILL_MARKER_V1"]
   },
   "phase_tasks": [
@@ -215,7 +222,7 @@
       "title": "Define product scope, target users, and MVP boundaries",
       "owner_role": "e2e_mgr_product_owner",
       "dependencies": ["wf_plan_master"],
-      "artifacts": ["docs/product/01_product_scope.md"],
+      "artifacts": ["docs/product/01_prd_gesture_mvp.md", "docs/product/10_product_requirements.md"],
       "acceptance": [
         "Clarify target users and key scenarios.",
         "Define MVP features and out-of-scope items.",
@@ -227,7 +234,7 @@
       "title": "Produce interaction flow and key journey decisions",
       "owner_role": "e2e_mgr_interaction_designer",
       "dependencies": ["wf_product_definition"],
-      "artifacts": ["docs/ux/interaction/01_interaction_flow.md"],
+      "artifacts": ["docs/interaction/01_core_flows.md", "docs/interaction/02_state_model.md"],
       "acceptance": [
         "Cover end-to-end interaction flow and state transitions.",
         "Include gesture interaction feedback rules.",
@@ -239,7 +246,7 @@
       "title": "Produce UI specification and visual component constraints",
       "owner_role": "e2e_mgr_ui_designer",
       "dependencies": ["wf_interaction_design"],
-      "artifacts": ["docs/ux/ui/01_ui_spec.md", "src/android/app/src/main/res/layout/activity_main.xml"],
+      "artifacts": ["docs/design/ui/01_ui_spec.md"],
       "acceptance": [
         "Define key screens and UI component rules.",
         "Define accessibility and visual consistency baseline.",
@@ -251,7 +258,7 @@
       "title": "RD lead decomposes engineering plan and ownership",
       "owner_role": "e2e_mgr_rd_lead",
       "dependencies": ["wf_product_definition", "wf_interaction_design", "wf_ui_design"],
-      "artifacts": ["docs/engineering/01_dev_breakdown.md", "src/android/README.md"],
+      "artifacts": ["docs/engineering/40_architecture_and_execution_plan.md", "src/android-app/build.gradle.kts"],
       "acceptance": [
         "Break down Android/ML/QA/Release work packages.",
         "Include dependency order and integration checkpoints.",
@@ -264,10 +271,10 @@
       "owner_role": "e2e_mgr_android_dev",
       "dependencies": ["wf_engineering_decomposition"],
       "artifacts": [
-        "src/android/app/src/main/AndroidManifest.xml",
-        "src/android/app/build.gradle",
-        "src/android/app/src/main/java/com/gesturerecognition/MainActivity.kt",
-        "app/integration/gesture_pipeline_contract.md"
+        "src/android-app/src/main/AndroidManifest.xml",
+        "src/android-app/build.gradle.kts",
+        "src/app/src/main/AndroidManifest.xml",
+        "src/app/build.gradle.kts"
       ],
       "acceptance": [
         "Deliver Android module structure and core source code under src/android.",
@@ -279,7 +286,7 @@
       "title": "Define quality validation and release runbook",
       "owner_role": "e2e_mgr_qa_engineer",
       "dependencies": ["wf_engineering_execution"],
-      "artifacts": ["qa/01_test_plan.md", "release/01_release_runbook.md", "src/android/app/src/test"],
+      "artifacts": ["docs/release/01_packaging_and_handoff.md"],
       "acceptance": [
         "Define test strategy and key acceptance tests for delivered source code.",
         "Define release steps and rollback strategy."
@@ -290,7 +297,11 @@
       "title": "Prepare final delivery package for stakeholders",
       "owner_role": "e2e_mgr_product_owner",
       "dependencies": ["wf_quality_release"],
-      "artifacts": ["delivery/01_final_delivery_package.md", "src/android/build.bat"],
+      "artifacts": [
+        "delivery/01_final_delivery_package.md",
+        "docs/release/70_final_delivery.md",
+        "src/android-app/build.bat"
+      ],
       "acceptance": [
         "Summarize final scope, quality status, and release readiness.",
         "Provide final handoff package with clear next actions.",
@@ -300,74 +311,125 @@
   ],
   "code_output_requirements": [
     {
-      "relative_path": "src/android/app/src/main/AndroidManifest.xml"
+      "relative_paths_any": [
+        "src/android/app/src/main/AndroidManifest.xml",
+        "src/android-gesture-app/app/src/main/AndroidManifest.xml",
+        "src/android-app/app/src/main/AndroidManifest.xml",
+        "src/android-app/src/main/AndroidManifest.xml",
+        "src/app/src/main/AndroidManifest.xml"
+      ]
     },
     {
-      "relative_path": "src/android/app/build.gradle"
+      "relative_paths_any": [
+        "src/android/app/build.gradle.kts",
+        "src/android/app/build.gradle",
+        "src/android-gesture-app/app/build.gradle.kts",
+        "src/android-gesture-app/app/build.gradle",
+        "src/android-app/app/build.gradle.kts",
+        "src/android-app/app/build.gradle",
+        "src/android-app/build.gradle.kts",
+        "src/app/build.gradle.kts",
+        "src/app/build.gradle"
+      ]
     },
     {
-      "dir_pattern": "src/android/app/src/main/java/**/*.kt",
-      "min_count": 1
-    },
-    {
-      "dir_pattern": "src/android/app/src/test/java/**/*.kt",
+      "dir_patterns_any": [
+        "src/android/app/src/main/java/**/*.kt",
+        "src/android-gesture-app/app/src/main/java/**/*.kt",
+        "src/android-app/app/src/main/java/**/*.kt",
+        "src/android-app/src/main/java/**/*.kt",
+        "src/app/src/main/java/**/*.kt"
+      ],
       "min_count": 1
     }
   ],
   "artifact_validations": [
     {
       "task_id": "wf_plan_master",
-      "path": "docs/plan/00_master_plan.md",
+      "paths_any": ["docs/plan/00_master_plan.md"],
       "keywords": ["plan", "android", "gesture"]
     },
     {
       "task_id": "wf_product_definition",
-      "path": "docs/product/01_product_scope.md",
-      "keywords": ["scope", "mvp", "gesture"]
+      "paths_any": [
+        "docs/product/01_prd_gesture_mvp.md",
+        "docs/product/10_product_requirements.md",
+        "TeamWorkSpace/docs/product/01_requirements.md",
+        "docs/product/10_mvp_requirements.md",
+        "docs/product/01_requirements.md"
+      ],
+      "keywords": ["mvp", "gesture", "user"]
     },
     {
       "task_id": "wf_interaction_design",
-      "path": "docs/ux/interaction/01_interaction_flow.md",
-      "keywords": ["interaction", "flow", "gesture"]
+      "paths_any": [
+        "docs/interaction/01_core_flows.md",
+        "docs/interaction/02_state_model.md",
+        "docs/interaction/20_gesture_interaction_flows.md",
+        "TeamWorkSpace/docs/interaction/01_flows.md",
+        "docs/design/20_interaction_flows.md",
+        "docs/interaction/01_flows.md"
+      ],
+      "keywords": []
     },
     {
       "task_id": "wf_ui_design",
-      "path": "docs/ux/ui/01_ui_spec.md",
+      "paths_any": ["docs/design/ui/01_ui_spec.md", "docs/ui/01_ui_spec.md"],
       "keywords": ["ui", "screen", "gesture", "e2e_skill_marker_v1"]
     },
     {
       "task_id": "wf_reminder_probe",
-      "path": "docs/e2e/workflow_reminder_probe.md",
-      "keywords": ["reminder", "probe", "done"]
+      "paths_any": ["docs/e2e/workflow_reminder_probe.md"],
+      "keywords": ["reminder", "probe", "redispatch"]
     },
     {
       "task_id": "wf_engineering_decomposition",
-      "path": "docs/engineering/01_dev_breakdown.md",
-      "keywords": ["breakdown", "android", "ml"]
+      "paths_any": [
+        "docs/engineering/40_architecture_and_execution_plan.md",
+        "docs/engineering/01_architecture_plan.md",
+        "docs/engineering/40_architecture_plan.md"
+      ],
+      "keywords": []
     },
     {
       "task_id": "wf_engineering_execution",
-      "path": "app/android/README.md",
-      "keywords": ["android", "module", "gesture"]
-    },
-    {
-      "task_id": "wf_engineering_execution",
-      "path": "app/integration/gesture_pipeline_contract.md",
-      "keywords": ["contract", "pipeline", "gesture"]
+      "paths_any": [
+        "src/android/app/src/main/AndroidManifest.xml",
+        "src/android-gesture-app/app/src/main/AndroidManifest.xml",
+        "src/android-app/app/src/main/AndroidManifest.xml",
+        "src/android-app/src/main/AndroidManifest.xml",
+        "src/app/src/main/AndroidManifest.xml"
+      ],
+      "keywords": ["application", "android.intent.action.MAIN", "android.intent.category.LAUNCHER"]
     },
     {
       "task_id": "wf_quality_release",
-      "path": "qa/01_test_plan.md",
+      "paths_any": [
+        "docs/release/01_packaging_and_handoff.md",
+        "docs/qa/02_test_plan.md",
+        "docs/qa/01_test_report.md",
+        "docs/qa/01_test_plan.md",
+        "qa/01_test_plan.md"
+      ],
       "keywords": ["test", "plan", "acceptance"]
     },
     {
       "task_id": "wf_quality_release",
-      "path": "release/01_release_runbook.md",
-      "keywords": ["release", "runbook", "rollback"]
+      "paths_any": [
+        "docs/release/01_packaging_and_handoff.md",
+        "docs/release/01_release_runbook.md",
+        "release/01_release_runbook.md"
+      ],
+      "keywords": ["release", "build", "handoff"]
     },
     {
       "task_id": "wf_final_delivery",
-      "path": "delivery/01_final_delivery_package.md",
+      "paths_any": [
+        "TeamWorkSpace/delivery/01_final_delivery_package.md",
+        "docs/delivery/01_final_delivery_package.md",
+        "docs/release/70_final_delivery.md",
+        "delivery/01_final_delivery_package.md"
+      ],
       "keywords": ["delivery", "package", "summary"]
     }
   ]

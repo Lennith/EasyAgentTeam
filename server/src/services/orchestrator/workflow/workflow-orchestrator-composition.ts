@@ -26,6 +26,7 @@ export type WorkflowRuntimeErrorCode =
   | "ROUTE_DENIED"
   | "MESSAGE_TARGET_REQUIRED"
   | "TASK_OWNER_ROLE_NOT_FOUND"
+  | "TASK_EXISTS"
   | "TASK_DEPENDENCY_NOT_READY"
   | "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN";
 
@@ -34,7 +35,7 @@ export interface WorkflowRuntimeErrorFactory {
     message: string,
     code: WorkflowRuntimeErrorCode,
     status?: number,
-    hint?: string,
+    nextAction?: string,
     details?: Record<string, unknown>
   ): Error;
 }

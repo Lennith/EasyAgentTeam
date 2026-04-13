@@ -8,10 +8,25 @@ import {
   buildOrchestratorReminderMessage,
   buildOrchestratorReminderContent,
   buildOrchestratorReminderOpenTaskSummary,
+  hasOrchestratorUnresolvedDescendants,
   collectOrchestratorRoleSet,
   runOrchestratorReminderLoop
 } from "../shared/index.js";
 import type { ProjectReminderContext, ReminderResetReason } from "./project-orchestrator-types.js";
+
+function hasReminderEligibleSubtree(taskId: string, allTasks: WorkflowLikeTask[]): boolean {
+  return !hasOrchestratorUnresolvedDescendants(taskId, allTasks);
+}
+
+type WorkflowLikeTask = {
+  taskId: string;
+  parentTaskId: string;
+  state: string;
+  ownerRole: string;
+  ownerSession?: string | null;
+  closeReportId?: string | null;
+  lastSummary?: string | null;
+};
 
 export class ProjectReminderService {
   constructor(private readonly context: ProjectReminderContext) {}
@@ -64,6 +79,15 @@ export class ProjectReminderService {
     const sessions = await this.context.repositories.sessions.listSessions(paths, project.projectId);
     const allTasks = await this.context.repositories.taskboard.listTasks(paths, project.projectId);
     const nowMs = Date.now();
+    const subtreeTasks: WorkflowLikeTask[] = allTasks.map((task) => ({
+      taskId: task.taskId,
+      parentTaskId: task.parentTaskId,
+      state: task.state,
+      ownerRole: task.ownerRole,
+      ownerSession: task.ownerSession ?? null,
+      closeReportId: task.closeReportId ?? null,
+      lastSummary: task.lastSummary ?? null
+    }));
 
     const reminderMode = project.reminderMode ?? "backoff";
     const roleSet = collectOrchestratorRoleSet({
@@ -99,6 +123,7 @@ export class ProjectReminderService {
             : undefined,
           openTasks: allTasks
             .filter((task) => task.ownerRole === role && isRemindableTaskState(task.state))
+            .filter((task) => hasReminderEligibleSubtree(task.taskId, subtreeTasks))
             .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
         };
       },
@@ -183,6 +208,7 @@ export class ProjectReminderService {
         const redispatchResult = await this.context.dispatchProject(project.projectId, {
           mode: "loop",
           sessionId: idleSession.sessionId,
+          taskId: primaryTaskId,
           force: false,
           onlyIdle: false,
           maxDispatches: 1

@@ -59,7 +59,7 @@ export function isOrchestratorTaskReportableState(state: TaskState): boolean {
   return ORCHESTRATOR_REPORTABLE_TASK_STATES.has(state);
 }
 
-export function buildOrchestratorDependencyNotReadyHint(taskId: string, dependencyTaskIds: string[]): string {
+export function buildOrchestratorDependencyNotReadyNextAction(taskId: string, dependencyTaskIds: string[]): string {
   const deps = dependencyTaskIds.join(", ");
   return (
     `Task '${taskId}' is blocked by dependencies [${deps}]. ` +

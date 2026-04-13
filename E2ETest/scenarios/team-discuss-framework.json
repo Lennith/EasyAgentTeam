@@ -9,10 +9,11 @@
     "C": "e2e_arch_c",
     "D": "e2e_arch_d"
   },
-  "agent_model": {
-    "provider_id": "minimax",
-    "model": "MiniMax-M2.5",
-    "effort": "high"
+  "agent_model_matrix": {
+    "LEAD": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "B": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" },
+    "C": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "D": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" }
   },
   "route_table": {
     "e2e_discuss_lead": ["e2e_arch_b", "e2e_arch_c", "e2e_arch_d"],

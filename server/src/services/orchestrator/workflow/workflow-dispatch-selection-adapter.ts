@@ -37,6 +37,7 @@ export interface WorkflowDispatchSelection extends NormalizedDispatchSelectionRe
   WorkflowManagerToAgentMessage
 > {
   dispatchKind: "task" | "message";
+  selectedMessageIds: string[];
   runtimeTask: WorkflowTaskRuntimeRecord | null;
 }
 
@@ -192,6 +193,7 @@ export class WorkflowDispatchSelectionAdapter implements OrchestratorDispatchSel
             message: chosen.message,
             requestId: input.requestId
           }),
+          selectedMessageIds: chosen.selectedMessageIds,
           runtimeTask: chosen.runtimeTask
         }
       };

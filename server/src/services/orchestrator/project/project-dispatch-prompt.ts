@@ -1,5 +1,10 @@
 import type { ManagerToAgentMessage } from "../../../domain/models.js";
 import { isDiscussMessage, readMessageTypeUpper } from "../../orchestrator-dispatch-core.js";
+import {
+  buildTeamToolAliasGuidance,
+  formatTeamToolNameWithCodexAlias,
+  formatTeamToolNamesWithCodexAliases
+} from "../../teamtool-contract.js";
 import type { ProjectDispatchPromptContext } from "./project-dispatch-prompt-context.js";
 
 export function buildProjectDispatchPrompt(context: ProjectDispatchPromptContext): string {
@@ -94,17 +99,44 @@ export function buildProjectDispatchPrompt(context: ProjectDispatchPromptContext
   lines.push("When starting a new discussion with another agent:");
   lines.push(`- thread_id: Generate as \`${context.taskId ?? "task"}-\${timestamp}\` or use existing thread`);
   lines.push(`- max_rounds per target: ${JSON.stringify(discussMaxRoundsMap)}`);
+  lines.push(`- provider alias rule: ${buildTeamToolAliasGuidance()}`);
+  lines.push("- TeamTool names below are already present in your runtime tool registry.");
+  lines.push("- Do not probe TeamTool availability via Get-Command, which, script search, or MCP resource listing.");
+  lines.push("- If you need a TeamTool action, call the exact tool name directly.");
+  lines.push("- Shell output is never evidence that TeamTool is unavailable.");
+  lines.push(
+    "- A natural-language completion/blocker message without the corresponding task_report_* ToolCall is invalid."
+  );
+  lines.push("- If the task is complete, call the exact task_report_done tool before writing any final summary.");
+  lines.push("- Only call task_report_* for tasks owned by your role or created by your role.");
+  lines.push(
+    "- If task_create_assign returns TASK_EXISTS, do not retry the same create call. Inspect the existing task first and recover via next_action."
+  );
+  lines.push(
+    "- If a required ToolCall fails, quote the returned error_code and next_action instead of inventing a missing-tool explanation."
+  );
+  lines.push("- Recover TeamTool failures using next_action. Do not describe the failure as tool unavailability.");
+  lines.push(
+    '- exact report examples: `mcp__teamtool__task_report_in_progress({"content":"Started <task>","progress_file":"./progress.md"})` and `mcp__teamtool__task_report_done({"task_report_path":"./progress.md"})`.'
+  );
   lines.push(
     "- if discuss is about task, read <YourWorkSpace>/progress.md and then use task_report_* ToolCalls when you make progress."
   );
   lines.push(
-    "- discuss tool calls are `discuss_request`, `discuss_reply`, `discuss_close` (discussion only, not progress)."
+    `- discuss tool calls are ${formatTeamToolNamesWithCodexAliases(["discuss_request", "discuss_reply", "discuss_close"])} (discussion only, not progress).`
   );
   lines.push(
-    "- task report tool calls are `task_report_in_progress`, `task_report_done`, `task_report_block` (use these for progress/completion)."
+    `- task report tool calls are ${formatTeamToolNamesWithCodexAliases(["task_report_in_progress", "task_report_done", "task_report_block"])} (use these for progress/completion).`
   );
+  lines.push(`- route discovery tool is ${formatTeamToolNameWithCodexAlias("route_targets_get")}.`);
   lines.push("- focus task context:");
   lines.push(`  - title: ${focusTask?.title ?? "(none)"}`);
+  lines.push(
+    "- if the incoming message contains task_subtree, treat it as the latest descendant convergence snapshot for the focus task."
+  );
+  lines.push(
+    "- use task_subtree to decide whether the focus task should keep waiting on descendants or report new parent progress."
+  );
   lines.push("- focus task first: this turn should operate on the focus task unless you have valid side work.");
   lines.push(
     "- non-focus task reporting is allowed only when dependencies are already ready; this is non-preferred compared to focus task."

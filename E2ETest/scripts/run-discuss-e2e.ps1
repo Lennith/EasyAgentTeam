@@ -1,6 +1,8 @@
 ﻿param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string]$ScenarioPath = "",
+  [ValidateSet("", "codex", "minimax")]
+  [string]$ProviderId = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestTeamDiscuss",
   [int]$AutoDispatchBudget = 30,
   [int]$MaxMinutes = 75,
@@ -15,6 +17,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 . (Join-Path $scriptDir "invoke-api.ps1")
+. (Join-Path $scriptDir "e2e-provider-matrix.ps1")
 
 if (-not $ScenarioPath) {
   $ScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\team-discuss-framework.json"
@@ -31,21 +34,21 @@ $roles = $scenario.roles
 $routeTable = $scenario.route_table
 $taskAssignRouteTable = $scenario.task_assign_route_table
 $routeDiscussRounds = $scenario.route_discuss_rounds
-$modelCfg = $scenario.agent_model
-$providerIdRaw = if ($modelCfg.provider_id) { [string]$modelCfg.provider_id } else { [string]$modelCfg.tool }
-$providerId = $providerIdRaw.Trim().ToLower()
-if ([string]::IsNullOrWhiteSpace($providerId)) {
-  $providerId = "minimax"
-}
-if ($providerId -ne "minimax") {
-  throw "This E2E case requires MiniMax provider. scenario.agent_model.provider_id='$providerId'"
-}
 
 $roleLead = [string]$roles.LEAD
 $roleB = [string]$roles.B
 $roleC = [string]$roles.C
 $roleD = [string]$roles.D
 $roleList = @($roleLead, $roleB, $roleC, $roleD)
+$roleByRef = @{
+  LEAD = $roleLead
+  B = $roleB
+  C = $roleC
+  D = $roleD
+}
+$resolvedMatrix = Resolve-E2ERoleModelMatrix -Scenario $scenario -RoleByKey $roleByRef -ForcedProviderId $ProviderId
+$providerModeLabel = if ($resolvedMatrix.mode -eq "forced_provider") { [string]$resolvedMatrix.forced_provider_id } else { "mixed" }
+Assert-E2EMixedProviderBaseline -ResolvedMatrix $resolvedMatrix -CaseId "discuss"
 
 $workspace = $WorkspaceRoot
 $artifactsBase = Join-Path $workspace "docs\e2e"
@@ -53,9 +56,231 @@ $scriptRunStart = Get-Date
 $script:stabilityFallbackEvents = @()
 $script:stabilityOutDir = $null
 $script:stabilityCaseId = "discuss"
+$script:settingsRestoreSnapshot = $null
 $finalReason = "not_started"
 $pass = $false
 $analysisExit = 1
+
+function Get-ResolvedRoleModelConfig {
+  param(
+    [Parameter(Mandatory = $true)][string]$RoleId
+  )
+
+  $config = $resolvedMatrix.by_role_id[$RoleId]
+  if (-not $config) {
+    throw "Missing resolved agent model config for role '$RoleId'."
+  }
+  return $config
+}
+
+function Build-ProviderSessionAudit {
+  param(
+    [Parameter(Mandatory = $true)][object]$SessionsBody
+  )
+
+  $items = if ($SessionsBody -and $SessionsBody.items) { @($SessionsBody.items) } else { @() }
+  $auditItems = @()
+  $mismatches = @()
+  foreach ($role in $roleList) {
+    $expected = Get-ResolvedRoleModelConfig -RoleId $role
+    $session = @($items | Where-Object { [string]$_.role -eq $role } | Select-Object -First 1)[0]
+    $actualProvider = if ($session) { ([string]$session.provider).Trim().ToLower() } else { "" }
+    $matches = ($session -and $actualProvider -eq [string]$expected.provider_id)
+    $auditItems += [ordered]@{
+      role_id = $role
+      role_key = [string]$expected.role_key
+      expected_provider_id = [string]$expected.provider_id
+      actual_provider_id = if ($session) { $actualProvider } else { $null }
+      model = [string]$expected.model
+      effort = [string]$expected.effort
+      session_id = if ($session) { [string]$session.sessionId } else { $null }
+      status = if ($session) { [string]$session.status } else { $null }
+      provider_matches = [bool]$matches
+    }
+    if (-not $matches) {
+      $mismatches += [ordered]@{
+        role_id = $role
+        expected_provider_id = [string]$expected.provider_id
+        actual_provider_id = if ($session) { $actualProvider } else { $null }
+        session_id = if ($session) { [string]$session.sessionId } else { $null }
+      }
+    }
+  }
+  return [ordered]@{
+    mode = [string]$resolvedMatrix.mode
+    providers = @($resolvedMatrix.providers)
+    all_sessions_match = ($mismatches.Count -eq 0)
+    items = $auditItems
+    mismatches = $mismatches
+  }
+}
+
+function Build-ProjectProviderActivitySummary {
+  param(
+    [Parameter(Mandatory = $true)][object]$SessionAudit
+  )
+
+  $eventsPath = Join-Path $repoRoot "data\projects\$projectId\collab\events.jsonl"
+  $agentOutputPath = Join-Path $repoRoot "data\projects\$projectId\collab\audit\agent_output.jsonl"
+  $events = @()
+  if (Test-Path -LiteralPath $eventsPath) {
+    foreach ($line in (Get-Content -LiteralPath $eventsPath)) {
+      $trimmed = $line.Trim()
+      if (-not $trimmed) { continue }
+      try { $events += ($trimmed | ConvertFrom-Json) } catch {}
+    }
+  }
+  $agentOutput = @()
+  if (Test-Path -LiteralPath $agentOutputPath) {
+    foreach ($line in (Get-Content -LiteralPath $agentOutputPath)) {
+      $trimmed = $line.Trim()
+      if (-not $trimmed) { continue }
+      try { $agentOutput += ($trimmed | ConvertFrom-Json) } catch {}
+    }
+  }
+
+  $providerItems = @()
+  foreach ($providerIdValue in @("codex", "minimax")) {
+    $rolesForProvider = @(
+      $roleList | Where-Object { ([string](Get-ResolvedRoleModelConfig -RoleId $_).provider_id) -eq $providerIdValue }
+    )
+    if ($rolesForProvider.Count -eq 0) {
+      continue
+    }
+    $roleItems = @()
+    foreach ($role in $rolesForProvider) {
+      $expected = Get-ResolvedRoleModelConfig -RoleId $role
+      $auditItem = @($SessionAudit.items | Where-Object { [string]$_.role_id -eq $role } | Select-Object -First 1)[0]
+      $sessionId = if ($auditItem) { [string]$auditItem.session_id } else { "" }
+      $startedCount = 0
+      $finishedCount = 0
+      $agentOutputLines = 0
+      $providerRunStartedEvents = @()
+      $observedRunConfig = [ordered]@{
+        observed_models = @()
+        observed_efforts = @()
+      }
+      if (-not [string]::IsNullOrWhiteSpace($sessionId)) {
+        $providerRunStartedEvents = if ($providerIdValue -eq "codex") {
+          @($events | Where-Object { [string]$_.eventType -eq "CODEX_RUN_STARTED" -and [string]$_.sessionId -eq $sessionId })
+        } else {
+          @($events | Where-Object { [string]$_.eventType -eq "MINIMAX_RUN_STARTED" -and [string]$_.sessionId -eq $sessionId })
+        }
+        $startedCount = @($providerRunStartedEvents).Count
+        $finishedCount = if ($providerIdValue -eq "codex") {
+          @($events | Where-Object { [string]$_.eventType -eq "CODEX_RUN_FINISHED" -and [string]$_.sessionId -eq $sessionId }).Count
+        } else {
+          @($events | Where-Object { [string]$_.eventType -eq "MINIMAX_RUN_FINISHED" -and [string]$_.sessionId -eq $sessionId }).Count
+        }
+        $agentOutputLines = @($agentOutput | Where-Object { [string]$_.sessionId -eq $sessionId }).Count
+        $observedRunConfig = if ($providerIdValue -eq "codex") {
+          Get-E2ECodexObservedRunConfig -Events $providerRunStartedEvents
+        } else {
+          Get-E2EMiniMaxObservedRunConfig -Events $providerRunStartedEvents
+        }
+      }
+      $modelMatches = Test-E2EObservedValueMatch -ExpectedValue ([string]$expected.model) -ObservedValues $observedRunConfig.observed_models
+      $effortMatches = if ($providerIdValue -eq "codex") {
+        Test-E2EObservedValueMatch -ExpectedValue ([string]$expected.effort) -ObservedValues $observedRunConfig.observed_efforts
+      } else {
+        $true
+      }
+      $roleItems += [ordered]@{
+        role_id = $role
+        session_id = if ($auditItem) { [string]$auditItem.session_id } else { $null }
+        provider_id = $providerIdValue
+        session_status = if ($auditItem) { [string]$auditItem.status } else { $null }
+        provider_matches = if ($auditItem) { [bool]$auditItem.provider_matches } else { $false }
+        expected_model = [string]$expected.model
+        expected_effort = [string]$expected.effort
+        observed_models = @($observedRunConfig.observed_models)
+        observed_efforts = @($observedRunConfig.observed_efforts)
+        model_matches = [bool]$modelMatches
+        effort_matches = [bool]$effortMatches
+        run_started_count = $startedCount
+        run_finished_count = $finishedCount
+        agent_output_line_count = $agentOutputLines
+        direct_evidence_pass = if ($providerIdValue -eq "codex") {
+          ($startedCount -ge 1 -and $finishedCount -ge 1 -and $agentOutputLines -ge 1)
+        } else {
+          ($startedCount -ge 1)
+        }
+        model_evidence_pass = if ($providerIdValue -eq "codex") {
+          ($startedCount -ge 1 -and $modelMatches -and $effortMatches)
+        } else {
+          ($startedCount -ge 1 -and $modelMatches)
+        }
+      }
+    }
+    $providerItems += [ordered]@{
+      provider_id = $providerIdValue
+      role_count = $rolesForProvider.Count
+      roles = $roleItems
+      session_match_pass = (@($roleItems | Where-Object { -not $_.provider_matches }).Count -eq 0)
+      direct_evidence_pass = (@($roleItems | Where-Object { -not $_.direct_evidence_pass }).Count -eq 0)
+      model_evidence_pass = (@($roleItems | Where-Object { -not $_.model_evidence_pass }).Count -eq 0)
+    }
+  }
+
+  return [ordered]@{
+    mode = [string]$resolvedMatrix.mode
+    project_id = $projectId
+    event_path = $eventsPath
+    agent_output_path = $agentOutputPath
+    providers = $providerItems
+    overall_pass = (
+      $SessionAudit.all_sessions_match -and
+      (@($providerItems | Where-Object { -not $_.session_match_pass -or -not $_.direct_evidence_pass -or -not $_.model_evidence_pass }).Count -eq 0)
+    )
+  }
+}
+
+function Build-ProjectProviderSettingsPatch {
+  param(
+    [Parameter(Mandatory = $true)][object]$SettingsBody
+  )
+
+  if (-not (@($resolvedMatrix.providers) -contains "minimax")) {
+    return $null
+  }
+
+  $targetModel = [string](Get-E2EDefaultAgentModelConfig -ProviderId "minimax").model
+  $currentModel = Get-E2EObjectString -Obj $SettingsBody -Names @("minimaxModel", "minimax_model")
+  $script:settingsRestoreSnapshot = [ordered]@{
+    minimaxModel = $currentModel
+  }
+  if ($currentModel -eq $targetModel) {
+    return $null
+  }
+
+  return @{
+    minimaxModel = $targetModel
+  }
+}
+
+function Restore-ProjectProviderSettings {
+  if (-not $script:settingsRestoreSnapshot) {
+    return
+  }
+
+  $restoreModel = [string]$script:settingsRestoreSnapshot.minimaxModel
+  if ([string]::IsNullOrWhiteSpace($restoreModel)) {
+    $restoreModel = [string](Get-E2EDefaultAgentModelConfig -ProviderId "minimax").model
+  }
+
+  try {
+    Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body @{
+      minimaxModel = $restoreModel
+    } | Out-Null
+  } catch {
+    Write-Warning ("Failed to restore E2E runtime settings: {0}" -f $_.Exception.Message)
+  } finally {
+    $script:settingsRestoreSnapshot = $null
+  }
+}
+
+$providerSettingsResp = Assert-E2EProvidersConfigured -BaseUrl $BaseUrl -ResolvedMatrix $resolvedMatrix
+$providerSettingsPatch = Build-ProjectProviderSettingsPatch -SettingsBody $providerSettingsResp.body
 
 function Add-StabilityFallbackEvent {
   param(
@@ -143,25 +368,81 @@ trap {
   if (-not [string]::IsNullOrWhiteSpace($errStack)) {
     Write-Host ("script_exception_stack={0}" -f $errStack)
   }
+  Restore-ProjectProviderSettings
   Write-StabilityMetrics -OutDir $trapOutDir -CaseId $script:stabilityCaseId -StartTime $scriptRunStart -FinalPass $false -FinalReason $finalReason -ExitCode 2
   exit 2
 }
 
 function Build-AgentPrompt {
   param([string]$Role)
+  $providerId = ""
+  if ($resolvedMatrix -and $resolvedMatrix.by_role_id -and $resolvedMatrix.by_role_id[$Role]) {
+    $providerId = [string]$resolvedMatrix.by_role_id[$Role].provider_id
+  }
+  $roleWorkspace = Join-Path (Join-Path $workspace "Agents") $Role
+  $roleProgressPath = Join-Path $roleWorkspace "progress.md"
+  $leadOwnedTaskIds = @(
+    [string]$seedTasks.task_lead_plan.task_id,
+    [string]$seedTasks.task_alignment.task_id,
+    [string]$seedTasks.task_final.task_id
+  ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+  $roleOwnedTaskId = switch ($Role) {
+    $roleLead { [string]$seedTasks.task_lead_plan.task_id }
+    $roleB { [string]$seedTasks.task_design_b.task_id }
+    $roleC { [string]$seedTasks.task_design_c.task_id }
+    $roleD { [string]$seedTasks.task_design_d.task_id }
+    default { "" }
+  }
+  $leadOwnedTaskText = $leadOwnedTaskIds -join ", "
+  $teamToolNameRules = if ($providerId -eq "codex") {
+    @(
+      "Use TeamTool through the exact Codex MCP aliases exposed in this runtime, for example mcp__teamtool__task_report_in_progress, mcp__teamtool__task_report_done, mcp__teamtool__discuss_request, mcp__teamtool__discuss_reply, mcp__teamtool__discuss_close.",
+      "Do not fall back to shell or local scripts for TeamTool actions."
+    )
+  } else {
+    @(
+      "Use canonical TeamTool names only: task_report_in_progress, task_report_done, task_report_block, discuss_request, discuss_reply, discuss_close.",
+      "Do not prepend mcp__teamtool__ to TeamTool names in this runtime.",
+      "Tool names starting with mcp__teamtool__ are invalid in this runtime and will fail."
+    )
+  }
+  $teamToolNameText = $teamToolNameRules -join "`n"
   if ($Role -eq $roleLead) {
     return @(
       "You are TeamLeader for architecture framework design.",
       "Coordinate three architect agents and converge to one final design.",
       "Use task + discuss flow only. Do not write every design by yourself.",
-      "Require B/C/D each to provide their design draft before final alignment."
+      "Require B/C/D each to provide their design draft before final alignment.",
+      "Your lead-owned task ids are: $leadOwnedTaskText.",
+      "Your local progress file absolute path is $roleProgressPath.",
+      "Use task_report_* only for your own lead-owned tasks. Collect B/C/D input through discuss threads instead of asking them to report progress on your task ids.",
+      "This E2E scenario already pre-creates the execution tasks task-discuss-arch-b, task-discuss-arch-c, task-discuss-arch-d, task-discuss-alignment, and task-discuss-final-consensus.",
+      "Do not call task_create_assign to recreate those pre-seeded task ids. Use the existing tasks plus discuss_request/discuss_reply to coordinate the work.",
+      "Whenever you call task_report_in_progress or task_report_done, include task_report_path=$roleProgressPath using that absolute path. Never use ./progress.md or another relative path in TeamTool calls.",
+      "When task-discuss-alignment has explicit review replies from B, C, and D on the existing alignment discuss threads, stop waiting and close alignment in the same run unless one of those replies contains a substantive unresolved objection.",
+      "After task-discuss-alignment is DONE, immediately continue to task-discuss-final-consensus and publish the final consensus artifact instead of waiting for another reminder.",
+      "If a manager message says that all required alignment replies are already routed, treat that as actionable evidence to verify the existing threads and close alignment rather than re-reporting the same blocker.",
+      "When using lock_manage, lock_key must be a TeamWorkSpace-relative path such as docs/e2e/discuss-collaboration-framework.md. Never pass an absolute path or an Agents/... local path as lock_key.",
+      $teamToolNameText,
+      "If a TeamTool call fails, recover using next_action and do not describe the tool as unavailable."
     ) -join "`n"
   }
   return @(
     "You are architect role $Role.",
-    "Write one architecture design proposal and share it via task report + discuss.",
+    "Your owned execution task id is $roleOwnedTaskId.",
+    "Your local progress file absolute path is $roleProgressPath.",
+    "Write one architecture design proposal for your owned task and share it via task report + discuss.",
     "Cross-review peers when asked and resolve conflicts with TeamLeader.",
-    "Use TeamTools report/discuss tools only."
+    "Use TeamTools report/discuss tools only.",
+    "Only call task_report_* on tasks you own or create. In this scenario that means your owned execution task ($roleOwnedTaskId) or a child task you explicitly create.",
+    "When TeamLeader asks for input on lead-owned task ids ($leadOwnedTaskText), reply with discuss_reply or discuss_close only. Update ./progress.md locally, but do not call task_report_* on those lead-owned task ids.",
+    "When the current inbox/discuss context is task-discuss-lead-plan or another lead-owned task, treat that context as coordination only. Your task_report_* calls must explicitly set task_id to $roleOwnedTaskId.",
+    "In that lead-owned discuss context, do not omit task_id in task_report_* calls. Omitting task_id still counts as reporting the wrong task in this E2E run.",
+    "For task_report_done in this E2E run, always include both task_id=$roleOwnedTaskId and task_report_path=$roleProgressPath. Do not rely on inferred progress text, and never use a relative task_report_path.",
+    "When using lock_manage for shared docs, lock_key must stay workspace-relative, for example docs/e2e/arch-c-collaboration-draft.md. Never pass an absolute path or a path under Agents/$Role as lock_key.",
+    "If task_report_* on a foreign task is rejected with TASK_RESULT_INVALID_TARGET, stop retrying that task id and continue through discuss flow.",
+    $teamToolNameText,
+    "If a TeamTool call fails, recover using next_action and do not describe the tool as unavailable."
   ) -join "`n"
 }
 
@@ -391,15 +672,168 @@ function Invoke-BestEffortDispatch {
   return $true
 }
 
+function Get-DiscussAlignmentReplyEvidence {
+  param(
+    [object[]]$Events,
+    [string]$LeadRole,
+    [string]$AlignmentTaskId,
+    [string[]]$ReviewerRoles
+  )
+
+  $replyByRole = @{}
+  $threadPrefix = "{0}-" -f $AlignmentTaskId
+  $sortedEvents = @($Events | Sort-Object { [datetime]$_.createdAt })
+  foreach ($evt in $sortedEvents) {
+    if ([string]$evt.eventType -ne "USER_MESSAGE_RECEIVED") { continue }
+    $payload = $evt.payload
+    if (-not $payload) { continue }
+    if ([string]$payload.toRole -ne $LeadRole) { continue }
+    $messageType = [string]$payload.messageType
+    if ($messageType -ne "TASK_DISCUSS_REPLY" -and $messageType -ne "TASK_DISCUSS_CLOSED") { continue }
+    $threadId = ""
+    if ($payload.discuss -and $payload.discuss.threadId) {
+      $threadId = [string]$payload.discuss.threadId
+    }
+    if ([string]::IsNullOrWhiteSpace($threadId) -or -not $threadId.StartsWith($threadPrefix)) { continue }
+    $fromRole = [string]$payload.fromAgent
+    if ([string]::IsNullOrWhiteSpace($fromRole) -or ($ReviewerRoles -notcontains $fromRole)) { continue }
+    $replyByRole[$fromRole] = [ordered]@{
+      from_role = $fromRole
+      thread_id = $threadId
+      request_id = [string]$payload.requestId
+      message_type = $messageType
+      created_at = [string]$evt.createdAt
+      content = [string]$payload.content
+    }
+  }
+
+  $replyItems = @()
+  foreach ($role in $ReviewerRoles) {
+    if ($replyByRole.ContainsKey($role)) {
+      $replyItems += $replyByRole[$role]
+    }
+  }
+
+  $missingRoles = @($ReviewerRoles | Where-Object { -not $replyByRole.ContainsKey($_) })
+  $signature = @(
+    $replyItems |
+      ForEach-Object { [string]$_.request_id } |
+      Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+      Sort-Object
+  ) -join "|"
+
+  return [pscustomobject]@{
+    all_replies_present = ($missingRoles.Count -eq 0)
+    missing_roles = @($missingRoles)
+    replies = @($replyItems)
+    signature = $signature
+  }
+}
+
+function Send-DiscussManagerDispatchMessage {
+  param(
+    [string]$ProjectId,
+    [string]$ToRole,
+    [string]$TaskId,
+    [string]$Content,
+    [string]$Reason
+  )
+
+  $messageResp = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$ProjectId/messages/send" -Body @{
+    from_agent = "manager"
+    from_session_id = "manager-system"
+    to = @{ agent = $ToRole }
+    message_type = "MANAGER_MESSAGE"
+    task_id = $TaskId
+    content = $Content
+  } -AllowStatus @(201, 400, 403, 404, 409)
+
+  if ([int]$messageResp.status -ne 201 -or -not $messageResp.body) {
+    $detail = ""
+    if ($messageResp.body) {
+      try {
+        $detail = ($messageResp.body | ConvertTo-Json -Depth 10 -Compress)
+      } catch {
+        $detail = [string]$messageResp.body
+      }
+    }
+    Write-Warning ("manager dispatch message skipped: reason={0} status={1} detail={2}" -f $Reason, [int]$messageResp.status, $detail)
+    return $false
+  }
+
+  $messageId = [string]$messageResp.body.messageId
+  if ([string]::IsNullOrWhiteSpace($messageId)) {
+    Write-Warning ("manager dispatch message skipped: reason={0} missing_message_id" -f $Reason)
+    return $false
+  }
+
+  $dispatchResp = Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$ProjectId/orchestrator/dispatch-message" -Body @{
+    message_id = $messageId
+    only_idle = $false
+    force = $false
+  } -AllowStatus @(200, 400, 404, 409, 500)
+
+  if ([int]$dispatchResp.status -ne 200) {
+    $detail = ""
+    if ($dispatchResp.body) {
+      try {
+        $detail = ($dispatchResp.body | ConvertTo-Json -Depth 10 -Compress)
+      } catch {
+        $detail = [string]$dispatchResp.body
+      }
+    }
+    Write-Warning ("manager dispatch message dispatch skipped: reason={0} status={1} detail={2}" -f $Reason, [int]$dispatchResp.status, $detail)
+    return $false
+  }
+
+  Add-StabilityFallbackEvent -Type "manager_dispatch_message" -Detail ("reason={0} task={1} message_id={2}" -f $Reason, $TaskId, $messageId)
+  Write-Host ("manager dispatch message sent: reason={0} task={1} message_id={2}" -f $Reason, $TaskId, $messageId)
+  return $true
+}
+
+function Suppress-ManagerSessions {
+  param(
+    [string]$ProjectId,
+    [object[]]$SessionItems,
+    [string]$Reason
+  )
+
+  $items = @($SessionItems)
+  if ($items.Count -eq 0) {
+    $resp = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$ProjectId/sessions" -AllowStatus @(200)
+    $items = @($resp.body.items)
+  }
+
+  $suppressed = @()
+  foreach ($item in $items) {
+    if ([string]$item.role -ne "manager") { continue }
+    $sessionId = [string]$item.sessionId
+    if ([string]::IsNullOrWhiteSpace($sessionId)) { continue }
+    $status = ([string]$item.status).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($status)) { $status = "unknown" }
+    Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects/$ProjectId/sessions/$sessionId/dismiss" -AllowStatus @(200, 404, 409) | Out-Null
+    Add-StabilityFallbackEvent -Type "manager_suppress" -Detail ("reason={0} session={1} status={2}" -f $Reason, $sessionId, $status)
+    Write-Host ("manager session suppressed: session={0} status={1} reason={2}" -f $sessionId, $status, $Reason)
+    $suppressed += [pscustomobject]@{
+      session_id = $sessionId
+      status = $status
+      reason = $Reason
+    }
+  }
+
+  return @($suppressed)
+}
+
 Write-Host "== Preflight =="
 $health = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/healthz"
 if ($health.body.status -ne "ok") {
   throw "healthz is not ok"
 }
 
-Write-Host "== Reset workspace (full clean) before run =="
-Reset-WorkspaceDirectory -WorkspaceRoot $workspace
-Ensure-Dir -Path $workspace
+if ($providerSettingsPatch) {
+  Write-Host "== Apply runtime provider settings override =="
+  Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $providerSettingsPatch | Out-Null
+}
 
 Write-Host "== Reset target project if exists =="
 $projects = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects"
@@ -411,20 +845,25 @@ if ($exists) {
   Remove-ProjectWithRetry -BaseUrl $BaseUrl -ProjectId $projectId | Out-Null
 }
 
+Write-Host "== Reset workspace (full clean) before run =="
+Reset-WorkspaceDirectory -WorkspaceRoot $workspace
+Ensure-Dir -Path $workspace
+
 Write-Host "== Upsert agents =="
 $agentList = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/agents"
 $known = @{}
 foreach ($a in @($agentList.body.items)) { $known[$a.agentId] = $true }
 
 foreach ($role in $roleList) {
+  $roleConfig = Get-ResolvedRoleModelConfig -RoleId $role
   $payload = @{
     agent_id = $role
     display_name = $role
     prompt = (Build-AgentPrompt -Role $role)
-    provider_id = $providerId
+    provider_id = [string]$roleConfig.provider_id
     default_model_params = @{
-      model = [string]$modelCfg.model
-      effort = [string]$modelCfg.effort
+      model = [string]$roleConfig.model
+      effort = [string]$roleConfig.effort
     }
     model_selection_enabled = $true
   }
@@ -448,13 +887,21 @@ Invoke-ApiJson -BaseUrl $BaseUrl -Method POST -Path "/api/projects" -Body @{
   reminder_mode = "fixed_interval"
 } -AllowStatus @(201) | Out-Null
 
+$postCreateSessions = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions" -AllowStatus @(200)
+$managerSession = @($postCreateSessions.body.items | Where-Object { [string]$_.role -eq "manager" } | Select-Object -First 1)[0]
+if ($managerSession -and -not [string]::IsNullOrWhiteSpace([string]$managerSession.sessionId)) {
+  Write-Host "== Dismiss manager session (E2E isolation) =="
+  Suppress-ManagerSessions -ProjectId $projectId -SessionItems @($postCreateSessions.body.items) -Reason "post_project_create" | Out-Null
+}
+
 Write-Host "== Patch routing model config =="
 $agentModelConfigs = @{}
 foreach ($role in $roleList) {
-  $agentModelConfigs[$role] = @{
-    provider_id = $providerId
-    model = [string]$modelCfg.model
-    effort = [string]$modelCfg.effort
+  $roleConfig = Get-ResolvedRoleModelConfig -RoleId $role
+  $agentModelConfigs[$role] = [ordered]@{
+    provider_id = [string]$roleConfig.provider_id
+    model = [string]$roleConfig.model
+    effort = [string]$roleConfig.effort
   }
 }
 Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/projects/$projectId/routing-config" -Body @{
@@ -496,9 +943,10 @@ foreach ($role in $roleList) {
 }
 $sessionsVerify = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions" -AllowStatus @(200)
 foreach ($item in @($sessionsVerify.body.items)) {
-  $sessionProvider = [string]$item.provider
-  if ($sessionProvider.Trim().ToLower() -ne "minimax") {
-    throw "Session provider must be minimax. session_id=$($item.sessionId) role=$($item.role) provider=$sessionProvider"
+  $expectedProvider = [string](Get-ResolvedRoleModelConfig -RoleId ([string]$item.role)).provider_id
+  $sessionProvider = ([string]$item.provider).Trim().ToLower()
+  if ($sessionProvider -ne $expectedProvider) {
+    throw "Session provider must be $expectedProvider. session_id=$($item.sessionId) role=$($item.role) provider=$sessionProvider"
   }
 }
 
@@ -565,6 +1013,8 @@ if (-not $SetupOnly) {
     force = $false
     only_idle = $false
   } -AllowStatus @(200) | Out-Null
+
+  Suppress-ManagerSessions -ProjectId $projectId -SessionItems @() -Reason "post_auto_dispatch_enable" | Out-Null
 }
 
 Write-Host "== Monitor run =="
@@ -575,6 +1025,8 @@ $topupCount = 0
 $totalBudgetGranted = if ($SetupOnly) { 0 } else { $AutoDispatchBudget }
 $topupLog = @()
 $noRunningStreak = 0
+$alignmentConvergenceNudgeSignature = ""
+$finalConsensusNudgeIssued = $false
 
 if ($SetupOnly) {
   $pass = $true
@@ -583,6 +1035,10 @@ if ($SetupOnly) {
   while ($true) {
     $settingsNow = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/orchestrator/settings" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 6 -InitialDelayMs 300 -RetryOnRequestFailure
     $sessionsNow = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 6 -InitialDelayMs 300 -RetryOnRequestFailure
+    $managerSuppressed = Suppress-ManagerSessions -ProjectId $projectId -SessionItems @($sessionsNow.body.items) -Reason "monitor_loop"
+    if (@($managerSuppressed).Count -gt 0) {
+      $sessionsNow = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 6 -InitialDelayMs 300 -RetryOnRequestFailure
+    }
     $treeNow = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/task-tree" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 6 -InitialDelayMs 300 -RetryOnRequestFailure
 
     $remaining = [int]$settingsNow.body.auto_dispatch_remaining
@@ -590,14 +1046,15 @@ if ($SetupOnly) {
     $executionNodes = @($nodes | Where-Object { $_.task_kind -eq "EXECUTION" })
     $terminalStates = @("DONE", "BLOCKED_DEP", "CANCELED")
     $openExec = @($executionNodes | Where-Object { $terminalStates -notcontains $_.state })
-    $running = @($sessionsNow.body.items | Where-Object { $_.status -eq "running" })
+    $running = @($sessionsNow.body.items | Where-Object { $_.status -eq "running" -and [string]$_.role -ne "manager" })
+    $managerRunning = @($sessionsNow.body.items | Where-Object { $_.status -eq "running" -and [string]$_.role -eq "manager" })
     $activeRoles = New-Object System.Collections.Generic.HashSet[string]
     foreach ($session in @($sessionsNow.body.items)) {
       if (-not [string]::IsNullOrWhiteSpace([string]$session.role)) {
         $null = $activeRoles.Add([string]$session.role)
       }
     }
-    Write-Host ("remaining={0} exec={1} open_exec={2} running={3}" -f $remaining, $executionNodes.Count, $openExec.Count, $running.Count)
+    Write-Host ("remaining={0} exec={1} open_exec={2} running={3} manager_running={4}" -f $remaining, $executionNodes.Count, $openExec.Count, $running.Count, $managerRunning.Count)
     if ($openExec.Count -gt 0 -and $running.Count -eq 0) {
       $noRunningStreak += 1
     } else {
@@ -630,6 +1087,63 @@ if ($SetupOnly) {
       Write-Host ("recreated sessions for open roles: {0}" -f (($recreatedRoles | Select-Object -Unique) -join ","))
       Start-Sleep -Seconds ([Math]::Max(2, [Math]::Min($PollSeconds, 5)))
       continue
+    }
+
+    $nodeMap = Get-NodeByIdMap -Nodes $nodes
+    $alignmentNode = if ($nodeMap.ContainsKey($taskAlignId)) { $nodeMap[$taskAlignId] } else { $null }
+    $finalConsensusNode = if ($nodeMap.ContainsKey($taskFinalId)) { $nodeMap[$taskFinalId] } else { $null }
+    if ($openExec.Count -gt 0 -and $running.Count -eq 0) {
+      $eventsNow = Get-EventsNdjson -BaseUrl $BaseUrl -ProjectId $projectId
+      $alignmentEvidence = Get-DiscussAlignmentReplyEvidence -Events $eventsNow.items -LeadRole $roleLead -AlignmentTaskId $taskAlignId -ReviewerRoles @($roleB, $roleC, $roleD)
+
+      $alignmentNeedsClosure = (
+        $alignmentNode -and
+        [string]$alignmentNode.state -ne "DONE" -and
+        $alignmentEvidence.all_replies_present -and
+        -not [string]::IsNullOrWhiteSpace([string]$alignmentEvidence.signature) -and
+        [string]$alignmentEvidence.signature -ne $alignmentConvergenceNudgeSignature
+      )
+      if ($alignmentNeedsClosure) {
+        $alignmentReplySummary = @(
+          $alignmentEvidence.replies |
+            ForEach-Object { "{0} reply on {1} at {2}" -f [string]$_.from_role, [string]$_.thread_id, [string]$_.created_at }
+        ) -join "; "
+        $alignmentMessage = @(
+          "E2E convergence nudge: the required alignment review replies are already routed to you.",
+          "Current evidence: $alignmentReplySummary.",
+          "Do not wait for another reminder or duplicate reply.",
+          "Re-read the existing alignment threads and close task-discuss-alignment now unless one of those replies contains a substantive unresolved objection.",
+          "If alignment closes cleanly, continue into task-discuss-final-consensus in the same run or the next immediate run."
+        ) -join " "
+        $alignmentNudgeApplied = Send-DiscussManagerDispatchMessage -ProjectId $projectId -ToRole $roleLead -TaskId $taskAlignId -Content $alignmentMessage -Reason "alignment_convergence"
+        if ($alignmentNudgeApplied) {
+          $alignmentConvergenceNudgeSignature = [string]$alignmentEvidence.signature
+          $noRunningStreak = 0
+          Start-Sleep -Seconds $PollSeconds
+          continue
+        }
+      }
+
+      $finalNeedsNudge = (
+        $finalConsensusNode -and
+        [string]$alignmentNode.state -eq "DONE" -and
+        [string]$finalConsensusNode.state -ne "DONE" -and
+        -not $finalConsensusNudgeIssued
+      )
+      if ($finalNeedsNudge) {
+        $finalMessage = @(
+          "E2E convergence nudge: task-discuss-alignment is already DONE.",
+          "Proceed to task-discuss-final-consensus now, publish the final consensus artifact, and report task-discuss-final-consensus DONE when the artifact is complete.",
+          "Do not wait for a fresh reminder if no substantive blocker remains."
+        ) -join " "
+        $finalNudgeApplied = Send-DiscussManagerDispatchMessage -ProjectId $projectId -ToRole $roleLead -TaskId $taskFinalId -Content $finalMessage -Reason "final_consensus_convergence"
+        if ($finalNudgeApplied) {
+          $finalConsensusNudgeIssued = $true
+          $noRunningStreak = 0
+          Start-Sleep -Seconds $PollSeconds
+          continue
+        }
+      }
     }
 
     if ($openExec.Count -eq 0 -and $running.Count -eq 0) {
@@ -667,9 +1181,29 @@ if ($SetupOnly) {
       continue
     }
     if ($openExec.Count -gt 0 -and $noRunningStreak -ge 3) {
-      $nudgeApplied = Invoke-BestEffortDispatch -ProjectId $projectId -Body @{ force = $false; only_idle = $false } -Reason ("idle_streak:{0}" -f $noRunningStreak)
-      Add-StabilityFallbackEvent -Type "dispatch_nudge" -Detail ("reason=idle_streak streak={0} success={1}" -f $noRunningStreak, $nudgeApplied)
-      Write-Host ("dispatch nudge attempted after idle streak={0} success={1}" -f $noRunningStreak, $nudgeApplied)
+      $nudgeRoles = @(
+        $openExec |
+          ForEach-Object {
+            if ($_.owner_role) { [string]$_.owner_role } else { [string]$_.ownerRole }
+          } |
+          Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne "manager" } |
+          Select-Object -Unique
+      )
+      $nudgeResults = @()
+      foreach ($nudgeRole in $nudgeRoles) {
+        $nudgeApplied = Invoke-BestEffortDispatch -ProjectId $projectId -Body @{ role = $nudgeRole; force = $false; only_idle = $false } -Reason ("idle_streak:{0}:{1}" -f $noRunningStreak, $nudgeRole)
+        $nudgeResults += [pscustomobject]@{
+          role = $nudgeRole
+          success = $nudgeApplied
+        }
+      }
+      $nudgeSummary = if ($nudgeResults.Count -gt 0) {
+        (($nudgeResults | ForEach-Object { "{0}:{1}" -f $_.role, $(if ($_.success) { "ok" } else { "skip" }) }) -join ",")
+      } else {
+        "no_non_manager_open_roles"
+      }
+      Add-StabilityFallbackEvent -Type "dispatch_nudge" -Detail ("reason=idle_streak streak={0} targets={1}" -f $noRunningStreak, $nudgeSummary)
+      Write-Host ("dispatch nudge attempted after idle streak={0} targets={1}" -f $noRunningStreak, $nudgeSummary)
       $noRunningStreak = 0
       Start-Sleep -Seconds $PollSeconds
       continue
@@ -705,6 +1239,17 @@ if (-not $SetupOnly) {
 $finalSettings = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/orchestrator/settings" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 8 -InitialDelayMs 300 -RetryOnRequestFailure
 $finalSessions = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/sessions" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 8 -InitialDelayMs 300 -RetryOnRequestFailure
 $finalTree = Invoke-ApiJsonWithRetry -BaseUrl $BaseUrl -Method GET -Path "/api/projects/$projectId/task-tree" -AllowStatus @(200, 500) -RetryOnStatus @(500) -MaxAttempts 8 -InitialDelayMs 300 -RetryOnRequestFailure
+$providerMatrixOut = [ordered]@{
+  mode = [string]$resolvedMatrix.mode
+  forced_provider_id = $resolvedMatrix.forced_provider_id
+  providers = @($resolvedMatrix.providers)
+  by_role_key = $resolvedMatrix.by_role_key
+}
+$providerSessionAudit = Build-ProviderSessionAudit -SessionsBody $finalSessions.body
+$providerActivitySummary = Build-ProjectProviderActivitySummary -SessionAudit $providerSessionAudit
+Write-Utf8NoBom -Path (Join-Path $outDir "provider_matrix_resolved.json") -Content (($providerMatrixOut | ConvertTo-Json -Depth 20))
+Write-Utf8NoBom -Path (Join-Path $outDir "provider_session_audit.json") -Content (($providerSessionAudit | ConvertTo-Json -Depth 20))
+Write-Utf8NoBom -Path (Join-Path $outDir "provider_activity_summary.json") -Content (($providerActivitySummary | ConvertTo-Json -Depth 20))
 $finalRemaining = [int]$finalSettings.body.auto_dispatch_remaining
 $consumed = $totalBudgetGranted - $finalRemaining
 $runningCount = @($finalSessions.body.items | Where-Object { $_.status -eq "running" }).Count
@@ -717,6 +1262,8 @@ $summary += ""
 $summary += "- project_id: $projectId"
 $summary += "- workspace: $workspace"
 $summary += "- scenario: $($scenario.scenario_id)"
+$summary += "- provider_mode: $providerModeLabel"
+$summary += "- providers_resolved: $(@($resolvedMatrix.providers) -join ",")"
 $summary += "- started_at: $($start.ToString("o"))"
 $summary += "- ended_at: $((Get-Date).ToString("o"))"
 $summary += "- final_reason: $finalReason"
@@ -734,10 +1281,13 @@ $summary += "- toolcall_failed_count: $($stabilityMetrics.toolcall_failed_count)
 $summary += "- timeout_recovered_count: $($stabilityMetrics.timeout_recovered_count)"
 $summary += "- running_sessions_final: $runningCount"
 $summary += "- open_execution_tasks_final: $openExecCount"
+$summary += "- provider_session_audit_pass: $($providerSessionAudit.all_sessions_match)"
+$summary += "- provider_activity_pass: $($providerActivitySummary.overall_pass)"
 $summary += "- artifacts_dir: $outDir"
 [System.IO.File]::WriteAllLines((Join-Path $outDir "run_summary.md"), $summary, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "== Done =="
+Restore-ProjectProviderSettings
 Write-Host "artifacts=$outDir"
 Write-Host "final_reason=$finalReason"
 Write-Host "runtime_pass=$pass"

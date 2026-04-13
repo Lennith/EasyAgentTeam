@@ -28,7 +28,6 @@ Show-ProcessMemory "node"
 Show-ProcessMemory "cmd"
 Show-ProcessMemory "powershell"
 Show-ProcessMemory "codex"
-Show-ProcessMemory "trae"
 
 Write-Host "[Top 10 Memory Usage]" -ForegroundColor Yellow
 Write-Host "----------------------------------------"

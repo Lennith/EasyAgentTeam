@@ -10,7 +10,7 @@ import type {
   WorkflowTaskActionType,
   WorkflowTaskOutcome
 } from "../domain/models.js";
-import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/team/types.js";
+import type { TeamToolBridge, TeamToolExecutionContext } from "./teamtool/types.js";
 import { normalizeOrchestratorDiscussReference } from "./orchestrator/shared/index.js";
 import type { WorkflowRouteMessageInput } from "./orchestrator/workflow/workflow-message-routing-service.js";
 import { resolveDiscussRoundLimit } from "./discuss-policy-service.js";
@@ -24,6 +24,11 @@ import {
   readStringList,
   TeamToolBridgeError
 } from "./minimax-teamtool-bridge-core.js";
+import {
+  buildRouteTargetsGuidance,
+  buildTaskExistsNextAction,
+  formatTeamToolNameWithCodexAlias
+} from "./teamtool-contract.js";
 import { resolveWorkflowRunRoleScope } from "./workflow-role-scope-service.js";
 
 export { TeamToolBridgeError } from "./minimax-teamtool-bridge-core.js";
@@ -197,10 +202,12 @@ function resolveTaskActionNextAction(code: string): string | null {
   switch (code) {
     case "INVALID_TRANSITION":
       return "Fix task action payload (task/report/discuss fields) and retry once.";
+    case "TASK_EXISTS":
+      return buildTaskExistsNextAction();
     case "TASK_NOT_FOUND":
       return "Re-check task_id/parent_task_id/to_role and retry.";
     case "TASK_OWNER_ROLE_NOT_FOUND":
-      return "Call route_targets_get first, choose an allowed target role, and retry TASK_CREATE.";
+      return buildRouteTargetsGuidance("choose an allowed target role, and retry TASK_CREATE.");
     case "TASK_DEPENDENCY_NOT_READY":
       return "Wait for dependency tasks listed in error.details.dependency_task_ids to reach DONE/CANCELED, then retry.";
     case "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN":
@@ -208,7 +215,7 @@ function resolveTaskActionNextAction(code: string): string | null {
     case "RUN_NOT_RUNNING":
       return "Run is not active. Restart run before sending task actions.";
     case "ROUTE_DENIED":
-      return "Choose an allowed target from route_targets_get before discussing.";
+      return `Choose an allowed target from ${formatTeamToolNameWithCodexAlias("route_targets_get")} before discussing.`;
     default:
       return null;
   }
@@ -219,7 +226,7 @@ function resolveMessageNextAction(code: string): string | null {
     case "MESSAGE_TARGET_REQUIRED":
       return "Provide to_role or to_session_id.";
     case "ROUTE_DENIED":
-      return "Choose an allowed target from route_targets_get.";
+      return `Choose an allowed target from ${formatTeamToolNameWithCodexAlias("route_targets_get")}.`;
     case "TASK_NOT_FOUND":
       return "Re-check task_id and discussion thread binding.";
     default:
@@ -334,12 +341,12 @@ export function createWorkflowMiniMaxTeamToolBridge(context: WorkflowMiniMaxTeam
         }
         const status = asStatus((error as { status?: unknown }).status, 500);
         const code = asCode((error as { code?: unknown }).code, "WORKFLOW_TASK_ACTION_BRIDGE_ERROR");
-        const hinted = readString((error as { hint?: unknown }).hint);
+        const nextAction = readString((error as { nextAction?: unknown }).nextAction);
         throw new TeamToolBridgeError(
           status,
           code,
           normalizeErrorMessage(error),
-          hinted ?? resolveTaskActionNextAction(code),
+          nextAction ?? resolveTaskActionNextAction(code),
           (error as { details?: unknown }).details
         );
       }

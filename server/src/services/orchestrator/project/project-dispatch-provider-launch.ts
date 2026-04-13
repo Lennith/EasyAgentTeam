@@ -8,6 +8,7 @@ import {
   type RuntimeSettings
 } from "../../../data/repository/system/runtime-settings-repository.js";
 import {
+  markRunnerBlocked,
   markRunnerFatalError,
   markRunnerStarted,
   markRunnerSuccess,
@@ -16,7 +17,6 @@ import {
 import type { MiniMaxRunResultInternal } from "../../minimax-runner.js";
 import type { ProjectDispatchInput as ProviderProjectDispatchInput } from "../../provider-runtime.js";
 import { ProjectDispatchEventAdapter } from "./project-dispatch-event-adapter.js";
-import { isPendingSessionId } from "./project-dispatch-policy.js";
 import {
   prepareProjectDispatchLaunch,
   type PreparedProjectDispatchLaunch
@@ -36,6 +36,8 @@ import {
   finalizeProjectDispatchRunLifecycle,
   markProjectTaskDispatchedForContextIfNeeded
 } from "./project-dispatch-run-lifecycle.js";
+import { looksLikeCodexThreadId } from "../../codex-session-runtime.js";
+import { isProviderLaunchError } from "../../provider-launch-error.js";
 
 export const defaultProjectDispatchLaunchOperations: ProjectDispatchLaunchOperations = {
   now: () => new Date().toISOString(),
@@ -47,6 +49,7 @@ export const defaultProjectDispatchLaunchOperations: ProjectDispatchLaunchOperat
   markRunnerStarted,
   markRunnerSuccess,
   markRunnerTimeout,
+  markRunnerBlocked,
   markRunnerFatalError
 };
 
@@ -114,7 +117,9 @@ async function runProjectMiniMaxDispatch(
     context.providerId,
     input.project,
     input.paths,
-    dependencies.helpers.buildProviderDispatchPayload(context, prepared),
+    dependencies.helpers.buildProviderDispatchPayload(context, prepared, {
+      dataRoot: dependencies.context.dataRoot
+    }),
     runtimeSettings,
     {
       wakeUpCallback: async (sessionId, runId) => {
@@ -156,9 +161,9 @@ async function runProjectSyncDispatch(
 ): Promise<SessionDispatchResult> {
   const { input } = context;
   const runtimeSettings = await dependencies.operations.getRuntimeSettings(dependencies.context.dataRoot);
+  const providerSessionId = input.session.providerSessionId?.trim();
   const resumeCandidate =
-    input.session.providerSessionId?.trim() ||
-    (!isPendingSessionId(input.session.sessionId) ? input.session.sessionId : "");
+    context.providerId === "codex" && looksLikeCodexThreadId(providerSessionId) ? providerSessionId : "";
   const canAttemptResume = context.providerId === "codex" && Boolean(resumeCandidate);
   await dependencies.operations.markRunnerStarted({
     ...dependencies.helpers.buildRunnerPayload(context),
@@ -181,7 +186,10 @@ async function runProjectSyncDispatch(
       context.providerId,
       input.project,
       input.paths,
-      dependencies.helpers.buildProviderDispatchPayload(context, prepared, { resumeSessionId: resumeCandidate }),
+      dependencies.helpers.buildProviderDispatchPayload(context, prepared, {
+        dataRoot: dependencies.context.dataRoot,
+        ...(resumeCandidate ? { resumeSessionId: resumeCandidate } : {})
+      }),
       runtimeSettings
     );
     if (launchResult.mode !== "sync") {
@@ -192,7 +200,7 @@ async function runProjectSyncDispatch(
     runError = error;
   }
 
-  if (canAttemptResume && runError !== null) {
+  if (canAttemptResume && runError !== null && !isProviderLaunchError(runError)) {
     await dependencies.context.repositories.events.appendEvent(input.paths, {
       projectId: input.project.projectId,
       eventType: "CODEX_RESUME_FAILED",
@@ -232,7 +240,9 @@ async function runProjectSyncDispatch(
         context.providerId,
         input.project,
         input.paths,
-        dependencies.helpers.buildProviderDispatchPayload(context, prepared),
+        dependencies.helpers.buildProviderDispatchPayload(context, prepared, {
+          dataRoot: dependencies.context.dataRoot
+        }),
         runtimeSettings
       );
       if (fallbackResult.mode !== "sync") {
@@ -248,7 +258,7 @@ async function runProjectSyncDispatch(
     throw runError instanceof Error ? runError : new Error(runError ? String(runError) : "model run failed");
   }
 
-  if (input.dispatchKind === "message") {
+  if (input.selectedMessageIds.length > 0) {
     await dependencies.operations.addPendingMessagesForRole(
       input.paths,
       input.project.projectId,

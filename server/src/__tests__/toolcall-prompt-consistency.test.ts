@@ -9,18 +9,7 @@ import { createProject } from "../data/repository/project/runtime-repository.js"
 import { BASE_PROMPT_TEXT } from "../services/agent-prompt-service.js";
 import { buildAgentWorkspaceAgentsMd, ensureAgentWorkspaces } from "../services/agent-workspace-service.js";
 import { composeSystemPrompt } from "../services/prompt-composer.js";
-
-const TEAM_TOOL_NAMES = [
-  "task_create_assign",
-  "task_report_in_progress",
-  "task_report_done",
-  "task_report_block",
-  "discuss_request",
-  "discuss_reply",
-  "discuss_close",
-  "route_targets_get",
-  "lock_manage"
-] as const;
+import { TEAM_TOOL_NAMES, buildCodexTeamToolAlias } from "../services/teamtool-contract.js";
 
 function resolveTeamToolsListPath(): string {
   const candidates = [
@@ -59,6 +48,11 @@ function resolveOrchestratorServicePath(): string {
 test("agent-visible prompts/doc index use registered TeamTools names consistently", async () => {
   for (const toolName of TEAM_TOOL_NAMES) {
     assert.equal(BASE_PROMPT_TEXT.includes(toolName), true, `BASE_PROMPT_TEXT should include ${toolName}`);
+    assert.equal(
+      BASE_PROMPT_TEXT.includes(buildCodexTeamToolAlias(toolName)),
+      true,
+      `BASE_PROMPT_TEXT should include ${buildCodexTeamToolAlias(toolName)}`
+    );
   }
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-toolprompt-"));
@@ -78,8 +72,12 @@ test("agent-visible prompts/doc index use registered TeamTools names consistentl
   );
 
   const generatedAgentsMd = await fs.readFile(path.join(workspacePath, "Agents", "dev_impl", "AGENTS.md"), "utf8");
-  assert.equal(generatedAgentsMd.includes("task_report_in_progress, task_report_done, task_report_block"), true);
-  assert.equal(generatedAgentsMd.includes("discuss_request/discuss_reply/discuss_close"), true);
+  assert.equal(generatedAgentsMd.includes("mcp__teamtool__task_report_done"), true);
+  assert.equal(generatedAgentsMd.includes("mcp__teamtool__route_targets_get"), true);
+  assert.equal(
+    generatedAgentsMd.includes('mcp__teamtool__task_report_done({"task_report_path":"./progress.md"})'),
+    true
+  );
   assert.equal(generatedAgentsMd.includes("discuss_*.ps1"), false);
   assert.equal(generatedAgentsMd.includes("report_task_*"), false);
 
@@ -97,22 +95,27 @@ test("agent-visible prompts/doc index use registered TeamTools names consistentl
 
 test("runtime prompt and workspace guide switch by host platform", () => {
   const windowsPrompt = composeSystemPrompt({
-    providerId: "minimax",
+    providerId: "codex",
     hostPlatform: "win32"
   }).systemPrompt;
   const linuxPrompt = composeSystemPrompt({
-    providerId: "minimax",
+    providerId: "codex",
     hostPlatform: "linux"
   }).systemPrompt;
   const macPrompt = composeSystemPrompt({
-    providerId: "minimax",
+    providerId: "codex",
     hostPlatform: "darwin"
   }).systemPrompt;
 
   assert.equal(windowsPrompt.includes("Use PowerShell/CMD syntax only."), true);
   assert.equal(windowsPrompt.includes("Do not use bash/sh/zsh syntax."), true);
+  assert.equal(windowsPrompt.includes("mcp__teamtool__task_report_done"), true);
+  assert.equal(windowsPrompt.includes('mcp__teamtool__task_report_done({"task_report_path":"./progress.md"})'), true);
+  assert.equal(windowsPrompt.includes("call the exact exposed tool name directly"), true);
+  assert.equal(windowsPrompt.includes("Shell output is never evidence"), true);
   assert.equal(linuxPrompt.includes("Use bash/sh syntax only."), true);
   assert.equal(linuxPrompt.includes("Do not use PowerShell/CMD syntax."), true);
+  assert.equal(linuxPrompt.includes("mcp__teamtool__route_targets_get"), true);
   assert.equal(macPrompt.includes("macOS support is design-compatible"), true);
 
   const windowsGuide = buildAgentWorkspaceAgentsMd("win32");
@@ -121,6 +124,10 @@ test("runtime prompt and workspace guide switch by host platform", () => {
 
   assert.equal(windowsGuide.includes("YOUR RUNTIME IS WINDOWS"), true);
   assert.equal(windowsGuide.includes("Use PowerShell/CMD"), true);
+  assert.equal(windowsGuide.includes("Read `../TEAM.md`"), true);
+  assert.equal(windowsGuide.includes("Do not use Get-Command"), true);
+  assert.equal(windowsGuide.includes("corresponding ToolCall is invalid"), true);
+  assert.equal(windowsGuide.includes('mcp__teamtool__task_report_done({"task_report_path":"./progress.md"})'), true);
   assert.equal(linuxGuide.includes("YOUR RUNTIME IS LINUX"), true);
   assert.equal(linuxGuide.includes("Use POSIX shell commands"), true);
   assert.equal(macGuide.includes("YOUR RUNTIME IS MACOS"), true);

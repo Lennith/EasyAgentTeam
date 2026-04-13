@@ -1,4 +1,4 @@
-import type { ProviderRegistry } from "../../provider-runtime.js";
+import { resolveSessionProviderId, type ProviderRegistry } from "../../provider-runtime.js";
 import type { WorkflowRunRecord, WorkflowSessionRecord } from "../../../domain/models.js";
 import type { WorkflowRepositoryBundle } from "../../../data/repository/workflow/repository-bundle.js";
 import { parseIsoMs } from "../shared/session-manager.js";
@@ -15,7 +15,7 @@ export interface WorkflowSessionRegistrationInput {
   sessionId?: string;
   status?: string;
   providerSessionId?: string;
-  provider?: "codex" | "trae" | "minimax";
+  provider?: "codex" | "minimax";
 }
 
 function sortSessionsByRecentActivity(a: WorkflowSessionRecord, b: WorkflowSessionRecord): number {
@@ -91,7 +91,7 @@ export async function resolveWorkflowAuthoritativeSession(
       sessionId: buildRoleScopedSessionId(normalizedRole),
       role: normalizedRole,
       status: "idle",
-      provider: "minimax"
+      provider: resolveSessionProviderId(run, normalizedRole, "minimax")
     });
     input.sessions.push(created.session);
     await persistWorkflowRoleSessionMap(context.repositories, run, normalizedRole, created.session.sessionId);

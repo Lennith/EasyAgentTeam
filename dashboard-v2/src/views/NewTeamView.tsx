@@ -179,7 +179,7 @@ export function NewTeamView() {
     return routeTable[from] ?? [];
   }
 
-  function getModelsForProvider(providerId: "codex" | "trae" | "minimax"): ModelInfo[] {
+  function getModelsForProvider(providerId: "codex" | "minimax"): ModelInfo[] {
     return availableModels.filter((m) => m.vendor === providerId);
   }
 
@@ -359,18 +359,17 @@ export function NewTeamView() {
                 >
                   <span style={{ flex: 1, fontWeight: 500 }}>{agent}</span>
                   <select
-                    value={modelConfigs[agent]?.provider_id ?? "codex"}
+                    value={modelConfigs[agent]?.provider_id ?? "minimax"}
                     onChange={(e) =>
                       setModelConfigs((prev) => ({
                         ...prev,
-                        [agent]: { ...prev[agent], provider_id: e.target.value as "codex" | "trae" | "minimax" }
+                        [agent]: { ...prev[agent], provider_id: e.target.value as "codex" | "minimax" }
                       }))
                     }
                     style={{ fontSize: "12px", padding: "4px 8px", width: "90px" }}
                   >
-                    <option value="codex">Codex</option>
-                    <option value="trae">Trae</option>
                     <option value="minimax">MiniMax</option>
+                    <option value="codex">Codex</option>
                   </select>
                   <select
                     value={modelConfigs[agent]?.model ?? ""}
@@ -383,7 +382,7 @@ export function NewTeamView() {
                     style={{ fontSize: "12px", padding: "4px 8px", width: "120px" }}
                   >
                     <option value="">Model...</option>
-                    {getModelsForProvider(modelConfigs[agent]?.provider_id ?? "codex").map((m) => (
+                    {getModelsForProvider(modelConfigs[agent]?.provider_id ?? "minimax").map((m) => (
                       <option key={m.model} value={m.model}>
                         {m.model.length > 16 ? m.model.slice(0, 16) + "..." : m.model}
                       </option>

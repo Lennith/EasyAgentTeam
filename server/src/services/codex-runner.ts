@@ -4,9 +4,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { appendJsonlLine } from "../utils/file-utils.js";
 import { appendEvent } from "../data/repository/project/event-repository.js";
+import { touchSession } from "../data/repository/project/session-repository.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
 import type { RuntimeSettings } from "../data/repository/system/runtime-settings-repository.js";
 import { runMiniMaxForProject, type MiniMaxRunResultInternal } from "./minimax-runner.js";
+import { buildCodexTeamToolConfigArgs, type CodexTeamToolContext } from "./codex-teamtool-mcp.js";
+import { spawnCodexProcess } from "./codex-cli-spawn.js";
+import { buildProjectCodexRuntimeHome, ensureCodexRuntimeHome } from "./codex-runtime-home.js";
+import { assertProviderModelLaunchable, normalizeCodexLaunchFailure } from "./provider-launch-error.js";
 
 export interface ModelRunRequest {
   sessionId: string;
@@ -21,9 +26,10 @@ export interface ModelRunRequest {
   timeoutMs?: number;
   resumeSessionId?: string;
   parentRequestId?: string;
-  cliTool: "codex" | "trae" | "minimax";
+  cliTool: "codex" | "minimax";
   modelCommand?: string;
   modelParams?: Record<string, any>;
+  codexTeamToolContext?: CodexTeamToolContext;
 }
 
 export interface ModelRunResult {
@@ -56,7 +62,7 @@ export interface AgentOutputLine {
   content: string;
   cliCommand?: string;
   prompt?: string;
-  provider?: "codex" | "trae";
+  provider?: "codex" | "minimax";
   config: {
     sandbox: "danger-full-access";
     approval: "never";
@@ -69,6 +75,8 @@ export abstract class BaseModelRunner {
   protected readonly request: ModelRunRequest;
   protected readonly runId: string;
   protected readonly startedAt: string;
+  private lastHeartbeatTime = 0;
+  private static readonly HEARTBEAT_INTERVAL_MS = 1000;
 
   constructor(project: ProjectRecord, paths: ProjectPaths, request: ModelRunRequest) {
     this.project = project;
@@ -82,19 +90,26 @@ export abstract class BaseModelRunner {
   abstract extractSessionId(line: string): string | undefined;
 
   async run(): Promise<ModelRunResult> {
+    assertProviderModelLaunchable({
+      providerId: "codex",
+      model: typeof this.request.modelParams?.model === "string" ? this.request.modelParams.model : undefined
+    });
     const { command, args, mode } = this.buildCommand();
     const cliCommand = [command, ...args].map((arg) => this.quoteCmdArg(arg)).join(" ");
     const workingDirectory = this.resolveWorkingDirectory();
+    const codexHome = await ensureCodexRuntimeHome(
+      buildProjectCodexRuntimeHome(this.paths, this.request.agentRole ?? this.request.sessionId)
+    );
 
     await this.appendLog("system", `Starting ${this.request.cliTool} run (${mode}): ${command} ${args.join(" ")}`, {
       cliCommand,
       prompt: this.request.prompt
     });
+    await this.appendLog("system", `Using isolated CODEX_HOME: ${codexHome}`);
 
-    const child = spawn(command, args, {
+    const child = spawnCodexProcess(command, args, {
       cwd: workingDirectory,
-      env: this.withModelEnv(workingDirectory),
-      shell: process.platform === "win32",
+      env: this.withModelEnv(workingDirectory, codexHome),
       stdio: ["pipe", "pipe", "pipe"]
     });
 
@@ -108,12 +123,16 @@ export abstract class BaseModelRunner {
       mode,
       resumeSessionId: this.request.resumeSessionId ?? null,
       parentRequestId: this.request.parentRequestId ?? null,
+      codexHome,
       pid: child.pid ?? null
     });
 
     let stdoutBuffer = "";
     let stderrBuffer = "";
+    let capturedStdout = "";
+    let capturedStderr = "";
     let timedOut = false;
+    let spawnError: Error | null = null;
     let detectedSessionId = this.request.resumeSessionId?.trim() || "";
     let sessionIdDetectionAttempts = 0;
     let sessionIdDetectedAt: string | undefined;
@@ -131,6 +150,7 @@ export abstract class BaseModelRunner {
     );
 
     child.stdout.on("data", async (chunk: Buffer) => {
+      capturedStdout += chunk.toString("utf8");
       stdoutBuffer += chunk.toString("utf8");
       const parsed = this.splitLines(stdoutBuffer);
       stdoutBuffer = parsed.rest;
@@ -153,6 +173,7 @@ export abstract class BaseModelRunner {
     });
 
     child.stderr.on("data", async (chunk: Buffer) => {
+      capturedStderr += chunk.toString("utf8");
       stderrBuffer += chunk.toString("utf8");
       const parsed = this.splitLines(stderrBuffer);
       stderrBuffer = parsed.rest;
@@ -176,6 +197,7 @@ export abstract class BaseModelRunner {
 
     const exitCode = await new Promise<number | null>((resolve) => {
       child.once("error", async (error) => {
+        spawnError = error;
         await this.appendLog("system", `spawn error: ${error.message}`);
         resolve(-1);
       });
@@ -205,6 +227,17 @@ export abstract class BaseModelRunner {
     }
 
     await this.appendLog("system", `${this.request.cliTool} finished with exitCode=${exitCode} timedOut=${timedOut}`);
+
+    const normalizedLaunchError = normalizeCodexLaunchFailure({
+      model: typeof this.request.modelParams?.model === "string" ? this.request.modelParams.model : undefined,
+      stdout: `${capturedStdout}\n${stdoutBuffer}`,
+      stderr: `${capturedStderr}\n${stderrBuffer}`,
+      error: spawnError,
+      command
+    });
+    if (normalizedLaunchError) {
+      throw normalizedLaunchError;
+    }
 
     await this.appendEvent("CODEX_RUN_FINISHED", {
       runId: this.runId,
@@ -268,6 +301,18 @@ export abstract class BaseModelRunner {
         approval: "never"
       }
     });
+    await this.updateHeartbeat();
+  }
+
+  protected async updateHeartbeat(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastHeartbeatTime < BaseModelRunner.HEARTBEAT_INTERVAL_MS) {
+      return;
+    }
+    this.lastHeartbeatTime = now;
+    await touchSession(this.paths, this.project.projectId, this.request.sessionId, {
+      lastActiveAt: new Date().toISOString()
+    }).catch(() => {});
   }
 
   protected resolveWorkingDirectory(): string {
@@ -287,7 +332,7 @@ export abstract class BaseModelRunner {
     return this.project.workspacePath;
   }
 
-  protected withModelEnv(workingDirectory: string): NodeJS.ProcessEnv {
+  protected withModelEnv(workingDirectory: string, codexHome?: string): NodeJS.ProcessEnv {
     const baseEnv: NodeJS.ProcessEnv = process.env;
     const env: NodeJS.ProcessEnv = {
       ...baseEnv,
@@ -302,7 +347,8 @@ export abstract class BaseModelRunner {
       AUTO_DEV_ACTIVE_TASK_TITLE: this.request.activeTaskTitle ?? "",
       AUTO_DEV_ACTIVE_PARENT_TASK_ID: this.request.activeParentTaskId ?? "",
       AUTO_DEV_ACTIVE_ROOT_TASK_ID: this.request.activeRootTaskId ?? "",
-      AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? ""
+      AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? "",
+      ...(codexHome ? { CODEX_HOME: codexHome } : {})
     };
 
     if (process.platform !== "win32") {
@@ -404,6 +450,7 @@ export class CodexModelRunner extends BaseModelRunner {
         "exec",
         "resume",
         this.request.resumeSessionId.trim(),
+        "--json",
         "--dangerously-bypass-approvals-and-sandbox"
       ];
       if (this.request.modelParams) {
@@ -413,14 +460,17 @@ export class CodexModelRunner extends BaseModelRunner {
           }
         });
       }
+      if (this.request.codexTeamToolContext) {
+        resume.push(...buildCodexTeamToolConfigArgs(this.request.codexTeamToolContext));
+      }
       return {
         command,
-        args: [...resume, "-"],
+        args: resume,
         mode: "resume"
       };
     }
 
-    const base = ["exec", "--sandbox", "danger-full-access", "--dangerously-bypass-approvals-and-sandbox"];
+    const base = ["exec", "--json", "--sandbox", "danger-full-access", "--dangerously-bypass-approvals-and-sandbox"];
     if (this.request.modelParams) {
       Object.entries(this.request.modelParams).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -428,58 +478,37 @@ export class CodexModelRunner extends BaseModelRunner {
         }
       });
     }
+    if (this.request.codexTeamToolContext) {
+      base.push(...buildCodexTeamToolConfigArgs(this.request.codexTeamToolContext));
+    }
 
     return { command, args: base, mode: "exec" };
   }
 
   extractSessionId(line: string): string | undefined {
     const clean = this.stripAnsi(line);
+
+    try {
+      const parsed = JSON.parse(clean) as Record<string, unknown>;
+      const eventType = typeof parsed.type === "string" ? parsed.type : "";
+      if (eventType === "thread.started" && typeof parsed.thread_id === "string") {
+        return parsed.thread_id.trim();
+      }
+      if (typeof parsed.session_id === "string") {
+        return parsed.session_id.trim();
+      }
+      if (typeof parsed.thread_id === "string") {
+        return parsed.thread_id.trim();
+      }
+    } catch {
+      // Non-JSON line, continue with plain-text fallbacks.
+    }
 
     const patterns = [
       /session\s*id\s*[:=]\s*([0-9a-f-]{8,})/i,
       /session\s*[:=]\s*([0-9a-f-]{8,})/i,
       /session_id\s*[:=]\s*([0-9a-f-]{8,})/i
     ];
-
-    for (const pattern of patterns) {
-      const match = clean.match(pattern);
-      if (match?.[1]) {
-        return match[1].trim();
-      }
-    }
-
-    return undefined;
-  }
-}
-
-export class TraeModelRunner extends BaseModelRunner {
-  buildCommand(): { command: string; args: string[]; mode: "exec" | "resume" } {
-    const command = this.request.modelCommand?.trim() || process.env.TRAE_CLI_COMMAND?.trim() || "trae";
-    const base = ["run", "--no-sandbox", "--yes"];
-
-    if (this.request.modelParams) {
-      Object.entries(this.request.modelParams).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          base.push(`--${key}`, String(value));
-        }
-      });
-    }
-
-    if (this.request.resumeSessionId && this.request.resumeSessionId.trim().length > 0) {
-      return {
-        command,
-        args: [...base, "--resume", this.request.resumeSessionId.trim(), "-"],
-        mode: "resume"
-      };
-    }
-
-    return { command, args: base, mode: "exec" };
-  }
-
-  extractSessionId(line: string): string | undefined {
-    const clean = this.stripAnsi(line);
-
-    const patterns = [/session\s*[:=]\s*([0-9a-f-]{8,})/i, /session\s*id\s*[:=]\s*([0-9a-f-]{8,})/i];
 
     for (const pattern of patterns) {
       const match = clean.match(pattern);
@@ -513,6 +542,7 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
   const cliToolRaw = (data.cliTool ?? data.cli_tool) as string | undefined;
   const modelCommand = (data.modelCommand ?? data.model_command) as string | undefined;
   const modelParams = data.modelParams ?? (data.model_params as Record<string, any> | undefined);
+  const codexTeamToolContext = data.codexTeamToolContext ?? data.codex_teamtool_context;
 
   if (!sessionId || typeof sessionId !== "string") {
     throw new Error("session_id is required");
@@ -526,7 +556,7 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
       ? timeoutMsRaw
       : 10 * 60 * 1000;
 
-  const cliTool = cliToolRaw === "trae" ? "trae" : cliToolRaw === "minimax" ? "minimax" : "codex";
+  const cliTool = cliToolRaw === "trae" || cliToolRaw === "minimax" ? "minimax" : "codex";
 
   return {
     sessionId,
@@ -543,7 +573,11 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
     parentRequestId,
     cliTool,
     modelCommand,
-    modelParams
+    modelParams,
+    codexTeamToolContext:
+      codexTeamToolContext && typeof codexTeamToolContext === "object"
+        ? (codexTeamToolContext as CodexTeamToolContext)
+        : undefined
   };
 }
 
@@ -583,12 +617,6 @@ export async function runModelForProject(
     );
   }
 
-  let runner: BaseModelRunner;
-  if (req.cliTool === "trae") {
-    runner = new TraeModelRunner(project, paths, req);
-  } else {
-    runner = new CodexModelRunner(project, paths, req);
-  }
-
+  const runner: BaseModelRunner = new CodexModelRunner(project, paths, req);
   return await runner.run();
 }

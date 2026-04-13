@@ -55,7 +55,6 @@ export function SettingsView() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const [codexCliCommand, setCodexCliCommand] = useState("");
-  const [traeCliCommand, setTraeCliCommand] = useState("");
   const [theme, setTheme] = useState<Theme>(() => readCurrentTheme());
   const [minimaxApiKey, setMiniMaxApiKey] = useState("");
   const [minimaxApiBase, setMiniMaxApiBase] = useState("");
@@ -85,7 +84,6 @@ export function SettingsView() {
           setMiniMaxModels(minimaxOptions);
           setSettings(data);
           setCodexCliCommand(data.codexCliCommand ?? "");
-          setTraeCliCommand(data.traeCliCommand ?? "");
           const resolvedTheme = data.theme ?? readCurrentTheme();
           setTheme(resolvedTheme);
           setMiniMaxApiKey(data.minimaxApiKey ?? "");
@@ -131,7 +129,6 @@ export function SettingsView() {
       setSuccess(null);
       const updated = await settingsApi.update({
         codexCliCommand,
-        traeCliCommand,
         theme,
         minimaxApiKey: minimaxApiKey.trim().length > 0 ? minimaxApiKey.trim() : null,
         minimaxApiBase: minimaxApiBase.trim().length > 0 ? minimaxApiBase.trim() : null,
@@ -308,18 +305,6 @@ export function SettingsView() {
           />
           <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
             Default for this platform: {runtimeSettings?.codexCliCommandDefault ?? "codex"}
-          </p>
-        </div>
-
-        <div className="form-group">
-          <label>{t.trae}</label>
-          <input
-            value={traeCliCommand}
-            onChange={(e) => setTraeCliCommand(e.target.value)}
-            placeholder={runtimeSettings?.traeCliCommandDefault ?? "trae"}
-          />
-          <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
-            Default for this platform: {runtimeSettings?.traeCliCommandDefault ?? "trae"}
           </p>
         </div>
       </div>

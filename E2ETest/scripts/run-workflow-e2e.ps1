@@ -1,6 +1,8 @@
 ﻿param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string]$ScenarioPath = "",
+  [ValidateSet("", "codex", "minimax")]
+  [string]$ProviderId = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace",
   [int]$AutoDispatchBudget = 30,
   [int]$MaxMinutes = 90,
@@ -19,6 +21,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 . (Join-Path $scriptDir "invoke-api.ps1")
+. (Join-Path $scriptDir "e2e-provider-matrix.ps1")
 
 if (-not $ScenarioPath) {
   $ScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\workflow-gesture-real-agent.json"
@@ -28,15 +31,6 @@ if (-not (Test-Path -LiteralPath $ScenarioPath)) {
 }
 
 $scenario = Get-Content -LiteralPath $ScenarioPath -Encoding UTF8 -Raw | ConvertFrom-Json
-$modelCfg = $scenario.agent_model
-$providerIdRaw = if ($modelCfg.provider_id) { [string]$modelCfg.provider_id } else { [string]$modelCfg.tool }
-$providerId = $providerIdRaw.Trim().ToLower()
-if ([string]::IsNullOrWhiteSpace($providerId)) {
-  $providerId = "minimax"
-}
-if ($providerId -ne "minimax") {
-  throw "Workflow E2E requires MiniMax provider. scenario.agent_model.provider_id='$providerId'"
-}
 
 $workspace = $WorkspaceRoot
 $artifactsBase = Join-Path $workspace "docs\e2e"
@@ -53,6 +47,9 @@ foreach ($prop in $scenario.roles.PSObject.Properties) {
   $roleEntries += $entry
   $roleByKey[[string]$prop.Name] = [string]$prop.Value
 }
+$resolvedMatrix = Resolve-E2ERoleModelMatrix -Scenario $scenario -RoleByKey $roleByKey -ForcedProviderId $ProviderId
+$providerModeLabel = if ($resolvedMatrix.mode -eq "forced_provider") { [string]$resolvedMatrix.forced_provider_id } else { "mixed" }
+Assert-E2EMixedProviderBaseline -ResolvedMatrix $resolvedMatrix -CaseId "workflow"
 $roleList = @($roleEntries | ForEach-Object { $_.id })
 $phaseTasks = @($scenario.phase_tasks)
 $phaseTaskIds = @($phaseTasks | ForEach-Object { [string]$_.task_id })
@@ -95,6 +92,9 @@ $script:agentChatTranscripts = New-Object System.Collections.Generic.List[object
 $script:workflowRecoveryState = @{}
 $script:stabilityFallbackEvents = New-Object System.Collections.Generic.List[object]
 $script:postProcessDeadline = $null
+$script:settingsRestoreSnapshot = $null
+$script:activeMiniMaxRuntimeModel = $null
+$script:appliedMiniMaxRuntimeModel = $null
 $strictMode = [bool]$StrictObserve
 $effectiveMiniMaxApiKeyOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) { [string]$env:E2E_MINIMAX_API_KEY } else { [string]$MiniMaxApiKeyOverride }
 $effectiveMiniMaxApiBaseOverride = if ([string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) { [string]$env:E2E_MINIMAX_API_BASE } else { [string]$MiniMaxApiBaseOverride }
@@ -135,6 +135,107 @@ function Get-StringProp {
   return ""
 }
 
+function Get-StringArrayProp {
+  param(
+    [object]$Obj,
+    [string[]]$Names
+  )
+
+  if (-not $Obj) {
+    return @()
+  }
+
+  $values = @()
+  foreach ($name in $Names) {
+    $p = $Obj.PSObject.Properties[$name]
+    if (-not $p -or $null -eq $p.Value) {
+      continue
+    }
+    if ($p.Value -is [System.Collections.IEnumerable] -and -not ($p.Value -is [string])) {
+      foreach ($item in @($p.Value)) {
+        $text = [string]$item
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+          $values += $text.Trim()
+        }
+      }
+    } else {
+      $text = [string]$p.Value
+      if (-not [string]::IsNullOrWhiteSpace($text)) {
+        $values += $text.Trim()
+      }
+    }
+  }
+
+  return @(Get-E2EUniqueStringValues -Values $values)
+}
+
+function Get-DateTimeProp {
+  param(
+    [object]$Obj,
+    [string[]]$Names
+  )
+
+  $raw = Get-StringProp -Obj $Obj -Names $Names
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    return [datetime]::MinValue
+  }
+  try {
+    return [datetime]::Parse($raw, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+  } catch {
+    try {
+      return [datetime]$raw
+    } catch {
+      return [datetime]::MinValue
+    }
+  }
+}
+
+function Test-DateAtOrAfter {
+  param(
+    [datetime]$Actual,
+    [datetime]$Threshold
+  )
+
+  if ($Threshold -eq [datetime]::MinValue) {
+    return $true
+  }
+  if ($Actual -eq [datetime]::MinValue) {
+    return $false
+  }
+  return ($Actual -ge $Threshold.AddSeconds(-1))
+}
+
+function Get-WorkflowRoleSessions {
+  param(
+    [Parameter(Mandatory = $true)][object]$SessionsBody,
+    [Parameter(Mandatory = $true)][string]$RoleId
+  )
+
+  $items = if ($SessionsBody -and $SessionsBody.items) { @($SessionsBody.items) } else { @() }
+  return @(
+    $items |
+      Where-Object { [string]$_.role -eq $RoleId } |
+      Sort-Object `
+        @{ Expression = { Get-DateTimeProp -Obj $_ -Names @("lastDispatchedAt", "last_dispatched_at") }; Descending = $true }, `
+        @{ Expression = { Get-DateTimeProp -Obj $_ -Names @("updatedAt", "updated_at") }; Descending = $true }, `
+        @{ Expression = { Get-DateTimeProp -Obj $_ -Names @("lastActiveAt", "last_active_at") }; Descending = $true }, `
+        @{ Expression = { Get-DateTimeProp -Obj $_ -Names @("createdAt", "created_at") }; Descending = $true }, `
+        @{ Expression = { [string]$_.sessionId }; Descending = $false }
+  )
+}
+
+function Get-WorkflowAuditBoundary {
+  param(
+    [Parameter(Mandatory = $true)][object]$SessionLike
+  )
+
+  $lastDispatchedAt = Get-DateTimeProp -Obj $SessionLike -Names @("last_dispatched_at", "lastDispatchedAt")
+  if ($lastDispatchedAt -ne [datetime]::MinValue) {
+    return $lastDispatchedAt
+  }
+  return Get-DateTimeProp -Obj $SessionLike -Names @("created_at", "createdAt")
+}
+
 function Matches-Prefix {
   param(
     [string]$Value,
@@ -159,6 +260,23 @@ function Build-AgentPrompt {
     [string[]]$PhaseIds
   )
   $phaseScope = $PhaseIds -join ", "
+  $providerId = ""
+  if ($resolvedMatrix -and $resolvedMatrix.by_role_id -and $resolvedMatrix.by_role_id[$RoleId]) {
+    $providerId = [string]$resolvedMatrix.by_role_id[$RoleId].provider_id
+  }
+  $teamToolNameRules = if ($providerId -eq "codex") {
+    @(
+      "- Use the exact Codex MCP TeamTool aliases exposed in this runtime, including mcp__teamtool__task_create_assign, mcp__teamtool__task_report_in_progress, mcp__teamtool__task_report_done, mcp__teamtool__task_report_block, mcp__teamtool__discuss_request, mcp__teamtool__discuss_reply, mcp__teamtool__discuss_close.",
+      "- Do not replace TeamTool calls with shell commands or local wrapper scripts."
+    )
+  } else {
+    @(
+      "- Use canonical TeamTool names only: task_create_assign, task_report_in_progress, task_report_done, task_report_block, discuss_request, discuss_reply, discuss_close.",
+      "- Do not prepend mcp__teamtool__ to TeamTool names in this runtime.",
+      "- Tool names starting with mcp__teamtool__ are invalid in this runtime and will fail."
+    )
+  }
+  $teamToolNameText = $teamToolNameRules -join "`n"
   return @(
     "You are role '$RoleId' ($RoleKey) in a workflow E2E run.",
     "Mission goal: $Goal",
@@ -171,6 +289,11 @@ function Build-AgentPrompt {
     "- TASK_CREATE",
     "- TASK_DISCUSS_REQUEST / TASK_DISCUSS_REPLY / TASK_DISCUSS_CLOSED",
     "- TASK_REPORT",
+    $teamToolNameText,
+    "- When using lock_manage, lock_key must be a workspace-relative path such as docs/ux/ui/01_ui_spec.md. Never pass an absolute path or an agent-local path as lock_key.",
+    "- Only call task_report_* on phase tasks owned by your role or subtasks created by your role.",
+    "- If you are replying inside a discuss thread on another role's task, use discuss_reply/discuss_close and local progress only; do not task_report_* that foreign task.",
+    "- If task_report_* returns TASK_RESULT_INVALID_TARGET, stop retrying that foreign task and continue via discuss flow or create an owned subtask first.",
     "",
     "Subtask creation rules:",
     "- parent_task_id must be one of these high-level phase tasks: $phaseScope",
@@ -181,8 +304,356 @@ function Build-AgentPrompt {
     "Output contract:",
     "- Prioritize concrete code artifacts under src/ before supporting docs.",
     "- Produce concrete artifacts in workspace.",
-    "- Report completion on the high-level phase task via TASK_REPORT; do not only report subtasks."
+    "- Report completion on the high-level phase task via TASK_REPORT; do not only report subtasks.",
+    "- If your current work closes the last same-role subtask under a phase you own, report DONE for that parent phase in the same turn after the subtask report succeeds."
   ) -join "`n"
+}
+
+function Get-ResolvedRoleModelConfig {
+  param(
+    [Parameter(Mandatory = $true)][string]$RoleId
+  )
+
+  $config = $resolvedMatrix.by_role_id[$RoleId]
+  if (-not $config) {
+    throw "Missing resolved workflow agent model config for role '$RoleId'."
+  }
+  return $config
+}
+
+function Build-WorkflowProviderSettingsPatch {
+  param(
+    [Parameter(Mandatory = $true)][object]$SettingsBody
+  )
+
+  $providers = if ($resolvedMatrix.providers) { @($resolvedMatrix.providers) } else { @() }
+  $hasMiniMax = $providers -contains "minimax"
+  $patch = @{}
+  if ($hasMiniMax) {
+    $currentModel = Get-StringProp -Obj $SettingsBody -Names @("minimaxModel", "minimax_model")
+    $targetModel = [string](Get-E2EDefaultAgentModelConfig -ProviderId "minimax").model
+    $script:activeMiniMaxRuntimeModel = if ([string]::IsNullOrWhiteSpace($currentModel)) { $targetModel } else { $targetModel }
+    $script:appliedMiniMaxRuntimeModel = $targetModel
+    if ($ClearMiniMaxSettings.IsPresent) {
+      $patch["minimaxApiKey"] = $null
+      $patch["minimaxApiBase"] = $null
+    }
+    if (-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiKeyOverride)) {
+      $patch["minimaxApiKey"] = $effectiveMiniMaxApiKeyOverride.Trim()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiBaseOverride)) {
+      $patch["minimaxApiBase"] = $effectiveMiniMaxApiBaseOverride.Trim()
+    }
+    $patch["minimaxModel"] = $targetModel
+  } else {
+    $script:activeMiniMaxRuntimeModel = $null
+    $script:appliedMiniMaxRuntimeModel = $null
+  }
+
+  if ($patch.Keys.Count -eq 0) {
+    return $null
+  }
+
+  $script:settingsRestoreSnapshot = [ordered]@{
+    minimaxApiKey = Get-StringProp -Obj $SettingsBody -Names @("minimaxApiKey", "minimax_api_key")
+    minimaxApiBase = Get-StringProp -Obj $SettingsBody -Names @("minimaxApiBase", "minimax_api_base")
+    minimaxModel = Get-StringProp -Obj $SettingsBody -Names @("minimaxModel", "minimax_model")
+  }
+  return $patch
+}
+
+function Restore-WorkflowProviderSettings {
+  if (-not $script:settingsRestoreSnapshot) {
+    return
+  }
+
+  $restorePatch = @{
+    minimaxApiKey = if ([string]::IsNullOrWhiteSpace([string]$script:settingsRestoreSnapshot.minimaxApiKey)) { $null } else { [string]$script:settingsRestoreSnapshot.minimaxApiKey }
+    minimaxApiBase = if ([string]::IsNullOrWhiteSpace([string]$script:settingsRestoreSnapshot.minimaxApiBase)) { $null } else { [string]$script:settingsRestoreSnapshot.minimaxApiBase }
+    minimaxModel = if ([string]::IsNullOrWhiteSpace([string]$script:settingsRestoreSnapshot.minimaxModel)) { (Get-E2EDefaultAgentModelConfig -ProviderId "minimax").model } else { [string]$script:settingsRestoreSnapshot.minimaxModel }
+  }
+  try {
+    Invoke-TimedApi -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $restorePatch | Out-Null
+  } catch {
+    $script:warnings.Add("settings_restore_failed: $($_.Exception.Message)")
+  } finally {
+    $script:settingsRestoreSnapshot = $null
+    $script:activeMiniMaxRuntimeModel = $null
+  }
+}
+
+function Build-WorkflowProviderSessionAudit {
+  param(
+    [Parameter(Mandatory = $true)][object]$SessionsBody
+  )
+
+  $auditItems = @()
+  $mismatches = @()
+  foreach ($entry in $roleEntries) {
+    $roleId = [string]$entry.id
+    $expected = Get-ResolvedRoleModelConfig -RoleId $roleId
+    $roleSessions = @(Get-WorkflowRoleSessions -SessionsBody $SessionsBody -RoleId $roleId)
+    $session = @($roleSessions | Select-Object -First 1)[0]
+    $actualProvider = if ($session) { ([string]$session.provider).Trim().ToLower() } else { "" }
+    $candidateProviders = @(Get-E2EUniqueStringValues -Values @($roleSessions | ForEach-Object { ([string]$_.provider).Trim().ToLower() }))
+    $providerConflict = ($candidateProviders.Count -gt 1)
+    $matches = ($session -and $actualProvider -eq [string]$expected.provider_id -and -not $providerConflict)
+    $auditItems += [ordered]@{
+      role_id = $roleId
+      role_key = [string]$expected.role_key
+      expected_provider_id = [string]$expected.provider_id
+      actual_provider_id = if ($session) { $actualProvider } else { $null }
+      model = [string]$expected.model
+      effort = [string]$expected.effort
+      session_id = if ($session) { [string]$session.sessionId } else { $null }
+      provider_session_id = if ($session) { Get-StringProp -Obj $session -Names @("providerSessionId", "provider_session_id") } else { $null }
+      status = if ($session) { [string]$session.status } else { $null }
+      created_at = if ($session) { Get-StringProp -Obj $session -Names @("createdAt", "created_at") } else { $null }
+      updated_at = if ($session) { Get-StringProp -Obj $session -Names @("updatedAt", "updated_at") } else { $null }
+      last_active_at = if ($session) { Get-StringProp -Obj $session -Names @("lastActiveAt", "last_active_at") } else { $null }
+      last_dispatched_at = if ($session) { Get-StringProp -Obj $session -Names @("lastDispatchedAt", "last_dispatched_at") } else { $null }
+      role_session_count = $roleSessions.Count
+      candidate_session_ids = @($roleSessions | ForEach-Object { [string]$_.sessionId })
+      candidate_provider_ids = @($candidateProviders)
+      provider_conflict = [bool]$providerConflict
+      provider_matches = [bool]$matches
+    }
+    if (-not $matches) {
+      $mismatches += [ordered]@{
+        role_id = $roleId
+        expected_provider_id = [string]$expected.provider_id
+        actual_provider_id = if ($session) { $actualProvider } else { $null }
+        session_id = if ($session) { [string]$session.sessionId } else { $null }
+        role_session_count = $roleSessions.Count
+        candidate_session_ids = @($roleSessions | ForEach-Object { [string]$_.sessionId })
+        candidate_provider_ids = @($candidateProviders)
+        provider_conflict = [bool]$providerConflict
+      }
+    }
+  }
+  return [ordered]@{
+    mode = [string]$resolvedMatrix.mode
+    providers = @($resolvedMatrix.providers)
+    all_sessions_match = ($mismatches.Count -eq 0)
+    items = $auditItems
+    mismatches = $mismatches
+  }
+}
+
+function Build-WorkflowProviderActivitySummary {
+  param(
+    [Parameter(Mandatory = $true)][object]$SessionAudit,
+    [object]$TimelineBody,
+    [object]$EventsSnapshot
+  )
+
+  $timelineItems = if ($TimelineBody -and $TimelineBody.items) { @($TimelineBody.items) } else { @() }
+  $events = if ($EventsSnapshot -and $EventsSnapshot.items) { @($EventsSnapshot.items) } else { @() }
+  $observationEvents = @($events | Where-Object { [string]$_.eventType -eq "PROVIDER_OBSERVATION_RECORDED" })
+  $providerItems = @()
+
+  foreach ($providerIdValue in @("codex", "minimax")) {
+    $auditRoles = @($SessionAudit.items | Where-Object { [string]$_.expected_provider_id -eq $providerIdValue })
+    if ($auditRoles.Count -eq 0) {
+      continue
+    }
+    $roleItems = @()
+    foreach ($auditRole in $auditRoles) {
+      $sessionId = [string]$auditRole.session_id
+      $roleId = [string]$auditRole.role_id
+      $auditBoundary = Get-WorkflowAuditBoundary -SessionLike $auditRole
+      $wasDispatched = (-not [string]::IsNullOrWhiteSpace([string]$auditRole.last_dispatched_at))
+      $roleTimelineItems = if ([string]::IsNullOrWhiteSpace($sessionId)) {
+        @()
+      } else {
+        @($timelineItems | Where-Object {
+            $itemCreatedAt = Get-DateTimeProp -Obj $_ -Names @("createdAt", "created_at")
+            (Test-DateAtOrAfter -Actual $itemCreatedAt -Threshold $auditBoundary) -and
+            (
+              [string]$_.toSessionId -eq $sessionId -or
+              [string]$_.from -eq $roleId
+            )
+          })
+      }
+      $roleObservationEvents = if ([string]::IsNullOrWhiteSpace($sessionId)) {
+        @()
+      } else {
+        @($observationEvents | Where-Object {
+            $eventCreatedAt = Get-DateTimeProp -Obj $_ -Names @("createdAt", "created_at")
+            (Test-DateAtOrAfter -Actual $eventCreatedAt -Threshold $auditBoundary) -and
+            [string]$_.sessionId -eq $sessionId
+          })
+      }
+      $roleLaunchObservationEvents = @($roleObservationEvents | Where-Object { [string]$_.payload.kind -eq "launch_config" })
+      $roleCompletedObservationEvents = @($roleObservationEvents | Where-Object {
+          [string]$_.payload.kind -eq "run_completed" -or [string]$_.payload.kind -eq "thread_started"
+        })
+      $roleHeartbeatObservationEvents = @($roleObservationEvents | Where-Object { [string]$_.payload.kind -eq "heartbeat" })
+      $roleHeartbeatTimeoutEvents = @($events | Where-Object {
+          [string]$_.eventType -eq "SESSION_HEARTBEAT_TIMEOUT" -and
+          (
+            [string]$_.sessionId -eq $sessionId -or
+            (Get-StringProp -Obj $_.payload -Names @("providerSessionId", "provider_session_id")) -eq [string]$auditRole.provider_session_id
+          )
+        })
+      $observedProviderSessionIds = @(
+        $roleCompletedObservationEvents |
+          ForEach-Object { Get-StringProp -Obj $_.payload -Names @("providerSessionId", "provider_session_id") } |
+          Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+      )
+      $observedRunConfig = if ($providerIdValue -eq "codex") {
+        Get-E2EObservedRunConfigFromProviderObservations -ObservationEvents $roleLaunchObservationEvents
+      } else {
+        $observedMiniMaxModel = if (-not [string]::IsNullOrWhiteSpace([string]$script:activeMiniMaxRuntimeModel)) {
+          [string]$script:activeMiniMaxRuntimeModel
+        } elseif (-not [string]::IsNullOrWhiteSpace([string]$script:appliedMiniMaxRuntimeModel)) {
+          [string]$script:appliedMiniMaxRuntimeModel
+        } else {
+          [string]$auditRole.model
+        }
+        [ordered]@{
+          observed_models = @(Get-E2EUniqueStringValues -Values @($observedMiniMaxModel))
+          observed_efforts = @([string]$auditRole.effort)
+        }
+      }
+      $modelMatches = Test-E2EObservedValueMatch -ExpectedValue ([string]$auditRole.model) -ObservedValues $observedRunConfig.observed_models
+      $effortMatches = if ($providerIdValue -eq "codex") {
+        Test-E2EObservedValueMatch -ExpectedValue ([string]$auditRole.effort) -ObservedValues $observedRunConfig.observed_efforts
+      } else {
+        $true
+      }
+      $hasRuntimeActivity = ($roleTimelineItems.Count -ge 1 -or $roleObservationEvents.Count -ge 1)
+      $providerSessionMatchesObservation = if ($providerIdValue -eq "codex") {
+        (-not [string]::IsNullOrWhiteSpace([string]$auditRole.provider_session_id) -and
+          $observedProviderSessionIds.Count -ge 1 -and
+          (Test-E2EObservedValueMatch -ExpectedValue ([string]$auditRole.provider_session_id) -ObservedValues $observedProviderSessionIds))
+      } else {
+        $true
+      }
+      $latestHeartbeatTimeoutAt = $null
+      if ($roleHeartbeatTimeoutEvents.Count -gt 0) {
+        $latestHeartbeatTimeoutAt = @(
+          $roleHeartbeatTimeoutEvents |
+            ForEach-Object { Get-DateTimeProp -Obj $_ -Names @("createdAt", "created_at") } |
+            Where-Object { $null -ne $_ }
+        ) | Sort-Object | Select-Object -Last 1
+      }
+      $lastRuntimeActivityAt = @(
+        @($roleTimelineItems + $roleObservationEvents) |
+          ForEach-Object { Get-DateTimeProp -Obj $_ -Names @("createdAt", "created_at") } |
+          Where-Object { $null -ne $_ }
+      ) | Sort-Object | Select-Object -Last 1
+      $heartbeatRecovered = (
+        $roleHeartbeatTimeoutEvents.Count -ge 1 -and
+        $null -ne $latestHeartbeatTimeoutAt -and
+        $null -ne $lastRuntimeActivityAt -and
+        $lastRuntimeActivityAt -gt $latestHeartbeatTimeoutAt -and
+        [string]$auditRole.status -eq "idle"
+      )
+      $heartbeatHealthPass = ($roleHeartbeatTimeoutEvents.Count -eq 0 -or $heartbeatRecovered)
+      $modelEvidencePass = if ($wasDispatched -and $hasRuntimeActivity) {
+        ($modelMatches -and $effortMatches)
+      } else {
+        $true
+      }
+      $providerSessionObservationPass = if ($providerIdValue -eq "codex" -and $wasDispatched -and $hasRuntimeActivity) {
+        $providerSessionMatchesObservation
+      } else {
+        $true
+      }
+      $lastObservationKind = if ($roleObservationEvents.Count -gt 0) {
+        [string]$roleObservationEvents[-1].payload.kind
+      } else {
+        $null
+      }
+      $roleItems += [ordered]@{
+        role_id = $roleId
+        role_key = [string]$auditRole.role_key
+        provider_id = $providerIdValue
+        session_id = if ([string]::IsNullOrWhiteSpace($sessionId)) { $null } else { $sessionId }
+        provider_session_id = [string]$auditRole.provider_session_id
+        session_status = [string]$auditRole.status
+        provider_matches = [bool]$auditRole.provider_matches
+        role_session_count = [int]$auditRole.role_session_count
+        candidate_session_ids = @($auditRole.candidate_session_ids)
+        candidate_provider_ids = @($auditRole.candidate_provider_ids)
+        provider_conflict = [bool]$auditRole.provider_conflict
+        was_dispatched = [bool]$wasDispatched
+        dispatch_boundary = if ($auditBoundary -eq [datetime]::MinValue) { $null } else { $auditBoundary.ToString("o") }
+        expected_model = [string]$auditRole.model
+        expected_effort = [string]$auditRole.effort
+        observed_models = @($observedRunConfig.observed_models)
+        observed_efforts = @($observedRunConfig.observed_efforts)
+        model_evidence_source = if ($providerIdValue -eq "codex") { "provider_observation" } else { "runtime_settings_override" }
+        model_matches = [bool]$modelMatches
+        effort_matches = [bool]$effortMatches
+        has_runtime_activity = [bool]$hasRuntimeActivity
+        model_evidence_pass = [bool]$modelEvidencePass
+        observed_provider_session_ids = @(Get-E2EUniqueStringValues -Values $observedProviderSessionIds)
+        provider_session_matches_observation = [bool]$providerSessionMatchesObservation
+        provider_session_observation_pass = [bool]$providerSessionObservationPass
+        timeline_activity_count = $roleTimelineItems.Count
+        provider_observation_count = $roleObservationEvents.Count
+        heartbeat_observation_count = $roleHeartbeatObservationEvents.Count
+        heartbeat_timeout_count = $roleHeartbeatTimeoutEvents.Count
+        heartbeat_timeout_timestamps = @($roleHeartbeatTimeoutEvents | ForEach-Object { [string]$_.createdAt })
+        heartbeat_recovered = [bool]$heartbeatRecovered
+        heartbeat_health_pass = [bool]$heartbeatHealthPass
+        last_provider_observation_kind = $lastObservationKind
+        evidence_pass = if ($providerIdValue -eq "codex") {
+          ([bool]$auditRole.provider_matches -and
+            -not [bool]$auditRole.provider_conflict -and
+            $heartbeatHealthPass -and
+            $modelEvidencePass -and
+            $providerSessionObservationPass -and
+            (($wasDispatched -and $roleObservationEvents.Count -ge 1) -or (-not $wasDispatched)))
+        } else {
+          ([bool]$auditRole.provider_matches -and
+            -not [bool]$auditRole.provider_conflict -and
+            -not [string]::IsNullOrWhiteSpace($sessionId) -and
+            $heartbeatHealthPass -and
+            $modelEvidencePass -and
+            (($wasDispatched -and $roleTimelineItems.Count -ge 1) -or (-not $wasDispatched)))
+        }
+      }
+    }
+    $activeRoleItems = @($roleItems | Where-Object { $_.has_runtime_activity })
+    $dispatchedRoleItems = @($roleItems | Where-Object { $_.was_dispatched })
+    $providerItems += [ordered]@{
+      provider_id = $providerIdValue
+      role_count = $auditRoles.Count
+      active_role_count = $activeRoleItems.Count
+      dispatched_role_count = $dispatchedRoleItems.Count
+      inactive_role_count = @($roleItems | Where-Object { -not $_.has_runtime_activity }).Count
+      roles = $roleItems
+      session_match_pass = (@($roleItems | Where-Object { -not $_.provider_matches }).Count -eq 0)
+      duplicate_session_conflict_pass = (@($roleItems | Where-Object { $_.provider_conflict }).Count -eq 0)
+      activity_coverage_pass = (@($roleItems | Where-Object { $_.was_dispatched -and -not $_.has_runtime_activity }).Count -eq 0)
+      model_evidence_pass = (@($roleItems | Where-Object { -not $_.model_evidence_pass }).Count -eq 0)
+      provider_session_observation_pass = (@($roleItems | Where-Object { -not $_.provider_session_observation_pass }).Count -eq 0)
+      heartbeat_pass = (@($roleItems | Where-Object { -not $_.heartbeat_health_pass }).Count -eq 0)
+      evidence_pass = (@($roleItems | Where-Object { -not $_.evidence_pass }).Count -eq 0)
+    }
+  }
+
+  return [ordered]@{
+    mode = [string]$resolvedMatrix.mode
+    run_id = $runId
+    providers = $providerItems
+    provider_observation_event_count = $observationEvents.Count
+    overall_pass = (
+      $SessionAudit.all_sessions_match -and
+      (@($providerItems | Where-Object {
+            -not $_.session_match_pass -or
+            -not $_.duplicate_session_conflict_pass -or
+            -not $_.activity_coverage_pass -or
+            -not $_.model_evidence_pass -or
+            -not $_.provider_session_observation_pass -or
+            -not $_.heartbeat_pass -or
+            -not $_.evidence_pass
+          }).Count -eq 0)
+    )
+  }
 }
 
 function Invoke-TimedApi {
@@ -471,6 +942,63 @@ function Build-TaskRuntimeMap {
   return $map
 }
 
+function Resolve-CodeOutputPatternMatches {
+  param(
+    [Parameter(Mandatory = $true)][string]$Workspace,
+    [string]$DirPattern,
+    [string]$DirPath,
+    [string]$FilePattern
+  )
+
+  if ([string]::IsNullOrWhiteSpace($FilePattern)) {
+    $FilePattern = "*"
+  }
+
+  $resolvedPattern = ""
+  $matches = @()
+  $scanMode = ""
+  if (-not [string]::IsNullOrWhiteSpace($DirPattern)) {
+    $normalized = $DirPattern.Replace("/", "\")
+    if ($normalized.Contains("**")) {
+      $parts = $normalized -split "\*\*", 2
+      $baseRel = $parts[0].TrimEnd("\")
+      $tailPattern = if ($parts.Count -gt 1) { $parts[1].TrimStart("\") } else { "" }
+      if ([string]::IsNullOrWhiteSpace($tailPattern)) {
+        $tailPattern = $FilePattern
+      }
+      $basePath = if ([string]::IsNullOrWhiteSpace($baseRel)) { $Workspace } else { Join-Path $Workspace $baseRel }
+      $resolvedPattern = Join-Path $basePath $tailPattern
+      $scanMode = "dir_pattern_globstar"
+      if (Test-Path -LiteralPath $basePath) {
+        $matches = @(
+          Get-ChildItem -Path $basePath -Recurse -File -Filter $tailPattern -ErrorAction SilentlyContinue
+        )
+      }
+    } else {
+      $resolvedPattern = Join-Path $Workspace $normalized
+      $scanMode = "dir_pattern"
+      $matches = @(
+        Get-ChildItem -Path $resolvedPattern -File -ErrorAction SilentlyContinue
+      )
+    }
+  } elseif (-not [string]::IsNullOrWhiteSpace($DirPath)) {
+    $resolvedDir = Join-Path $Workspace $DirPath
+    $resolvedPattern = Join-Path $resolvedDir $FilePattern
+    $scanMode = "dir_path_pattern"
+    if (Test-Path -LiteralPath $resolvedDir) {
+      $matches = @(
+        Get-ChildItem -Path $resolvedDir -Recurse -File -Filter $FilePattern -ErrorAction SilentlyContinue
+      )
+    }
+  }
+
+  return [pscustomobject]@{
+    resolved_pattern = $resolvedPattern
+    scan_mode = $scanMode
+    matches = @($matches)
+  }
+}
+
 function Build-WorkflowProcessValidation {
   param(
     [object]$StatusBody,
@@ -753,24 +1281,36 @@ function Build-CodeOutputValidation {
   $requirementItems = @()
   foreach ($req in @($Requirements)) {
     $relativePath = Get-StringProp -Obj $req -Names @("relative_path", "relativePath")
-    if (-not [string]::IsNullOrWhiteSpace($relativePath)) {
-      $absolutePath = Join-Path $Workspace $relativePath
-      $exists = Test-Path -LiteralPath $absolutePath
+    $relativePathCandidates = @(Get-StringArrayProp -Obj $req -Names @("relative_paths_any", "relativePathsAny"))
+    if ($relativePathCandidates.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($relativePath)) {
+      $relativePathCandidates = @($relativePath)
+    }
+    if ($relativePathCandidates.Count -gt 0) {
+      $candidateMatches = @()
+      foreach ($candidate in $relativePathCandidates) {
+        $absoluteCandidatePath = Join-Path $Workspace $candidate
+        if (Test-Path -LiteralPath $absoluteCandidatePath) {
+          $candidateMatches += $absoluteCandidatePath
+        }
+      }
+      $exists = ($candidateMatches.Count -ge 1)
       $requirementItems += [pscustomobject]@{
-        requirement_type = "relative_path"
-        relative_path = $relativePath
-        absolute_path = $absolutePath
+        requirement_type = if ($relativePathCandidates.Count -gt 1) { "relative_path_any" } else { "relative_path" }
+        relative_path = if ($relativePathCandidates.Count -eq 1) { $relativePathCandidates[0] } else { $null }
+        relative_paths_any = @($relativePathCandidates)
+        absolute_path = if ($candidateMatches.Count -gt 0) { $candidateMatches[0] } else { Join-Path $Workspace $relativePathCandidates[0] }
         exists = $exists
         min_count = 1
-        match_count = if ($exists) { 1 } else { 0 }
+        match_count = $candidateMatches.Count
         pass = $exists
         reason = if ($exists) { "" } else { "path_missing" }
-        matched_paths = if ($exists) { @($absolutePath) } else { @() }
+        matched_paths = @($candidateMatches)
       }
       continue
     }
 
     $dirPattern = Get-StringProp -Obj $req -Names @("dir_pattern", "dirPattern")
+    $dirPatternCandidates = @(Get-StringArrayProp -Obj $req -Names @("dir_patterns_any", "dirPatternsAny"))
     $dirPath = Get-StringProp -Obj $req -Names @("dir_path", "dirPath")
     $filePattern = Get-StringProp -Obj $req -Names @("pattern", "file_pattern", "filePattern")
     if ([string]::IsNullOrWhiteSpace($filePattern)) {
@@ -784,44 +1324,11 @@ function Build-CodeOutputValidation {
         $minCount = 1
       }
     }
+    if ($dirPatternCandidates.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($dirPattern)) {
+      $dirPatternCandidates = @($dirPattern)
+    }
 
-    $resolvedPattern = ""
-    $matches = @()
-    $scanMode = ""
-    if (-not [string]::IsNullOrWhiteSpace($dirPattern)) {
-      $normalized = $dirPattern.Replace("/", "\")
-      if ($normalized.Contains("**")) {
-        $parts = $normalized -split "\*\*", 2
-        $baseRel = $parts[0].TrimEnd("\")
-        $tailPattern = if ($parts.Count -gt 1) { $parts[1].TrimStart("\") } else { "" }
-        if ([string]::IsNullOrWhiteSpace($tailPattern)) {
-          $tailPattern = $filePattern
-        }
-        $basePath = if ([string]::IsNullOrWhiteSpace($baseRel)) { $Workspace } else { Join-Path $Workspace $baseRel }
-        $resolvedPattern = Join-Path $basePath $tailPattern
-        $scanMode = "dir_pattern_globstar"
-        if (Test-Path -LiteralPath $basePath) {
-          $matches = @(
-            Get-ChildItem -Path $basePath -Recurse -File -Filter $tailPattern -ErrorAction SilentlyContinue
-          )
-        }
-      } else {
-        $resolvedPattern = Join-Path $Workspace $normalized
-        $scanMode = "dir_pattern"
-        $matches = @(
-          Get-ChildItem -Path $resolvedPattern -File -ErrorAction SilentlyContinue
-        )
-      }
-    } elseif (-not [string]::IsNullOrWhiteSpace($dirPath)) {
-      $resolvedDir = Join-Path $Workspace $dirPath
-      $resolvedPattern = Join-Path $resolvedDir $filePattern
-      $scanMode = "dir_path_pattern"
-      if (Test-Path -LiteralPath $resolvedDir) {
-        $matches = @(
-          Get-ChildItem -Path $resolvedDir -Recurse -File -Filter $filePattern -ErrorAction SilentlyContinue
-        )
-      }
-    } else {
+    if ($dirPatternCandidates.Count -eq 0 -and [string]::IsNullOrWhiteSpace($dirPath)) {
       $requirementItems += [pscustomobject]@{
         requirement_type = "invalid"
         relative_path = ""
@@ -836,11 +1343,41 @@ function Build-CodeOutputValidation {
       continue
     }
 
+    $resolvedPattern = ""
+    $matches = @()
+    $scanMode = ""
+    if ($dirPatternCandidates.Count -gt 0) {
+      $matchByPath = @{}
+      $resolvedPatterns = @()
+      $scanModes = @()
+      foreach ($dirPatternCandidate in $dirPatternCandidates) {
+        $candidateResult = Resolve-CodeOutputPatternMatches -Workspace $Workspace -DirPattern $dirPatternCandidate -DirPath "" -FilePattern $filePattern
+        if (-not [string]::IsNullOrWhiteSpace([string]$candidateResult.resolved_pattern)) {
+          $resolvedPatterns += [string]$candidateResult.resolved_pattern
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$candidateResult.scan_mode)) {
+          $scanModes += [string]$candidateResult.scan_mode
+        }
+        foreach ($match in @($candidateResult.matches)) {
+          $matchByPath[[string]$match.FullName] = $match
+        }
+      }
+      $matches = @($matchByPath.Values)
+      $resolvedPattern = @($resolvedPatterns -join " | ")
+      $scanMode = @((Get-E2EUniqueStringValues -Values $scanModes) -join ",")
+    } else {
+      $candidateResult = Resolve-CodeOutputPatternMatches -Workspace $Workspace -DirPattern "" -DirPath $dirPath -FilePattern $filePattern
+      $resolvedPattern = [string]$candidateResult.resolved_pattern
+      $scanMode = [string]$candidateResult.scan_mode
+      $matches = @($candidateResult.matches)
+    }
+
     $count = @($matches).Count
     $pass = ($count -ge $minCount)
     $requirementItems += [pscustomobject]@{
-      requirement_type = "dir_pattern"
-      dir_pattern = if (-not [string]::IsNullOrWhiteSpace($dirPattern)) { $dirPattern } else { Join-Path $dirPath $filePattern }
+      requirement_type = if ($dirPatternCandidates.Count -gt 1) { "dir_pattern_any" } else { "dir_pattern" }
+      dir_pattern = if ($dirPatternCandidates.Count -eq 1) { $dirPatternCandidates[0] } elseif (-not [string]::IsNullOrWhiteSpace($dirPath)) { Join-Path $dirPath $filePattern } else { $null }
+      dir_patterns_any = @($dirPatternCandidates)
       resolved_pattern = $resolvedPattern
       scan_mode = $scanMode
       min_count = $minCount
@@ -852,15 +1389,16 @@ function Build-CodeOutputValidation {
   }
 
   $requirementFailed = @($requirementItems | Where-Object { -not $_.pass }).Count
+  $requirementsPass = ($requirementItems.Count -eq 0 -or $requirementFailed -eq 0)
   return [ordered]@{
-    pass = $srcPass
+    pass = ($srcPass -and $requirementsPass)
     skipped = $false
     check_mode = "src_non_empty"
     src_path = $srcPath
     src_exists = $srcExists
     src_file_count = $srcFileCount
-    total = 1
-    failed = $(if ($srcPass) { 0 } else { 1 })
+    total = (1 + $requirementItems.Count)
+    failed = ($requirementFailed + $(if ($srcPass) { 0 } else { 1 }))
     items = @(
       [pscustomobject]@{
         requirement_type = "src_non_empty"
@@ -870,8 +1408,8 @@ function Build-CodeOutputValidation {
         pass = $srcPass
         reason = if ($srcPass) { "" } else { "src_empty_or_missing" }
       }
-    )
-    requirements_telemetry_pass = ($requirementFailed -eq 0)
+    ) + @($requirementItems)
+    requirements_telemetry_pass = $requirementsPass
     requirements_telemetry_total = $requirementItems.Count
     requirements_telemetry_failed = $requirementFailed
     requirements_telemetry_items = $requirementItems
@@ -885,7 +1423,7 @@ function Add-WorkflowSample {
   $taskRuntimeResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/task-runtime" -AllowStatus @(200)
   $taskTreeResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/task-tree-runtime" -AllowStatus @(200)
   $sessionsResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/sessions" -AllowStatus @(200)
-  $timelineResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/agent-io/timeline?limit=1000" -AllowStatus @(200)
+  $timelineResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/agent-io/timeline?limit=5000" -AllowStatus @(200)
 
   $script:latestStatus = $statusResp.body
   $script:latestTaskRuntime = $taskRuntimeResp.body
@@ -948,7 +1486,7 @@ function Resolve-WorkspaceArtifactPath {
       Where-Object {
         $_.FullName.Replace("/", "\").ToLowerInvariant().EndsWith($relativeSuffix.ToLowerInvariant())
       } |
-      Sort-Object @{ Expression = { if ($_.FullName -like "*\Agents\*") { 0 } else { 1 } } }, @{ Expression = { $_.FullName.Length } }
+      Sort-Object @{ Expression = { if ($_.FullName -like "*\Agents\*") { 1 } else { 0 } } }, @{ Expression = { $_.FullName.Length } }
   )
 
   if ($matches.Count -ge 1) {
@@ -964,6 +1502,40 @@ function Resolve-WorkspaceArtifactPath {
     exists = $false
     mode = "missing"
   }
+}
+
+function Resolve-WorkspaceArtifactCandidates {
+  param(
+    [string]$Workspace,
+    [object[]]$RelativePaths
+  )
+
+  $orderedCandidates = New-Object System.Collections.Generic.List[string]
+  $seen = New-Object System.Collections.Generic.HashSet[string]
+  foreach ($raw in @($RelativePaths)) {
+    if ($null -eq $raw) {
+      continue
+    }
+    $candidate = ([string]$raw).Trim()
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+    if ($seen.Add($candidate.ToLowerInvariant())) {
+      $orderedCandidates.Add($candidate)
+    }
+  }
+
+  $refs = @()
+  foreach ($candidatePath in $orderedCandidates) {
+    $ref = Resolve-WorkspaceArtifactPath -Workspace $Workspace -RelativePath $candidatePath
+    $refs += [pscustomobject]@{
+      candidate_path = $candidatePath
+      path = [string]$ref.path
+      exists = [bool]$ref.exists
+      mode = [string]$ref.mode
+    }
+  }
+  return @($refs)
 }
 
 function Invoke-BestEffortWorkflowDispatch {
@@ -1031,13 +1603,85 @@ function Recover-StaleWorkflowSessions {
 
     Write-Warning ("workflow session recovery: role={0} stale_minutes={1:N1} timeout_streak={2}" -f $role, $staleMinutes, $timeoutStreak)
     Add-StabilityFallbackEvent -Type "workflow_recovery" -Detail ("role={0} stale_minutes={1:N1} timeout_streak={2}" -f $role, $staleMinutes, $timeoutStreak)
-    Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$RunId/sessions" -AllowStatus @(200, 201) -Body @{ role = $role } | Out-Null
+    $roleConfig = Get-ResolvedRoleModelConfig -RoleId $role
+    $sessionId = Get-StringProp -Obj $item -Names @("sessionId", "session_id")
+    if ([string]::IsNullOrWhiteSpace($sessionId)) {
+      $sessionId = "e2e_gesture_wf_$([string]$roleConfig.role_key)_session"
+    }
+    Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$RunId/sessions" -AllowStatus @(200, 201) -Body @{
+      role = $role
+      session_id = $sessionId
+      status = "idle"
+      provider_id = [string]$roleConfig.provider_id
+    } | Out-Null
     $null = Invoke-BestEffortWorkflowDispatch -RunId $RunId -Body @{ role = $role; force = $false; only_idle = $false } -Reason ("session_recovery:{0}" -f $role)
     $script:workflowRecoveryState[$role] = Get-Date
     $recovered += $role
   }
 
   return @($recovered | Select-Object -Unique)
+}
+
+function Remove-WorkflowRunForE2E {
+  param(
+    [Parameter(Mandatory = $true)][string]$RunId,
+    [string]$ExistingStatus = "",
+    [string[]]$WorkspaceRoots = @()
+  )
+
+  $roots = @(
+    $WorkspaceRoots |
+      Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+      ForEach-Object { [string]$_ } |
+      Select-Object -Unique
+  )
+
+  for ($attempt = 1; $attempt -le 4; $attempt++) {
+    foreach ($root in $roots) {
+      try {
+        Stop-WorkspaceBoundProcesses -WorkspaceRoot $root
+      } catch {}
+    }
+
+    if ($ExistingStatus -eq "running" -or $attempt -gt 1) {
+      try {
+        Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$RunId/stop" -AllowStatus @(200, 404, 409) | Out-Null
+      } catch {
+        Write-Warning ("workflow stop retry ignored: run_id={0} attempt={1} error={2}" -f $RunId, $attempt, $_.Exception.Message)
+      }
+    }
+
+    try {
+      Invoke-TimedApi -Method DELETE -Path "/api/workflow-runs/${RunId}?force=true" -AllowStatus @(200, 404) | Out-Null
+      return
+    } catch {
+      $stillExists = $true
+      $liveStatus = ""
+      try {
+        $runsResp = Invoke-TimedApi -Method GET -Path "/api/workflow-runs" -AllowStatus @(200)
+        $matchedRun = @($runsResp.body.items | Where-Object { (Get-StringProp -Obj $_ -Names @("runId", "run_id")) -eq $RunId } | Select-Object -First 1)[0]
+        $stillExists = ($null -ne $matchedRun)
+        if ($matchedRun) {
+          $liveStatus = Get-StringProp -Obj $matchedRun -Names @("status")
+        }
+      } catch {}
+
+      if (-not $stillExists) {
+        return
+      }
+
+      if ($attempt -ge 4 -and $liveStatus -and $liveStatus -ne "running") {
+        Write-Warning ("workflow delete fallback accepted: run_id={0} status={1} delete_error={2}" -f $RunId, $liveStatus, $_.Exception.Message)
+        return
+      }
+
+      if ($attempt -ge 4) {
+        throw
+      }
+
+      Start-Sleep -Milliseconds (500 * $attempt)
+    }
+  }
 }
 
 function Build-SubtaskStats {
@@ -1100,38 +1744,78 @@ function Build-ArtifactValidation {
   $items = @()
   foreach ($spec in $Specs) {
     $taskId = [string]$spec.task_id
-    $relativePath = [string]$spec.path
+    $pathCandidates = @(Get-StringArrayProp -Obj $spec -Names @("paths_any", "path_candidates", "pathCandidates"))
+    $relativePath = Get-StringProp -Obj $spec -Names @("path")
+    if ($pathCandidates.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($relativePath)) {
+      $pathCandidates = @($relativePath)
+    }
     $keywords = @($spec.keywords)
-    $artifactRef = Resolve-WorkspaceArtifactPath -Workspace $Workspace -RelativePath $relativePath
-    $absolutePath = [string]$artifactRef.path
-    $exists = [bool]$artifactRef.exists
-    $content = if ($exists) { Get-Content -LiteralPath $absolutePath -Raw } else { "" }
-    $missingKeywords = @()
-    $foundKeywords = @()
-    $contentLower = $content.ToLowerInvariant()
+    $candidateRefs = @(Resolve-WorkspaceArtifactCandidates -Workspace $Workspace -RelativePaths $pathCandidates)
+    if ($candidateRefs.Count -eq 0) {
+      $candidateRefs = @(
+        [pscustomobject]@{
+          candidate_path = $relativePath
+          path = if ([string]::IsNullOrWhiteSpace($relativePath)) { "" } else { Join-Path $Workspace $relativePath }
+          exists = $false
+          mode = "missing"
+        }
+      )
+    }
 
-    foreach ($kw in $keywords) {
-      $kwText = [string]$kw
-      if ([string]::IsNullOrWhiteSpace($kwText)) {
-        continue
+    $selectedRef = $null
+    $selectedContent = ""
+    $selectedMissingKeywords = @()
+    $selectedFoundKeywords = @()
+    foreach ($candidateRef in $candidateRefs) {
+      $candidateContent = if ($candidateRef.exists) { Get-Content -LiteralPath ([string]$candidateRef.path) -Raw } else { "" }
+      $candidateMissingKeywords = @()
+      $candidateFoundKeywords = @()
+      $candidateContentLower = $candidateContent.ToLowerInvariant()
+      foreach ($kw in $keywords) {
+        $kwText = [string]$kw
+        if ([string]::IsNullOrWhiteSpace($kwText)) {
+          continue
+        }
+        if ($candidateRef.exists -and $candidateContentLower.Contains($kwText.ToLowerInvariant())) {
+          $candidateFoundKeywords += $kwText
+        } else {
+          $candidateMissingKeywords += $kwText
+        }
       }
-      if ($exists -and $contentLower.Contains($kwText.ToLowerInvariant())) {
-        $foundKeywords += $kwText
-      } else {
-        $missingKeywords += $kwText
+      if ($candidateRef.exists -and $candidateMissingKeywords.Count -eq 0) {
+        $selectedRef = $candidateRef
+        $selectedContent = $candidateContent
+        $selectedMissingKeywords = @()
+        $selectedFoundKeywords = @($candidateFoundKeywords)
+        break
+      }
+      if (-not $selectedRef) {
+        $selectedRef = $candidateRef
+        $selectedContent = $candidateContent
+        $selectedMissingKeywords = @($candidateMissingKeywords)
+        $selectedFoundKeywords = @($candidateFoundKeywords)
       }
     }
 
-    $keywordPass = ($missingKeywords.Count -eq 0)
+    if (-not $selectedRef) {
+      $selectedRef = $candidateRefs[0]
+    }
+
+    $absolutePath = [string]$selectedRef.path
+    $exists = [bool]$selectedRef.exists
+    $keywordPass = ($selectedMissingKeywords.Count -eq 0)
     $items += [pscustomobject]@{
       task_id = $taskId
-      path = $relativePath
+      path = if ($pathCandidates.Count -eq 1) { $pathCandidates[0] } else { $relativePath }
+      paths_any = @($pathCandidates)
       absolute_path = $absolutePath
-      resolution_mode = [string]$artifactRef.mode
+      resolution_mode = [string]$selectedRef.mode
       exists = $exists
       keyword_pass = $keywordPass
-      found_keywords = $foundKeywords
-      missing_keywords = $missingKeywords
+      found_keywords = @($selectedFoundKeywords)
+      missing_keywords = @($selectedMissingKeywords)
+      matched_paths = @($candidateRefs | Where-Object { $_.exists } | ForEach-Object { [string]$_.path })
+      candidate_refs = @($candidateRefs)
       pass = ($exists -and $keywordPass)
     }
   }
@@ -1408,36 +2092,69 @@ function Build-SkillValidation {
   $items = if ($TimelineBody -and $TimelineBody.items) { @($TimelineBody.items) } else { @() }
   $dispatchRole = [string]$roleByKey[[string]$SkillProbeConfig.dispatch_role_ref]
   $skillItems = @($items | Where-Object {
-      ([string]$_.role -eq $dispatchRole) -and
       ([string]$_.content).Contains("requestedSkillIds=") -and
       ([string]$_.content).Contains($SkillId)
     })
 
-  $artifactRef = Resolve-WorkspaceArtifactPath -Workspace $Workspace -RelativePath ([string]$SkillProbeConfig.artifact_path)
-  $artifactPath = [string]$artifactRef.path
-  $artifactExists = [bool]$artifactRef.exists
-  $artifactContent = if ($artifactExists) { Get-Content -LiteralPath $artifactPath -Raw } else { "" }
+  $artifactPaths = @(Get-StringArrayProp -Obj $SkillProbeConfig -Names @("artifact_paths", "artifactPaths"))
+  $artifactPath = Get-StringProp -Obj $SkillProbeConfig -Names @("artifact_path", "artifactPath")
+  if ($artifactPaths.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($artifactPath)) {
+    $artifactPaths = @($artifactPath)
+  }
+  $candidateRefs = @(Resolve-WorkspaceArtifactCandidates -Workspace $Workspace -RelativePaths $artifactPaths)
+  if ($candidateRefs.Count -eq 0) {
+    $candidateRefs = @(
+      [pscustomobject]@{
+        candidate_path = $artifactPath
+        path = if ([string]::IsNullOrWhiteSpace($artifactPath)) { "" } else { Join-Path $Workspace $artifactPath }
+        exists = $false
+        mode = "missing"
+      }
+    )
+  }
+
+  $selectedRef = $null
   $missingMarkers = @()
-  foreach ($marker in @($SkillProbeConfig.required_markers)) {
-    $markerText = [string]$marker
-    if ([string]::IsNullOrWhiteSpace($markerText)) {
-      continue
+  foreach ($candidateRef in $candidateRefs) {
+    $candidateMissingMarkers = @()
+    $candidateContent = if ($candidateRef.exists) { Get-Content -LiteralPath ([string]$candidateRef.path) -Raw } else { "" }
+    foreach ($marker in @($SkillProbeConfig.required_markers)) {
+      $markerText = [string]$marker
+      if ([string]::IsNullOrWhiteSpace($markerText)) {
+        continue
+      }
+      if (-not $candidateContent.Contains($markerText)) {
+        $candidateMissingMarkers += $markerText
+      }
     }
-    if (-not $artifactContent.Contains($markerText)) {
-      $missingMarkers += $markerText
+    if ($candidateRef.exists -and $candidateMissingMarkers.Count -eq 0) {
+      $selectedRef = $candidateRef
+      $missingMarkers = @()
+      break
+    }
+    if (-not $selectedRef) {
+      $selectedRef = $candidateRef
+      $missingMarkers = @($candidateMissingMarkers)
     }
   }
 
+  if (-not $selectedRef) {
+    $selectedRef = $candidateRefs[0]
+  }
+
   return [ordered]@{
-    pass = ($skillItems.Count -ge 1 -and $missingMarkers.Count -eq 0)
+    pass = ($skillItems.Count -ge 1 -and [bool]$selectedRef.exists -and $missingMarkers.Count -eq 0)
     skill_id = $SkillId
     dispatch_role = $dispatchRole
     timeline_match_count = $skillItems.Count
     timeline_matches = $skillItems
-    artifact_path = $artifactPath
-    artifact_resolution_mode = [string]$artifactRef.mode
-    artifact_exists = $artifactExists
-    missing_markers = $missingMarkers
+    artifact_path = [string]$selectedRef.path
+    artifact_paths = @($artifactPaths)
+    artifact_resolution_mode = [string]$selectedRef.mode
+    artifact_exists = [bool]$selectedRef.exists
+    matched_artifact_paths = @($candidateRefs | Where-Object { $_.exists } | ForEach-Object { [string]$_.path })
+    candidate_refs = @($candidateRefs)
+    missing_markers = @($missingMarkers)
   }
 }
 
@@ -1474,27 +2191,20 @@ try {
   }
 
   $settings = Invoke-TimedApi -Method GET -Path "/api/settings" -AllowStatus @(200)
-  $settingsPatch = @{}
-  if ($ClearMiniMaxSettings.IsPresent) {
-    $settingsPatch["minimaxApiKey"] = $null
-    $settingsPatch["minimaxApiBase"] = $null
-  }
-  if (-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiKeyOverride)) {
-    $settingsPatch["minimaxApiKey"] = $effectiveMiniMaxApiKeyOverride.Trim()
-  }
-  if (-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiBaseOverride)) {
-    $settingsPatch["minimaxApiBase"] = $effectiveMiniMaxApiBaseOverride.Trim()
-  }
-  if ($settingsPatch.Keys.Count -gt 0) {
-    Write-Host "== Apply MiniMax settings override =="
+  $settingsPatch = Build-WorkflowProviderSettingsPatch -SettingsBody $settings.body
+  if ($settingsPatch) {
+    Write-Host "== Apply workflow provider settings override =="
     Invoke-TimedApi -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $settingsPatch | Out-Null
     $settings = Invoke-TimedApi -Method GET -Path "/api/settings" -AllowStatus @(200)
   }
+  try {
+    Assert-E2EProvidersConfigured -BaseUrl $BaseUrl -ResolvedMatrix $resolvedMatrix | Out-Null
+  } catch {
+    $finalReason = "provider_not_configured"
+    throw
+  }
 
-  $minimaxKey = Get-StringProp -Obj $settings.body -Names @("minimaxApiKey", "minimax_api_key")
-  if ([string]::IsNullOrWhiteSpace($minimaxKey)) {
-    $finalReason = "minimax_not_configured"
-  } else {
+  if ($true) {
     Write-Host "== Cleanup by prefix =="
     $runPrefixes = @("e2e_gesture_")
     $templatePrefixes = @("e2e_gesture_")
@@ -1508,10 +2218,8 @@ try {
         continue
       }
       $existingStatus = Get-StringProp -Obj $item -Names @("status")
-      if ($existingStatus -eq "running") {
-        Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$existingRunId/stop" -AllowStatus @(200, 404, 409) | Out-Null
-      }
-      Invoke-TimedApi -Method DELETE -Path "/api/workflow-runs/${existingRunId}?force=true" -AllowStatus @(200, 404) | Out-Null
+      $existingWorkspacePath = Get-StringProp -Obj $item -Names @("workspacePath", "workspace_path")
+      Remove-WorkflowRunForE2E -RunId $existingRunId -ExistingStatus $existingStatus -WorkspaceRoots @($workspace, $existingWorkspacePath)
     }
 
     $tplResp = Invoke-TimedApi -Method GET -Path "/api/workflow-templates" -AllowStatus @(200)
@@ -1542,7 +2250,17 @@ try {
     }
 
     Write-Host "== Reset workspace =="
-    Reset-WorkspaceDirectory -WorkspaceRoot $workspace
+    try {
+      Reset-WorkspaceDirectory -WorkspaceRoot $workspace
+    } catch {
+      $workspaceLeaf = Split-Path -Leaf $workspace
+      $workspaceParent = Split-Path -Parent $workspace
+      $fallbackWorkspace = Join-Path $workspaceParent ("{0}-isolated-{1}" -f $workspaceLeaf, $runStamp)
+      $script:warnings.Add("workspace_reset_fallback: source=$workspace target=$fallbackWorkspace reason=$($_.Exception.Message)")
+      $workspace = $fallbackWorkspace
+      $artifactsBase = Join-Path $workspace "docs\e2e"
+      Reset-WorkspaceDirectory -WorkspaceRoot $workspace
+    }
     Ensure-Dir -Path $workspace
 
     if ($skillProbe) {
@@ -1622,15 +2340,16 @@ try {
       if ($skillProbe -and $skillBindKeys -contains [string]$entry.key) {
         $skillListForAgent = @([string]$skillProbe.skill_list_id)
       }
+      $roleModelConfig = Get-ResolvedRoleModelConfig -RoleId ([string]$entry.id)
       $payload = @{
         agent_id = [string]$entry.id
         display_name = [string]$entry.id
         prompt = $prompt
         summary = "Workflow E2E role $($entry.key)"
-        provider_id = $providerId
+        provider_id = [string]$roleModelConfig.provider_id
         default_model_params = @{
-          model = [string]$modelCfg.model
-          effort = [string]$modelCfg.effort
+          model = [string]$roleModelConfig.model
+          effort = [string]$roleModelConfig.effort
         }
         model_selection_enabled = $true
         skill_list = $skillListForAgent
@@ -1696,21 +2415,23 @@ try {
 
     Write-Host "== Register workflow sessions =="
     foreach ($entry in $roleEntries) {
+      $roleModelConfig = Get-ResolvedRoleModelConfig -RoleId ([string]$entry.id)
       $workflowSessionId = "e2e_gesture_wf_$($entry.key)_session"
       Invoke-TimedApi -Method POST -Path "/api/workflow-runs/$runId/sessions" -AllowStatus @(200, 201) -Body @{
         role = [string]$entry.id
         session_id = $workflowSessionId
         status = "idle"
-        provider_id = $providerId
+        provider_id = [string]$roleModelConfig.provider_id
       } | Out-Null
     }
     $sessionsVerify = Invoke-TimedApi -Method GET -Path "/api/workflow-runs/$runId/sessions" -AllowStatus @(200)
-    foreach ($item in @($sessionsVerify.body.items)) {
-      $sessionProvider = [string]$item.provider
-      if ($sessionProvider.Trim().ToLower() -ne "minimax") {
-        $finalReason = "provider_not_minimax"
-        throw "Workflow session provider must be minimax. session_id=$($item.sessionId) role=$($item.role) provider=$sessionProvider"
-      }
+    $initialProviderAudit = Build-WorkflowProviderSessionAudit -SessionsBody $sessionsVerify.body
+    if (-not $initialProviderAudit.all_sessions_match) {
+      $mismatchSummary = @($initialProviderAudit.mismatches | ForEach-Object {
+          "{0}:{1}->{2}" -f [string]$_.role_id, [string]$_.expected_provider_id, [string]$_.actual_provider_id
+        }) -join ", "
+      $finalReason = "provider_mismatch"
+      throw "Workflow session provider mismatch after registration: $mismatchSummary"
     }
 
     Invoke-TimedApi -Method PATCH -Path "/api/workflow-runs/$runId/orchestrator/settings" -AllowStatus @(200) -Body @{
@@ -1869,6 +2590,8 @@ try {
   $script:warnings.Add("exception: $($_.Exception.Message)")
 }
 
+Restore-WorkflowProviderSettings
+
 if ($script:runStarted -and -not $SetupOnly) {
   try {
     Add-WorkflowSample -Label "final" | Out-Null
@@ -1936,7 +2659,7 @@ if (-not $SetupOnly -and $finalReason -eq "workflow_runtime_ok") {
   }
 }
 
-if ($finalReason -eq "minimax_not_configured") {
+if ($finalReason -eq "provider_not_configured") {
   $pass = $false
 }
 
@@ -1946,6 +2669,23 @@ Ensure-Dir -Path $artifactsBase
 $stampOut = Get-Date -Format "yyyyMMdd_HHmmss"
 $outDir = Join-Path $artifactsBase "$stampOut-workflow-observer"
 Ensure-Dir -Path $outDir
+$providerMatrixOut = [ordered]@{
+  mode = [string]$resolvedMatrix.mode
+  forced_provider_id = $resolvedMatrix.forced_provider_id
+  providers = @($resolvedMatrix.providers)
+  by_role_key = $resolvedMatrix.by_role_key
+}
+$providerSessionAudit = if ($script:latestSessions) {
+  Build-WorkflowProviderSessionAudit -SessionsBody $script:latestSessions
+} else {
+  [ordered]@{
+    mode = [string]$resolvedMatrix.mode
+    providers = @($resolvedMatrix.providers)
+    all_sessions_match = $false
+    items = @()
+    mismatches = @()
+  }
+}
 
 $transcriptDir = Join-Path $outDir "agent_chat_transcripts"
 Ensure-Dir -Path $transcriptDir
@@ -2020,6 +2760,10 @@ $eventsSnapshot = Get-WorkflowRunEvents -RunId $runId -IncludeRaw
 if ($eventsSnapshot.raw.Length -gt 0) {
   Write-Utf8NoBom -Path (Join-Path $outDir "workflow_events.jsonl") -Content $eventsSnapshot.raw
 }
+$providerActivitySummary = Build-WorkflowProviderActivitySummary -SessionAudit $providerSessionAudit -TimelineBody $script:latestTimeline -EventsSnapshot $eventsSnapshot
+Save-JsonSafe -Path (Join-Path $outDir "provider_matrix_resolved.json") -Data $providerMatrixOut -Tag "provider_matrix_resolved"
+Save-JsonSafe -Path (Join-Path $outDir "provider_session_audit.json") -Data $providerSessionAudit -Tag "provider_session_audit"
+Save-JsonSafe -Path (Join-Path $outDir "provider_activity_summary.json") -Data $providerActivitySummary -Tag "provider_activity_summary"
 
 $toolFailedTimestamps = @(
   @($eventsSnapshot.items | Where-Object {
@@ -2065,6 +2809,8 @@ $summary += "- scenario: $($scenario.scenario_id)"
 $summary += "- workspace: $workspace"
 $summary += "- setup_only: $($SetupOnly.IsPresent)"
 $summary += "- strict_observe: $strictMode"
+$summary += "- provider_mode: $providerModeLabel"
+$summary += "- providers_resolved: $(@($resolvedMatrix.providers) -join ",")"
 $summary += "- run_id: $runId"
 $summary += "- template_id: $templateId"
 $summary += "- final_reason: $finalReason"
@@ -2091,6 +2837,8 @@ $summary += "- initial_agent_trigger_count: $triggerCount"
 $summary += "- max_minutes: $MaxMinutes"
 $summary += "- poll_seconds: $PollSeconds"
 $summary += "- total_elapsed_ms: $totalElapsedMs"
+$summary += "- provider_session_audit_pass: $($providerSessionAudit.all_sessions_match)"
+$summary += "- provider_activity_pass: $($providerActivitySummary.overall_pass)"
 $summary += "- non_manager_subtask_create_count: $subtaskCount"
 $summary += "- non_manager_subtask_creator_role_count: $subtaskRoleCount"
 $summary += "- non_manager_subtask_creator_roles: $subtaskRolesText"

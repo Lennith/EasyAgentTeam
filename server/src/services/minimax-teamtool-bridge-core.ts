@@ -5,7 +5,7 @@ import {
   renewLock,
   type LockScope
 } from "../data/repository/project/lock-repository.js";
-import type { TeamToolBridge } from "../minimax/tools/team/types.js";
+import type { TeamToolBridge } from "./teamtool/types.js";
 
 export class TeamToolBridgeError extends Error {
   constructor(

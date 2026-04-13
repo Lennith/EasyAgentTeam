@@ -64,7 +64,7 @@ test("project dispatch prefers deeper runnable task for the same role", async ()
         agent_ids: ["dev_0"],
         route_table: { manager: ["dev_0"], dev_0: ["manager"] },
         agent_model_configs: {
-          dev_0: { provider_id: "codex", model: "codex-test" }
+          dev_0: { provider_id: "codex", model: "gpt-5.3-codex" }
         },
         auto_dispatch_enabled: false,
         auto_dispatch_remaining: 0

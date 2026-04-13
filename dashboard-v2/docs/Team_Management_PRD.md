@@ -126,7 +126,6 @@ interface TeamRecord {
 Current provider options:
 
 - `codex`
-- `trae`
 - `minimax`
 
 ## 7. Cross-Module Semantics
@@ -166,4 +165,4 @@ The UI handles:
 
 ## 10. Status
 
-Status: `ACTIVE`
+Status: `实装`

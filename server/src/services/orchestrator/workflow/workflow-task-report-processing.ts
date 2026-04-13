@@ -27,7 +27,7 @@ export interface ApplyWorkflowTaskReportActionInput {
     message: string,
     code: string,
     status?: number,
-    hint?: string,
+    nextAction?: string,
     details?: Record<string, unknown>
   ): Error;
 }

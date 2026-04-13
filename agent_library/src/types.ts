@@ -1,4 +1,4 @@
-export type ProviderId = "codex" | "trae" | "minimax";
+export type ProviderId = "codex" | "minimax";
 
 export interface ProviderCapabilities {
   supportsStreaming: boolean;

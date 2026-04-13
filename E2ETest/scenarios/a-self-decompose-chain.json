@@ -8,10 +8,11 @@
     "C": "e2e_impl_c",
     "D": "e2e_impl_d"
   },
-  "agent_model": {
-    "provider_id": "minimax",
-    "model": "MiniMax-M2.5",
-    "effort": "high"
+  "agent_model_matrix": {
+    "A": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "B": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" },
+    "C": { "provider_id": "codex", "model": "gpt-5.4", "effort": "medium" },
+    "D": { "provider_id": "minimax", "model": "MiniMax-M2.7-High-speed", "effort": "high" }
   },
   "route_table": {
     "e2e_lead_a": ["e2e_impl_b", "e2e_impl_c", "e2e_impl_d"],

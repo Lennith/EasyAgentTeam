@@ -194,6 +194,33 @@ function Resolve-WorkspaceRootSafePath {
   return $fullPath
 }
 
+function Stop-WorkspaceBoundProcesses {
+  param([Parameter(Mandatory = $true)][string]$WorkspaceRoot)
+
+  $safeRoot = Resolve-WorkspaceRootSafePath -WorkspaceRoot $WorkspaceRoot
+  $needle = ([string]$safeRoot).Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($needle)) {
+    return
+  }
+
+  $matches = Get-CimInstance Win32_Process | Where-Object {
+    $_.ProcessId -ne $PID -and
+    $_.Name -match 'codex|node|powershell' -and
+    -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine) -and
+    ([string]$_.CommandLine).ToLowerInvariant().Contains($needle)
+  }
+
+  foreach ($proc in @($matches)) {
+    try {
+      Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+    } catch {}
+  }
+
+  if (@($matches).Count -gt 0) {
+    Start-Sleep -Milliseconds 500
+  }
+}
+
 function Remove-WorkspaceRuntimeArtifacts {
   param(
     [Parameter(Mandatory = $true)][string]$WorkspaceRoot
@@ -219,10 +246,21 @@ function Reset-WorkspaceDirectory {
     [Parameter(Mandatory = $true)][string]$WorkspaceRoot
   )
   $safeRoot = Resolve-WorkspaceRootSafePath -WorkspaceRoot $WorkspaceRoot
-
+  Stop-WorkspaceBoundProcesses -WorkspaceRoot $safeRoot
   if (Test-Path -LiteralPath $safeRoot) {
-    Get-ChildItem -LiteralPath $safeRoot -Force | ForEach-Object {
-      Remove-Item -LiteralPath $_.FullName -Recurse -Force
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+      try {
+        Get-ChildItem -LiteralPath $safeRoot -Force | ForEach-Object {
+          Remove-Item -LiteralPath $_.FullName -Recurse -Force
+        }
+        break
+      } catch {
+        if ($attempt -ge 4) {
+          throw
+        }
+        Stop-WorkspaceBoundProcesses -WorkspaceRoot $safeRoot
+        Start-Sleep -Milliseconds (400 * $attempt)
+      }
     }
   } else {
     New-Item -ItemType Directory -Path $safeRoot | Out-Null

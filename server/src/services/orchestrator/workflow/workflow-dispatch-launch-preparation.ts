@@ -7,7 +7,12 @@ import {
   resolveImportedSkillPromptSegments,
   resolveSkillIdsForAgent
 } from "../../../data/repository/catalog/skill-repository.js";
-import type { ProjectRecord, WorkflowRunRecord, WorkflowSessionRecord } from "../../../domain/models.js";
+import type {
+  AgentDefinition,
+  ProjectRecord,
+  WorkflowRunRecord,
+  WorkflowSessionRecord
+} from "../../../domain/models.js";
 import { buildDefaultRolePrompt, ensureAgentWorkspaces } from "../../agent-workspace-service.js";
 import { resolveSessionProviderId } from "../../provider-runtime.js";
 import { buildOrchestratorAgentCatalog, resolveOrchestratorRolePromptSkillBundle } from "../shared/index.js";
@@ -17,6 +22,8 @@ export interface PreparedWorkflowDispatchLaunch {
   importedSkillPrompt: { segments: string[] };
   settings: RuntimeSettings;
   providerId: string;
+  model?: string;
+  reasoningEffort?: string;
   tokenLimit: number;
   maxOutputTokens: number;
   rolePrompt: string;
@@ -46,6 +53,21 @@ export const defaultWorkflowDispatchLaunchPreparationOperations: WorkflowDispatc
   ensureAgentWorkspaces,
   buildDefaultRolePrompt
 };
+
+function readAgentModelParams(agents: AgentDefinition[], role: string): { model?: string; reasoningEffort?: string } {
+  const agent = agents.find((item) => item.agentId === role);
+  if (!agent?.defaultModelParams || typeof agent.defaultModelParams !== "object") {
+    return {};
+  }
+  const params = agent.defaultModelParams as Record<string, unknown>;
+  const model = typeof params.model === "string" && params.model.trim().length > 0 ? params.model.trim() : undefined;
+  const effort =
+    typeof params.effort === "string" && params.effort.trim().length > 0
+      ? params.effort.trim().toLowerCase()
+      : undefined;
+  const reasoningEffort = effort === "low" || effort === "medium" || effort === "high" ? effort : undefined;
+  return { model, reasoningEffort };
+}
 
 export async function prepareWorkflowDispatchLaunch(
   input: PrepareWorkflowDispatchLaunchInput,
@@ -91,12 +113,16 @@ export async function prepareWorkflowDispatchLaunch(
     }
   );
   const settings = await operations.getRuntimeSettings(input.dataRoot);
+  const providerId = input.session.provider ?? resolveSessionProviderId(input.run, input.role, "minimax");
+  const modelSelection = providerId === "codex" ? readAgentModelParams(agents, input.role) : {};
 
   return {
     requestedSkillIds: rolePromptSkillBundle.skillIds,
     importedSkillPrompt: { segments: rolePromptSkillBundle.skillSegments },
     settings,
-    providerId: input.session.provider ?? resolveSessionProviderId(input.run, input.role, "minimax"),
+    providerId,
+    model: modelSelection.model,
+    reasoningEffort: modelSelection.reasoningEffort,
     tokenLimit: settings.minimaxTokenLimit ?? 180000,
     maxOutputTokens: settings.minimaxMaxOutputTokens ?? 16384,
     rolePrompt: rolePromptSkillBundle.rolePrompt ?? operations.buildDefaultRolePrompt(input.role)

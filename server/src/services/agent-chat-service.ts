@@ -7,6 +7,7 @@ import {
   resolveOrchestratorRolePromptSkillBundle
 } from "./orchestrator/shared/index.js";
 import type { ToolInjectionPayload } from "./tool-injector.js";
+import { isProviderLaunchError, toProviderLaunchErrorPayload } from "./provider-launch-error.js";
 
 export interface AgentChatRequestInput {
   role: string;
@@ -28,6 +29,8 @@ export interface ExecutionContext {
   providerSessionId?: string;
   workspaceDir: string;
   workspaceRoot: string;
+  model?: string;
+  reasoningEffort?: string;
   role: string;
   prompt: string;
   rolePrompt?: string;
@@ -73,6 +76,14 @@ export function initializeSse(response: express.Response): (event: string, data:
   };
 }
 
+function buildAgentChatErrorPayload(error: unknown): Record<string, unknown> {
+  if (isProviderLaunchError(error)) {
+    return { ...toProviderLaunchErrorPayload(error) };
+  }
+  const message = error instanceof Error ? error.message : "Unknown error";
+  return { message };
+}
+
 export async function streamAgentChat(
   response: express.Response,
   providerRegistry: ProviderRegistry,
@@ -95,6 +106,8 @@ export async function streamAgentChat(
         providerSessionId: execution.providerSessionId,
         workspaceDir: execution.workspaceDir,
         workspaceRoot: execution.workspaceRoot,
+        model: execution.model,
+        reasoningEffort: execution.reasoningEffort,
         role: execution.role,
         rolePrompt: execution.rolePrompt,
         skillSegments: execution.skillSegments,
@@ -114,7 +127,7 @@ export async function streamAgentChat(
           sendEvent("tool_result", { name, result }),
         onStep: (step: number, maxSteps: number) => sendEvent("step", { step, maxSteps }),
         onMessage: (role: string, content: string) => sendEvent("message", { role, content }),
-        onError: (error: Error) => sendEvent("error", { message: error.message }),
+        onError: (error: Error) => sendEvent("error", buildAgentChatErrorPayload(error)),
         onComplete: (result: string, finishReason?: string, meta?) =>
           sendEvent("complete", {
             result,
@@ -125,8 +138,7 @@ export async function streamAgentChat(
       }
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    sendEvent("error", { message });
+    sendEvent("error", buildAgentChatErrorPayload(error));
   } finally {
     response.end();
   }

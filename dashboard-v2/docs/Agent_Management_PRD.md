@@ -99,7 +99,7 @@ interface AgentDefinition {
   summary?: string;
   skillList?: string[];
   updatedAt: string;
-  defaultCliTool?: "codex" | "trae" | "minimax";
+  defaultCliTool?: "codex" | "minimax";
 }
 ```
 
@@ -174,4 +174,4 @@ Project and workflow views consume agent registry output but do not provide an e
 
 ## 10. Status
 
-Status: `ACTIVE`
+Status: `实装`

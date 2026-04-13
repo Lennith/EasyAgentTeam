@@ -3,6 +3,7 @@ import type {
   Envelope,
   ManagerChatMessageType,
   ManagerToAgentMessage,
+  TaskSubtreePayload,
   WorkflowEnvelope,
   WorkflowManagerToAgentMessage
 } from "../../../domain/models.js";
@@ -88,7 +89,7 @@ export interface BuildOrchestratorTaskAssignmentBodyInput {
   task: {
     taskId: string;
     taskKind?: string;
-    parentTaskId: string;
+    parentTaskId: string | null;
     rootTaskId?: string;
     state?: string;
     ownerRole: string;
@@ -99,6 +100,7 @@ export interface BuildOrchestratorTaskAssignmentBodyInput {
     acceptance?: string[];
     artifacts?: string[];
   };
+  taskSubtree?: TaskSubtreePayload | null;
 }
 
 export interface BuildOrchestratorTaskAssignmentMessageInput
@@ -255,7 +257,8 @@ function buildOrchestratorTaskAssignmentBody(input: BuildOrchestratorTaskAssignm
       dependencies: input.task.dependencies ?? [],
       acceptance: input.task.acceptance ?? [],
       artifacts: input.task.artifacts ?? []
-    }
+    },
+    task_subtree: input.taskSubtree ?? null
   };
 }
 

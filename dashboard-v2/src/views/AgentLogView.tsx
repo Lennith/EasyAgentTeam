@@ -337,7 +337,7 @@ export function AgentLogView() {
 
     try {
       const response = await fetch(
-        `/api/projects/${encodeURIComponent(selectedProjectId)}/codex-output?t=${Date.now()}`
+        `/api/projects/${encodeURIComponent(selectedProjectId)}/agent-output?t=${Date.now()}`
       );
       if (!response.ok) {
         if (response.status === 404) {

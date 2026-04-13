@@ -22,7 +22,6 @@ export interface RuntimeSettings {
   schemaVersion: "1.0";
   updatedAt: string;
   codexCliCommand: string;
-  traeCliCommand: string;
   theme?: "dark" | "vibrant" | "lively";
   minimaxApiKey?: string;
   minimaxApiBase?: string;
@@ -40,7 +39,6 @@ export interface RuntimeSettings {
 
 interface PatchRuntimeSettingsInput {
   codexCliCommand?: string;
-  traeCliCommand?: string;
   theme?: "dark" | "vibrant" | "lively";
   minimaxApiKey?: string | null;
   minimaxApiBase?: string | null;
@@ -73,16 +71,11 @@ function defaultCodexCliCommand(): string {
   return getRuntimePlatformCapabilities().codexCliCommandDefault;
 }
 
-function defaultTraeCliCommand(): string {
-  return getRuntimePlatformCapabilities().traeCliCommandDefault;
-}
-
 function defaultRuntimeSettings(): RuntimeSettings {
   return {
     schemaVersion: "1.0",
     updatedAt: new Date().toISOString(),
     codexCliCommand: defaultCodexCliCommand(),
-    traeCliCommand: defaultTraeCliCommand(),
     theme: "dark",
     minimaxApiKey: undefined,
     minimaxApiBase: undefined,
@@ -115,14 +108,6 @@ function resolveOptionalStringPatch<T extends object>(
 }
 
 function normalizeCodexCliCommand(raw: unknown, fallback: string): string {
-  if (typeof raw !== "string") {
-    return fallback;
-  }
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : fallback;
-}
-
-function normalizeTraeCliCommand(raw: unknown, fallback: string): string {
   if (typeof raw !== "string") {
     return fallback;
   }
@@ -173,7 +158,6 @@ export async function getRuntimeSettings(dataRoot: string): Promise<RuntimeSetti
     schemaVersion: "1.0",
     updatedAt: state.updatedAt ?? fallback.updatedAt,
     codexCliCommand: normalizeCodexCliCommand(state.codexCliCommand, fallback.codexCliCommand),
-    traeCliCommand: normalizeTraeCliCommand(state.traeCliCommand, fallback.traeCliCommand),
     minimaxApiKey: normalizeOptionalString(state.minimaxApiKey),
     minimaxApiBase: normalizeOptionalString(state.minimaxApiBase),
     minimaxModel: normalizeOptionalString(state.minimaxModel) ?? fallback.minimaxModel,
@@ -201,10 +185,6 @@ export async function patchRuntimeSettings(
     codexCliCommand: normalizeCodexCliCommand(
       patch.codexCliCommand ?? current.codexCliCommand,
       current.codexCliCommand
-    ),
-    traeCliCommand: normalizeTraeCliCommand(
-      patch.traeCliCommand ?? current.traeCliCommand,
-      current.traeCliCommand
     ),
     theme: normalizeTheme(patch.theme ?? current.theme) ?? "dark",
     minimaxApiKey: resolveOptionalStringPatch(patch, "minimaxApiKey", current.minimaxApiKey),

@@ -110,7 +110,7 @@ try {
 if ($raw) {
   $code = if ($raw.error_code) { [string]$raw.error_code } elseif ($raw.error -and $raw.error.code) { [string]$raw.error.code } else { 'LOCK_REQUEST_FAILED' }
   $msg = if ($raw.error -and $raw.error.message) { [string]$raw.error.message } elseif ($raw.message) { [string]$raw.message } else { 'Lock request rejected by backend.' }
-  $nextAction = if ($raw.next_action) { [string]$raw.next_action } elseif ($raw.hint) { [string]$raw.hint } else { 'Check session_id and lock_content_path, then retry once.' }
+  $nextAction = if ($raw.next_action) { [string]$raw.next_action } else { 'Check session_id and lock_content_path, then retry once.' }
   Write-ToolError $code $msg $nextAction $raw
 }
 

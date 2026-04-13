@@ -3,8 +3,9 @@ import { listAgents } from "../data/repository/catalog/agent-repository.js";
 import { buildProjectRoutingSnapshot } from "./project-routing-snapshot-service.js";
 import { handleTaskAction, TaskActionError } from "./task-action-service.js";
 import { handleManagerMessageSend, ManagerMessageServiceError } from "./manager-message-service.js";
-import type { TeamToolBridge, TeamToolExecutionContext } from "../minimax/tools/team/types.js";
+import type { TeamToolBridge, TeamToolExecutionContext } from "./teamtool/types.js";
 import { createMiniMaxTeamToolBridgeBase, TeamToolBridgeError } from "./minimax-teamtool-bridge-core.js";
+import { buildTaskExistsNextAction } from "./teamtool-contract.js";
 
 function resolveTaskActionNextAction(code: string): string | null {
   switch (code) {
@@ -16,6 +17,8 @@ function resolveTaskActionNextAction(code: string): string | null {
       return "Fill required task binding fields (task_id, owner_role, or discuss target).";
     case "TASK_ROUTE_DENIED":
       return "Choose an allowed route target or request route-table update.";
+    case "TASK_EXISTS":
+      return buildTaskExistsNextAction();
     case "TASK_REPORT_NO_STATE_CHANGE":
       return "Do not resend identical report. Add new progress and evidence.";
     case "TASK_STATE_STALE":
@@ -46,7 +49,7 @@ export function createMiniMaxTeamToolBridge(context: TeamToolExecutionContext): 
             error.status,
             error.code,
             error.message,
-            error.hint ?? resolveTaskActionNextAction(error.code),
+            error.nextAction ?? resolveTaskActionNextAction(error.code),
             error.details
           );
         }
@@ -67,7 +70,7 @@ export function createMiniMaxTeamToolBridge(context: TeamToolExecutionContext): 
             error.status,
             error.code,
             error.message,
-            error.hint ?? null,
+            error.nextAction ?? null,
             error.details ?? error.replacement
           );
         }

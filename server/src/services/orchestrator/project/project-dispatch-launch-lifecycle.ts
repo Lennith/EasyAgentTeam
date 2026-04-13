@@ -17,6 +17,7 @@ import {
   runProjectDispatchProviderLaunch
 } from "./project-dispatch-provider-launch.js";
 import { resolveOrchestratorErrorMessage, type OrchestratorLaunchExecutionAdapter } from "../shared/index.js";
+import { isProviderLaunchError } from "../../provider-launch-error.js";
 
 export {
   appendProjectDispatchTerminalEventForContext,
@@ -49,9 +50,7 @@ export function createProjectDispatchLaunchExecutionAdapter(
   return {
     createContext: async (input: ProjectDispatchLaunchInput) => {
       const providerFromSession =
-        input.session.provider === "codex" || input.session.provider === "trae" || input.session.provider === "minimax"
-          ? input.session.provider
-          : null;
+        input.session.provider === "codex" || input.session.provider === "minimax" ? input.session.provider : null;
       return {
         input,
         providerId: providerFromSession ?? resolveSessionProviderId(input.project, input.session.role, "minimax"),
@@ -119,7 +118,11 @@ export function createProjectDispatchLaunchExecutionAdapter(
     },
     onFailure: async (launchContext: ProjectDispatchLaunchContext, error: unknown) => {
       const reason = resolveOrchestratorErrorMessage(error);
-      await operations.markRunnerFatalError({
+      const markFailure =
+        isProviderLaunchError(error) && error.category === "config"
+          ? operations.markRunnerBlocked
+          : operations.markRunnerFatalError;
+      await markFailure({
         dataRoot: context.dataRoot,
         project: launchContext.input.project,
         paths: launchContext.input.paths,

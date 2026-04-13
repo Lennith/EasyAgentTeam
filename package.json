@@ -31,6 +31,7 @@
     "e2e:template-agent:cleanup:dry": "node E2ETest/scripts/cleanup-template-agent-test-data.mjs",
     "e2e:template-agent:cleanup": "node E2ETest/scripts/cleanup-template-agent-test-data.mjs --confirm",
     "e2e:baseline": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-multi-e2e.ps1",
+    "e2e:codex-parity": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-multi-e2e.ps1 -ProviderId codex",
     "gate:standard": "node tools/run-powershell-entry.mjs ./tools/run-standard-gate.ps1",
     "gate:index": "node tools/generate-gate-doc-index.mjs",
     "agent-workspace": "node agent-workspace/cli.mjs",

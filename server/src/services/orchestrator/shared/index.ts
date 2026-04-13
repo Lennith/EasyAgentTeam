@@ -157,7 +157,7 @@ export type { CollectOrchestratorRoleSetInput } from "./role-candidates.js";
 export { collectOrchestratorRoleSet, sortOrchestratorRoles } from "./role-candidates.js";
 export type { ParseOrchestratorTaskReportOutcomeOptions } from "./task-report-policy.js";
 export {
-  buildOrchestratorDependencyNotReadyHint,
+  buildOrchestratorDependencyNotReadyNextAction,
   getOrchestratorTaskReportOutcomeLabel,
   isOrchestratorRetiredTaskReportOutcome,
   isOrchestratorTaskReportableState,
@@ -196,6 +196,12 @@ export {
   evaluateOrchestratorReminderEligibility,
   runOrchestratorReminderLoop
 } from "./reminder-runtime.js";
+export type { OrchestratorTaskSubtreeNode } from "./task-subtree.js";
+export {
+  buildOrchestratorTaskSubtreePayload,
+  buildOrchestratorTaskSubtreeSummary,
+  hasOrchestratorUnresolvedDescendants
+} from "./task-subtree.js";
 export type {
   ResolveOrchestratorRolePromptSkillBundleInput,
   ResolveOrchestratorRolePromptSkillBundleResult,

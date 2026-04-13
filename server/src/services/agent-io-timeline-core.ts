@@ -204,7 +204,7 @@ export function buildAgentTimelineFromEvents(
     if (event.eventType === "TASK_ACTION_REJECTED") {
       const actionType = (payload.actionType as string | null | undefined) ?? null;
       const reason = readPayloadString(payload, "reason") ?? "task action rejected";
-      const hint = readPayloadString(payload, "hint");
+      const nextAction = readPayloadString(payload, "next_action");
       items.push({
         itemId: event.eventId,
         kind: "task_action",
@@ -215,7 +215,7 @@ export function buildAgentTimelineFromEvents(
         requestId: (payload.requestId as string | null | undefined) ?? null,
         messageType: actionType,
         status: readPayloadString(payload, "error_code") ?? "TASK_ACTION_REJECTED",
-        content: hint ? `${reason} | hint: ${hint}` : reason
+        content: nextAction ? `${reason} | next_action: ${nextAction}` : reason
       });
       continue;
     }

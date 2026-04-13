@@ -25,12 +25,16 @@ import {
 } from "../services/catalog-admin-service.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import {
+  hasLegacyTraeAgentModelConfigs,
+  isLegacyTraeProviderId,
   parseBoolean,
   readAgentModelConfigsField,
   readNullableStringPatch,
   readProviderIdField,
   readStringArray,
   readStringField,
+  validateAgentModelConfigsForApi,
+  validateAgentModelParamsForApi,
   sendApiError
 } from "./shared/http.js";
 
@@ -140,6 +144,16 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.post("/api/teams", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
+      if (hasLegacyTraeAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+        return;
+      }
+      const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
+      const modelValidation = validateAgentModelConfigsForApi(agentModelConfigs);
+      if (modelValidation) {
+        sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
+        return;
+      }
       const created = await createCatalogTeam(dataRoot, {
         teamId: (body.team_id ?? body.teamId) as string,
         name: (body.name ?? body.team_id ?? body.teamId) as string,
@@ -152,7 +166,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as
           | Record<string, Record<string, number>>
           | undefined,
-        agentModelConfigs: readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs)
+        agentModelConfigs
       });
       res.status(201).json(created);
     } catch (error) {
@@ -163,6 +177,16 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.put("/api/teams/:teamId", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
+      if (hasLegacyTraeAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+        return;
+      }
+      const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
+      const modelValidation = validateAgentModelConfigsForApi(agentModelConfigs);
+      if (modelValidation) {
+        sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
+        return;
+      }
       const updated = await updateCatalogTeam(dataRoot, req.params.teamId, {
         name: (body.name ?? body.name) as string | undefined,
         description: (body.description ?? body.description) as string | undefined,
@@ -174,7 +198,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as
           | Record<string, Record<string, number>>
           | undefined,
-        agentModelConfigs: readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs)
+        agentModelConfigs
       });
       res.status(200).json(updated);
     } catch (error) {
@@ -203,9 +227,22 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
       const prompt = body.prompt as string | undefined;
       const summary = readStringField(body, ["summary"]);
       const defaultProviderId = body.provider_id as string | undefined;
+      if (isLegacyTraeProviderId(defaultProviderId)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+        return;
+      }
       const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as
         | Record<string, any>
         | undefined;
+      const normalizedProviderId =
+        defaultProviderId !== undefined || defaultModelParams
+          ? readProviderIdField(body, "provider_id", "minimax")
+          : undefined;
+      const modelValidation = validateAgentModelParamsForApi(normalizedProviderId, defaultModelParams);
+      if (modelValidation) {
+        sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
+        return;
+      }
       const modelSelectionEnabled = (body.model_selection_enabled ?? body.modelSelectionEnabled) as boolean | undefined;
       let skillList: string[] | undefined;
       if (
@@ -241,8 +278,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         prompt,
         summary,
         skillList,
-        defaultCliTool:
-          defaultProviderId !== undefined ? readProviderIdField(body, "provider_id", "minimax") : undefined,
+        defaultCliTool: normalizedProviderId,
         defaultModelParams,
         modelSelectionEnabled
       });
@@ -261,6 +297,10 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
     try {
       const agentId = req.params.agent_id;
       const body = req.body as Record<string, unknown>;
+      if (Object.prototype.hasOwnProperty.call(body, "provider_id") && isLegacyTraeProviderId(body.provider_id)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+        return;
+      }
       let skillListPatch: string[] | undefined;
       if (
         Object.prototype.hasOwnProperty.call(body, "skill_list") ||
@@ -285,14 +325,29 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
           return;
         }
       }
+      const existingAgents = await listCatalogAgents(dataRoot);
+      const existingAgent = existingAgents.find((item) => item.agentId === agentId);
+      const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as
+        | Record<string, any>
+        | undefined;
+      const normalizedProviderId =
+        body.provider_id !== undefined
+          ? readProviderIdField(body, "provider_id", "minimax")
+          : defaultModelParams
+            ? (existingAgent?.defaultCliTool ?? "minimax")
+            : existingAgent?.defaultCliTool;
+      const modelValidation = validateAgentModelParamsForApi(normalizedProviderId, defaultModelParams);
+      if (modelValidation) {
+        sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
+        return;
+      }
       const updated = await patchCatalogAgent(dataRoot, agentId, {
         displayName: (body.display_name ?? body.displayName) as string | undefined,
         prompt: body.prompt as string | undefined,
         summary: readNullableStringPatch(body, ["summary"]),
         skillList: skillListPatch,
-        defaultCliTool:
-          body.provider_id !== undefined ? readProviderIdField(body, "provider_id", "minimax") : undefined,
-        defaultModelParams: (body.default_model_params ?? body.defaultModelParams) as Record<string, any> | undefined,
+        defaultCliTool: body.provider_id !== undefined ? normalizedProviderId : undefined,
+        defaultModelParams,
         modelSelectionEnabled: (body.model_selection_enabled ?? body.modelSelectionEnabled) as boolean | undefined
       });
       const { defaultCliTool, skillList, ...rest } = updated;

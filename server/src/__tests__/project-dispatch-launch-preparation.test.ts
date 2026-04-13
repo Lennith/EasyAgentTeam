@@ -18,7 +18,7 @@ test("project dispatch launch preparation resolves model config and writes promp
         workspacePath: "D:\\AgentWorkSpace\\Project1",
         agentModelConfigs: {
           dev: {
-            provider_id: "trae",
+            provider_id: "codex",
             model: "gpt-test",
             effort: "high"
           }
@@ -31,7 +31,7 @@ test("project dispatch launch preparation resolves model config and writes promp
         sessionId: "session-1",
         role: "dev"
       } as any,
-      providerId: "trae",
+      providerId: "codex",
       taskId: "task-1",
       messages: [] as any,
       allTasks: [] as any,
@@ -44,7 +44,6 @@ test("project dispatch launch preparation resolves model config and writes promp
     {
       getRuntimeSettings: async () =>
         ({
-          traeCliCommand: "trae-cli",
           codexCliCommand: "codex-cli"
         }) as any,
       ensureProjectAgentScripts: async () => {
@@ -76,10 +75,10 @@ test("project dispatch launch preparation resolves model config and writes promp
   );
 
   assert.deepEqual(ensured, ["scripts", "workspaces", "rolePrompt"]);
-  assert.equal(prepared.modelCommand, "trae-cli");
+  assert.equal(prepared.modelCommand, "codex-cli");
   assert.deepEqual(prepared.modelParams, {
     model: "gpt-test",
-    "reasoning-effort": "high"
+    config: 'model_reasoning_effort="high"'
   });
   assert.match(prepared.promptArtifactPath, /session-1_dispatch-1\.md$/);
   assert.equal(await readFile(prepared.promptArtifactPath, "utf8"), "prepared prompt");

@@ -49,7 +49,7 @@ export interface WorkflowDispatchLoopContext {
 }
 
 export interface WorkflowDispatchRuntimeErrorFactory {
-  (message: string, code: string, status?: number, hint?: string, details?: Record<string, unknown>): Error;
+  (message: string, code: string, status?: number, nextAction?: string, details?: Record<string, unknown>): Error;
 }
 
 export interface WorkflowDispatchLoopDependencies {
@@ -163,7 +163,7 @@ export async function runWorkflowDispatchLoop(
     mutation: {
       prepareDispatch: async (selection, loopState) => {
         const dispatchId = randomUUID();
-        const messageId = selection.messageId ?? undefined;
+        const messageId = selection.messageId ?? selection.message?.envelope.message_id ?? undefined;
         if (selection.dispatchKind === "task" && selection.runtimeTask) {
           addWorkflowTaskTransition(loopState.runtime, selection.runtimeTask, "DISPATCHED", "dispatched");
         }
@@ -181,10 +181,12 @@ export async function runWorkflowDispatchLoop(
         selection.session.status = "running";
         selection.session.currentTaskId = selection.taskId ?? undefined;
         selection.session.lastDispatchId = dispatchId;
-        if (selection.dispatchKind === "message" && selection.message) {
-          await dependencies.context.repositories.inbox.removeInboxMessages(loopState.runId, selection.role, [
-            selection.message.envelope.message_id
-          ]);
+        if (selection.selectedMessageIds.length > 0) {
+          await dependencies.context.repositories.inbox.removeInboxMessages(
+            loopState.runId,
+            selection.role,
+            selection.selectedMessageIds
+          );
         }
         if (!loopState.force && (loopState.run.autoDispatchEnabled ?? true) && selection.dispatchKind === "task") {
           loopState.remaining = Math.max(0, loopState.remaining - 1);

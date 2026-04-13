@@ -7,12 +7,13 @@ import type {
 import type { WorkflowRepositoryBundle } from "../../../data/repository/workflow/repository-bundle.js";
 import { isRemindableTaskState } from "../../orchestrator-dispatch-core.js";
 import { normalizeReminderMode } from "../shared/reminder-service.js";
-import { resolveRoleRuntimeState } from "../shared/session-manager.js";
+import { resolveLatestIdleSession, resolveRoleRuntimeState } from "../shared/session-manager.js";
 import { createOpaqueIdentifier, createTimestampedIdentifier } from "../shared/orchestrator-identifiers.js";
 import {
   buildOrchestratorReminderMessage,
   buildOrchestratorReminderContent,
   buildOrchestratorReminderOpenTaskSummary,
+  hasOrchestratorUnresolvedDescendants,
   collectOrchestratorRoleSet,
   runOrchestratorReminderLoop,
   sortOrchestratorRoles
@@ -138,6 +139,7 @@ async function triggerWorkflowRoleReminder(input: {
   const redispatchResult = await input.context.dispatchRun(input.run.runId, {
     source: "loop",
     role: input.role,
+    taskId: primaryTaskId ?? undefined,
     force: false,
     onlyIdle: false,
     maxDispatches: 1
@@ -167,6 +169,18 @@ export async function checkWorkflowRoleReminders(
   const reminderMode = normalizeReminderMode(run.reminderMode);
   const nowMs = Date.now();
   const runtimeByTaskId = new Map(runtime.tasks.map((item) => [item.taskId, item]));
+  const subtreeTasks = run.tasks.map((task) => {
+    const runtimeTask = runtimeByTaskId.get(task.taskId);
+    return {
+      taskId: task.taskId,
+      parentTaskId: task.parentTaskId ?? null,
+      state: runtimeTask?.state ?? "PLANNED",
+      ownerRole: task.ownerRole,
+      ownerSession: null,
+      closeReportId: null,
+      lastSummary: runtimeTask?.lastSummary ?? null
+    };
+  });
   const roleSet = collectOrchestratorRoleSet({
     sessionRoles: sessions.map((session) => session.role),
     taskOwnerRoles: run.tasks.map((task) => task.ownerRole)
@@ -183,10 +197,16 @@ export async function checkWorkflowRoleReminders(
       maxWaitMs: context.reminderMaxIntervalMs
     },
     describeRole: async (role) => {
-      const idleSession = await context.resolveAuthoritativeSession(run.runId, role, sessions, run, "reminder");
+      const roleSessions = sessions.filter((session) => session.role === role && session.status !== "dismissed");
+      const authoritativeSession =
+        roleSessions.length > 0
+          ? await context.resolveAuthoritativeSession(run.runId, role, sessions, run, "reminder")
+          : null;
+      const effectiveRoleSessions = authoritativeSession ? [authoritativeSession] : roleSessions;
+      const idleSession = resolveLatestIdleSession(effectiveRoleSessions);
       return {
-        currentRoleState: resolveRoleRuntimeState(idleSession ? [idleSession] : []),
-        idleSession,
+        currentRoleState: resolveRoleRuntimeState(effectiveRoleSessions),
+        idleSession: idleSession ?? null,
         sessionIdleSince: idleSession ? (idleSession.lastDispatchedAt ?? idleSession.updatedAt) : undefined,
         openTasks: run.tasks
           .flatMap((task): WorkflowReminderOpenTask[] => {
@@ -195,6 +215,9 @@ export async function checkWorkflowRoleReminders(
             }
             const runtimeTask = runtimeByTaskId.get(task.taskId);
             if (!runtimeTask || !isRemindableTaskState(runtimeTask.state)) {
+              return [];
+            }
+            if (hasOrchestratorUnresolvedDescendants(task.taskId, subtreeTasks)) {
               return [];
             }
             return [

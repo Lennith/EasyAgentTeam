@@ -33,6 +33,7 @@ import {
   parseScheduleExpression,
   applyTemplateVariables,
   buildRolePromptMapForRoles,
+  isLegacyTraeProviderId,
   parseBoolean,
   parseInteger,
   parseReminderMode,
@@ -529,6 +530,10 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         sendApiError(res, 400, "WORKFLOW_SESSION_INPUT_INVALID", "role is required");
         return;
       }
+      if (isLegacyTraeProviderId(body.provider_id)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+        return;
+      }
       const result = await workflowOrchestrator.registerRunSession(req.params.run_id, {
         role,
         sessionId: readStringField(body, ["session_id", "sessionId"]),
@@ -824,7 +829,7 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
     try {
       const body = req.body as Record<string, unknown>;
       const preferredProviderId = readProviderIdField(body, "provider_id", "minimax");
-      const providerCandidates: ProviderId[] = Array.from(new Set([preferredProviderId, "minimax", "codex", "trae"]));
+      const providerCandidates: ProviderId[] = Array.from(new Set([preferredProviderId, "minimax", "codex"]));
       let cancelled = false;
       for (const providerId of providerCandidates) {
         if (providerRegistry.cancelSession(providerId, sessionId)) {

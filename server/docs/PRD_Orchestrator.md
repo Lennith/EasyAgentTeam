@@ -57,6 +57,58 @@
   - minimax config guard
   - max-tokens recovery event
   - timed-out / open-error / finished 收尾
+- Codex provider launch 与 project sync runner 统一通过单次 CLI `-c` 覆盖注入 TeamTool MCP：
+  - `mcp_servers.teamtool.command`
+  - `mcp_servers.teamtool.args`
+- provider runtime 必须在启动前校验 `provider/model` 组合是否合法；`provider=codex` 不允许接受 `MiniMax-*` 模型名。
+- Codex provider 必须把确定性的启动配置错误归一成统一 typed error：
+  - `PROVIDER_MODEL_MISMATCH`
+  - `PROVIDER_MODEL_UNSUPPORTED`
+  - `PROVIDER_CLI_UNAVAILABLE`
+- provider launch error 属于 `category=config` 时：
+  - project session terminal state 必须落成 `blocked`
+  - workflow session terminal state 必须落成 `blocked`
+  - `ORCHESTRATOR_DISPATCH_FAILED` 事件语义保持不变，但 `error` 文本必须稳定包含 `code` 与 `next_action`
+- timeout、resume-fallback、普通运行失败维持原有 terminal policy，不因为新增 launch guard 而改变。
+- TeamTool 协议对外 canonical 名保持 provider-neutral：
+  - `task_create_assign`
+  - `task_report_in_progress`
+  - `task_report_done`
+  - `task_report_block`
+  - `discuss_request`
+  - `discuss_reply`
+  - `discuss_close`
+  - `route_targets_get`
+  - `lock_manage`
+- Codex CLI 运行时看到的 TeamTool 名称必须按 MCP namespace 解释：
+  - `mcp__teamtool__task_create_assign`
+  - `mcp__teamtool__task_report_in_progress`
+  - `mcp__teamtool__task_report_done`
+  - `mcp__teamtool__task_report_block`
+  - `mcp__teamtool__discuss_request`
+  - `mcp__teamtool__discuss_reply`
+  - `mcp__teamtool__discuss_close`
+  - `mcp__teamtool__route_targets_get`
+  - `mcp__teamtool__lock_manage`
+- 所有面向 agent 的 prompt / AGENTS / TeamTools 文档必须同时声明 canonical 名与 Codex MCP alias，避免 Codex 按裸工具名调用后得到 `TOOL_UNAVAILABLE`。
+- agent 工作区 `Agents/<role>/AGENTS.md` 启动指引必须读取 `../TEAM.md`，不能指向不存在的 `./TEAM.md`。
+- 所有面向 Codex 的 prompt / AGENTS 必须明确声明：TeamTool 是 runtime tool registry 中可直接调用的 model-callable tool，不允许先用 `Get-Command`、`which`、脚本搜索或 MCP resource listing 做“是否存在”探测。
+- 所有面向 agent 的 prompt / AGENTS 必须明确声明：没有真实 `task_report_*` ToolCall 的自然语言完成/阻塞说明无效；只有实际 ToolCall 失败返回的 `error_code` / `next_action` 才能作为“无法上报”的证据。
+- Codex TeamTool MCP server 注册每个工具时必须提供真实 `inputSchema`，其字段来自 TeamTool 参数契约；不允许把 JSON-like 参数对象直接传给 SDK 导致 `tools/list` 退化为 `properties: {}` 空 schema。
+- Windows 路径下 `mcp_servers.teamtool.args` 必须输出为 TOML literal array（单引号字符串数组），避免 shell 传输后退化为字符串，导致 Codex 将 TeamTool 配置判定为非法。
+- Windows 下传给 Node 的 `--import` loader 不能使用裸盘符绝对路径；必须使用 `file:///...` URL，避免 Node ESM loader 以 `ERR_UNSUPPORTED_ESM_URL_SCHEME` 在 MCP 初始化前退出。
+- Codex project sync runner 与 workflow/session runtime 的 CLI 调用保持一致约束：
+  - `exec` / `exec resume` 都输出 `--json`
+  - `exec resume` 不追加 stdin sentinel `-`，避免 Codex CLI 将其判定为非法额外参数
+  - prompt 统一通过 stdin 写入
+  - project dispatch 只有在持久化的 `providerSessionId` 已是 Codex thread id 时才允许 `exec resume`；内部 `session-<role>-...` sessionId 不能当作 Codex resume id
+  - project dispatch 与 workflow/session runtime 都必须把角色模型配置中的 `model` 透传为 `--model`
+  - project dispatch 与 workflow/session runtime 都必须把角色模型配置中的 `effort` 透传为 `-c model_reasoning_effort="..."`；不允许把 `effort` 直接翻译成不存在的 `--effort`
+- Codex runtime 必须为每个项目/工作流 session 使用隔离的 `CODEX_HOME`（位于 runtime data/workspace 临时目录），不能继承用户 `~/.codex/config.toml` 中的外部 MCP server、插件或本机 skill；本轮只允许单次 `-c mcp_servers.teamtool.*` 注入的 TeamTool 外部 MCP。
+- Codex workflow/session runtime 在 child 进程存活期间必须周期性发出 provider keepalive observation，并通过既有 heartbeat callback 刷新 session 活跃态；不能只依赖 parsed JSON event 刷新 `lastActiveAt`，避免长静默推理阶段被误判为 `session_heartbeat_timeout`。
+- Windows 下 Codex CLI 不直接使用 `spawn(command, args, { shell: true })`：
+  - 必须改为 `cmd.exe /d /c call <codex_cmd> <args...>`
+  - 目标是保住 `-c mcp_servers.teamtool.*` 这类带空格参数，不被 shell 拼接时拆裂
 - terminal-state 判定统一通过 `shared/dispatch-lifecycle.ts`
 
 ## 4. Dispatch 生效规则
@@ -80,6 +132,18 @@
 - project dispatch 保持 await provider 结果的现有语义
 - workflow dispatch 保持 fire-and-forget 的现有语义
 - `selection-adapter` 只允许做模板接线所需的最小接口调整，不额外扩张抽象
+- project / workflow 的自动 task dispatch 必须遵守同一条 focus-task 规则：
+  - 每次 dispatch 只围绕一个 focus task
+  - 自动 task dispatch 不允许直接重放旧的 ancestor `TASK_ASSIGNMENT` / reminder body
+  - 自动 task dispatch 必须基于当前任务树重建一条新的 focus-task 单消息
+  - 该单消息继续使用 `TASK_ASSIGNMENT`，但必须附带 `task_subtree`
+- `task_subtree` 是自动 task dispatch 的内部标准字段，project / workflow 语义一致：
+  - `focus_task_id`
+  - `descendant_ids`
+  - `descendant_counts`
+  - `unresolved_descendant_ids`
+  - `terminal_descendant_reports`
+- `task_subtree` 只允许描述当前 focus task 的后代收敛上下文；不允许把其他 task 的 inbox 内容跨任务 merge 到同一次 dispatch 中
 
 ## 5. Routing 生效规则
 
@@ -121,6 +185,16 @@
 - workflow reminder 继续按职责拆分为：
   - `workflow/workflow-reminder-service.ts`：仅保留 public service seam
   - `workflow/workflow-reminder-cycle.ts`：负责 workflow-specific session/open-task resolve 与 trigger/redispatch 动作
+- project / workflow reminder 必须共享同一条子树 gate：
+  - 若某 focus task 存在任一未收敛后代，则该 task 不允许触发 reminder
+  - `未收敛后代` 默认定义为后代状态不在 `DONE | CANCELED`
+  - `BLOCKED_DEP` 也视为未收敛，不能放开祖先 reminder
+  - 若某 role 的 open task 全被这条 gate 挡住，则该 tick 不追加 reminder、不触发 redispatch
+- shared 只允许承载 reminder / task redispatch 的子树规则与 focus-task 单消息合成规则；project / workflow 仍各自负责：
+  - inbox 持久化
+  - authoritative session resolve
+  - redispatch 调用
+  - runtime-specific event 写入
 
 ## 6. Completion、Task Action 与其他冻结规则
 
@@ -137,7 +211,7 @@
 - workflow task report pipeline 继续按职责拆分为：
   - `workflow/workflow-task-report-processing.ts`：只负责 `runOrchestratorTaskActionPipeline(...)` 接线与 phase 编排
   - `workflow/workflow-task-report-guard.ts`：负责 predicted-state、dependency gate、`TASK_DEPENDENCY_NOT_READY` 错误构造
-  - `workflow/workflow-task-report-application.ts`：负责 blocked state 归一、task transition apply、session touch、runtime converge 与 `TASK_REPORT_APPLIED` 结果构造
+  - `workflow/workflow-task-report-application.ts`：负责 blocked state 归一、task transition apply、runtime converge 与 `TASK_REPORT_APPLIED` 结果构造；不允许再根据 `TASK_REPORT` 直接修改 workflow session 的 `status/currentTaskId`
 - workflow task create pipeline 继续按职责拆分为：
   - `workflow/workflow-task-create-processing.ts`：只负责 `runOrchestratorTaskActionPipeline(...)` 接线与 phase 编排
   - `workflow/workflow-task-create-guard.ts`：负责 task payload 解析、owner role 校验、dependency merge 与 ancestor dependency gate
@@ -152,6 +226,27 @@
 - workflow session runtime authority 继续按职责拆分为：
   - `workflow/workflow-session-runtime-service.ts`：负责 public session runtime seam、heartbeat、list/register/timeout 委托
   - `workflow/workflow-session-authority.ts`：负责 run load、roleSessionMap 持久化、authoritative session resolve、register 归位
+- workflow authoritative session 在某角色尚无任何 session 时，自动补建的 session provider 必须来自 `resolveSessionProviderId(run, role, "minimax")`；不允许硬编码成 `minimax`，避免 Codex workflow 首次派发出现 provider mismatch
+- workflow reminder 只能基于该角色现存 session 判断 `IDLE/RUNNING/INACTIVE` 并触发提醒；在 reminder 描述阶段禁止因为“为了取 authoritative session”而自动补建新 session，避免 run 启动早期生成错误 provider 的幽灵 session
+- workflow session 的 `running / idle / blocked / dismissed / currentTaskId` 所有权统一归 dispatch lifecycle：
+  - dispatch 启动前把 session 置为 `running`
+  - dispatch terminal path 再把 session 置回 `idle / blocked / dismissed`
+  - `TASK_REPORT(DONE/CANCELED/IN_PROGRESS/BLOCKED_DEP/MAY_BE_DONE)` 只更新 task/runtime，不允许提前把 session 置回 `idle`
+- workflow Codex provider 在收到 `thread_started` 且拿到真实 thread id 时，必须立刻把该值写回 authoritative session 的 `providerSessionId`：
+  - 不允许等待 dispatch run 完成后再写回
+  - 后续同一 session 的 message/task dispatch 必须复用这个真实 Codex thread id，而不是再次拿内部 `sessionId` 发起 fresh launch
+- TeamTool 在 project dispatch、workflow dispatch、agent chat 三条路径上的失败契约必须完全一致：
+  - 对外只保留 `error_code / message / next_action / raw`
+  - Codex MCP 的 `text` 与 `structuredContent` 都必须承载同一份 TeamTool error payload
+- 不允许再出现 prompt 与返回体恢复字段命名漂移；统一只使用 `next_action`
+- `task_create_assign` 的 duplicate create 在 project / workflow 两侧必须统一收口为 `TASK_EXISTS`：
+  - 语义固定为“失败但可恢复”
+  - `next_action` 固定要求先核对现有 task 的 owner / parent / state，再继续执行或汇报
+  - 不允许退化成 `TASK_ACTION_BRIDGE_ERROR` 或其它泛化 bridge error
+- prompt / AGENTS / dispatch prompt 必须显式声明：
+  - 只能对自己 owner 或自己创建的 task 调 `task_report_*`
+  - `TASK_EXISTS` 后禁止原样重试 `task_create_assign`
+  - TeamTool 失败后必须依据 `next_action` 恢复，不能把失败表述成“工具不可用”
 
 ## 7. 边界冻结规则
 
@@ -191,3 +286,9 @@
 - `pnpm --filter @autodev/server build`：通过
 - `pnpm --filter @autodev/server test`：通过
 - 最新快照：`tests 322 / pass 317 / fail 0 / skipped 5`
+- 追加快照（2026-04-12）：
+  - `pnpm --filter @autodev/server build`：通过
+  - `node --import tsx --test --test-concurrency=1 "server/src/__tests__/workflow-reminder-service.test.ts" "server/src/__tests__/workflow-session-authority.test.ts" "server/src/__tests__/workflow-dispatch-launch-preparation.test.ts"`：通过
+  - Codex parity E2E：
+    - `workflow` 单案（`provider=codex model=gpt-5.3-codex effort=medium`）：通过
+    - `chain + discuss + workflow` baseline 3 案（`provider=codex model=gpt-5.3-codex effort=medium`）：通过

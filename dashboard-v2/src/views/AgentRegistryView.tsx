@@ -8,9 +8,8 @@ import { Plus, Save, Trash2, Loader, Edit, Copy, Cpu } from "lucide-react";
 
 const CLI_TOOL_OPTIONS = [
   { value: "", label: "Default (Project Setting)" },
-  { value: "codex", label: "Codex" },
-  { value: "trae", label: "Trae" },
-  { value: "minimax", label: "MiniMax" }
+  { value: "minimax", label: "MiniMax" },
+  { value: "codex", label: "Codex" }
 ];
 
 export function AgentRegistryView() {
@@ -115,7 +114,7 @@ export function AgentRegistryView() {
                 prompt: editPrompt,
                 summary: editSummary.trim() || undefined,
                 skillList: editSkillList,
-                defaultCliTool: (editDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
+                defaultCliTool: (editDefaultCliTool as "codex" | "minimax" | undefined) || undefined
               }
             : a
         )
@@ -131,7 +130,7 @@ export function AgentRegistryView() {
         prompt: editPrompt,
         summary: editSummary.trim() || null,
         skill_list: editSkillList,
-        provider_id: (editDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
+        provider_id: (editDefaultCliTool as "codex" | "minimax" | undefined) || undefined
       });
       setAgents(
         agents.map((a) =>
@@ -142,7 +141,7 @@ export function AgentRegistryView() {
                 prompt: editPrompt,
                 summary: editSummary.trim() || undefined,
                 skillList: editSkillList,
-                defaultCliTool: (editDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
+                defaultCliTool: (editDefaultCliTool as "codex" | "minimax" | undefined) || undefined
               }
             : a
         )
@@ -180,7 +179,7 @@ export function AgentRegistryView() {
         summary: newSummary.trim() || undefined,
         skillList: newSkillList,
         updatedAt: new Date().toISOString(),
-        defaultCliTool: (newDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
+        defaultCliTool: (newDefaultCliTool as "codex" | "minimax" | undefined) || undefined
       };
       setAgents([...agents, newAgent]);
       setShowNew(false);
@@ -202,7 +201,7 @@ export function AgentRegistryView() {
         prompt: newPrompt,
         summary: newSummary.trim() || undefined,
         skill_list: newSkillList,
-        provider_id: (newDefaultCliTool as "codex" | "trae" | "minimax" | undefined) || undefined
+        provider_id: (newDefaultCliTool as "codex" | "minimax" | undefined) || undefined
       });
       const data = await agentApi.list();
       setAgents(data.items ?? []);

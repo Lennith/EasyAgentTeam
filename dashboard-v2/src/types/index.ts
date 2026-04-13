@@ -276,14 +276,12 @@ export interface MCPServerConfig {
 
 export interface RuntimeSettings {
   codexCliCommand?: string;
-  traeCliCommand?: string;
   theme?: Theme;
   hostPlatform?: "win32" | "linux" | "darwin";
   hostPlatformLabel?: string;
   supportedShellTypes?: Array<"powershell" | "cmd" | "bash" | "sh">;
   defaultShellType?: "powershell" | "cmd" | "bash" | "sh";
   codexCliCommandDefault?: string;
-  traeCliCommandDefault?: string;
   macosUntested?: boolean;
   minimaxApiKey?: string;
   minimaxApiBase?: string;
@@ -418,7 +416,7 @@ export type ProjectView =
 
 export type AgentView = "sessions" | "agents" | "templates";
 
-export type DebugView = "agent-sessions" | "session-prompts" | "codex-output";
+export type DebugView = "agent-sessions" | "session-prompts" | "agent-output";
 
 export type TeamView = "list" | "edit" | "new";
 export type WorkflowRunWorkspaceView = "overview" | "task-tree" | "chat" | "agent-chat" | "team-config";

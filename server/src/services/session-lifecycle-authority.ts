@@ -314,3 +314,41 @@ export async function markRunnerFatalError(input: RunnerErrorInput): Promise<Ses
   });
   return updated;
 }
+
+export async function markRunnerBlocked(input: RunnerErrorInput): Promise<SessionRecord | null> {
+  const existing = await getSession(input.paths, input.project.projectId, input.sessionId);
+  if (!existing) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  const errorStreak = (existing.errorStreak ?? 0) + 1;
+  const updated = await touchSession(input.paths, input.project.projectId, existing.sessionId, {
+    status: "blocked",
+    currentTaskId: input.taskId ?? existing.currentTaskId ?? null,
+    lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
+    lastDispatchedAt: now,
+    providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
+    provider: input.provider ?? existing.provider ?? "minimax",
+    errorStreak,
+    lastFailureAt: now,
+    lastFailureKind: "error",
+    lastRunId: input.runId ?? existing.lastRunId,
+    lastDispatchId: input.dispatchId ?? existing.lastDispatchId,
+    cooldownUntil: null,
+    agentPid: null
+  });
+
+  await appendEvent(input.paths, {
+    projectId: input.project.projectId,
+    eventType: "RUNNER_CONFIG_ERROR_BLOCKED",
+    source: "manager",
+    sessionId: updated.sessionId,
+    taskId: updated.currentTaskId,
+    payload: {
+      runId: input.runId ?? updated.lastRunId ?? null,
+      dispatchId: input.dispatchId ?? updated.lastDispatchId ?? null,
+      error: input.error
+    }
+  });
+  return updated;
+}

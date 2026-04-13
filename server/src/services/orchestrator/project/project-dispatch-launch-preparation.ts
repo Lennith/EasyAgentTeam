@@ -18,7 +18,7 @@ import { buildProjectDispatchPromptContext } from "./project-dispatch-prompt-con
 import { buildProjectDispatchPrompt } from "./project-dispatch-prompt.js";
 import { writeOrchestratorPromptArtifact } from "../shared/prompt-artifact-writer.js";
 
-export type ProjectDispatchProviderId = "codex" | "trae" | "minimax";
+export type ProjectDispatchProviderId = "codex" | "minimax";
 
 async function ensureRolePromptFile(project: ProjectRecord, role: string): Promise<void> {
   const roleFile = path.resolve(project.workspacePath, "Agents", role, "role.md");
@@ -103,12 +103,7 @@ export async function prepareProjectDispatchLaunch(
   );
   const runtimeSettings = await operations.getRuntimeSettings(input.dataRoot);
   const modelConfig = input.project.agentModelConfigs?.[input.session.role];
-  const modelCommand =
-    input.providerId === "minimax"
-      ? undefined
-      : input.providerId === "trae"
-        ? runtimeSettings.traeCliCommand
-        : runtimeSettings.codexCliCommand;
+  const modelCommand = input.providerId === "minimax" ? undefined : runtimeSettings.codexCliCommand;
   const modelParams: Record<string, string> = {};
   if (modelConfig?.model) {
     modelParams.model = modelConfig.model;
@@ -116,8 +111,6 @@ export async function prepareProjectDispatchLaunch(
   if (modelConfig?.effort) {
     if (input.providerId === "codex") {
       modelParams.config = `model_reasoning_effort="${modelConfig.effort}"`;
-    } else if (input.providerId === "trae") {
-      modelParams["reasoning-effort"] = modelConfig.effort;
     }
   }
 

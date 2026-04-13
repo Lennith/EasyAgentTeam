@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectDispatchLaunchAdapter } from "../services/orchestrator/project/project-dispatch-launch-adapter.js";
+import { ProviderLaunchError } from "../services/provider-launch-error.js";
 
 test("project dispatch launch adapter handles sync task dispatch and terminal event emission", async () => {
   const launchCalls: Array<{ providerId: string; input: Record<string, unknown> }> = [];
@@ -68,7 +69,7 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
           routingSnapshot: { routes: [] },
           prompt: "dispatch prompt",
           promptArtifactPath: "C:\\memory\\project-1\\prompts\\dispatch-1.md",
-          modelCommand: "trae",
+          modelCommand: "codex",
           modelParams: { model: "gpt-test" }
         }) as any,
       addPendingMessagesForRole: async () =>
@@ -92,6 +93,7 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
         return null;
       },
       markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async () => null,
       markRunnerFatalError: async () => {
         fatalErrorCalled = true;
         return null;
@@ -105,7 +107,7 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
     session: {
       sessionId: "session-1",
       role: "dev",
-      provider: "trae"
+      provider: "codex"
     } as any,
     taskId: "task-1",
     input: { mode: "manual" },
@@ -140,10 +142,11 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
   assert.equal(runnerSucceeded.length, 1);
   assert.deepEqual(launchCalls, [
     {
-      providerId: "trae",
+      providerId: "codex",
       input: {
         sessionId: "session-1",
         prompt: "dispatch prompt",
+        dataRoot: "C:\\memory",
         dispatchId: "dispatch-1",
         taskId: "task-1",
         activeTaskTitle: "Implement adapter",
@@ -152,9 +155,8 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
         activeRequestId: "req-1",
         parentRequestId: "req-1",
         agentRole: "dev",
-        modelCommand: "trae",
-        modelParams: { model: "gpt-test" },
-        resumeSessionId: "session-1"
+        modelCommand: "codex",
+        modelParams: { model: "gpt-test" }
       }
     }
   ]);
@@ -191,6 +193,119 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
       }
     }
   ]);
+});
+
+test("project dispatch launch adapter resumes codex only when provider session id is a real thread id", async () => {
+  const launchCalls: Array<{ providerId: string; input: Record<string, unknown> }> = [];
+
+  const adapter = new ProjectDispatchLaunchAdapter(
+    {
+      dataRoot: "C:\\memory",
+      providerRegistry: {
+        launchProjectDispatch: async (
+          providerId: string,
+          _project: unknown,
+          _paths: unknown,
+          input: Record<string, unknown>
+        ) => {
+          launchCalls.push({ providerId, input });
+          return {
+            mode: "sync" as const,
+            result: {
+              runId: "run-2",
+              finishedAt: "2026-03-28T12:01:00.000Z",
+              exitCode: 0,
+              timedOut: false,
+              sessionId: "019d7dab-c535-7e22-b8e2-3281bad09329"
+            }
+          };
+        }
+      } as any,
+      repositories: {
+        taskboard: {
+          listTasks: async () => [{ taskId: "task-2", state: "READY" }],
+          patchTask: async () => {}
+        },
+        sessions: {
+          touchSession: async () => {}
+        },
+        events: {
+          appendEvent: async () => {},
+          listEvents: async () => []
+        }
+      } as any,
+      eventAdapter: {
+        appendStarted: async () => {},
+        appendFinished: async () => {},
+        appendFailed: async () => {}
+      } as any
+    },
+    {
+      now: () => "2026-03-28T12:00:00.000Z",
+      createDispatchId: () => "dispatch-2",
+      getRuntimeSettings: async () => ({}) as any,
+      prepareProjectDispatchLaunch: async () =>
+        ({
+          routingSnapshot: { routes: [] },
+          prompt: "dispatch prompt 2",
+          promptArtifactPath: "C:\\memory\\project-2\\prompts\\dispatch-2.md",
+          modelCommand: "codex",
+          modelParams: { model: "gpt-test-2" }
+        }) as any,
+      addPendingMessagesForRole: async () =>
+        ({
+          confirmedMessageIds: [],
+          pendingConfirmedMessages: []
+        }) as any,
+      confirmPendingMessagesForRole: async () =>
+        ({
+          confirmedMessageIds: [],
+          pendingConfirmedMessages: []
+        }) as any,
+      markRunnerStarted: async () => null,
+      markRunnerSuccess: async () => null,
+      markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async () => null,
+      markRunnerFatalError: async () => null
+    }
+  );
+
+  await adapter.launch({
+    project: { projectId: "project-2" } as any,
+    paths: { projectRootDir: "C:\\memory\\project-2" } as any,
+    session: {
+      sessionId: "session-2",
+      providerSessionId: "019d7dab-c535-7e22-b8e2-3281bad09329",
+      role: "dev",
+      provider: "codex"
+    } as any,
+    taskId: "task-2",
+    input: { mode: "manual" },
+    dispatchKind: "task",
+    selectedMessageIds: ["msg-2"],
+    messages: [] as any,
+    allTasks: [] as any,
+    firstMessage: {
+      envelope: {
+        message_id: "msg-2",
+        correlation: {
+          request_id: "req-2"
+        }
+      }
+    } as any,
+    activeTask: {
+      taskId: "task-2",
+      title: "Implement resume handling",
+      parentTaskId: "parent-2",
+      rootTaskId: "root-2"
+    } as any,
+    rolePromptMap: new Map([["dev", "role prompt"]]),
+    roleSummaryMap: new Map([["dev", "developer"]]),
+    registeredAgentIds: ["dev"]
+  });
+
+  assert.equal(launchCalls.length, 1);
+  assert.equal(launchCalls[0]?.input.resumeSessionId, "019d7dab-c535-7e22-b8e2-3281bad09329");
 });
 
 test("project dispatch launch adapter handles minimax async callbacks and terminal success", async () => {
@@ -291,6 +406,7 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
         return null;
       },
       markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async () => null,
       markRunnerFatalError: async () => null
     }
   );
@@ -355,4 +471,97 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
       }
     }
   ]);
+});
+
+test("project dispatch launch adapter blocks session on provider config error", async () => {
+  const blocked: unknown[] = [];
+  const fatal: unknown[] = [];
+
+  const adapter = new ProjectDispatchLaunchAdapter(
+    {
+      dataRoot: "C:\\memory",
+      providerRegistry: {
+        launchProjectDispatch: async () => {
+          throw new Error("should not be called");
+        }
+      } as any,
+      repositories: {
+        taskboard: {
+          listTasks: async () => [],
+          patchTask: async () => {}
+        },
+        sessions: {
+          touchSession: async () => {}
+        },
+        events: {
+          appendEvent: async () => {},
+          listEvents: async () => []
+        }
+      } as any,
+      eventAdapter: {
+        appendStarted: async () => {},
+        appendFinished: async () => {},
+        appendFailed: async () => {}
+      } as any
+    },
+    {
+      now: () => "2026-04-12T10:00:00.000Z",
+      createDispatchId: () => "dispatch-blocked",
+      getRuntimeSettings: async () => ({}) as any,
+      prepareProjectDispatchLaunch: async () => {
+        throw new ProviderLaunchError({
+          code: "PROVIDER_MODEL_MISMATCH",
+          category: "config",
+          retryable: false,
+          message: "Codex provider cannot use MiniMax model 'MiniMax-M2.5'.",
+          nextAction: "Use a Codex model such as gpt-5.3-codex, or switch provider to minimax."
+        });
+      },
+      addPendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      confirmPendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      markRunnerStarted: async () => null,
+      markRunnerSuccess: async () => null,
+      markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async (payload: unknown) => {
+        blocked.push(payload);
+        return null;
+      },
+      markRunnerFatalError: async (payload: unknown) => {
+        fatal.push(payload);
+        return null;
+      }
+    } as any
+  );
+
+  const result = await adapter.launch({
+    project: { projectId: "project-blocked" } as any,
+    paths: { projectRootDir: "C:\\memory\\project-blocked" } as any,
+    session: {
+      sessionId: "session-blocked",
+      role: "lead",
+      provider: "codex"
+    } as any,
+    taskId: "task-blocked",
+    input: { mode: "manual" },
+    dispatchKind: "task",
+    selectedMessageIds: ["msg-blocked"],
+    messages: [] as any,
+    allTasks: [] as any,
+    firstMessage: {
+      envelope: {
+        message_id: "msg-blocked",
+        correlation: {
+          request_id: "req-blocked"
+        }
+      }
+    } as any,
+    activeTask: null,
+    rolePromptMap: new Map(),
+    roleSummaryMap: new Map(),
+    registeredAgentIds: ["lead"]
+  });
+
+  assert.equal(result.outcome, "dispatch_failed");
+  assert.equal(blocked.length, 1);
+  assert.equal(fatal.length, 0);
 });

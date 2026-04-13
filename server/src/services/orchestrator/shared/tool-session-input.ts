@@ -1,4 +1,4 @@
-import type { MiniMaxSessionRunInput } from "../../provider-runtime.js";
+import type { ProviderSessionRunInput } from "../../provider-session-types.js";
 import {
   buildOrchestratorMinimaxSessionDir,
   resolveOrchestratorProviderSessionId
@@ -10,6 +10,8 @@ export interface BuildOrchestratorToolSessionInput {
   providerSessionId?: string | null;
   workspaceDir: string;
   workspaceRoot: string;
+  model?: string;
+  reasoningEffort?: string;
   role?: string;
   rolePrompt?: string;
   contextKind?: string;
@@ -27,13 +29,15 @@ export interface BuildOrchestratorToolSessionInput {
 
 export function buildOrchestratorToolSessionInput(
   input: BuildOrchestratorToolSessionInput,
-  extra: Partial<MiniMaxSessionRunInput> = {}
-): MiniMaxSessionRunInput {
+  extra: Partial<ProviderSessionRunInput> = {}
+): ProviderSessionRunInput {
   return {
     prompt: input.prompt,
     providerSessionId: resolveOrchestratorProviderSessionId(input.sessionId, input.providerSessionId),
     workspaceDir: input.workspaceDir,
     workspaceRoot: input.workspaceRoot,
+    model: input.model,
+    reasoningEffort: input.reasoningEffort,
     role: input.role,
     rolePrompt: input.rolePrompt,
     contextKind: input.contextKind,

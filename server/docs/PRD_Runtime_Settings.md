@@ -61,7 +61,6 @@
 #### 目前 API 暴露字段
 
 - `codexCliCommand`
-- `traeCliCommand`
 - `minimaxApiKey`
 - `minimaxApiBase`
 - `minimaxModel`
@@ -80,6 +79,13 @@
 1. 读取时做 normalize（空字符串、非法数字等兜底）。
 2. 文件不存在时自动创建默认配置。
 3. patch 时按字段级合并写回。
+4. `/api/settings` 继续只维护 runtime settings，不负责 project/team/agent 的模型选择，但 provider/model 兼容校验必须复用同一份共享规则。
+5. 项目、团队、agent 的模型写入路径必须拒绝非法 `provider_id + model` 组合：
+   - `provider=codex` 只允许 Codex 模型清单或 Codex 默认白名单
+   - `provider=minimax` 不允许写入 Codex 模型名
+6. 非法 provider/model 组合必须返回：
+   - `400 AGENT_MODEL_PROVIDER_MISMATCH`
+   - `next_action` 明确要求切换到与 provider 匹配的模型，或切换 provider
 
 ### 完整存储字段（含 API 未暴露）
 
@@ -111,6 +117,7 @@
 - `schemaVersion = "1.0"`
 - 默认 MiniMax 模型：`MiniMax-M2.5`
 - 默认 token limit：`80000`
+- 不允许通过隐式 fallback 或读时静默迁移来掩盖非法 provider/model 组合。
 
 ---
 

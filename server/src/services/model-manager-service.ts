@@ -3,9 +3,10 @@ import path from "node:path";
 import type { ProjectPaths } from "../domain/models.js";
 import { readJsonFile, writeJsonFile } from "../utils/file-utils.js";
 import { getRuntimeSettings, type RuntimeSettings } from "../data/repository/system/runtime-settings-repository.js";
+import { DEFAULT_CODEX_MODELS, DEFAULT_MINIMAX_MODEL } from "./provider-model-compat.js";
 
 export interface ModelInfo {
-  vendor: "codex" | "trae" | "minimax";
+  vendor: "codex" | "minimax";
   model: string;
   description?: string;
 }
@@ -23,15 +24,13 @@ export interface ModelListResponse {
 }
 
 const DEFAULT_MODELS: Record<ModelInfo["vendor"], ModelInfo[]> = {
-  codex: [
-    { vendor: "codex", model: "gpt-5.3-codex", description: "Codex recommended model" },
-    { vendor: "codex", model: "gpt-5", description: "GPT-5 model" }
-  ],
-  trae: [{ vendor: "trae", model: "trae-1", description: "Trae 1 model" }],
+  codex: DEFAULT_CODEX_MODELS.map((model) => ({
+    vendor: "codex" as const,
+    model,
+    description: `Codex model: ${model}`
+  })),
   minimax: []
 };
-
-const DEFAULT_MINIMAX_MODEL = "MiniMax-M2.5-High-speed";
 
 function resolveDataRootFromProjectRoot(projectRootDir: string): string {
   return path.resolve(projectRootDir, "..", "..");
@@ -111,9 +110,8 @@ export class ModelManagerService {
     const runtimeSettings = await this.loadRuntimeSettings();
     const warnings: string[] = [];
     const codex = await this.getVendorModels("codex", runtimeSettings.codexCliCommand, warnings);
-    const trae = await this.getVendorModels("trae", runtimeSettings.traeCliCommand, warnings);
     const minimax = this.resolveMiniMaxModels(runtimeSettings);
-    const models = [...codex, ...trae, ...minimax];
+    const models = [...codex, ...minimax];
     const store: ModelStore = {
       schemaVersion: "1.0",
       updatedAt: new Date().toISOString(),
@@ -218,7 +216,6 @@ export class ModelManagerService {
         schemaVersion: "1.0",
         updatedAt: new Date().toISOString(),
         codexCliCommand: "codex",
-        traeCliCommand: "trae",
         minimaxModel: DEFAULT_MINIMAX_MODEL
       };
     }

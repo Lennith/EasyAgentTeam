@@ -105,7 +105,9 @@ export function useRoute() {
     }
 
     if (l1 === "debug") {
-      const debugView = (parts[1] as DebugView) || "agent-sessions";
+      const debugViewRaw = parts[1];
+      const debugView: DebugView =
+        debugViewRaw === "agent-output" || debugViewRaw === "session-prompts" ? debugViewRaw : "agent-sessions";
       return { l1: "debug", debugView };
     }
 

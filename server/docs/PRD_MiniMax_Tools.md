@@ -145,7 +145,17 @@ MiniMax Tools 模块为 MiniMax Agent 提供可调用工具集合，并通过“
 
 #### 4.3 错误映射
 
-将 service 错误转换为可执行提示（next_action），避免模型盲重试。
+- TeamTool 对外失败契约固定为：
+  - `error_code`
+  - `message`
+  - `next_action`
+  - `raw`
+- `next_action` 是唯一恢复字段；不保留任何旧恢复字段别名。
+- project / workflow / Codex MCP 必须对同类错误返回同一语义的 `next_action`，避免 provider 之间恢复策略漂移。
+- `TASK_EXISTS` 属于可恢复失败：
+  - 不允许静默幂等成功
+  - 不允许退化成泛化 bridge error
+  - `next_action` 必须指向“核对现有 task 后继续执行或汇报”，避免 agent 盲重试。
 
 #### 4.4 Checkpoint 与消息压缩应用
 

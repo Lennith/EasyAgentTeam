@@ -17,6 +17,7 @@ import type {
 import type { ProjectDispatchInput as ProviderProjectDispatchInput, ProviderRegistry } from "../../provider-runtime.js";
 import type {
   markRunnerFatalError,
+  markRunnerBlocked,
   markRunnerStarted,
   markRunnerSuccess,
   markRunnerTimeout
@@ -75,6 +76,7 @@ export interface ProjectDispatchLaunchOperations {
   markRunnerStarted: typeof markRunnerStarted;
   markRunnerSuccess: typeof markRunnerSuccess;
   markRunnerTimeout: typeof markRunnerTimeout;
+  markRunnerBlocked: typeof markRunnerBlocked;
   markRunnerFatalError: typeof markRunnerFatalError;
 }
 

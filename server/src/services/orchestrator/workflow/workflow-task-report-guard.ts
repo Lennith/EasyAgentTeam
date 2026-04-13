@@ -2,7 +2,7 @@ import type { WorkflowTaskActionResult } from "../../../domain/models.js";
 import type { WorkflowTaskActionPipelineState } from "./workflow-task-action-types.js";
 import { resolveWorkflowUnreadyDependencyTaskIds } from "../shared/runtime/workflow-runtime-kernel.js";
 import {
-  buildOrchestratorDependencyNotReadyHint,
+  buildOrchestratorDependencyNotReadyNextAction,
   isOrchestratorTaskReportableState,
   parseOrchestratorTaskReportOutcome,
   requiresOrchestratorReadyDependencies
@@ -14,7 +14,7 @@ export type WorkflowTaskReportMutableState = WorkflowTaskActionPipelineState & {
 };
 
 export interface WorkflowTaskReportErrorFactory {
-  (message: string, code: string, status?: number, hint?: string, details?: Record<string, unknown>): Error;
+  (message: string, code: string, status?: number, nextAction?: string, details?: Record<string, unknown>): Error;
 }
 
 export async function checkWorkflowTaskReportDependencyGate<TState extends WorkflowTaskReportMutableState>(
@@ -53,7 +53,7 @@ export async function checkWorkflowTaskReportDependencyGate<TState extends Workf
         `task '${result.taskId}' cannot transition to '${target}' before dependencies are ready: ${unresolvedDependencyTaskIds.join(", ")}`,
         "TASK_DEPENDENCY_NOT_READY",
         409,
-        buildOrchestratorDependencyNotReadyHint(result.taskId, unresolvedDependencyTaskIds),
+        buildOrchestratorDependencyNotReadyNextAction(result.taskId, unresolvedDependencyTaskIds),
         {
           task_id: result.taskId,
           dependency_task_ids: unresolvedDependencyTaskIds,

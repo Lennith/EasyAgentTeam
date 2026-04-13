@@ -3,6 +3,8 @@ import { getBuiltInAgents } from "../../services/agent-prompt-service.js";
 import type { ProviderId } from "@autodev/agent-library";
 import type { WorkflowRunMode } from "../../domain/models.js";
 import { buildRoleScopedSessionId } from "../../services/orchestrator/shared/orchestrator-identifiers.js";
+import { buildTaskExistsNextAction } from "../../services/teamtool-contract.js";
+import { createProviderModelApiError } from "../../services/provider-launch-error.js";
 
 export function readStringField(body: Record<string, unknown>, keys: string[], fallback?: string): string | undefined {
   for (const key of keys) {
@@ -117,10 +119,29 @@ export function normalizeProviderId(raw: unknown, fallback: ProviderId = "minima
     return fallback;
   }
   const normalized = raw.trim().toLowerCase();
-  if (normalized === "codex" || normalized === "trae" || normalized === "minimax") {
+  if (normalized === "trae") {
+    return "minimax";
+  }
+  if (normalized === "codex" || normalized === "minimax") {
     return normalized;
   }
   return fallback;
+}
+
+export function isLegacyTraeProviderId(raw: unknown): boolean {
+  return typeof raw === "string" && raw.trim().toLowerCase() === "trae";
+}
+
+export function hasLegacyTraeAgentModelConfigs(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") {
+    return false;
+  }
+  return Object.values(raw as Record<string, unknown>).some((configRaw) => {
+    if (!configRaw || typeof configRaw !== "object") {
+      return false;
+    }
+    return isLegacyTraeProviderId((configRaw as Record<string, unknown>).provider_id);
+  });
 }
 
 export function readProviderIdField(
@@ -160,6 +181,43 @@ export function readAgentModelConfigsField(
     };
   }
   return Object.keys(output).length > 0 ? output : undefined;
+}
+
+export function validateAgentModelConfigsForApi(
+  configs: Record<string, { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }> | undefined
+): { message: string; nextAction: string } | null {
+  if (!configs) {
+    return null;
+  }
+  for (const [role, config] of Object.entries(configs)) {
+    const mismatch = createProviderModelApiError(config.provider_id, config.model);
+    if (!mismatch) {
+      continue;
+    }
+    return {
+      message: `${mismatch.message} role=${role}`,
+      nextAction: mismatch.nextAction
+    };
+  }
+  return null;
+}
+
+export function validateAgentModelParamsForApi(
+  providerId: ProviderId | undefined,
+  defaultModelParams: Record<string, unknown> | undefined
+): { message: string; nextAction: string } | null {
+  if (!providerId || !defaultModelParams || typeof defaultModelParams !== "object") {
+    return null;
+  }
+  const model = typeof defaultModelParams.model === "string" ? defaultModelParams.model : undefined;
+  const mismatch = createProviderModelApiError(providerId, model);
+  if (!mismatch) {
+    return null;
+  }
+  return {
+    message: mismatch.message,
+    nextAction: mismatch.nextAction
+  };
 }
 
 export function readRouteTable(raw: unknown): Record<string, string[]> | undefined {
@@ -425,7 +483,7 @@ export function sendApiError(
   status: number,
   code: string,
   message: string,
-  hint?: string,
+  nextAction?: string,
   extra?: Record<string, unknown>
 ): void {
   const details =
@@ -436,8 +494,7 @@ export function sendApiError(
     error_code: code,
     error: { code, message, ...(details ? { details } : {}) },
     message,
-    hint: hint ?? null,
-    next_action: hint ?? null,
+    next_action: nextAction ?? null,
     ...(extra ?? {})
   });
 }
@@ -452,6 +509,8 @@ export function resolveTaskActionNextAction(code: string): string | null {
       return "Fill required task binding fields (task_id, owner_role, or discuss target).";
     case "TASK_ROUTE_DENIED":
       return "Choose an allowed route target or request route-table update.";
+    case "TASK_EXISTS":
+      return buildTaskExistsNextAction();
     case "TASK_REPORT_NO_STATE_CHANGE":
       return "Do not resend identical report. Add new progress or report unresolved tasks.";
     case "TASK_STATE_STALE":

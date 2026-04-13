@@ -8,7 +8,7 @@ import type {
 } from "../../domain/models.js";
 import type { ProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
 import {
-  buildDependencyNotReadyHint,
+  buildDependencyNotReadyNextAction,
   isAllowedTaskReportTransition,
   normalizeTaskReport,
   requiresOrchestratorReadyDependencies,
@@ -95,7 +95,7 @@ export function evaluateTaskReportResults(input: EvaluateTaskReportResultsInput)
           current_state: currentState,
           reported_target_state: nextState
         },
-        buildDependencyNotReadyHint(target.taskId, unresolvedDependencyTaskIds)
+        buildDependencyNotReadyNextAction(target.taskId, unresolvedDependencyTaskIds)
       );
     }
     if (!isAllowedTaskReportTransition(currentState, nextState as TaskState)) {

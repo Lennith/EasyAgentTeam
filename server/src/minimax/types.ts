@@ -179,6 +179,7 @@ export interface MiniMaxRunOptions {
 export interface MiniMaxRunResult {
   content: string;
   sessionId: string;
+  providerSessionId?: string;
   isNewSession: boolean;
   finishReason?: string;
   step?: number;

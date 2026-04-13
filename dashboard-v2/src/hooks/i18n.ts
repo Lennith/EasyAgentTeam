@@ -91,7 +91,6 @@ interface Translations {
   noAgents: string;
   loadingSettings: string;
   codex: string;
-  trae: string;
   createdAt: string;
   updatedAt: string;
   loadingTemplates: string;
@@ -169,7 +168,7 @@ interface Translations {
   agentRegistry: string;
   agentTemplates: string;
   helpText: string;
-  codexOutput: string;
+  agentOutput: string;
   teams: string;
   teamList: string;
   newTeam: string;
@@ -287,7 +286,6 @@ const translations: Record<Language, Translations> = {
     noAgents: "No agents registered yet",
     loadingSettings: "Loading settings...",
     codex: "Codex",
-    trae: "Trae",
     createdAt: "Created At",
     updatedAt: "Updated At",
     loadingTemplates: "Loading templates...",
@@ -366,7 +364,7 @@ const translations: Record<Language, Translations> = {
     agentRegistry: "Agent Registry",
     agentTemplates: "Agent Templates",
     helpText: "Configure CLI commands for running agents.",
-    codexOutput: "Codex Output",
+    agentOutput: "Agent Output",
     teams: "Teams",
     teamList: "Team List",
     newTeam: "New Team",
@@ -482,7 +480,6 @@ const translations: Record<Language, Translations> = {
     noAgents: "暂无注册的智能体",
     loadingSettings: "加载设置...",
     codex: "Codex",
-    trae: "Trae",
     createdAt: "创建时间",
     updatedAt: "更新时间",
     loadingTemplates: "加载模板...",
@@ -560,7 +557,7 @@ const translations: Record<Language, Translations> = {
     agentRegistry: "智能体注册",
     agentTemplates: "智能体模板",
     helpText: "配置运行智能体的CLI命令。",
-    codexOutput: "Codex 输出",
+    agentOutput: "Agent 输出",
     teams: "团队",
     teamList: "团队列表",
     newTeam: "新建团队",

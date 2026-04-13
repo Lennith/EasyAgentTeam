@@ -62,7 +62,6 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
       const minimaxApiBasePatch = readNullableStringPatch(body, ["minimax_api_base", "minimaxApiBase"]);
       const updated = await patchRuntimeSettingsForApi(dataRoot, {
         codexCliCommand: readStringField(body, ["codex_cli_command", "codexCliCommand"]),
-        traeCliCommand: readStringField(body, ["trae_cli_command", "traeCliCommand"]),
         theme,
         ...(minimaxApiKeyPatch !== undefined ? { minimaxApiKey: minimaxApiKeyPatch } : {}),
         ...(minimaxApiBasePatch !== undefined ? { minimaxApiBase: minimaxApiBasePatch } : {}),
@@ -114,7 +113,6 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
         const defaultModels = [
           { vendor: "codex", model: "gpt-5.3-codex", description: "Codex recommended model" },
           { vendor: "codex", model: "gpt-5", description: "GPT-5 model" },
-          { vendor: "trae", model: "trae-1", description: "Trae 1 model" },
           { vendor: "minimax", model: minimaxModel, description: `MiniMax model: ${minimaxModel}` }
         ];
         res.status(200).json({

@@ -17,6 +17,10 @@ Coverage is scenario-first:
 - skill import and runtime skill usage are validated inside workflow baseline
 - mechanism-only scripts are intentionally excluded from baseline entry
 - no standalone reminder-only or skill-import-only official E2E entry is maintained
+- all three baseline scripts accept `-ProviderId minimax|codex` as a diagnostic force-override
+- baseline default is mixed-provider `agent_model_matrix`
+- each baseline case must exercise both `codex` and `minimax`
+- `pnpm e2e:baseline` is the formal mixed baseline entry; `pnpm e2e:codex-parity` remains a diagnostic all-Codex override
 
 ## What Each E2E Validates
 
@@ -24,7 +28,7 @@ Coverage is scenario-first:
 - `discuss`: multi-agent architecture discussion and convergence flow
 - `workflow`: workflow template/run/session orchestration plus skill injection evidence
 - `template-agent`: static TemplateAgent workspace fixture publish flow (`workflow + project` two-case serial run)
-- `multi`: aggregate launcher for `standard + discuss + workflow + template-agent`
+- `multi`: aggregate launcher for the official mixed baseline `standard + discuss + workflow`
 
 ## E2E Usage Template
 
@@ -46,19 +50,25 @@ Use the same structure for every scenario:
 2. Prerequisites
 
 - backend is running and reachable at `BaseUrl`
-- provider setup is available (default scenario uses `minimax`)
+- provider setup is available (default scenario uses mixed-provider `agent_model_matrix`)
 
 3. Config to replace
 
 - `BaseUrl`
 - `WorkspaceRoot`
 - `ScenarioPath` (if using custom scenario)
-- scenario fields: `agent_model`, `route_table`, `task_assign_route_table`, `route_discuss_rounds`
+- scenario fields: `agent_model_matrix`, `route_table`, `task_assign_route_table`, `route_discuss_rounds`
 
 4. Command
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1
+```
+
+Forced single-provider diagnostic:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1 -ProviderId codex
 ```
 
 5. Expected result
@@ -88,12 +98,18 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1
 - `BaseUrl`
 - `WorkspaceRoot`
 - `ScenarioPath`
-- scenario discuss routing and round policy fields
+- scenario fields: `agent_model_matrix`, discuss routing, and round policy
 
 4. Command
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-discuss-e2e.ps1
+```
+
+Forced single-provider diagnostic:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-discuss-e2e.ps1 -ProviderId codex
 ```
 
 5. Expected result
@@ -123,12 +139,18 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-discuss-e2e.ps1
 - `BaseUrl`
 - `WorkspaceRoot`
 - `ScenarioPath`
-- scenario fields: `agent_model`, route config, `skill_probe`, bound role skill list
+- scenario fields: `agent_model_matrix`, route config, `skill_probe`, bound role skill list
 
 4. Command
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1
+```
+
+Forced single-provider diagnostic:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 -ProviderId codex
 ```
 
 Setup-only smoke:
@@ -156,7 +178,7 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 
 
 1. Purpose
 
-- Run `chain + discuss + workflow + template-agent` in one command.
+- Run the official mixed baseline `chain + discuss + workflow` in one command.
 
 2. Prerequisites
 
@@ -174,9 +196,16 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1
 ```
 
+Forced single-provider diagnostic:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 -ProviderId codex
+```
+
 5. Expected result
 
 - all selected cases show `[done]`
+- default baseline resolves both `codex` and `minimax` inside each primary case
 - any case failure returns non-zero for the whole run
 
 6. Common failure points

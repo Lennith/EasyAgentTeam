@@ -1,15 +1,25 @@
-# TeamTools List (MiniMax ToolCall VNext)
+# TeamTools List (Provider-Neutral TeamTool Protocol)
 
-Team collaboration in MiniMax must use built-in ToolCalls, not custom `.ps1` wrappers.
+Team collaboration must use TeamTool ToolCalls, not custom `.ps1` wrappers or provider-specific tool shims.
+
+Provider alias rule:
+
+- Canonical TeamTool names stay provider-neutral in docs and APIs.
+- In Codex CLI, the same tools are exposed as `mcp__teamtool__<tool_name>`.
+- If your runtime shows provider-prefixed MCP aliases, call the exact exposed name.
 
 ## Quick Rules
+
 - Always bind actions to a task (`task_id` or active task context).
 - Report progress continuously: `task_report_in_progress`.
 - End each task with exactly one terminal report: `task_report_done` or `task_report_block`.
+- Only call `task_report_*` for tasks owned by your role or created by your role.
+- If `task_create_assign` returns `TASK_EXISTS`, do not retry the same create call. Inspect the existing task first and recover via `next_action`.
 - Discuss unresolved points with `discuss_request`, `discuss_reply`, `discuss_close`.
 - Lock before editing shared files with `lock_manage`.
 
 ## Tool Index
+
 - `task_create_assign`
   - Use: create task and assign owner in one call.
   - Required args: `title: <task_title>`, `to_role: <owner_role>`
@@ -64,7 +74,9 @@ Team collaboration in MiniMax must use built-in ToolCalls, not custom `.ps1` wra
   - Doc: `lock.md`
 
 ## Error Contract
+
 Every tool failure returns JSON with:
+
 - `error_code`
 - `message`
 - `next_action`

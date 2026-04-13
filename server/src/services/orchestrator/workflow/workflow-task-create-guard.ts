@@ -1,6 +1,7 @@
 import type { WorkflowTaskActionResult } from "../../../domain/models.js";
 import type { WorkflowRepositoryBundle } from "../../../data/repository/workflow/repository-bundle.js";
 import { resolveWorkflowRunRoleScope } from "../../workflow-role-scope-service.js";
+import { buildRouteTargetsGuidance, buildTaskExistsNextAction } from "../../teamtool-contract.js";
 import { collectWorkflowAncestorTaskIds, mergeWorkflowDependencies } from "./workflow-dispatch-policy.js";
 import type { WorkflowTaskActionPipelineState } from "./workflow-task-action-types.js";
 
@@ -16,7 +17,7 @@ export type WorkflowTaskCreateMutableState = WorkflowTaskActionPipelineState & {
 };
 
 export interface WorkflowTaskCreateErrorFactory {
-  (message: string, code: string, status?: number, hint?: string, details?: Record<string, unknown>): Error;
+  (message: string, code: string, status?: number, nextAction?: string, details?: Record<string, unknown>): Error;
 }
 
 export async function parseWorkflowTaskCreateState(
@@ -55,7 +56,11 @@ export async function authorizeWorkflowTaskCreateState<TState extends WorkflowTa
   createRuntimeError: WorkflowTaskCreateErrorFactory
 ): Promise<TState> {
   if (state.currentRun.tasks.some((item) => item.taskId === state.taskId)) {
-    throw createRuntimeError(`task '${state.taskId}' already exists`, "INVALID_TRANSITION", 409);
+    throw createRuntimeError(`task '${state.taskId}' already exists`, "TASK_EXISTS", 409, buildTaskExistsNextAction(), {
+      task_id: state.taskId,
+      parent_task_id: state.parentTaskId ?? null,
+      owner_role: state.ownerRole
+    });
   }
 
   const sessions = await repositories.sessions.listSessions(state.runId);
@@ -65,7 +70,7 @@ export async function authorizeWorkflowTaskCreateState<TState extends WorkflowTa
       `owner_role '${state.ownerRole}' does not exist in current run roles`,
       "TASK_OWNER_ROLE_NOT_FOUND",
       409,
-      "Call route_targets_get first, choose an allowed target role, and retry TASK_CREATE once.",
+      buildRouteTargetsGuidance("choose an allowed target role, and retry TASK_CREATE once."),
       {
         owner_role: state.ownerRole,
         available_roles: roleScope.enabledAgents

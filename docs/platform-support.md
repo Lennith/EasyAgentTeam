@@ -10,7 +10,7 @@
 
 - Agent prompt baseline changes with the host platform
 - MiniMax shell tool registers only shells that exist for the host platform
-- Default CLI commands for `codex` and `trae` change with the host platform
+- Default CLI commands for `codex` and `minimax` change with the host platform
 - Workspace `AGENTS.md` runtime guide changes with the host platform
 
 ## Not Included Yet

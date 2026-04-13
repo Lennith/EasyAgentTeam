@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildOrchestratorDependencyNotReadyHint,
+  buildOrchestratorDependencyNotReadyNextAction,
   getOrchestratorTaskReportOutcomeLabel,
   isOrchestratorRetiredTaskReportOutcome,
   isOrchestratorTaskReportableState,
@@ -23,11 +23,11 @@ test("task report policy exposes reportable states for runtime updates", () => {
   assert.equal(isOrchestratorTaskReportableState("CANCELED"), false);
 });
 
-test("task report policy builds dependency-not-ready hint with task and dependency ids", () => {
-  const hint = buildOrchestratorDependencyNotReadyHint("task-1", ["dep-a", "dep-b"]);
-  assert.equal(hint.includes("task-1"), true);
-  assert.equal(hint.includes("dep-a, dep-b"), true);
-  assert.equal(hint.includes("DONE/CANCELED"), true);
+test("task report policy builds dependency-not-ready next_action with task and dependency ids", () => {
+  const nextAction = buildOrchestratorDependencyNotReadyNextAction("task-1", ["dep-a", "dep-b"]);
+  assert.equal(nextAction.includes("task-1"), true);
+  assert.equal(nextAction.includes("dep-a, dep-b"), true);
+  assert.equal(nextAction.includes("DONE/CANCELED"), true);
 });
 
 test("task report policy exposes retired outcome detection and shared outcome labels", () => {

@@ -31,6 +31,7 @@ import {
   touchProjectSession
 } from "../services/project-runtime-api-service.js";
 import { resolveSessionProviderId } from "../services/provider-runtime.js";
+import { createProjectToolExecutionAdapter, DefaultToolInjector } from "../services/tool-injector.js";
 import { validateRoleSessionMapWrite } from "../services/routing-guard-service.js";
 import { resolveActiveSessionForRole } from "../services/session-lifecycle-authority.js";
 import { logger } from "../utils/logger.js";
@@ -53,18 +54,13 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
         return;
       }
       const configuredProviderId = project.agentModelConfigs?.[role]?.provider_id;
-      if (
-        configuredProviderId &&
-        configuredProviderId !== "codex" &&
-        configuredProviderId !== "trae" &&
-        configuredProviderId !== "minimax"
-      ) {
+      if (configuredProviderId && configuredProviderId !== "codex" && configuredProviderId !== "minimax") {
         sendApiError(
           res,
           409,
           "SESSION_PROVIDER_NOT_SUPPORTED",
           `role '${role}' is configured with unsupported provider '${configuredProviderId}'`,
-          "Only codex, trae, and minimax providers are supported for session startup."
+          "Only codex and minimax providers are supported for session startup."
         );
         return;
       }
@@ -269,7 +265,7 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
           error.status,
           error.code,
           error.message,
-          error.hint,
+          error.nextAction,
           error.details ? { details: error.details } : undefined
         );
         return;
@@ -623,7 +619,7 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
     }
   });
 
-  app.get("/api/projects/:id/codex-output", async (req, res, next) => {
+  app.get("/api/projects/:id/agent-output", async (req, res, next) => {
     try {
       const { project } = await getProjectRuntimeContext(dataRoot, req.params.id);
       const auditDir = path.join(dataRoot, "projects", project.projectId, "collab", "audit");
@@ -678,6 +674,15 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
             const promptBundle = await resolveAgentPromptBundle(dataRoot, input.role);
             const chatSessionId = input.sessionId || `agent-chat-${Date.now()}-${randomUUID().slice(0, 8)}`;
             const agentWorkspaceDir = buildOrchestratorAgentWorkspaceDir(project.workspacePath, input.role);
+            const toolInjection = DefaultToolInjector.build(
+              createProjectToolExecutionAdapter({
+                dataRoot,
+                project,
+                paths,
+                agentRole: input.role,
+                sessionId: chatSessionId
+              })
+            );
             return {
               providerId,
               settings,
@@ -702,7 +707,8 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
                 AUTO_DEV_PROJECT_ROOT: project.workspacePath,
                 AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
                 AUTO_DEV_MANAGER_URL: resolveOrchestratorManagerUrl()
-              }
+              },
+              toolInjection
             };
           }
         },

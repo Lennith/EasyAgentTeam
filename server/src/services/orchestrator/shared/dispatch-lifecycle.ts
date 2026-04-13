@@ -1,6 +1,7 @@
 import type { OrchestratorSingleFlightGate } from "./kernel/single-flight.js";
 import type { OrchestratorDispatchLifecycleEventAdapter } from "./contracts.js";
 import { readPayloadString } from "./dispatch-engine.js";
+import { isProviderLaunchError, serializeProviderLaunchError } from "../../provider-launch-error.js";
 
 export interface OrchestratorDispatchLifecyclePayloadOptions {
   dispatchId: string;
@@ -96,6 +97,9 @@ export function createOrchestratorDispatchLifecycleEventAdapter<
 }
 
 export function resolveOrchestratorErrorMessage(error: unknown, fallback = "Unknown error"): string {
+  if (isProviderLaunchError(error)) {
+    return serializeProviderLaunchError(error);
+  }
   if (error instanceof Error) {
     const message = error.message.trim();
     return message.length > 0 ? message : fallback;

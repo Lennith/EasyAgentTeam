@@ -1,6 +1,8 @@
 ﻿param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string[]]$Cases = @("chain", "discuss", "workflow"),
+  [ValidateSet("", "codex", "minimax")]
+  [string]$ProviderId = "",
   [string]$ChainScenarioPath = "",
   [string]$DiscussScenarioPath = "",
   [string]$WorkflowScenarioPath = "",
@@ -83,6 +85,7 @@ if (($selected -notcontains "workflow") -or (-not ($selected -contains "chain" -
 Write-Host "== Multi E2E Start =="
 Write-Host ("cases={0}" -f ($selected -join ","))
 Write-Host ("base_url={0}" -f $BaseUrl)
+Write-Host ("provider_mode={0}" -f $(if ([string]::IsNullOrWhiteSpace($ProviderId)) { "mixed" } else { "forced:$ProviderId" }))
 Write-Host ("setup_only={0}" -f $SetupOnly.IsPresent)
 Write-Host "strict_observe=True"
 
@@ -117,6 +120,9 @@ foreach ($caseId in $selected) {
       "-MaxTopups", "$MaxTopups",
       "-MaxTotalBudget", "$MaxTotalBudget"
     )
+    if (-not [string]::IsNullOrWhiteSpace($ProviderId)) {
+      $args += @("-ProviderId", $ProviderId)
+    }
     if ($SetupOnly) {
       $args += "-SetupOnly"
     }
@@ -176,9 +182,67 @@ function Build-PlaceholderMetrics {
   }
 }
 
+function Build-ProviderAuditSummary {
+  param(
+    [string]$CaseId,
+    [string]$ArtifactDir
+  )
+
+  $applicable = ($CaseId -ne "template-agent")
+  $summary = [ordered]@{
+    applicable = $applicable
+    providers_resolved = @()
+    mixed_provider_pass = $null
+    provider_session_audit_pass = $null
+    provider_activity_pass = $null
+    provider_matrix_missing = $applicable
+    provider_session_audit_missing = $applicable
+    provider_activity_missing = $applicable
+  }
+
+  if (-not $applicable -or [string]::IsNullOrWhiteSpace($ArtifactDir)) {
+    return $summary
+  }
+
+  $matrixPath = Join-Path $ArtifactDir "provider_matrix_resolved.json"
+  if (Test-Path -LiteralPath $matrixPath) {
+    try {
+      $matrixObj = Get-Content -LiteralPath $matrixPath -Raw | ConvertFrom-Json
+      $providers = @($matrixObj.providers | ForEach-Object { ([string]$_).Trim().ToLower() } | Where-Object { $_ } | Sort-Object -Unique)
+      $summary.providers_resolved = $providers
+      $summary.mixed_provider_pass = (($providers.Count -eq 2) -and (@($providers | Where-Object { $_ -notin @("codex", "minimax") }).Count -eq 0))
+      $summary.provider_matrix_missing = $false
+    } catch {}
+  }
+
+  $sessionAuditPath = Join-Path $ArtifactDir "provider_session_audit.json"
+  if (Test-Path -LiteralPath $sessionAuditPath) {
+    try {
+      $sessionAudit = Get-Content -LiteralPath $sessionAuditPath -Raw | ConvertFrom-Json
+      $summary.provider_session_audit_pass = [bool]$sessionAudit.all_sessions_match
+      $summary.provider_session_audit_missing = $false
+    } catch {}
+  }
+
+  $activityPath = Join-Path $ArtifactDir "provider_activity_summary.json"
+  if (Test-Path -LiteralPath $activityPath) {
+    try {
+      $activity = Get-Content -LiteralPath $activityPath -Raw | ConvertFrom-Json
+      $summary.provider_activity_pass = [bool]$activity.overall_pass
+      $summary.provider_activity_missing = $false
+    } catch {}
+  }
+
+  return $summary
+}
+
 $aggregateItems = @()
 $totalsToolFail = 0
 $totalsTimeoutRecovered = 0
+$totalsMixedProviderCases = 0
+$totalsProviderSessionAuditPass = 0
+$totalsProviderActivityPass = 0
+$providerAuditFailures = @()
 foreach ($caseId in $selected) {
   $metricsObj = $null
   $artifactDir = if ($caseArtifacts.Contains($caseId)) { [string]$caseArtifacts[$caseId] } else { "" }
@@ -197,8 +261,31 @@ foreach ($caseId in $selected) {
     $metricsObj.artifacts_dir = $artifactDir
   }
 
+  $providerAudit = Build-ProviderAuditSummary -CaseId $caseId -ArtifactDir $artifactDir
+  $metricsObj | Add-Member -NotePropertyName providers_resolved -NotePropertyValue @($providerAudit.providers_resolved) -Force
+  $metricsObj | Add-Member -NotePropertyName mixed_provider_pass -NotePropertyValue $providerAudit.mixed_provider_pass -Force
+  $metricsObj | Add-Member -NotePropertyName provider_session_audit_pass -NotePropertyValue $providerAudit.provider_session_audit_pass -Force
+  $metricsObj | Add-Member -NotePropertyName provider_activity_pass -NotePropertyValue $providerAudit.provider_activity_pass -Force
+  $metricsObj | Add-Member -NotePropertyName provider_matrix_missing -NotePropertyValue $providerAudit.provider_matrix_missing -Force
+  $metricsObj | Add-Member -NotePropertyName provider_session_audit_missing -NotePropertyValue $providerAudit.provider_session_audit_missing -Force
+  $metricsObj | Add-Member -NotePropertyName provider_activity_missing -NotePropertyValue $providerAudit.provider_activity_missing -Force
+
   $totalsToolFail += [int]$metricsObj.toolcall_failed_count
   $totalsTimeoutRecovered += [int]$metricsObj.timeout_recovered_count
+  if ($providerAudit.applicable) {
+    if ($providerAudit.mixed_provider_pass) {
+      $totalsMixedProviderCases += 1
+    }
+    if ($providerAudit.provider_session_audit_pass) {
+      $totalsProviderSessionAuditPass += 1
+    }
+    if ($providerAudit.provider_activity_pass) {
+      $totalsProviderActivityPass += 1
+    }
+    if ((-not $providerAudit.mixed_provider_pass) -or (-not $providerAudit.provider_session_audit_pass) -or (-not $providerAudit.provider_activity_pass)) {
+      $providerAuditFailures += $caseId
+    }
+  }
   $aggregateItems += $metricsObj
 }
 
@@ -208,10 +295,15 @@ $multiOutDir = Join-Path $repoRoot "docs\e2e\multi\$multiStamp"
 $aggregateJson = [ordered]@{
   generated_at = (Get-Date).ToString("o")
   base_url = $BaseUrl
+  provider_mode = if ([string]::IsNullOrWhiteSpace($ProviderId)) { "mixed" } else { "forced_provider" }
+  forced_provider_id = if ([string]::IsNullOrWhiteSpace($ProviderId)) { $null } else { $ProviderId }
   selected_cases = $selected
   totals = @{
     toolcall_failed_count = $totalsToolFail
     timeout_recovered_count = $totalsTimeoutRecovered
+    mixed_provider_case_pass_count = $totalsMixedProviderCases
+    provider_session_audit_pass_count = $totalsProviderSessionAuditPass
+    provider_activity_pass_count = $totalsProviderActivityPass
   }
   cases = $aggregateItems
 }
@@ -221,17 +313,27 @@ $md = @()
 $md += "# Multi E2E Stability Metrics"
 $md += ""
 $md += "- generated_at: $((Get-Date).ToString("o"))"
+$md += "- provider_mode: $(if ([string]::IsNullOrWhiteSpace($ProviderId)) { "mixed" } else { "forced:$ProviderId" })"
 $md += "- selected_cases: $($selected -join ",")"
 $md += "- total_toolcall_failed_count: $totalsToolFail"
 $md += "- total_timeout_recovered_count: $totalsTimeoutRecovered"
+$md += "- mixed_provider_case_pass_count: $totalsMixedProviderCases"
+$md += "- provider_session_audit_pass_count: $totalsProviderSessionAuditPass"
+$md += "- provider_activity_pass_count: $totalsProviderActivityPass"
 $md += ""
 $md += "## Cases"
 $md += ""
 foreach ($item in $aggregateItems) {
-  $md += "- case=$($item.case_id) pass=$($item.final_pass) exit_code=$($item.exit_code) toolcall_failed=$($item.toolcall_failed_count) timeout_recovered=$($item.timeout_recovered_count) metrics_missing=$($item.metrics_missing) artifacts_dir=$($item.artifacts_dir)"
+  $md += "- case=$($item.case_id) pass=$($item.final_pass) exit_code=$($item.exit_code) providers=$(@($item.providers_resolved) -join ',') mixed_provider_pass=$($item.mixed_provider_pass) provider_session_audit_pass=$($item.provider_session_audit_pass) provider_activity_pass=$($item.provider_activity_pass) toolcall_failed=$($item.toolcall_failed_count) timeout_recovered=$($item.timeout_recovered_count) metrics_missing=$($item.metrics_missing) artifacts_dir=$($item.artifacts_dir)"
 }
 [System.IO.File]::WriteAllLines((Join-Path $multiOutDir "stability_metrics_all.md"), $md, [System.Text.UTF8Encoding]::new($false))
 Write-Host ("multi_stability_metrics_dir={0}" -f $multiOutDir)
+
+foreach ($caseId in ($providerAuditFailures | Select-Object -Unique)) {
+  if ($failed -notcontains $caseId) {
+    $failed += $caseId
+  }
+}
 
 if ($failed.Count -gt 0) {
   Write-Host ("== Multi E2E Failed: {0} ==" -f ($failed -join ","))

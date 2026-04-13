@@ -5,6 +5,7 @@ import type {
   ProjectRecord,
   TaskRecord,
   TaskReport,
+  TaskSubtreePayload,
   TaskState
 } from "../../domain/models.js";
 import { getProjectRepositoryBundle } from "../../data/repository/project/repository-bundle.js";
@@ -16,7 +17,7 @@ import {
 } from "../routing-guard-service.js";
 import { resolveActiveSessionForRole } from "../session-lifecycle-authority.js";
 import {
-  buildOrchestratorDependencyNotReadyHint,
+  buildOrchestratorDependencyNotReadyNextAction,
   collectOrchestratorUnreadyDependencyIds,
   buildOrchestratorTaskAssignmentMessage,
   buildRoleScopedSessionId,
@@ -26,22 +27,36 @@ import {
   parseOrchestratorTaskReportOutcome,
   requiresOrchestratorReadyDependencies
 } from "../orchestrator/shared/index.js";
+import { buildTaskExistsNextAction } from "../teamtool-contract.js";
 import { TaskActionError, type TaskReportRejectedResult } from "./types.js";
 
 type TaskReportOutcome = TaskReport["results"][number]["outcome"];
 
-export function buildTaskAssignmentMessageForTask(project: ProjectRecord, task: TaskRecord): ManagerToAgentMessage {
-  const requestId = randomUUID();
+export interface BuildTaskAssignmentMessageForTaskOptions {
+  messageId?: string;
+  requestId?: string;
+  parentRequestId?: string | null;
+  summary?: string | null;
+  taskSubtree?: TaskSubtreePayload | null;
+}
+
+export function buildTaskAssignmentMessageForTask(
+  project: ProjectRecord,
+  task: TaskRecord,
+  options: BuildTaskAssignmentMessageForTaskOptions = {}
+): ManagerToAgentMessage {
+  const requestId = options.requestId ?? randomUUID();
   return buildOrchestratorTaskAssignmentMessage({
     scopeKind: "project",
     scopeId: project.projectId,
-    messageId: randomUUID(),
+    messageId: options.messageId ?? randomUUID(),
     createdAt: new Date().toISOString(),
     senderType: "system",
     senderRole: "manager",
     senderSessionId: "manager-system",
     intent: "TASK_ASSIGNMENT",
     requestId,
+    parentRequestId: options.parentRequestId ?? undefined,
     taskId: task.taskId,
     ownerRole: task.ownerRole,
     reportToRole: "manager",
@@ -49,7 +64,7 @@ export function buildTaskAssignmentMessageForTask(project: ProjectRecord, task: 
     expect: "TASK_REPORT",
     assignmentTaskId: task.taskId,
     title: task.title,
-    summary: task.lastSummary ?? "",
+    summary: options.summary ?? task.lastSummary ?? "",
     task: {
       taskId: task.taskId,
       taskKind: task.taskKind,
@@ -63,11 +78,12 @@ export function buildTaskAssignmentMessageForTask(project: ProjectRecord, task: 
       dependencies: task.dependencies,
       acceptance: task.acceptance,
       artifacts: task.artifacts
-    }
+    },
+    taskSubtree: options.taskSubtree ?? null
   }) as ManagerToAgentMessage;
 }
 
-export function buildTaskActionRejectedHint(code: TaskActionError["code"]): string | null {
+export function buildTaskActionRejectedNextAction(code: TaskActionError["code"]): string | null {
   switch (code) {
     case "TASK_PROGRESS_REQUIRED":
       return "Update Agents/<agent>/progress.md with concrete progress and include every reported task_id, then resend once.";
@@ -79,6 +95,8 @@ export function buildTaskActionRejectedHint(code: TaskActionError["code"]): stri
       return "Check target role/session mapping and retry with valid target binding.";
     case "TASK_ROUTE_DENIED":
       return "Choose an allowed route target or request route-table update.";
+    case "TASK_EXISTS":
+      return buildTaskExistsNextAction();
     case "TASK_ACTION_INVALID":
       return `Fix payload schema for the chosen action_type. For TASK_REPORT, send results[] with outcome in ${getOrchestratorTaskReportOutcomeLabel()}.`;
     case "TASK_REPORT_NO_STATE_CHANGE":
@@ -95,6 +113,9 @@ export function buildTaskActionRejectedHint(code: TaskActionError["code"]): stri
 }
 
 export function mapTaskboardStoreError(error: TaskboardStoreError): TaskActionError | null {
+  if (error.code === "TASK_EXISTS") {
+    return new TaskActionError(error.message, "TASK_EXISTS", 409, error.details, buildTaskExistsNextAction());
+  }
   if (error.code === "TASK_DEPENDENCY_CYCLE") {
     return new TaskActionError(error.message, "TASK_DEPENDENCY_CYCLE", 409, error.details);
   }
@@ -156,8 +177,8 @@ export function resolveUnreadyDependencyTaskIds(
   });
 }
 
-export function buildDependencyNotReadyHint(taskId: string, dependencyTaskIds: string[]): string {
-  return buildOrchestratorDependencyNotReadyHint(taskId, dependencyTaskIds);
+export function buildDependencyNotReadyNextAction(taskId: string, dependencyTaskIds: string[]): string {
+  return buildOrchestratorDependencyNotReadyNextAction(taskId, dependencyTaskIds);
 }
 
 export { requiresOrchestratorReadyDependencies };
@@ -271,12 +292,7 @@ export async function resolveTargetSession(
 ): Promise<string> {
   const repositories = getProjectRepositoryBundle(dataRoot);
   const configuredProviderId = project.agentModelConfigs?.[toRole]?.provider_id;
-  if (
-    configuredProviderId &&
-    configuredProviderId !== "codex" &&
-    configuredProviderId !== "trae" &&
-    configuredProviderId !== "minimax"
-  ) {
+  if (configuredProviderId && configuredProviderId !== "codex" && configuredProviderId !== "minimax") {
     throw new TaskActionError(
       `SESSION_PROVIDER_NOT_SUPPORTED: role '${toRole}' is configured with unsupported provider '${configuredProviderId}'`,
       "TASK_BINDING_MISMATCH",
