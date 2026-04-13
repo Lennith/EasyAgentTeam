@@ -33,6 +33,7 @@ import type {
   WorkflowDispatchRow
 } from "./workflow-dispatch-types.js";
 import { resolveOrchestratorErrorMessage } from "../shared/index.js";
+import { traceWorkflowPerfSpan } from "../../workflow-perf-trace.js";
 
 interface WorkflowDispatchServiceContext extends WorkflowDispatchLoopContext {
   dataRoot: string;
@@ -100,26 +101,36 @@ export class WorkflowDispatchService {
   }
 
   async dispatchRun(runId: string, input: WorkflowDispatchLoopInput = {}): Promise<WorkflowDispatchResult> {
-    const { state, maxDispatches } = await createWorkflowDispatchLoopState(
-      this.context,
-      async (nextRunId) => await this.loadRunOrThrow(nextRunId),
-      runId,
-      input
-    );
-    const dispatchResult = await runWorkflowDispatchLoop(
+    return await traceWorkflowPerfSpan(
       {
-        context: this.context,
-        launchAdapter: this.launchAdapter,
-        selectionAdapter: this.selectionAdapter,
-        loadRunOrThrow: async (nextRunId) => await this.loadRunOrThrow(nextRunId),
-        handleLaunchError: (error) => {
-          this.handleLaunchError(error);
-        }
+        dataRoot: this.context.repositories.dataRoot,
+        runId,
+        scope: "service",
+        name: "dispatchRun"
       },
-      state,
-      maxDispatches
+      async () => {
+        const { state, maxDispatches } = await createWorkflowDispatchLoopState(
+          this.context,
+          async (nextRunId) => await this.loadRunOrThrow(nextRunId),
+          runId,
+          input
+        );
+        const dispatchResult = await runWorkflowDispatchLoop(
+          {
+            context: this.context,
+            launchAdapter: this.launchAdapter,
+            selectionAdapter: this.selectionAdapter,
+            loadRunOrThrow: async (nextRunId) => await this.loadRunOrThrow(nextRunId),
+            handleLaunchError: (error) => {
+              this.handleLaunchError(error);
+            }
+          },
+          state,
+          maxDispatches
+        );
+        return buildWorkflowDispatchResult(runId, state, dispatchResult);
+      }
     );
-    return buildWorkflowDispatchResult(runId, state, dispatchResult);
   }
 }
 

@@ -18,6 +18,7 @@ import {
   writeJsonFile,
   writeJsonlLines
 } from "../../internal/persistence/store/store-runtime.js";
+import { traceWorkflowPerfSpan } from "../../../services/workflow-perf-trace.js";
 
 interface WorkflowRunRuntimePaths {
   runRootDir: string;
@@ -121,16 +122,26 @@ export async function ensureWorkflowRunRuntime(
   initialRuntime?: WorkflowRunRuntimeState
 ): Promise<WorkflowRunRuntimePaths> {
   const runId = assertRunId(runIdRaw);
-  const paths = getWorkflowRunRuntimePaths(dataRoot, runId);
-  await ensureDirectory(paths.runRootDir);
-  await ensureDirectory(paths.inboxDir);
-  await ensureDirectory(paths.outboxDir);
-  await ensureDirectory(paths.auditDir);
-  await ensureFile(paths.tasksFile, `${JSON.stringify(initialRuntime ?? defaultTaskRuntimeState(), null, 2)}\n`);
-  await ensureFile(paths.sessionsFile, `${JSON.stringify(defaultSessionsState(runId), null, 2)}\n`);
-  await ensureFile(paths.eventsFile, "");
-  await ensureFile(paths.roleRemindersFile, `${JSON.stringify(defaultRoleRemindersState(runId), null, 2)}\n`);
-  return paths;
+  return await traceWorkflowPerfSpan(
+    {
+      dataRoot,
+      runId,
+      scope: "repo",
+      name: "workflowRuns.ensureRuntime"
+    },
+    async () => {
+      const paths = getWorkflowRunRuntimePaths(dataRoot, runId);
+      await ensureDirectory(paths.runRootDir);
+      await ensureDirectory(paths.inboxDir);
+      await ensureDirectory(paths.outboxDir);
+      await ensureDirectory(paths.auditDir);
+      await ensureFile(paths.tasksFile, `${JSON.stringify(initialRuntime ?? defaultTaskRuntimeState(), null, 2)}\n`);
+      await ensureFile(paths.sessionsFile, `${JSON.stringify(defaultSessionsState(runId), null, 2)}\n`);
+      await ensureFile(paths.eventsFile, "");
+      await ensureFile(paths.roleRemindersFile, `${JSON.stringify(defaultRoleRemindersState(runId), null, 2)}\n`);
+      return paths;
+    }
+  );
 }
 
 export async function readWorkflowRunTaskRuntimeState(
@@ -138,8 +149,18 @@ export async function readWorkflowRunTaskRuntimeState(
   runIdRaw: string
 ): Promise<WorkflowRunRuntimeState> {
   const runId = assertRunId(runIdRaw);
-  const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
-  return withRunWriteLock(runId, async () => readJsonFile(paths.tasksFile, defaultTaskRuntimeState()));
+  return await traceWorkflowPerfSpan(
+    {
+      dataRoot,
+      runId,
+      scope: "repo",
+      name: "workflowRuns.readRuntime"
+    },
+    async () => {
+      const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
+      return await withRunWriteLock(runId, async () => readJsonFile(paths.tasksFile, defaultTaskRuntimeState()));
+    }
+  );
 }
 
 export async function writeWorkflowRunTaskRuntimeState(
@@ -167,11 +188,21 @@ export async function listWorkflowSessions(
   runIdRaw: string
 ): Promise<WorkflowSessionRecord[]> {
   const runId = assertRunId(runIdRaw);
-  const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
-  return withRunWriteLock(runId, async () => {
-    const state = await readJsonFile(paths.sessionsFile, defaultSessionsState(runId));
-    return [...state.sessions];
-  });
+  return await traceWorkflowPerfSpan(
+    {
+      dataRoot,
+      runId,
+      scope: "repo",
+      name: "sessions.listSessions"
+    },
+    async () => {
+      const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
+      return await withRunWriteLock(runId, async () => {
+        const state = await readJsonFile(paths.sessionsFile, defaultSessionsState(runId));
+        return [...state.sessions];
+      });
+    }
+  );
 }
 
 export async function getWorkflowSession(
@@ -211,55 +242,65 @@ export async function upsertWorkflowSession(
   if (!role) {
     throw new Error("role is required");
   }
-  const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
-  return withRunWriteLock(runId, async () => {
-    const state = await readJsonFile(paths.sessionsFile, defaultSessionsState(runId));
-    const now = new Date().toISOString();
-    const idx = state.sessions.findIndex((item) => item.sessionId === sessionId);
-    if (idx >= 0) {
-      const updated: WorkflowSessionRecord = {
-        ...state.sessions[idx],
-        role,
-        status: normalizeSessionStatus(input.status ?? state.sessions[idx].status),
-        provider: input.provider ?? state.sessions[idx].provider,
-        providerSessionId: input.providerSessionId?.trim() || state.sessions[idx].providerSessionId,
-        timeoutStreak: input.timeoutStreak ?? state.sessions[idx].timeoutStreak,
-        errorStreak: input.errorStreak ?? state.sessions[idx].errorStreak,
-        lastFailureAt: input.lastFailureAt?.trim() || state.sessions[idx].lastFailureAt,
-        lastFailureKind: input.lastFailureKind ?? state.sessions[idx].lastFailureKind,
-        cooldownUntil: input.cooldownUntil?.trim() || state.sessions[idx].cooldownUntil,
-        lastRunId: input.lastRunId?.trim() || state.sessions[idx].lastRunId,
-        updatedAt: now,
-        lastActiveAt: now
-      };
-      state.sessions[idx] = updated;
-      state.updatedAt = now;
-      await writeJsonFile(paths.sessionsFile, state);
-      return { session: updated, created: false };
-    }
-    const created: WorkflowSessionRecord = {
-      schemaVersion: "1.0",
-      sessionId,
+  return await traceWorkflowPerfSpan(
+    {
+      dataRoot,
       runId,
-      role,
-      status: normalizeSessionStatus(input.status),
-      provider: input.provider ?? "minimax",
-      providerSessionId: input.providerSessionId?.trim() || undefined,
-      timeoutStreak: input.timeoutStreak,
-      errorStreak: input.errorStreak,
-      lastFailureAt: input.lastFailureAt?.trim() || undefined,
-      lastFailureKind: input.lastFailureKind,
-      cooldownUntil: input.cooldownUntil?.trim() || undefined,
-      lastRunId: input.lastRunId?.trim() || undefined,
-      createdAt: now,
-      updatedAt: now,
-      lastActiveAt: now
-    };
-    state.sessions.push(created);
-    state.updatedAt = now;
-    await writeJsonFile(paths.sessionsFile, state);
-    return { session: created, created: true };
-  });
+      scope: "repo",
+      name: "sessions.upsertSession"
+    },
+    async () => {
+      const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
+      return await withRunWriteLock(runId, async () => {
+        const state = await readJsonFile(paths.sessionsFile, defaultSessionsState(runId));
+        const now = new Date().toISOString();
+        const idx = state.sessions.findIndex((item) => item.sessionId === sessionId);
+        if (idx >= 0) {
+          const updated: WorkflowSessionRecord = {
+            ...state.sessions[idx],
+            role,
+            status: normalizeSessionStatus(input.status ?? state.sessions[idx].status),
+            provider: input.provider ?? state.sessions[idx].provider,
+            providerSessionId: input.providerSessionId?.trim() || state.sessions[idx].providerSessionId,
+            timeoutStreak: input.timeoutStreak ?? state.sessions[idx].timeoutStreak,
+            errorStreak: input.errorStreak ?? state.sessions[idx].errorStreak,
+            lastFailureAt: input.lastFailureAt?.trim() || state.sessions[idx].lastFailureAt,
+            lastFailureKind: input.lastFailureKind ?? state.sessions[idx].lastFailureKind,
+            cooldownUntil: input.cooldownUntil?.trim() || state.sessions[idx].cooldownUntil,
+            lastRunId: input.lastRunId?.trim() || state.sessions[idx].lastRunId,
+            updatedAt: now,
+            lastActiveAt: now
+          };
+          state.sessions[idx] = updated;
+          state.updatedAt = now;
+          await writeJsonFile(paths.sessionsFile, state);
+          return { session: updated, created: false };
+        }
+        const created: WorkflowSessionRecord = {
+          schemaVersion: "1.0",
+          sessionId,
+          runId,
+          role,
+          status: normalizeSessionStatus(input.status),
+          provider: input.provider ?? "minimax",
+          providerSessionId: input.providerSessionId?.trim() || undefined,
+          timeoutStreak: input.timeoutStreak,
+          errorStreak: input.errorStreak,
+          lastFailureAt: input.lastFailureAt?.trim() || undefined,
+          lastFailureKind: input.lastFailureKind,
+          cooldownUntil: input.cooldownUntil?.trim() || undefined,
+          lastRunId: input.lastRunId?.trim() || undefined,
+          createdAt: now,
+          updatedAt: now,
+          lastActiveAt: now
+        };
+        state.sessions.push(created);
+        state.updatedAt = now;
+        await writeJsonFile(paths.sessionsFile, state);
+        return { session: created, created: true };
+      });
+    }
+  );
 }
 
 export async function touchWorkflowSession(
@@ -287,55 +328,65 @@ export async function touchWorkflowSession(
 ): Promise<WorkflowSessionRecord> {
   const runId = assertRunId(runIdRaw);
   const sessionId = sessionIdRaw.trim();
-  const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
-  return withRunWriteLock(runId, async () => {
-    const state = await readJsonFile(paths.sessionsFile, defaultSessionsState(runId));
-    const idx = state.sessions.findIndex((item) => item.sessionId === sessionId);
-    if (idx < 0) {
-      throw new Error(`session '${sessionId}' not found`);
+  return await traceWorkflowPerfSpan(
+    {
+      dataRoot,
+      runId,
+      scope: "repo",
+      name: "sessions.touchSession"
+    },
+    async () => {
+      const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
+      return await withRunWriteLock(runId, async () => {
+        const state = await readJsonFile(paths.sessionsFile, defaultSessionsState(runId));
+        const idx = state.sessions.findIndex((item) => item.sessionId === sessionId);
+        if (idx < 0) {
+          throw new Error(`session '${sessionId}' not found`);
+        }
+        const now = new Date().toISOString();
+        const existing = state.sessions[idx];
+        const updated: WorkflowSessionRecord = {
+          ...existing,
+          role: patch.role?.trim() || existing.role,
+          status: patch.status ? normalizeSessionStatus(patch.status) : existing.status,
+          currentTaskId:
+            patch.currentTaskId === null ? undefined : patch.currentTaskId?.trim() || existing.currentTaskId,
+          lastInboxMessageId:
+            patch.lastInboxMessageId === null
+              ? undefined
+              : patch.lastInboxMessageId?.trim() || existing.lastInboxMessageId,
+          lastDispatchedAt:
+            patch.lastDispatchedAt === null ? undefined : patch.lastDispatchedAt?.trim() || existing.lastDispatchedAt,
+          lastDispatchId:
+            patch.lastDispatchId === null ? undefined : patch.lastDispatchId?.trim() || existing.lastDispatchId,
+          lastDispatchedMessageId:
+            patch.lastDispatchedMessageId === null
+              ? undefined
+              : patch.lastDispatchedMessageId?.trim() || existing.lastDispatchedMessageId,
+          providerSessionId:
+            patch.providerSessionId === null
+              ? undefined
+              : patch.providerSessionId?.trim() || existing.providerSessionId,
+          provider: patch.provider === null ? existing.provider : patch.provider || existing.provider,
+          timeoutStreak: patch.timeoutStreak === null ? undefined : patch.timeoutStreak ?? existing.timeoutStreak,
+          errorStreak: patch.errorStreak === null ? undefined : patch.errorStreak ?? existing.errorStreak,
+          lastFailureAt:
+            patch.lastFailureAt === null ? undefined : patch.lastFailureAt?.trim() || existing.lastFailureAt,
+          lastFailureKind: patch.lastFailureKind === null ? undefined : patch.lastFailureKind ?? existing.lastFailureKind,
+          cooldownUntil:
+            patch.cooldownUntil === null ? undefined : patch.cooldownUntil?.trim() || existing.cooldownUntil,
+          lastRunId: patch.lastRunId === null ? undefined : patch.lastRunId?.trim() || existing.lastRunId,
+          agentPid: patch.agentPid === null ? undefined : patch.agentPid ?? existing.agentPid,
+          updatedAt: now,
+          lastActiveAt: now
+        };
+        state.sessions[idx] = updated;
+        state.updatedAt = now;
+        await writeJsonFile(paths.sessionsFile, state);
+        return updated;
+      });
     }
-    const now = new Date().toISOString();
-    const existing = state.sessions[idx];
-    const updated: WorkflowSessionRecord = {
-      ...existing,
-      role: patch.role?.trim() || existing.role,
-      status: patch.status ? normalizeSessionStatus(patch.status) : existing.status,
-      currentTaskId:
-        patch.currentTaskId === null ? undefined : patch.currentTaskId?.trim() || existing.currentTaskId,
-      lastInboxMessageId:
-        patch.lastInboxMessageId === null
-          ? undefined
-          : patch.lastInboxMessageId?.trim() || existing.lastInboxMessageId,
-      lastDispatchedAt:
-        patch.lastDispatchedAt === null ? undefined : patch.lastDispatchedAt?.trim() || existing.lastDispatchedAt,
-      lastDispatchId:
-        patch.lastDispatchId === null ? undefined : patch.lastDispatchId?.trim() || existing.lastDispatchId,
-      lastDispatchedMessageId:
-        patch.lastDispatchedMessageId === null
-          ? undefined
-          : patch.lastDispatchedMessageId?.trim() || existing.lastDispatchedMessageId,
-      providerSessionId:
-        patch.providerSessionId === null
-          ? undefined
-          : patch.providerSessionId?.trim() || existing.providerSessionId,
-      provider: patch.provider === null ? existing.provider : patch.provider || existing.provider,
-      timeoutStreak: patch.timeoutStreak === null ? undefined : patch.timeoutStreak ?? existing.timeoutStreak,
-      errorStreak: patch.errorStreak === null ? undefined : patch.errorStreak ?? existing.errorStreak,
-      lastFailureAt:
-        patch.lastFailureAt === null ? undefined : patch.lastFailureAt?.trim() || existing.lastFailureAt,
-      lastFailureKind: patch.lastFailureKind === null ? undefined : patch.lastFailureKind ?? existing.lastFailureKind,
-      cooldownUntil:
-        patch.cooldownUntil === null ? undefined : patch.cooldownUntil?.trim() || existing.cooldownUntil,
-      lastRunId: patch.lastRunId === null ? undefined : patch.lastRunId?.trim() || existing.lastRunId,
-      agentPid: patch.agentPid === null ? undefined : patch.agentPid ?? existing.agentPid,
-      updatedAt: now,
-      lastActiveAt: now
-    };
-    state.sessions[idx] = updated;
-    state.updatedAt = now;
-    await writeJsonFile(paths.sessionsFile, state);
-    return updated;
-  });
+  );
 }
 
 export async function appendWorkflowRunEvent(

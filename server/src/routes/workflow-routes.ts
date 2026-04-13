@@ -51,6 +51,7 @@ import {
   withDerivedWorkflowRunStatus
 } from "./shared/http.js";
 import { parseWorkflowScheduleExpression } from "../services/orchestrator/workflow/workflow-recurring-schedule.js";
+import { recordWorkflowPerfSpan, traceWorkflowPerfSpan } from "../services/workflow-perf-trace.js";
 
 function hasOwnField(body: Record<string, unknown>, ...keys: string[]): boolean {
   return keys.some((key) => Object.prototype.hasOwnProperty.call(body, key));
@@ -82,6 +83,23 @@ function validateRecurringConfig(input: {
     return "schedule_expression is only allowed when schedule is enabled";
   }
   return null;
+}
+
+async function withWorkflowRoutePerfTrace<T>(
+  dataRoot: string,
+  runId: string,
+  routeName: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  return await traceWorkflowPerfSpan(
+    {
+      dataRoot,
+      runId,
+      scope: "route",
+      name: routeName
+    },
+    operation
+  );
 }
 
 export function registerWorkflowRoutes(app: express.Application, context: AppRuntimeContext): void {
@@ -293,56 +311,88 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
       const runId = readStringField(body, ["run_id", "runId"]) ?? `workflow-run-${randomUUID().slice(0, 12)}`;
       const runName =
         readStringField(body, ["name"], `${template.name}-${runId.slice(-6)}`) ?? `${template.name}-${runId.slice(-6)}`;
-      const created = await createWorkflowRunForApi(dataRoot, {
-        runId,
-        templateId: template.templateId,
-        name: runName,
-        description: readStringField(body, ["description"], template.description),
-        workspacePath,
-        routeTable: template.routeTable,
-        taskAssignRouteTable: template.taskAssignRouteTable,
-        routeDiscussRounds: template.routeDiscussRounds,
-        variables: mergedVariables,
-        taskOverrides,
-        tasks,
-        mode,
-        loopEnabled: resolvedLoopEnabled,
-        scheduleEnabled: resolvedScheduleEnabled,
-        scheduleExpression: resolvedScheduleEnabled ? scheduleExpression : undefined,
-        isScheduleSeed: resolvedScheduleEnabled ? isScheduleSeed : false,
-        autoDispatchEnabled: parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, true),
-        autoDispatchRemaining: parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining) ?? 5,
-        holdEnabled: parseBoolean(body.hold_enabled ?? body.holdEnabled, false),
-        reminderMode: parseReminderMode(body.reminder_mode ?? body.reminderMode) ?? "backoff"
-      });
-      const agents = await listWorkflowCatalogAgents(dataRoot);
-      const agentCatalog = buildOrchestratorAgentCatalog(agents);
-      const runRoles = Array.from(
-        new Set(created.tasks.map((task) => task.ownerRole.trim()).filter((item) => item.length > 0))
-      );
-      const rolePromptMap = buildRolePromptMapForRoles(runRoles, agents);
-      await ensureAgentWorkspaces(
-        {
-          schemaVersion: "1.0",
-          projectId: `workflow-${created.runId}`,
-          name: created.name,
-          workspacePath: created.workspacePath,
-          agentIds: runRoles,
-          createdAt: created.createdAt,
-          updatedAt: created.updatedAt
-        },
-        rolePromptMap,
-        runRoles,
-        agentCatalog.roleSummaryMap
-      );
-      const autoStart = parseBoolean(body.auto_start ?? body.autoStart, false);
-      if (!autoStart) {
-        res.status(201).json(created);
-        return;
+      const routeStartedAt = Date.now();
+      try {
+        const created = await createWorkflowRunForApi(dataRoot, {
+          runId,
+          templateId: template.templateId,
+          name: runName,
+          description: readStringField(body, ["description"], template.description),
+          workspacePath,
+          routeTable: template.routeTable,
+          taskAssignRouteTable: template.taskAssignRouteTable,
+          routeDiscussRounds: template.routeDiscussRounds,
+          variables: mergedVariables,
+          taskOverrides,
+          tasks,
+          mode,
+          loopEnabled: resolvedLoopEnabled,
+          scheduleEnabled: resolvedScheduleEnabled,
+          scheduleExpression: resolvedScheduleEnabled ? scheduleExpression : undefined,
+          isScheduleSeed: resolvedScheduleEnabled ? isScheduleSeed : false,
+          autoDispatchEnabled: parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, true),
+          autoDispatchRemaining: parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining) ?? 5,
+          holdEnabled: parseBoolean(body.hold_enabled ?? body.holdEnabled, false),
+          reminderMode: parseReminderMode(body.reminder_mode ?? body.reminderMode) ?? "backoff"
+        });
+        const agents = await listWorkflowCatalogAgents(dataRoot);
+        const agentCatalog = buildOrchestratorAgentCatalog(agents);
+        const runRoles = Array.from(
+          new Set(created.tasks.map((task) => task.ownerRole.trim()).filter((item) => item.length > 0))
+        );
+        const rolePromptMap = buildRolePromptMapForRoles(runRoles, agents);
+        await ensureAgentWorkspaces(
+          {
+            schemaVersion: "1.0",
+            projectId: `workflow-${created.runId}`,
+            name: created.name,
+            workspacePath: created.workspacePath,
+            agentIds: runRoles,
+            createdAt: created.createdAt,
+            updatedAt: created.updatedAt
+          },
+          rolePromptMap,
+          runRoles,
+          agentCatalog.roleSummaryMap
+        );
+        const autoStart = parseBoolean(body.auto_start ?? body.autoStart, false);
+        if (!autoStart) {
+          await recordWorkflowPerfSpan({
+            dataRoot,
+            runId,
+            scope: "route",
+            name: "POST /api/workflow-runs",
+            elapsedMs: Date.now() - routeStartedAt,
+            ok: true,
+            details: { autoStart }
+          });
+          res.status(201).json(created);
+          return;
+        }
+        const runtime = await workflowOrchestrator.startRun(runId);
+        const run = await readWorkflowRunForApi(dataRoot, runId);
+        await recordWorkflowPerfSpan({
+          dataRoot,
+          runId,
+          scope: "route",
+          name: "POST /api/workflow-runs",
+          elapsedMs: Date.now() - routeStartedAt,
+          ok: true,
+          details: { autoStart }
+        });
+        res.status(201).json({ runtime, run: run ? withDerivedWorkflowRunStatus(run) : null });
+      } catch (error) {
+        await recordWorkflowPerfSpan({
+          dataRoot,
+          runId,
+          scope: "route",
+          name: "POST /api/workflow-runs",
+          elapsedMs: Date.now() - routeStartedAt,
+          ok: false,
+          error
+        });
+        throw error;
       }
-      const runtime = await workflowOrchestrator.startRun(runId);
-      const run = await readWorkflowRunForApi(dataRoot, runId);
-      res.status(201).json({ runtime, run: run ? withDerivedWorkflowRunStatus(run) : null });
     } catch (error) {
       next(error);
     }
@@ -409,7 +459,12 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.get("/api/workflow-runs/:run_id/task-runtime", async (req, res, next) => {
     try {
-      const snapshot = await workflowOrchestrator.getRunTaskRuntime(req.params.run_id);
+      const snapshot = await withWorkflowRoutePerfTrace(
+        dataRoot,
+        req.params.run_id,
+        "GET /api/workflow-runs/:run_id/task-runtime",
+        async () => await workflowOrchestrator.getRunTaskRuntime(req.params.run_id)
+      );
       res.status(200).json(snapshot);
     } catch (error) {
       next(error);
@@ -435,7 +490,12 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.get("/api/workflow-runs/:run_id/task-tree-runtime", async (req, res, next) => {
     try {
-      const payload = await workflowOrchestrator.getRunTaskTreeRuntime(req.params.run_id);
+      const payload = await withWorkflowRoutePerfTrace(
+        dataRoot,
+        req.params.run_id,
+        "GET /api/workflow-runs/:run_id/task-tree-runtime",
+        async () => await workflowOrchestrator.getRunTaskTreeRuntime(req.params.run_id)
+      );
       res.status(200).json(payload);
     } catch (error) {
       next(error);
@@ -534,13 +594,19 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
         return;
       }
-      const result = await workflowOrchestrator.registerRunSession(req.params.run_id, {
-        role,
-        sessionId: readStringField(body, ["session_id", "sessionId"]),
-        status: readStringField(body, ["status"]),
-        providerSessionId: readStringField(body, ["provider_session_id", "providerSessionId"]),
-        provider: body.provider_id !== undefined ? readProviderIdField(body, "provider_id", "minimax") : undefined
-      });
+      const result = await withWorkflowRoutePerfTrace(
+        dataRoot,
+        req.params.run_id,
+        "POST /api/workflow-runs/:run_id/sessions",
+        async () =>
+          await workflowOrchestrator.registerRunSession(req.params.run_id, {
+            role,
+            sessionId: readStringField(body, ["session_id", "sessionId"]),
+            status: readStringField(body, ["status"]),
+            providerSessionId: readStringField(body, ["provider_session_id", "providerSessionId"]),
+            provider: body.provider_id !== undefined ? readProviderIdField(body, "provider_id", "minimax") : undefined
+          })
+      );
       res
         .status(result.created ? 201 : 200)
         .json({ session: sanitizeSessionForApi(result.session), created: result.created });
@@ -666,59 +732,71 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
       const incomingIsScheduleSeed = hasIsScheduleSeed
         ? parseBoolean(body.is_schedule_seed ?? body.isScheduleSeed, false)
         : undefined;
-      const currentSettings = await workflowOrchestrator.getRunOrchestratorSettings(req.params.run_id);
-      const mergedLoopEnabled =
-        incomingLoopEnabled ??
-        (parsedMode === "loop" ? true : parsedMode === "schedule" ? false : currentSettings.loop_enabled);
-      const mergedScheduleEnabled =
-        incomingScheduleEnabled ??
-        (parsedMode === "schedule" ? true : parsedMode === "loop" ? false : currentSettings.schedule_enabled);
-      const mergedMode = parsedMode ?? (mergedScheduleEnabled ? "schedule" : mergedLoopEnabled ? "loop" : "none");
-      const mergedScheduleExpressionRaw =
-        incomingScheduleExpression === undefined
-          ? currentSettings.schedule_expression
-          : (incomingScheduleExpression ?? undefined);
-      const mergedScheduleExpression =
-        mergedMode === "schedule" || mergedScheduleEnabled ? mergedScheduleExpressionRaw : undefined;
-      const scheduleTransitionedToEnabled =
-        (mergedMode === "schedule" || mergedScheduleEnabled) &&
-        !(currentSettings.mode === "schedule" || currentSettings.schedule_enabled);
-      const mergedIsScheduleSeed =
-        incomingIsScheduleSeed ?? (scheduleTransitionedToEnabled ? true : currentSettings.is_schedule_seed);
-      const recurringError = validateRecurringConfig({
-        mode: mergedMode,
-        loopEnabled: mergedLoopEnabled,
-        scheduleEnabled: mergedScheduleEnabled,
-        scheduleExpression: mergedScheduleExpression
-      });
-      if (recurringError) {
+      let recurringConfigError: string | null = null;
+      const settings = await withWorkflowRoutePerfTrace(
+        dataRoot,
+        req.params.run_id,
+        "PATCH /api/workflow-runs/:run_id/orchestrator/settings",
+        async () => {
+          const currentSettings = await workflowOrchestrator.getRunOrchestratorSettings(req.params.run_id);
+          const mergedLoopEnabled =
+            incomingLoopEnabled ??
+            (parsedMode === "loop" ? true : parsedMode === "schedule" ? false : currentSettings.loop_enabled);
+          const mergedScheduleEnabled =
+            incomingScheduleEnabled ??
+            (parsedMode === "schedule" ? true : parsedMode === "loop" ? false : currentSettings.schedule_enabled);
+          const mergedMode = parsedMode ?? (mergedScheduleEnabled ? "schedule" : mergedLoopEnabled ? "loop" : "none");
+          const mergedScheduleExpressionRaw =
+            incomingScheduleExpression === undefined
+              ? currentSettings.schedule_expression
+              : (incomingScheduleExpression ?? undefined);
+          const mergedScheduleExpression =
+            mergedMode === "schedule" || mergedScheduleEnabled ? mergedScheduleExpressionRaw : undefined;
+          const scheduleTransitionedToEnabled =
+            (mergedMode === "schedule" || mergedScheduleEnabled) &&
+            !(currentSettings.mode === "schedule" || currentSettings.schedule_enabled);
+          const mergedIsScheduleSeed =
+            incomingIsScheduleSeed ?? (scheduleTransitionedToEnabled ? true : currentSettings.is_schedule_seed);
+          const recurringError = validateRecurringConfig({
+            mode: mergedMode,
+            loopEnabled: mergedLoopEnabled,
+            scheduleEnabled: mergedScheduleEnabled,
+            scheduleExpression: mergedScheduleExpression
+          });
+          if (recurringError) {
+            recurringConfigError = recurringError;
+            return null;
+          }
+          const shouldClearScheduleExpression =
+            incomingScheduleExpression === undefined && mergedMode !== "schedule" && !mergedScheduleEnabled;
+          const loopEnabledPatch = incomingLoopEnabled ?? (parsedMode ? mergedLoopEnabled : undefined);
+          const scheduleEnabledPatch = incomingScheduleEnabled ?? (parsedMode ? mergedScheduleEnabled : undefined);
+          return await workflowOrchestrator.patchRunOrchestratorSettings(req.params.run_id, {
+            autoDispatchEnabled:
+              body.auto_dispatch_enabled === undefined && body.autoDispatchEnabled === undefined
+                ? undefined
+                : parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, false),
+            autoDispatchRemaining: parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining),
+            holdEnabled:
+              body.hold_enabled === undefined && body.holdEnabled === undefined
+                ? undefined
+                : parseBoolean(body.hold_enabled ?? body.holdEnabled, false),
+            reminderMode: parsedReminderMode,
+            mode: parsedMode ?? (hasLoopEnabled || hasScheduleEnabled ? mergedMode : undefined),
+            loopEnabled: loopEnabledPatch,
+            scheduleEnabled: scheduleEnabledPatch,
+            scheduleExpression: shouldClearScheduleExpression ? null : incomingScheduleExpression,
+            isScheduleSeed: mergedIsScheduleSeed
+          });
+        }
+      );
+      if (recurringConfigError) {
         res.status(400).json({
           code: "ORCHESTRATOR_SETTINGS_INVALID",
-          error: recurringError
+          error: recurringConfigError
         });
         return;
       }
-      const shouldClearScheduleExpression =
-        incomingScheduleExpression === undefined && mergedMode !== "schedule" && !mergedScheduleEnabled;
-      const loopEnabledPatch = incomingLoopEnabled ?? (parsedMode ? mergedLoopEnabled : undefined);
-      const scheduleEnabledPatch = incomingScheduleEnabled ?? (parsedMode ? mergedScheduleEnabled : undefined);
-      const settings = await workflowOrchestrator.patchRunOrchestratorSettings(req.params.run_id, {
-        autoDispatchEnabled:
-          body.auto_dispatch_enabled === undefined && body.autoDispatchEnabled === undefined
-            ? undefined
-            : parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, false),
-        autoDispatchRemaining: parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining),
-        holdEnabled:
-          body.hold_enabled === undefined && body.holdEnabled === undefined
-            ? undefined
-            : parseBoolean(body.hold_enabled ?? body.holdEnabled, false),
-        reminderMode: parsedReminderMode,
-        mode: parsedMode ?? (hasLoopEnabled || hasScheduleEnabled ? mergedMode : undefined),
-        loopEnabled: loopEnabledPatch,
-        scheduleEnabled: scheduleEnabledPatch,
-        scheduleExpression: shouldClearScheduleExpression ? null : incomingScheduleExpression,
-        isScheduleSeed: mergedIsScheduleSeed
-      });
       res.status(200).json(settings);
     } catch (error) {
       next(error);
@@ -728,13 +806,19 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
   app.post("/api/workflow-runs/:run_id/orchestrator/dispatch", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const result = await workflowOrchestrator.dispatchRun(req.params.run_id, {
-        source: "manual",
-        role: readStringField(body, ["role"]),
-        taskId: readStringField(body, ["task_id", "taskId"]),
-        force: parseBoolean(body.force, false),
-        onlyIdle: parseBoolean(body.only_idle ?? body.onlyIdle, false)
-      });
+      const result = await withWorkflowRoutePerfTrace(
+        dataRoot,
+        req.params.run_id,
+        "POST /api/workflow-runs/:run_id/orchestrator/dispatch",
+        async () =>
+          await workflowOrchestrator.dispatchRun(req.params.run_id, {
+            source: "manual",
+            role: readStringField(body, ["role"]),
+            taskId: readStringField(body, ["task_id", "taskId"]),
+            force: parseBoolean(body.force, false),
+            onlyIdle: parseBoolean(body.only_idle ?? body.onlyIdle, false)
+          })
+      );
       res.status(200).json(result);
     } catch (error) {
       next(error);

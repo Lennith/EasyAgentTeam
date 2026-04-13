@@ -1,6 +1,7 @@
 import type { WorkflowRepositoryBundle } from "../../../data/repository/workflow/repository-bundle.js";
 import { WorkflowStoreError } from "../../../data/repository/workflow/run-repository.js";
 import type { WorkflowRunRecord, WorkflowRunRuntimeSnapshot, WorkflowRunRuntimeState } from "../../../domain/models.js";
+import { traceWorkflowPerfSpan } from "../../workflow-perf-trace.js";
 import { convergeWorkflowRuntime } from "../shared/runtime/workflow-runtime-kernel.js";
 import { buildWorkflowRuntimeSnapshot } from "./workflow-runtime-view.js";
 
@@ -30,22 +31,32 @@ export class WorkflowRuntimeSupportService {
   }
 
   async ensureRuntime(run: WorkflowRunRecord): Promise<WorkflowRunRuntimeState> {
-    const storedRuntime = run.runtime ?? (await this.context.repositories.workflowRuns.readRuntime(run.runId));
-    const initial = convergeWorkflowRuntime(run, storedRuntime);
-    if (!initial.changed) {
-      return initial.runtime;
-    }
-    return this.runWorkflowTransaction(run.runId, async () => {
-      const freshRun = await this.loadRunOrThrow(run.runId);
-      const freshStoredRuntime =
-        freshRun.runtime ?? (await this.context.repositories.workflowRuns.readRuntime(freshRun.runId));
-      const next = convergeWorkflowRuntime(freshRun, freshStoredRuntime);
-      if (next.changed) {
-        await this.context.repositories.workflowRuns.writeRuntime(freshRun.runId, next.runtime);
-        await this.context.repositories.workflowRuns.patchRun(freshRun.runId, { runtime: next.runtime });
+    return await traceWorkflowPerfSpan(
+      {
+        dataRoot: this.context.repositories.dataRoot,
+        runId: run.runId,
+        scope: "service",
+        name: "ensureRuntime"
+      },
+      async () => {
+        const storedRuntime = run.runtime ?? (await this.context.repositories.workflowRuns.readRuntime(run.runId));
+        const initial = convergeWorkflowRuntime(run, storedRuntime);
+        if (!initial.changed) {
+          return initial.runtime;
+        }
+        return this.runWorkflowTransaction(run.runId, async () => {
+          const freshRun = await this.loadRunOrThrow(run.runId);
+          const freshStoredRuntime =
+            freshRun.runtime ?? (await this.context.repositories.workflowRuns.readRuntime(freshRun.runId));
+          const next = convergeWorkflowRuntime(freshRun, freshStoredRuntime);
+          if (next.changed) {
+            await this.context.repositories.workflowRuns.writeRuntime(freshRun.runId, next.runtime);
+            await this.context.repositories.workflowRuns.patchRun(freshRun.runId, { runtime: next.runtime });
+          }
+          return next.runtime;
+        });
       }
-      return next.runtime;
-    });
+    );
   }
 
   buildSnapshot(run: WorkflowRunRecord, runtime: WorkflowRunRuntimeState): WorkflowRunRuntimeSnapshot {

@@ -21,6 +21,7 @@ import {
   readWorkflowRunTaskRuntimeState,
   writeWorkflowRunTaskRuntimeState
 } from "./runtime-repository.js";
+import { traceWorkflowPerfSpan } from "../../../services/workflow-perf-trace.js";
 
 export class WorkflowStoreError extends Error {
   constructor(
@@ -838,8 +839,16 @@ export async function getWorkflowRun(dataRoot: string, runIdRaw: string): Promis
 }
 
 export async function createWorkflowRun(dataRoot: string, input: CreateWorkflowRunInput): Promise<WorkflowRunRecord> {
-  return workflowWriteMutex.runExclusive(async () => {
-    const runId = assertRunId(input.runId);
+  const runId = assertRunId(input.runId);
+  return await traceWorkflowPerfSpan(
+    {
+      dataRoot,
+      runId,
+      scope: "repo",
+      name: "workflowRuns.createRun"
+    },
+    async () =>
+      workflowWriteMutex.runExclusive(async () => {
     const templateId = assertTemplateId(input.templateId);
     const name = input.name.trim();
     const workspacePath = path.resolve(input.workspacePath);
@@ -907,7 +916,8 @@ export async function createWorkflowRun(dataRoot: string, input: CreateWorkflowR
     await repository.writeJson(paths.runsFile, state);
     await ensureWorkflowRunRuntime(dataRoot, runId, buildInitialRuntimeFromTasks(normalizedTasks));
     return hydrateRunRuntime(dataRoot, created);
-  });
+      })
+  );
 }
 
 export async function patchWorkflowRun(
@@ -915,8 +925,16 @@ export async function patchWorkflowRun(
   runIdRaw: string,
   patch: PatchWorkflowRunInput
 ): Promise<WorkflowRunRecord> {
-  return workflowWriteMutex.runExclusive(async () => {
-    const runId = assertRunId(runIdRaw);
+  const runId = assertRunId(runIdRaw);
+  return await traceWorkflowPerfSpan(
+    {
+      dataRoot,
+      runId,
+      scope: "repo",
+      name: "workflowRuns.patchRun"
+    },
+    async () =>
+      workflowWriteMutex.runExclusive(async () => {
     const paths = await ensureWorkflowRuntime(dataRoot);
     const state = await readRunRegistry(dataRoot);
     const idx = state.runs.findIndex((item) => item.runId === runId);
@@ -1016,7 +1034,8 @@ export async function patchWorkflowRun(
       }
     }
     return hydrateRunRuntime(dataRoot, next);
-  });
+      })
+  );
 }
 
 export async function deleteWorkflowRun(

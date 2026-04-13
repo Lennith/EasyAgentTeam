@@ -5,6 +5,7 @@ import type {
   WorkflowRunRecord,
   WorkflowRunRuntimeState
 } from "../../../domain/models.js";
+import { traceWorkflowPerfSpan } from "../../workflow-perf-trace.js";
 import {
   buildWorkflowRunSettingsView,
   buildWorkflowRuntimeSnapshot,
@@ -28,13 +29,30 @@ export class WorkflowRunQueryService {
   async getRunTaskRuntime(runId: string) {
     const run = await this.context.loadRunOrThrow(runId);
     const runtime = await this.context.ensureRuntime(run);
-    return buildWorkflowRuntimeSnapshot(run, runtime, run.status === "running" && this.context.activeRunIds.has(runId));
+    return await traceWorkflowPerfSpan(
+      {
+        dataRoot: this.context.repositories.dataRoot,
+        runId,
+        scope: "view",
+        name: "buildWorkflowRuntimeSnapshot"
+      },
+      async () =>
+        buildWorkflowRuntimeSnapshot(run, runtime, run.status === "running" && this.context.activeRunIds.has(runId))
+    );
   }
 
   async getRunTaskTreeRuntime(runId: string): Promise<WorkflowTaskTreeRuntimeResponse> {
     const run = await this.context.loadRunOrThrow(runId);
     const runtime = await this.context.ensureRuntime(run);
-    const treeView = buildWorkflowTaskTreeView(run, runtime);
+    const treeView = await traceWorkflowPerfSpan(
+      {
+        dataRoot: this.context.repositories.dataRoot,
+        runId,
+        scope: "view",
+        name: "buildWorkflowTaskTreeView"
+      },
+      async () => buildWorkflowTaskTreeView(run, runtime)
+    );
     return {
       run_id: run.runId,
       generated_at: new Date().toISOString(),

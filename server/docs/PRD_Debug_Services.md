@@ -13,6 +13,7 @@
 - 事件流到时间线的结构化映射
 - Agent 运行输出日志的聚合与解析
 - 任务生命周期回放（task detail 生命周期）
+- workflow 内部慢 API 分析用的 opt-in perf trace
 
 **源码路径**:
 
@@ -22,6 +23,13 @@
 - `server/src/services/agent-debug-service.ts`
 - `server/src/services/agent-chat-service.ts`
 - `server/src/services/task-detail-query-service.ts`
+- `server/src/services/workflow-perf-trace.ts`
+- `server/src/routes/workflow-routes.ts`
+- `server/src/data/repository/workflow/run-repository.ts`
+- `server/src/data/repository/workflow/runtime-repository.ts`
+- `server/src/services/orchestrator/workflow/workflow-runtime-support-service.ts`
+- `server/src/services/orchestrator/workflow/workflow-run-query-service.ts`
+- `server/src/services/orchestrator/workflow/workflow-dispatch-service.ts`
 
 ### 解决问题
 
@@ -46,6 +54,7 @@
 - `POST /api/projects/:id/agent-chat`
 - `POST /api/projects/:id/agent-chat/:sessionId/interrupt`
 - 内部 run log 解析（`buildAgentRunDetails`）
+- workflow opt-in perf trace（仅内部审计文件，不新增对外 API）
 
 ### 不包含能力
 
@@ -113,6 +122,37 @@
 5. `MESSAGE_ROUTED` 且 messageType 以 `TASK_DISCUSS` 开头时归类为 `task_discuss`。
 6. workflow dispatch 行在 `requestedSkillIds` 存在时继续写入 `content` 摘要；project timeline 不追加该字段。
 7. 全部项按 `createdAt` 排序，再按 `limit` 截断。
+8. 当 `WORKFLOW_PERF_TRACE=1` 时，workflow 相关热点路径追加内部 perf trace：
+   - 已覆盖的 route handler 热点段：
+     - `POST /api/workflow-runs`
+     - `POST /api/workflow-runs/:run_id/sessions`
+     - `GET /api/workflow-runs/:run_id/task-runtime`
+     - `GET /api/workflow-runs/:run_id/task-tree-runtime`
+     - `PATCH /api/workflow-runs/:run_id/orchestrator/settings`
+     - `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
+   - `workflowRuns.createRun / patchRun / readRuntime`
+   - `sessions.listSessions / upsertSession / touchSession`
+   - `ensureRuntime`
+   - `buildWorkflowRuntimeSnapshot`
+   - `buildWorkflowTaskTreeView`
+   - `dispatchRun`
+9. workflow perf trace 只写入 `data/workflows/runs/<runId>/audit/perf_trace.jsonl`，不改变任何 public API path、payload、status code。
+10. 当前 perf trace 仅提供按 run 聚合的 span 样本，不提供逐请求 `trace_id` / `parent_span_id` 级联；route 到 service/repo 的对应关系用于热点归因，不用于严格请求树还原。
+11. `workflow_perf_summary.json` 与 `workflow_perf_report.md` 属于 E2E 观察脚本对原始 trace 的离线导出产物，不是后端直接写出的 API 或审计文件。
+12. 当前未覆盖的 workflow 慢 API / repo blind spots 仍包括：
+
+- `GET /api/workflow-runs`
+- `GET /api/workflow-runs/:run_id`
+- `GET /api/workflow-runs/:run_id/status`
+- `GET /api/workflow-runs/:run_id/task-tree`
+- `GET /api/workflow-runs/:run_id/sessions`
+- `GET /api/workflow-runs/:run_id/agent-io/timeline`
+- `POST /api/workflow-runs/:run_id/agent-chat`
+- `listWorkflowRuns`
+- `getWorkflowRun`
+- `writeWorkflowRunTaskRuntimeState`
+- `appendWorkflowRunEvent`
+- `listWorkflowRunEvents`
 
 ### run log 解析（内部）
 
@@ -125,7 +165,7 @@
   - `next_action`
   - 可选 `details`
 - `ORCHESTRATOR_DISPATCH_FAILED` 的错误摘要必须可稳定追溯到 provider launch error，不再只暴露裸的 `Unknown model` 或 `exitCode=1`
-- 生成 run summary（便于脚本和离线诊断）
+- 后端仅保留原始 trace / event / output 审计文件；`workflow_perf_summary.json`、`workflow_perf_report.md`、run summary 等聚合型产物由 E2E 观察脚本离线导出，不作为后端直接写出的调试文件
 
 ---
 
