@@ -55,6 +55,7 @@ $phaseTasks = @($scenario.phase_tasks)
 $phaseTaskIds = @($phaseTasks | ForEach-Object { [string]$_.task_id })
 $artifactSpecs = @($scenario.artifact_validations)
 $codeOutputRequirements = if ($scenario.code_output_requirements) { @($scenario.code_output_requirements) } else { @() }
+$subtaskStatsExpectation = $null
 $reminderProbeTaskId = if ($reminderProbe -and $reminderProbe.probe_task_id) { [string]$reminderProbe.probe_task_id } else { "" }
 $reminderGateTaskId = if ($reminderProbe -and $reminderProbe.gate_task_id) { [string]$reminderProbe.gate_task_id } else { "" }
 $mainPhaseTasks = @($phaseTasks | Where-Object {
@@ -277,6 +278,21 @@ function Build-AgentPrompt {
     )
   }
   $teamToolNameText = $teamToolNameRules -join "`n"
+  $workspaceInspectionRules = @(
+    "- Prefer PowerShell Get-ChildItem/Test-Path for TeamWorkSpace inspection and artifact checks.",
+    "- Do not use cmd fallback patterns such as `dir ... || echo` or `type ... || echo` as evidence that files are missing."
+  )
+  $roleSpecificRules = @()
+  if ($RoleKey -eq "qa_engineer") {
+    $roleSpecificRules = @(
+      "",
+      "QA execution guidance:",
+      "- In this E2E baseline, documentation-first QA evidence is valid: validation matrix, traceability, test specs, release checklist, and static inspection notes against delivered docs/src.",
+      "- Treat TeamWorkSpace/src/android/**, TeamWorkSpace/src/android-app/**, TeamWorkSpace/src/android-gesture-app/**, plus delivered docs/** as engineering artifacts being present, even if no runtime test execution evidence exists yet.",
+      "- Before claiming ENGINEERING_ARTIFACTS_MISSING, verify TeamWorkSpace/src/android, TeamWorkSpace/src/android-app, TeamWorkSpace/src/android-gesture-app, and TeamWorkSpace/docs with PowerShell Test-Path/Get-ChildItem.",
+      "- Only report missing engineering artifacts if all known Android source roots and TeamWorkSpace/docs are truly absent after that PowerShell verification."
+    )
+  }
   return @(
     "You are role '$RoleId' ($RoleKey) in a workflow E2E run.",
     "Mission goal: $Goal",
@@ -290,6 +306,7 @@ function Build-AgentPrompt {
     "- TASK_DISCUSS_REQUEST / TASK_DISCUSS_REPLY / TASK_DISCUSS_CLOSED",
     "- TASK_REPORT",
     $teamToolNameText,
+    ($workspaceInspectionRules -join "`n"),
     "- When using lock_manage, lock_key must be a workspace-relative path such as docs/ux/ui/01_ui_spec.md. Never pass an absolute path or an agent-local path as lock_key.",
     "- Only call task_report_* on phase tasks owned by your role or subtasks created by your role.",
     "- If you are replying inside a discuss thread on another role's task, use discuss_reply/discuss_close and local progress only; do not task_report_* that foreign task.",
@@ -305,7 +322,8 @@ function Build-AgentPrompt {
     "- Prioritize concrete code artifacts under src/ before supporting docs.",
     "- Produce concrete artifacts in workspace.",
     "- Report completion on the high-level phase task via TASK_REPORT; do not only report subtasks.",
-    "- If your current work closes the last same-role subtask under a phase you own, report DONE for that parent phase in the same turn after the subtask report succeeds."
+    "- If your current work closes the last same-role subtask under a phase you own, report DONE for that parent phase in the same turn after the subtask report succeeds.",
+    ($roleSpecificRules -join "`n")
   ) -join "`n"
 }
 
@@ -1684,10 +1702,50 @@ function Remove-WorkflowRunForE2E {
   }
 }
 
+function Resolve-WorkflowSubtaskStatsExpectation {
+  param(
+    [object]$Scenario,
+    [hashtable]$RoleByKey
+  )
+
+  $raw = if ($Scenario) { $Scenario.subtask_stats_expectation } else { $null }
+  if (-not $raw) {
+    return $null
+  }
+
+  $rawMin = $raw.PSObject.Properties["min_non_manager_subtask_count"]
+  $minCount = if ($rawMin -and $null -ne $rawMin.Value) { [Math]::Max(0, [int]$rawMin.Value) } else { 0 }
+  $allowedCreatorRoleRefs = @(Get-StringArrayProp -Obj $raw -Names @("allowed_creator_role_refs", "allowedCreatorRoleRefs"))
+  $allowedCreatorRoles = @()
+  foreach ($roleRef in $allowedCreatorRoleRefs) {
+    $resolvedRole = [string]$RoleByKey[[string]$roleRef]
+    if (-not [string]::IsNullOrWhiteSpace($resolvedRole) -and $allowedCreatorRoles -notcontains $resolvedRole) {
+      $allowedCreatorRoles += $resolvedRole
+    }
+  }
+
+  $requireParentScopePhaseOnly = $true
+  foreach ($propName in @("require_parent_scope_phase_only", "requireParentScopePhaseOnly")) {
+    $prop = $raw.PSObject.Properties[$propName]
+    if ($prop -and $null -ne $prop.Value) {
+      $requireParentScopePhaseOnly = [bool]$prop.Value
+      break
+    }
+  }
+
+  return [ordered]@{
+    min_non_manager_subtask_count = $minCount
+    allowed_creator_role_refs = @($allowedCreatorRoleRefs)
+    allowed_creator_roles = @($allowedCreatorRoles)
+    require_parent_scope_phase_only = $requireParentScopePhaseOnly
+  }
+}
+
 function Build-SubtaskStats {
   param(
     [object]$TaskTree,
-    [string[]]$PhaseIds
+    [string[]]$PhaseIds,
+    [object]$Expectation = $null
   )
 
   $phaseSet = @{}
@@ -1720,16 +1778,50 @@ function Build-SubtaskStats {
 
   $creatorRoles = @($subtasks | ForEach-Object { [string]$_.creator_role } | Select-Object -Unique)
   $invalidParents = @($subtasks | Where-Object { -not $_.parent_is_phase })
-  $thresholdPass = ($subtasks.Count -ge 3 -and $creatorRoles.Count -ge 3)
-  $parentPass = ($invalidParents.Count -eq 0)
+  $unexpectedCreatorSubtasks = @()
+  $allowedCreatorRoles = @()
+  $allowedCreatorRoleRefs = @()
+  $requireParentScopePhaseOnly = $true
+  $allowedCreatorsPass = $true
+
+  if ($Expectation) {
+    $allowedCreatorRoles = if ($Expectation.allowed_creator_roles) {
+      @($Expectation.allowed_creator_roles | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    } else {
+      @()
+    }
+    $allowedCreatorRoleRefs = if ($Expectation.allowed_creator_role_refs) {
+      @($Expectation.allowed_creator_role_refs | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    } else {
+      @()
+    }
+    $requireParentScopePhaseOnly = if ($Expectation.require_parent_scope_phase_only -eq $false) { $false } else { $true }
+    if ($allowedCreatorRoles.Count -gt 0) {
+      $unexpectedCreatorSubtasks = @($subtasks | Where-Object { $allowedCreatorRoles -notcontains [string]$_.creator_role })
+      $allowedCreatorsPass = ($unexpectedCreatorSubtasks.Count -eq 0)
+    }
+    $thresholdPass = ($subtasks.Count -ge [int]$Expectation.min_non_manager_subtask_count)
+    $parentPass = if ($requireParentScopePhaseOnly) { ($invalidParents.Count -eq 0) } else { $true }
+    $overallPass = ($thresholdPass -and $parentPass -and $allowedCreatorsPass)
+  } else {
+    $thresholdPass = ($subtasks.Count -ge 3 -and $creatorRoles.Count -ge 3)
+    $parentPass = ($invalidParents.Count -eq 0)
+    $overallPass = ($thresholdPass -and $parentPass)
+  }
 
   return [ordered]@{
     non_manager_subtask_create_count = $subtasks.Count
     non_manager_subtask_creator_roles = $creatorRoles
     non_manager_subtask_creator_role_count = $creatorRoles.Count
+    expected_min_non_manager_subtask_count = if ($Expectation) { [int]$Expectation.min_non_manager_subtask_count } else { 3 }
+    expected_allowed_creator_roles = @($allowedCreatorRoles)
+    expected_allowed_creator_role_refs = @($allowedCreatorRoleRefs)
+    require_parent_scope_phase_only = $requireParentScopePhaseOnly
+    allowed_creator_roles_pass = $allowedCreatorsPass
     parent_scope_pass = $parentPass
     threshold_pass = $thresholdPass
-    overall_pass = ($thresholdPass -and $parentPass)
+    overall_pass = $overallPass
+    unexpected_creator_subtasks = $unexpectedCreatorSubtasks
     invalid_parent_subtasks = $invalidParents
     inspected_subtasks = $subtasks
   }
@@ -1782,18 +1874,32 @@ function Build-ArtifactValidation {
           $candidateMissingKeywords += $kwText
         }
       }
-      if ($candidateRef.exists -and $candidateMissingKeywords.Count -eq 0) {
-        $selectedRef = $candidateRef
-        $selectedContent = $candidateContent
-        $selectedMissingKeywords = @()
-        $selectedFoundKeywords = @($candidateFoundKeywords)
-        break
-      }
+      $shouldSelect = $false
       if (-not $selectedRef) {
+        $shouldSelect = $true
+      } else {
+        $selectedExists = [bool]$selectedRef.exists
+        if ($candidateRef.exists -and -not $selectedExists) {
+          $shouldSelect = $true
+        } elseif (($candidateRef.exists -eq $selectedExists) -and ($candidateMissingKeywords.Count -lt $selectedMissingKeywords.Count)) {
+          $shouldSelect = $true
+        } elseif (
+          ($candidateRef.exists -eq $selectedExists) -and
+          ($candidateMissingKeywords.Count -eq $selectedMissingKeywords.Count) -and
+          ($candidateFoundKeywords.Count -gt $selectedFoundKeywords.Count)
+        ) {
+          $shouldSelect = $true
+        }
+      }
+
+      if ($shouldSelect) {
         $selectedRef = $candidateRef
         $selectedContent = $candidateContent
         $selectedMissingKeywords = @($candidateMissingKeywords)
         $selectedFoundKeywords = @($candidateFoundKeywords)
+      }
+      if ($candidateRef.exists -and $candidateMissingKeywords.Count -eq 0) {
+        break
       }
     }
 
@@ -1827,6 +1933,165 @@ function Build-ArtifactValidation {
     items = $items
   }
 }
+
+function Get-WorkflowPerfTracePath {
+  param(
+    [Parameter(Mandatory = $true)][string]$RunId
+  )
+
+  return Join-Path $repoRoot "data\workflows\runs\$RunId\audit\perf_trace.jsonl"
+}
+
+function Read-WorkflowPerfTraceEntries {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path
+  )
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    return @()
+  }
+
+  $entries = @()
+  foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
+    if ([string]::IsNullOrWhiteSpace($line)) {
+      continue
+    }
+    try {
+      $entries += ($line | ConvertFrom-Json)
+    } catch {
+      $script:warnings.Add("workflow_perf_trace_parse_failed: $($_.Exception.Message)")
+    }
+  }
+  return @($entries)
+}
+
+function Get-WorkflowPerfElapsedMs {
+  param(
+    [object]$Entry
+  )
+
+  if (-not $Entry) {
+    return 0
+  }
+  $prop = $Entry.PSObject.Properties["elapsedMs"]
+  if (-not $prop -or $null -eq $prop.Value) {
+    return 0
+  }
+  return [double]$prop.Value
+}
+
+function Build-WorkflowPerfSummary {
+  param(
+    [object[]]$Entries
+  )
+
+  $safeEntries = if ($Entries) { @($Entries) } else { @() }
+  $routeEntries = @($safeEntries | Where-Object { [string]$_.scope -eq "route" })
+  $spanEntries = @($safeEntries | Where-Object { [string]$_.scope -ne "route" })
+  $worstSamples = @(
+    $safeEntries |
+      Sort-Object @{ Expression = { Get-WorkflowPerfElapsedMs -Entry $_ }; Descending = $true }, @{ Expression = { [string]$_.at } } |
+      Select-Object -First 10
+  )
+
+  $routeSummary = @(
+    $routeEntries |
+      Group-Object -Property name |
+      ForEach-Object {
+        $samples = @($_.Group | ForEach-Object { Get-WorkflowPerfElapsedMs -Entry $_ })
+        [ordered]@{
+          name = [string]$_.Name
+          count = $_.Count
+          avg_elapsed_ms = if ($samples.Count -gt 0) { [Math]::Round((($samples | Measure-Object -Average).Average), 2) } else { 0 }
+          max_elapsed_ms = if ($samples.Count -gt 0) { [Math]::Round((($samples | Measure-Object -Maximum).Maximum), 2) } else { 0 }
+        }
+      } |
+      Sort-Object @{ Expression = { [double]$_.max_elapsed_ms }; Descending = $true }, @{ Expression = { [string]$_.name } }
+  )
+
+  $spanSummary = @(
+    $spanEntries |
+      Group-Object -Property { "{0}:{1}" -f [string]$_.scope, [string]$_.name } |
+      ForEach-Object {
+        $samples = @($_.Group | ForEach-Object { Get-WorkflowPerfElapsedMs -Entry $_ })
+        $first = $_.Group | Select-Object -First 1
+        [ordered]@{
+          scope = [string]$first.scope
+          name = [string]$first.name
+          count = $_.Count
+          avg_elapsed_ms = if ($samples.Count -gt 0) { [Math]::Round((($samples | Measure-Object -Average).Average), 2) } else { 0 }
+          max_elapsed_ms = if ($samples.Count -gt 0) { [Math]::Round((($samples | Measure-Object -Maximum).Maximum), 2) } else { 0 }
+        }
+      } |
+      Sort-Object @{ Expression = { [double]$_.max_elapsed_ms }; Descending = $true }, @{ Expression = { [string]$_.scope } }, @{ Expression = { [string]$_.name } }
+  )
+
+  return [ordered]@{
+    trace_count = $safeEntries.Count
+    route_count = $routeEntries.Count
+    non_route_count = $spanEntries.Count
+    route_summary = $routeSummary
+    span_summary = $spanSummary
+    worst_samples = @($worstSamples | ForEach-Object {
+        [ordered]@{
+          at = [string]$_.at
+          scope = [string]$_.scope
+          name = [string]$_.name
+          elapsed_ms = Get-WorkflowPerfElapsedMs -Entry $_
+          ok = [bool]($_.ok -ne $false)
+          details = $_.details
+          error = if ($_.PSObject.Properties["error"]) { [string]$_.error } else { "" }
+        }
+      })
+  }
+}
+
+function Build-WorkflowPerfReportMarkdown {
+  param(
+    [Parameter(Mandatory = $true)][object]$Summary
+  )
+
+  $lines = @()
+  $lines += "# Workflow Perf Trace Report"
+  $lines += ""
+  $lines += "- trace_count: $($Summary.trace_count)"
+  $lines += "- route_count: $($Summary.route_count)"
+  $lines += "- non_route_count: $($Summary.non_route_count)"
+  $lines += ""
+  $lines += "## Top Routes"
+  $lines += ""
+  if (@($Summary.route_summary).Count -eq 0) {
+    $lines += "- none"
+  } else {
+    foreach ($item in @($Summary.route_summary | Select-Object -First 10)) {
+      $lines += "- $($item.name): count=$($item.count), avg_ms=$($item.avg_elapsed_ms), max_ms=$($item.max_elapsed_ms)"
+    }
+  }
+  $lines += ""
+  $lines += "## Top Service/View/Repo Spans"
+  $lines += ""
+  if (@($Summary.span_summary).Count -eq 0) {
+    $lines += "- none"
+  } else {
+    foreach ($item in @($Summary.span_summary | Select-Object -First 12)) {
+      $lines += "- [$($item.scope)] $($item.name): count=$($item.count), avg_ms=$($item.avg_elapsed_ms), max_ms=$($item.max_elapsed_ms)"
+    }
+  }
+  $lines += ""
+  $lines += "## Worst Samples"
+  $lines += ""
+  if (@($Summary.worst_samples).Count -eq 0) {
+    $lines += "- none"
+  } else {
+    foreach ($item in @($Summary.worst_samples)) {
+      $status = if ($item.ok) { "ok" } else { "error" }
+      $lines += "- [$($item.scope)] $($item.name): elapsed_ms=$($item.elapsed_ms), status=$status, at=$($item.at)"
+    }
+  }
+  return ($lines -join "`n")
+}
+
+$subtaskStatsExpectation = Resolve-WorkflowSubtaskStatsExpectation -Scenario $scenario -RoleByKey $roleByKey
 
 function Save-Json {
   param(
@@ -1912,15 +2177,33 @@ function Convert-SkillValidationForOutput {
   }
 
   $matches = if ($Validation.timeline_matches) { @($Validation.timeline_matches) } else { @() }
-  $sample = @(
+  $eventMatches = if ($Validation.event_matches) { @($Validation.event_matches) } else { @() }
+  $timelineSample = @(
     $matches |
       Select-Object -First 20 |
       ForEach-Object {
+        $contentPreview = [string](Get-StringProp -Obj $_ -Names @("content"))
+        if ($contentPreview.Length -gt 220) {
+          $contentPreview = $contentPreview.Substring(0, 220)
+        }
         [ordered]@{
           at = Get-StringProp -Obj $_ -Names @("createdAt", "at")
           role = Get-StringProp -Obj $_ -Names @("role")
           event_type = Get-StringProp -Obj $_ -Names @("eventType", "event_type")
-          content_preview = ((Get-StringProp -Obj $_ -Names @("content")) -replace "\s+", " ").Substring(0, [Math]::Min(220, (Get-StringProp -Obj $_ -Names @("content")).Length))
+          content_preview = ($contentPreview -replace "\s+", " ")
+        }
+      }
+  )
+  $eventSample = @(
+    $eventMatches |
+      Select-Object -First 20 |
+      ForEach-Object {
+        $payloadSkillIds = @(Get-StringArrayProp -Obj $_.payload -Names @("requestedSkillIds", "requested_skill_ids"))
+        [ordered]@{
+          at = Get-StringProp -Obj $_ -Names @("createdAt", "created_at")
+          role = Get-StringProp -Obj $_.payload -Names @("role")
+          event_type = Get-StringProp -Obj $_ -Names @("eventType", "event_type")
+          requested_skill_ids = @($payloadSkillIds)
         }
       }
   )
@@ -1931,9 +2214,13 @@ function Convert-SkillValidationForOutput {
     skill_id = [string]$Validation.skill_id
     dispatch_role = [string]$Validation.dispatch_role
     timeline_match_count = [int]$Validation.timeline_match_count
-    timeline_matches_sample = $sample
-    timeline_matches_sample_count = $sample.Count
-    timeline_matches_omitted = ($matches.Count -gt $sample.Count)
+    timeline_matches_sample = $timelineSample
+    timeline_matches_sample_count = $timelineSample.Count
+    timeline_matches_omitted = ($matches.Count -gt $timelineSample.Count)
+    event_match_count = [int]$Validation.event_match_count
+    event_matches_sample = $eventSample
+    event_matches_sample_count = $eventSample.Count
+    event_matches_omitted = ($eventMatches.Count -gt $eventSample.Count)
     artifact_path = [string]$Validation.artifact_path
     artifact_resolution_mode = [string]$Validation.artifact_resolution_mode
     artifact_exists = [bool]$Validation.artifact_exists
@@ -2080,6 +2367,7 @@ function Wait-ForWorkflowReminderProbe {
 function Build-SkillValidation {
   param(
     [object]$TimelineBody,
+    [object]$EventsSnapshot,
     [object]$SkillProbeConfig,
     [string]$SkillId,
     [string]$Workspace
@@ -2090,10 +2378,23 @@ function Build-SkillValidation {
   }
 
   $items = if ($TimelineBody -and $TimelineBody.items) { @($TimelineBody.items) } else { @() }
+  $events = if ($EventsSnapshot -and $EventsSnapshot.items) { @($EventsSnapshot.items) } else { @() }
+  $dispatchRoleRef = [string]$SkillProbeConfig.dispatch_role_ref
   $dispatchRole = [string]$roleByKey[[string]$SkillProbeConfig.dispatch_role_ref]
   $skillItems = @($items | Where-Object {
       ([string]$_.content).Contains("requestedSkillIds=") -and
       ([string]$_.content).Contains($SkillId)
+    })
+  $skillEvents = @($events | Where-Object {
+      $requestedSkillIds = @(Get-StringArrayProp -Obj $_.payload -Names @("requestedSkillIds", "requested_skill_ids"))
+      if (-not ($requestedSkillIds -contains $SkillId)) {
+        return $false
+      }
+      if ([string]::IsNullOrWhiteSpace($dispatchRoleRef)) {
+        return $true
+      }
+      $sessionIdText = [string]$_.sessionId
+      return $sessionIdText.ToLowerInvariant().Contains($dispatchRoleRef.ToLowerInvariant())
     })
 
   $artifactPaths = @(Get-StringArrayProp -Obj $SkillProbeConfig -Names @("artifact_paths", "artifactPaths"))
@@ -2142,12 +2443,22 @@ function Build-SkillValidation {
     $selectedRef = $candidateRefs[0]
   }
 
+  $skillSignalPass = if ([string]::IsNullOrWhiteSpace($dispatchRoleRef)) {
+    ($skillItems.Count -ge 1 -or $skillEvents.Count -ge 1)
+  } else {
+    ($skillEvents.Count -ge 1)
+  }
+
   return [ordered]@{
-    pass = ($skillItems.Count -ge 1 -and [bool]$selectedRef.exists -and $missingMarkers.Count -eq 0)
+    pass = ($skillSignalPass -and [bool]$selectedRef.exists -and $missingMarkers.Count -eq 0)
     skill_id = $SkillId
+    dispatch_role_ref = $dispatchRoleRef
     dispatch_role = $dispatchRole
     timeline_match_count = $skillItems.Count
     timeline_matches = $skillItems
+    event_match_count = $skillEvents.Count
+    event_matches = $skillEvents
+    signal_pass = $skillSignalPass
     artifact_path = [string]$selectedRef.path
     artifact_paths = @($artifactPaths)
     artifact_resolution_mode = [string]$selectedRef.mode
@@ -2607,13 +2918,14 @@ if ($script:latestStatus -and $script:latestTaskRuntime -and $script:latestSessi
   $processValidation = Build-WorkflowProcessValidation -StatusBody $script:latestStatus -TaskRuntime $script:latestTaskRuntime -SessionsBody $script:latestSessions -MainPhaseTasks $mainPhaseTasks
 }
 if ($script:latestTaskTree) {
-  $subtaskStats = Build-SubtaskStats -TaskTree $script:latestTaskTree -PhaseIds $phaseTaskIds
+  $subtaskStats = Build-SubtaskStats -TaskTree $script:latestTaskTree -PhaseIds $mainPhaseTaskIds -Expectation $subtaskStatsExpectation
   $subtaskDependencyValidation = Build-SubtaskDependencyValidation -TaskTree $script:latestTaskTree -MainPhaseIds $mainPhaseTaskIds -PhaseDoneTimes $processValidation.phase_done_times
 }
 $codeOutputValidation = Build-CodeOutputValidation -Requirements $codeOutputRequirements -Workspace $workspace
 $artifactValidation = Build-ArtifactValidation -Specs $artifactSpecs -Workspace $workspace
+$eventsSnapshot = Get-WorkflowRunEvents -RunId $runId -IncludeRaw
 if ($script:latestTimeline -and $skillProbe -and -not [string]::IsNullOrWhiteSpace($importedSkillId)) {
-  $skillValidation = Build-SkillValidation -TimelineBody $script:latestTimeline -SkillProbeConfig $skillProbe -SkillId $importedSkillId -Workspace $workspace
+  $skillValidation = Build-SkillValidation -TimelineBody $script:latestTimeline -EventsSnapshot $eventsSnapshot -SkillProbeConfig $skillProbe -SkillId $importedSkillId -Workspace $workspace
 }
 if (-not $skillProbe) {
   $skillValidation = [ordered]@{ pass = $true; skipped = $true }
@@ -2663,7 +2975,11 @@ if ($finalReason -eq "provider_not_configured") {
   $pass = $false
 }
 
-$reviewRequired = ($script:warnings.Count -gt 0)
+$reviewRequired = (
+  $script:warnings.Count -gt 0 -or
+  -not $artifactValidation.pass -or
+  -not $subtaskStats.overall_pass
+)
 Ensure-Dir -Path $workspace
 Ensure-Dir -Path $artifactsBase
 $stampOut = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -2756,11 +3072,37 @@ try {
   }
   $finalReason = "postprocess_timeout"
 }
-$eventsSnapshot = Get-WorkflowRunEvents -RunId $runId -IncludeRaw
 if ($eventsSnapshot.raw.Length -gt 0) {
   Write-Utf8NoBom -Path (Join-Path $outDir "workflow_events.jsonl") -Content $eventsSnapshot.raw
 }
+$perfTracePath = Get-WorkflowPerfTracePath -RunId $runId
+$perfTraceEntries = Read-WorkflowPerfTraceEntries -Path $perfTracePath
+$perfSummary = $null
+if ($perfTraceEntries.Count -gt 0) {
+  $perfSummary = Build-WorkflowPerfSummary -Entries $perfTraceEntries
+  Write-Utf8NoBom -Path (Join-Path $outDir "workflow_perf_trace.jsonl") -Content ((Get-Content -LiteralPath $perfTracePath -Encoding UTF8) -join "`n")
+  Save-JsonSafe -Path (Join-Path $outDir "workflow_perf_summary.json") -Data $perfSummary -Tag "workflow_perf_summary"
+  Write-Utf8NoBom -Path (Join-Path $outDir "workflow_perf_report.md") -Content (Build-WorkflowPerfReportMarkdown -Summary $perfSummary)
+}
 $providerActivitySummary = Build-WorkflowProviderActivitySummary -SessionAudit $providerSessionAudit -TimelineBody $script:latestTimeline -EventsSnapshot $eventsSnapshot
+$officialTelemetryPass = (
+  $artifactValidation.pass -and
+  $subtaskStats.overall_pass -and
+  $skillValidation.pass -and
+  $providerSessionAudit.all_sessions_match -and
+  $providerActivitySummary.overall_pass
+)
+if (-not $SetupOnly -and $finalReason -eq "workflow_runtime_ok" -and -not $officialTelemetryPass) {
+  $pass = $false
+  $finalReason = "workflow_telemetry_regression"
+}
+$reviewRequired = (
+  $reviewRequired -or
+  -not $reminderValidation.pass -or
+  -not $skillValidation.pass -or
+  -not $providerSessionAudit.all_sessions_match -or
+  -not $providerActivitySummary.overall_pass
+)
 Save-JsonSafe -Path (Join-Path $outDir "provider_matrix_resolved.json") -Data $providerMatrixOut -Tag "provider_matrix_resolved"
 Save-JsonSafe -Path (Join-Path $outDir "provider_session_audit.json") -Data $providerSessionAudit -Tag "provider_session_audit"
 Save-JsonSafe -Path (Join-Path $outDir "provider_activity_summary.json") -Data $providerActivitySummary -Tag "provider_activity_summary"
@@ -2830,8 +3172,9 @@ $summary += "- reminder_probe_non_blocking: true"
 $summary += "- skill_probe_pass: $($skillValidation.pass)"
 $summary += "- skill_probe_non_blocking: true"
 $summary += "- imported_skill_id: $importedSkillId"
-$summary += "- artifact_validation_pass (telemetry_only): $($artifactValidation.pass)"
-$summary += "- subtask_stats_overall_pass (telemetry_only): $($subtaskStats.overall_pass)"
+$summary += "- artifact_validation_pass: $($artifactValidation.pass)"
+$summary += "- subtask_stats_overall_pass: $($subtaskStats.overall_pass)"
+$summary += "- official_telemetry_pass: $officialTelemetryPass"
 $summary += "- review_required: $reviewRequired"
 $summary += "- initial_agent_trigger_count: $triggerCount"
 $summary += "- max_minutes: $MaxMinutes"
@@ -2839,6 +3182,7 @@ $summary += "- poll_seconds: $PollSeconds"
 $summary += "- total_elapsed_ms: $totalElapsedMs"
 $summary += "- provider_session_audit_pass: $($providerSessionAudit.all_sessions_match)"
 $summary += "- provider_activity_pass: $($providerActivitySummary.overall_pass)"
+$summary += "- workflow_perf_trace_count: $(if ($perfSummary) { $perfSummary.trace_count } else { 0 })"
 $summary += "- non_manager_subtask_create_count: $subtaskCount"
 $summary += "- non_manager_subtask_creator_role_count: $subtaskRoleCount"
 $summary += "- non_manager_subtask_creator_roles: $subtaskRolesText"

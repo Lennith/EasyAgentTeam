@@ -166,7 +166,14 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 
 - `run_summary.md` includes `runtime_pass=True`
 - pass gate is process-first: run is `finished`, main phases are `DONE`, phase dependency order is valid, no running sessions remain
 - code output validation passes (`code_output_requirements` in scenario)
-- reminder/skill probes are telemetry-only (non-blocking) and still exported in artifacts
+- official mixed baseline also expects workflow telemetry to stay green:
+  - `artifact_validation_pass=True`
+  - `subtask_stats_overall_pass=True`
+  - `skill_probe_pass=True`
+  - `provider_session_audit_pass=True`
+  - `provider_activity_pass=True`
+- workflow script should exit non-zero when the official mixed-baseline telemetry set above is `False`
+- reminder probe remains a telemetry export; a `False` reminder result still requires investigation but does not by itself fail the workflow case
 - timeline and task-runtime terminal states are consistent
 
 6. Common failure points

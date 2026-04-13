@@ -2,7 +2,7 @@
 name: e2e-ui-skill
 description: Deterministic E2E skill that marks the workflow UI spec when the UI designer works on it.
 license: UNSPECIFIED
-compatibility: minimax
+compatibility: codex,minimax
 ---
 
 # E2E UI Skill
@@ -11,8 +11,12 @@ Use this skill only when you are editing or creating the workflow UI spec docume
 
 Preferred target paths:
 
-- `docs/design/ui/01_ui_spec.md`
+- `docs/ui/01_android_ui_spec.md`
 - `docs/ui/01_ui_spec.md`
+- `docs/design/ui/01_ui_spec.md`
+- `TeamWorkSpace/docs/ui/01_android_ui_spec.md`
+- `TeamWorkSpace/docs/ui/01_ui_spec.md`
+- `TeamWorkSpace/docs/design/ui/01_ui_spec.md`
 
 Requirements:
 

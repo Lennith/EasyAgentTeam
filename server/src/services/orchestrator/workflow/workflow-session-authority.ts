@@ -27,6 +27,28 @@ function sortSessionsByRecentActivity(a: WorkflowSessionRecord, b: WorkflowSessi
   return a.sessionId.localeCompare(b.sessionId);
 }
 
+function resolveHistoricalWorkflowRoleProvider(
+  run: WorkflowRunRecord,
+  role: string,
+  sessions: WorkflowSessionRecord[]
+): "codex" | "minimax" {
+  const mappedSessionId = run.roleSessionMap?.[role];
+  if (mappedSessionId) {
+    const mappedSession = sessions.find((item) => item.sessionId === mappedSessionId && item.role === role);
+    if (mappedSession?.provider === "codex" || mappedSession?.provider === "minimax") {
+      return mappedSession.provider;
+    }
+  }
+  const historicalRoleSessions = sessions
+    .filter((item) => item.role === role && (item.provider === "codex" || item.provider === "minimax"))
+    .sort(sortSessionsByRecentActivity);
+  const historicalProvider = historicalRoleSessions[0]?.provider;
+  if (historicalProvider === "codex" || historicalProvider === "minimax") {
+    return historicalProvider;
+  }
+  return resolveSessionProviderId(run, role, "minimax");
+}
+
 export async function loadWorkflowRunOrThrow(
   repositories: Pick<WorkflowRepositoryBundle, "workflowRuns">,
   runId: string
@@ -91,7 +113,7 @@ export async function resolveWorkflowAuthoritativeSession(
       sessionId: buildRoleScopedSessionId(normalizedRole),
       role: normalizedRole,
       status: "idle",
-      provider: resolveSessionProviderId(run, normalizedRole, "minimax")
+      provider: resolveHistoricalWorkflowRoleProvider(run, normalizedRole, input.sessions)
     });
     input.sessions.push(created.session);
     await persistWorkflowRoleSessionMap(context.repositories, run, normalizedRole, created.session.sessionId);

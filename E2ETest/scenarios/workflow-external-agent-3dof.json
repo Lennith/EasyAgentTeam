@@ -185,8 +185,22 @@
     "skill_list_id": "e2e_workflow_skill_list",
     "bind_role_refs": ["ui_designer"],
     "dispatch_role_ref": "ui_designer",
-    "artifact_paths": ["docs/design/ui/01_ui_spec.md", "docs/ui/01_ui_spec.md"],
+    "artifact_paths": [
+      "docs/ux/ui/01_ui_spec.md",
+      "docs/ui/01_android_ui_spec.md",
+      "docs/ui/01_ui_spec.md",
+      "docs/design/ui/01_ui_spec.md",
+      "TeamWorkSpace/docs/ux/ui/01_ui_spec.md",
+      "TeamWorkSpace/docs/ui/01_android_ui_spec.md",
+      "TeamWorkSpace/docs/ui/01_ui_spec.md",
+      "TeamWorkSpace/docs/design/ui/01_ui_spec.md"
+    ],
     "required_markers": ["E2E_SKILL_MARKER_V1"]
+  },
+  "subtask_stats_expectation": {
+    "min_non_manager_subtask_count": 1,
+    "allowed_creator_role_refs": ["rd_lead"],
+    "require_parent_scope_phase_only": true
   },
   "phase_tasks": [
     {
@@ -222,7 +236,7 @@
       "title": "Define product scope, target users, and MVP boundaries",
       "owner_role": "e2e_mgr_product_owner",
       "dependencies": ["wf_plan_master"],
-      "artifacts": ["docs/product/10_product_requirements.md"],
+      "artifacts": ["docs/product/01_requirements.md"],
       "acceptance": [
         "Clarify target users and key scenarios.",
         "Define MVP features and out-of-scope items.",
@@ -234,7 +248,7 @@
       "title": "Produce interaction flow and key journey decisions",
       "owner_role": "e2e_mgr_interaction_designer",
       "dependencies": ["wf_product_definition"],
-      "artifacts": ["docs/interaction/01_core_flows.md", "docs/interaction/02_state_model.md"],
+      "artifacts": ["docs/ux/interaction/01_interaction_spec.md"],
       "acceptance": [
         "Cover end-to-end interaction flow and state transitions.",
         "Include gesture interaction feedback rules.",
@@ -246,7 +260,7 @@
       "title": "Produce UI specification and visual component constraints",
       "owner_role": "e2e_mgr_ui_designer",
       "dependencies": ["wf_interaction_design"],
-      "artifacts": ["docs/design/ui/01_ui_spec.md"],
+      "artifacts": ["docs/ui/01_ui_spec.md"],
       "acceptance": [
         "Define key screens and UI component rules.",
         "Define accessibility and visual consistency baseline.",
@@ -258,7 +272,7 @@
       "title": "RD lead decomposes engineering plan and ownership",
       "owner_role": "e2e_mgr_rd_lead",
       "dependencies": ["wf_product_definition", "wf_interaction_design", "wf_ui_design"],
-      "artifacts": ["docs/engineering/40_architecture_and_execution_plan.md", "src/android-app/build.gradle.kts"],
+      "artifacts": ["docs/engineering/01_architecture_plan.md"],
       "acceptance": [
         "Break down Android/ML/QA/Release work packages.",
         "Include dependency order and integration checkpoints.",
@@ -286,10 +300,14 @@
       "title": "Define quality validation and release runbook",
       "owner_role": "e2e_mgr_qa_engineer",
       "dependencies": ["wf_engineering_execution"],
-      "artifacts": ["docs/release/01_packaging_and_handoff.md"],
+      "artifacts": [
+        "docs/qa/01_gesture_validation_plan.md",
+        "docs/qa/02_test_execution_report.md",
+        "docs/release/01_mvp_release_checklist.md"
+      ],
       "acceptance": [
-        "Define test strategy and key acceptance tests for delivered source code.",
-        "Define release steps and rollback strategy."
+        "Define documentation-first QA validation evidence for the delivered Android source tree and interaction/UI docs.",
+        "Define release steps, release-readiness checklist, and open quality risks for MVP handoff."
       ]
     },
     {
@@ -300,6 +318,7 @@
       "artifacts": [
         "delivery/01_final_delivery_package.md",
         "docs/release/70_final_delivery.md",
+        "src/android-gesture-app/build.bat",
         "src/android-app/build.bat"
       ],
       "acceptance": [
@@ -312,6 +331,11 @@
   "code_output_requirements": [
     {
       "relative_paths_any": [
+        "TeamWorkSpace/src/android/app/src/main/AndroidManifest.xml",
+        "TeamWorkSpace/src/android-gesture-app/app/src/main/AndroidManifest.xml",
+        "TeamWorkSpace/src/android-app/app/src/main/AndroidManifest.xml",
+        "TeamWorkSpace/src/android-app/src/main/AndroidManifest.xml",
+        "TeamWorkSpace/src/app/src/main/AndroidManifest.xml",
         "src/android/app/src/main/AndroidManifest.xml",
         "src/android-gesture-app/app/src/main/AndroidManifest.xml",
         "src/android-app/app/src/main/AndroidManifest.xml",
@@ -321,6 +345,17 @@
     },
     {
       "relative_paths_any": [
+        "TeamWorkSpace/src/android/settings.gradle.kts",
+        "TeamWorkSpace/src/android/app/build.gradle.kts",
+        "TeamWorkSpace/src/android/app/build.gradle",
+        "TeamWorkSpace/src/android-gesture-app/app/build.gradle.kts",
+        "TeamWorkSpace/src/android-gesture-app/app/build.gradle",
+        "TeamWorkSpace/src/android-app/app/build.gradle.kts",
+        "TeamWorkSpace/src/android-app/app/build.gradle",
+        "TeamWorkSpace/src/android-app/build.gradle.kts",
+        "TeamWorkSpace/src/app/build.gradle.kts",
+        "TeamWorkSpace/src/app/build.gradle",
+        "src/android/settings.gradle.kts",
         "src/android/app/build.gradle.kts",
         "src/android/app/build.gradle",
         "src/android-gesture-app/app/build.gradle.kts",
@@ -334,6 +369,11 @@
     },
     {
       "dir_patterns_any": [
+        "TeamWorkSpace/src/android/app/src/main/java/**/*.kt",
+        "TeamWorkSpace/src/android-gesture-app/app/src/main/java/**/*.kt",
+        "TeamWorkSpace/src/android-app/app/src/main/java/**/*.kt",
+        "TeamWorkSpace/src/android-app/src/main/java/**/*.kt",
+        "TeamWorkSpace/src/app/src/main/java/**/*.kt",
         "src/android/app/src/main/java/**/*.kt",
         "src/android-gesture-app/app/src/main/java/**/*.kt",
         "src/android-app/app/src/main/java/**/*.kt",
@@ -352,19 +392,49 @@
     {
       "task_id": "wf_product_definition",
       "paths_any": [
+        "TeamWorkSpace/docs/product/01_mvp_brief.md",
+        "TeamWorkSpace/docs/product/01_mvp_requirements.md",
+        "docs/product/01_mvp_requirements.md",
+        "docs/product/01_mvp_brief.md",
+        "TeamWorkSpace/docs/product/01_product_definition.md",
+        "TeamWorkSpace/docs/product/01_product_requirements.md",
+        "docs/product/01_product_definition.md",
+        "docs/product/01_product_requirements.md",
+        "docs/product/01_gesture_app_requirements.md",
+        "docs/product/01_prd_gesture_mvp.md",
         "docs/product/10_product_requirements.md",
         "TeamWorkSpace/docs/product/01_requirements.md",
         "docs/product/10_mvp_requirements.md",
         "docs/product/01_requirements.md"
       ],
-      "keywords": ["mvp", "gesture", "user"]
+      "keywords": ["android", "gesture", "user"]
     },
     {
       "task_id": "wf_interaction_design",
       "paths_any": [
+        "TeamWorkSpace/docs/ux/interaction/01_gesture_flow.md",
+        "TeamWorkSpace/docs/interaction/01_gesture_flows.md",
+        "docs/ux/interaction/01_gesture_flow.md",
+        "docs/interaction/01_gesture_flows.md",
+        "TeamWorkSpace/docs/interaction/01_capture_flow.md",
+        "docs/interaction/01_capture_flow.md",
+        "TeamWorkSpace/docs/interaction/01_interaction_spec.md",
+        "TeamWorkSpace/docs/ux/interaction/01_interaction_spec.md",
+        "TeamWorkSpace/docs/interaction/01_interaction_flows.md",
+        "TeamWorkSpace/docs/interaction/01_gesture_flow_spec.md",
+        "TeamWorkSpace/docs/interaction/01_gesture_flow.md",
+        "TeamWorkSpace/docs/ux/01_interaction_spec.md",
+        "docs/interaction/01_interaction_spec.md",
+        "docs/ux/interaction/01_interaction_spec.md",
+        "docs/interaction/01_interaction_flows.md",
+        "docs/interaction/01_gesture_flow_spec.md",
+        "docs/interaction/01_gesture_flow.md",
+        "docs/ux/01_interaction_spec.md",
         "docs/interaction/01_core_flows.md",
         "docs/interaction/02_state_model.md",
+        "docs/interaction/20_gesture_interaction_flow.md",
         "docs/interaction/20_gesture_interaction_flows.md",
+        "TeamWorkSpace/docs/interaction/20_gesture_interaction_flow.md",
         "TeamWorkSpace/docs/interaction/01_flows.md",
         "docs/design/20_interaction_flows.md",
         "docs/interaction/01_flows.md"
@@ -373,17 +443,33 @@
     },
     {
       "task_id": "wf_ui_design",
-      "paths_any": ["docs/design/ui/01_ui_spec.md", "docs/ui/01_ui_spec.md"],
+      "paths_any": [
+        "docs/ux/ui/01_ui_spec.md",
+        "docs/ui/01_android_ui_spec.md",
+        "docs/ui/01_ui_spec.md",
+        "docs/design/ui/01_ui_spec.md",
+        "TeamWorkSpace/docs/ux/ui/01_ui_spec.md",
+        "TeamWorkSpace/docs/ui/01_android_ui_spec.md",
+        "TeamWorkSpace/docs/ui/01_ui_spec.md",
+        "TeamWorkSpace/docs/design/ui/01_ui_spec.md"
+      ],
       "keywords": ["ui", "screen", "gesture", "e2e_skill_marker_v1"]
     },
     {
       "task_id": "wf_reminder_probe",
       "paths_any": ["docs/e2e/workflow_reminder_probe.md"],
-      "keywords": ["reminder", "probe", "redispatch"]
+      "keywords": ["reminder", "probe"]
     },
     {
       "task_id": "wf_engineering_decomposition",
       "paths_any": [
+        "TeamWorkSpace/docs/engineering/01_architecture_and_backlog.md",
+        "TeamWorkSpace/docs/engineering/01_architecture_plan.md",
+        "docs/engineering/01_architecture_and_backlog.md",
+        "docs/engineering/01_architecture_plan.md",
+        "TeamWorkSpace/docs/engineering/01_architecture_decomposition.md",
+        "TeamWorkSpace/docs/engineering/01_architecture_plan.md",
+        "docs/engineering/01_architecture_decomposition.md",
         "docs/engineering/40_architecture_and_execution_plan.md",
         "docs/engineering/01_architecture_plan.md",
         "docs/engineering/40_architecture_plan.md"
@@ -404,32 +490,89 @@
     {
       "task_id": "wf_quality_release",
       "paths_any": [
+        "TeamWorkSpace/docs/qa/01_quality_plan.md",
+        "TeamWorkSpace/docs/qa/01_release_validation.md",
+        "docs/qa/00_qa_report.md",
+        "TeamWorkSpace/docs/qa/01_qa_plan.md",
+        "TeamWorkSpace/docs/qa/03_validation_matrix.md",
+        "TeamWorkSpace/docs/qa/04_test_specifications.md",
+        "TeamWorkSpace/docs/qa/01_gesture_validation_plan.md",
+        "TeamWorkSpace/docs/qa/02_test_execution_report.md",
+        "TeamWorkSpace/docs/qa/06_qa_release_checklist.md",
+        "docs/qa/01_gesture_validation_plan.md",
+        "docs/qa/02_test_execution_report.md",
+        "docs/qa/06_qa_release_checklist.md",
+        "TeamWorkSpace/docs/qa/01_test_plan.md",
+        "TeamWorkSpace/docs/qa/01_test_report.md",
+        "TeamWorkSpace/docs/qa/01_release_validation.md",
+        "TeamWorkSpace/docs/qa/01_validation_report.md",
+        "TeamWorkSpace/docs/qa/01_acceptance_report.md",
+        "TeamWorkSpace/docs/release/01_packaging_and_handoff.md",
+        "TeamWorkSpace/docs/release/01_release_handoff.md",
+        "TeamWorkSpace/docs/release/01_release_summary.md",
         "docs/release/01_packaging_and_handoff.md",
+        "docs/qa/01_quality_plan.md",
         "docs/qa/02_test_plan.md",
         "docs/qa/01_test_report.md",
         "docs/qa/01_test_plan.md",
+        "docs/qa/01_release_validation.md",
+        "docs/qa/01_validation_report.md",
+        "docs/qa/01_acceptance_report.md",
+        "docs/release/01_release_handoff.md",
+        "docs/release/01_release_summary.md",
         "qa/01_test_plan.md"
       ],
-      "keywords": ["test", "plan", "acceptance"]
+      "keywords": ["validation"]
     },
     {
       "task_id": "wf_quality_release",
       "paths_any": [
+        "TeamWorkSpace/docs/qa/02_test_report.md",
+        "TeamWorkSpace/docs/qa/01_release_validation.md",
+        "docs/qa/01_release_validation.md",
+        "docs/qa/00_qa_report.md",
+        "docs/engineering/04_release_checklist.md",
+        "docs/engineering/03_release_packaging.md",
+        "TeamWorkSpace/docs/qa/02_release_checklist.md",
+        "TeamWorkSpace/docs/release/01_mvp_release_checklist.md",
+        "docs/release/01_mvp_release_checklist.md",
+        "TeamWorkSpace/docs/release/01_packaging_and_handoff.md",
+        "TeamWorkSpace/docs/release/01_release_runbook.md",
+        "TeamWorkSpace/docs/release/01_release_handoff.md",
+        "TeamWorkSpace/docs/release/01_release_summary.md",
+        "TeamWorkSpace/release/01_release_runbook.md",
+        "TeamWorkSpace/docs/release/01_final_delivery.md",
         "docs/release/01_packaging_and_handoff.md",
         "docs/release/01_release_runbook.md",
+        "docs/release/01_release_handoff.md",
+        "docs/qa/02_test_report.md",
+        "docs/release/01_final_delivery.md",
+        "docs/release/01_release_summary.md",
         "release/01_release_runbook.md"
       ],
-      "keywords": ["release", "build", "handoff"]
+      "keywords": ["release"]
     },
     {
       "task_id": "wf_final_delivery",
       "paths_any": [
         "TeamWorkSpace/delivery/01_final_delivery_package.md",
+        "TeamWorkSpace/docs/release/01_final_delivery.md",
+        "TeamWorkSpace/docs/delivery/01_final_delivery.md",
+        "TeamWorkSpace/docs/delivery/01_final_delivery_package.md",
+        "TeamWorkSpace/docs/delivery/01_delivery_summary.md",
+        "TeamWorkSpace/docs/delivery/01_release_handoff.md",
+        "TeamWorkSpace/docs/delivery/70_final_delivery.md",
+        "TeamWorkSpace/docs/release/70_final_delivery.md",
+        "docs/delivery/01_final_delivery.md",
         "docs/delivery/01_final_delivery_package.md",
+        "docs/delivery/01_delivery_summary.md",
+        "docs/delivery/01_release_handoff.md",
+        "docs/delivery/70_final_delivery.md",
+        "docs/release/01_final_delivery.md",
         "docs/release/70_final_delivery.md",
         "delivery/01_final_delivery_package.md"
       ],
-      "keywords": ["delivery", "package", "summary"]
+      "keywords": ["delivery", "summary"]
     }
   ]
 }

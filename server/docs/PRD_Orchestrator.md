@@ -227,6 +227,7 @@
   - `workflow/workflow-session-runtime-service.ts`：负责 public session runtime seam、heartbeat、list/register/timeout 委托
   - `workflow/workflow-session-authority.ts`：负责 run load、roleSessionMap 持久化、authoritative session resolve、register 归位
 - workflow authoritative session 在某角色尚无任何 session 时，自动补建的 session provider 必须来自 `resolveSessionProviderId(run, role, "minimax")`；不允许硬编码成 `minimax`，避免 Codex workflow 首次派发出现 provider mismatch
+- workflow authoritative session 在某角色当前已无 non-dismissed session、但历史上已有同角色 session 时，自动补建的新 session 必须优先继承 mapped session 或最近同角色历史 session 的 provider；不允许因为 session 重建退回默认 `minimax`，导致 mixed-provider workflow 在 reminder / redispatch 后发生 provider drift
 - workflow reminder 只能基于该角色现存 session 判断 `IDLE/RUNNING/INACTIVE` 并触发提醒；在 reminder 描述阶段禁止因为“为了取 authoritative session”而自动补建新 session，避免 run 启动早期生成错误 provider 的幽灵 session
 - workflow session 的 `running / idle / blocked / dismissed / currentTaskId` 所有权统一归 dispatch lifecycle：
   - dispatch 启动前把 session 置为 `running`
