@@ -13,7 +13,7 @@ export function buildPendingSessionId(role: string): string {
 }
 
 export function isForceDispatchableState(state: string): boolean {
-  return state === "READY" || state === "DISPATCHED" || state === "IN_PROGRESS" || state === "MAY_BE_DONE";
+  return state === "READY" || state === "DISPATCHED" || state === "IN_PROGRESS";
 }
 
 export function sessionMatchesOwnerToken(session: SessionRecord, ownerSessionToken: string | undefined): boolean {

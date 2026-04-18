@@ -96,5 +96,5 @@ test("project dispatch prompt keeps routing snapshot, focus task, and discuss gu
   assert.match(prompt, /focus_task_unresolved_dependencies: task_dep/);
   assert.match(prompt, /## Discuss Tool Usage Guide/);
   assert.match(prompt, /non-focus task reporting is allowed only when dependencies are already ready/i);
-  assert.match(prompt, /never report IN_PROGRESS\/DONE\/MAY_BE_DONE for dependency-blocked tasks/i);
+  assert.match(prompt, /never report IN_PROGRESS\/DONE for dependency-blocked tasks/i);
 });

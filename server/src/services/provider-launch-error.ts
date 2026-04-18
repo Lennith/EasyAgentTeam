@@ -4,7 +4,8 @@ import { buildCodexUnsupportedModelNextAction, validateProviderModelCompatibilit
 export type ProviderLaunchErrorCode =
   | "PROVIDER_MODEL_MISMATCH"
   | "PROVIDER_MODEL_UNSUPPORTED"
-  | "PROVIDER_CLI_UNAVAILABLE";
+  | "PROVIDER_CLI_UNAVAILABLE"
+  | "PROVIDER_UPSTREAM_TRANSIENT_ERROR";
 
 export type ProviderLaunchErrorCategory = "config" | "runtime";
 
@@ -61,6 +62,42 @@ export function serializeProviderLaunchError(error: ProviderLaunchError): string
   return JSON.stringify(toProviderLaunchErrorPayload(error));
 }
 
+export function tryDeserializeProviderLaunchError(raw: unknown): ProviderLaunchError | undefined {
+  if (raw instanceof ProviderLaunchError) {
+    return raw;
+  }
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const text = raw.trim();
+  if (!text.startsWith("{") || !text.endsWith("}")) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(text) as Partial<ProviderLaunchErrorPayload>;
+    if (
+      typeof parsed.code !== "string" ||
+      (parsed.category !== "config" && parsed.category !== "runtime") ||
+      typeof parsed.retryable !== "boolean" ||
+      typeof parsed.message !== "string" ||
+      typeof parsed.next_action !== "string"
+    ) {
+      return undefined;
+    }
+    return new ProviderLaunchError({
+      code: parsed.code as ProviderLaunchErrorCode,
+      category: parsed.category,
+      retryable: parsed.retryable,
+      message: parsed.message,
+      nextAction: parsed.next_action,
+      details:
+        parsed.details && typeof parsed.details === "object" ? (parsed.details as Record<string, unknown>) : undefined
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 export function assertProviderModelLaunchable(input: {
   providerId: ProviderId;
   model?: string | null;
@@ -90,6 +127,144 @@ export function createProviderCliUnavailableError(providerId: ProviderId, comman
     details: {
       providerId,
       command
+    }
+  });
+}
+
+const MINIMAX_TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504, 529]);
+const MINIMAX_TRANSIENT_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "ECONNABORTED",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET"
+]);
+
+function readUnknownString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readNumericStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const record = error as Record<string, unknown>;
+  const direct = record.status;
+  if (typeof direct === "number" && Number.isFinite(direct)) {
+    return direct;
+  }
+  const statusCode = record.statusCode;
+  if (typeof statusCode === "number" && Number.isFinite(statusCode)) {
+    return statusCode;
+  }
+  const response = record.response;
+  if (response && typeof response === "object") {
+    const nestedStatus = (response as Record<string, unknown>).status;
+    if (typeof nestedStatus === "number" && Number.isFinite(nestedStatus)) {
+      return nestedStatus;
+    }
+  }
+  const cause = record.cause;
+  if (cause && typeof cause === "object") {
+    const nestedStatus = (cause as Record<string, unknown>).status;
+    if (typeof nestedStatus === "number" && Number.isFinite(nestedStatus)) {
+      return nestedStatus;
+    }
+  }
+  return undefined;
+}
+
+function readErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const record = error as Record<string, unknown>;
+  return (
+    readUnknownString(record.code) ?? readUnknownString((record.cause as Record<string, unknown> | undefined)?.code)
+  );
+}
+
+function buildMiniMaxTransientMessage(status: number | undefined): string {
+  if (typeof status === "number") {
+    return `MiniMax upstream returned transient status ${status}.`;
+  }
+  return "MiniMax upstream returned a transient runtime error.";
+}
+
+function isMiniMaxTransientMessage(text: string): boolean {
+  return (
+    text.includes("overloaded_error") ||
+    text.includes("rate limit") ||
+    text.includes("rate_limit") ||
+    text.includes("too many requests") ||
+    text.includes("temporarily unavailable") ||
+    text.includes("service unavailable") ||
+    text.includes("gateway timeout") ||
+    text.includes("connection reset") ||
+    text.includes("connect timeout") ||
+    text.includes("connection timeout") ||
+    text.includes("read timeout") ||
+    text.includes("request timed out") ||
+    text.includes("socket hang up")
+  );
+}
+
+export function normalizeMiniMaxRuntimeFailure(error: unknown): ProviderLaunchError | undefined {
+  const status = readNumericStatus(error);
+  const code = readErrorCode(error);
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const normalizedMessage = message.toLowerCase();
+
+  if (typeof status === "number" && MINIMAX_TRANSIENT_STATUS_CODES.has(status)) {
+    return new ProviderLaunchError({
+      code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+      category: "runtime",
+      retryable: true,
+      message: buildMiniMaxTransientMessage(status),
+      nextAction: "Wait for cooldown and retry the same task/message dispatch.",
+      details: {
+        providerId: "minimax",
+        status
+      }
+    });
+  }
+
+  if (code && MINIMAX_TRANSIENT_NETWORK_CODES.has(code)) {
+    return new ProviderLaunchError({
+      code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+      category: "runtime",
+      retryable: true,
+      message: "MiniMax upstream connection failed with a transient network error.",
+      nextAction: "Wait for cooldown and retry the same task/message dispatch.",
+      details: {
+        providerId: "minimax",
+        code
+      }
+    });
+  }
+
+  if (!normalizedMessage) {
+    return undefined;
+  }
+
+  if (!isMiniMaxTransientMessage(normalizedMessage)) {
+    return undefined;
+  }
+
+  return new ProviderLaunchError({
+    code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+    category: "runtime",
+    retryable: true,
+    message: buildMiniMaxTransientMessage(status),
+    nextAction: "Wait for cooldown and retry the same task/message dispatch.",
+    details: {
+      providerId: "minimax",
+      ...(typeof status === "number" ? { status } : {}),
+      ...(code ? { code } : {})
     }
   });
 }

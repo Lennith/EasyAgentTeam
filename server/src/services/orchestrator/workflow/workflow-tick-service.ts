@@ -56,9 +56,7 @@ export class WorkflowTickService {
             scope.sessions
           );
         },
-        runCompletion: async (scope) => {
-          await this.options.completionService.checkAndMarkMayBeDone(scope.run, scope.runtime);
-        }
+        runCompletion: async () => {}
       },
       updateAutoDispatchBudget: async (scope) => {
         const enabled = scope.run.autoDispatchEnabled ?? true;

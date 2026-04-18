@@ -7,7 +7,7 @@ import type {
 import { collectOrchestratorUnreadyDependencyIds } from "../dependency-gate.js";
 
 const TERMINAL_STATES = new Set<WorkflowTaskState>(["DONE", "CANCELED"]);
-const ACTIVE_STATES = new Set<WorkflowTaskState>(["DISPATCHED", "IN_PROGRESS", "MAY_BE_DONE"]);
+const ACTIVE_STATES = new Set<WorkflowTaskState>(["DISPATCHED", "IN_PROGRESS"]);
 
 export interface WorkflowRuntimeConvergenceResult {
   runtime: WorkflowRunRuntimeState;

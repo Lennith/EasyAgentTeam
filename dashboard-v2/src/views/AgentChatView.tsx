@@ -1,5 +1,6 @@
 ﻿import { useState, useRef, useEffect, useMemo } from "react";
 import { useTranslation } from "@/hooks/i18n";
+import { agentChatApi } from "@/services/api";
 import type { SessionRecord, WorkflowSessionRecord } from "@/types";
 import { Send, XCircle, Loader, MessageCircle, Clock, Bot } from "lucide-react";
 
@@ -8,8 +9,6 @@ interface AgentChatViewProps {
   runId?: string;
   sessions: Array<SessionRecord | WorkflowSessionRecord>;
 }
-
-const API_BASE = "/api";
 
 type SessionLite = {
   sessionId: string;
@@ -81,6 +80,15 @@ export function AgentChatView({ projectId, runId, sessions }: AgentChatViewProps
   const [finishReason, setFinishReason] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScope = useMemo(() => {
+    if (projectId) {
+      return { projectId } as const;
+    }
+    if (runId) {
+      return { runId } as const;
+    }
+    return null;
+  }, [projectId, runId]);
 
   const sessionItems = useMemo<SessionLite[]>(() => {
     const normalized = sessions
@@ -88,14 +96,11 @@ export function AgentChatView({ projectId, runId, sessions }: AgentChatViewProps
       .map((item) => ({
         sessionId: item.sessionId,
         role: item.role,
-        status: (item as { status?: string }).status,
-        createdAt: (item as { createdAt?: string }).createdAt,
-        updatedAt: (item as { updatedAt?: string }).updatedAt,
+        status: item.status,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
         lastActiveAt: item.lastActiveAt,
-        providerSessionId:
-          typeof (item as { providerSessionId?: string | null }).providerSessionId === "string"
-            ? (item as { providerSessionId?: string | null }).providerSessionId
-            : null
+        providerSessionId: typeof item.providerSessionId === "string" ? item.providerSessionId : null
       }));
     const byRole = new Map<string, SessionLite[]>();
     for (const item of normalized) {
@@ -144,31 +149,9 @@ export function AgentChatView({ projectId, runId, sessions }: AgentChatViewProps
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  function buildChatEndpoint(): string {
-    if (projectId) {
-      return `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-chat`;
-    }
-    if (runId) {
-      return `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/agent-chat`;
-    }
-    return "";
-  }
-
-  function buildInterruptEndpoint(sessionId: string): string {
-    if (projectId) {
-      return `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-chat/${encodeURIComponent(sessionId)}/interrupt`;
-    }
-    if (runId) {
-      return `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/agent-chat/${encodeURIComponent(sessionId)}/interrupt`;
-    }
-    return "";
-  }
-
   async function handleSend() {
     if (!selectedSession || !inputText.trim()) return;
-
-    const endpoint = buildChatEndpoint();
-    if (!endpoint) {
+    if (!chatScope) {
       setError("Missing chat scope: projectId or runId is required");
       return;
     }
@@ -192,22 +175,16 @@ export function AgentChatView({ projectId, runId, sessions }: AgentChatViewProps
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const response = await agentChatApi.stream(
+        chatScope,
+        {
           role: selectedSession.role,
           prompt,
           sessionId: selectedSession.sessionId,
           providerSessionId: selectedSession.providerSessionId
-        }),
-        signal: abortControllerRef.current.signal
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP ${response.status}`);
-      }
+        },
+        abortControllerRef.current.signal
+      );
 
       const reader = response.body?.getReader();
       if (!reader) {
@@ -344,12 +321,9 @@ export function AgentChatView({ projectId, runId, sessions }: AgentChatViewProps
       abortControllerRef.current.abort();
     }
 
-    if (activeSessionId) {
+    if (activeSessionId && chatScope) {
       try {
-        const endpoint = buildInterruptEndpoint(activeSessionId);
-        if (endpoint) {
-          await fetch(endpoint, { method: "POST" });
-        }
+        await agentChatApi.interrupt(chatScope, activeSessionId);
       } catch {
         // ignore interrupt errors
       }

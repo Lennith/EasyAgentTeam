@@ -14,6 +14,12 @@ import { composeSystemPrompt } from "./prompt-composer.js";
 import { resolveSkillPromptSegments } from "./skill-catalog.js";
 import { getDefaultShellType } from "../runtime-platform.js";
 import { resolveOrchestratorRolePromptSkillBundle } from "./orchestrator/shared/index.js";
+import {
+  normalizeMiniMaxRuntimeFailure,
+  serializeProviderLaunchError,
+  toProviderLaunchErrorPayload,
+  type ProviderLaunchErrorPayload
+} from "./provider-launch-error.js";
 
 const activeRunners = new Map<string, MiniMaxRunner>();
 
@@ -87,6 +93,7 @@ export interface MiniMaxRunResultInternal {
   logFile: string;
   sessionId?: string;
   error?: string;
+  providerError?: ProviderLaunchErrorPayload;
   response?: MiniMaxRunResult;
 }
 
@@ -665,7 +672,12 @@ export class MiniMaxRunner {
         response: result
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const normalizedProviderError = normalizeMiniMaxRuntimeFailure(error);
+      const errorMessage = normalizedProviderError
+        ? normalizedProviderError.message
+        : error instanceof Error
+          ? error.message
+          : String(error);
       await this.appendLog("stderr", `MiniMax run failed: ${errorMessage}`);
       await appendEvent(this.paths, {
         projectId: this.project.projectId,
@@ -677,7 +689,15 @@ export class MiniMaxRunner {
           exitCode: 1,
           timedOut: false,
           provider: "minimax",
-          error: errorMessage
+          error: errorMessage,
+          ...(normalizedProviderError
+            ? {
+                code: normalizedProviderError.code,
+                retryable: normalizedProviderError.retryable,
+                next_action: normalizedProviderError.nextAction,
+                details: normalizedProviderError.details ?? null
+              }
+            : {})
         },
         sessionId: this.request.sessionId,
         taskId: this.request.taskId
@@ -692,7 +712,8 @@ export class MiniMaxRunner {
         timedOut: false,
         logFile: this.getLogFile(),
         sessionId: this.request.sessionId,
-        error: errorMessage
+        error: normalizedProviderError ? serializeProviderLaunchError(normalizedProviderError) : errorMessage,
+        ...(normalizedProviderError ? { providerError: toProviderLaunchErrorPayload(normalizedProviderError) } : {})
       };
     } finally {
       if (this.agent) {

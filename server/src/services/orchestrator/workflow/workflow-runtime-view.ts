@@ -28,7 +28,6 @@ export function computeWorkflowRuntimeCounters(
     ready: 0,
     dispatched: 0,
     inProgress: 0,
-    mayBeDone: 0,
     blocked: 0,
     done: 0,
     canceled: 0
@@ -38,7 +37,6 @@ export function computeWorkflowRuntimeCounters(
     else if (task.state === "READY") counters.ready += 1;
     else if (task.state === "DISPATCHED") counters.dispatched += 1;
     else if (task.state === "IN_PROGRESS") counters.inProgress += 1;
-    else if (task.state === "MAY_BE_DONE") counters.mayBeDone += 1;
     else if (task.state === "BLOCKED_DEP") counters.blocked += 1;
     else if (task.state === "DONE") counters.done += 1;
     else if (task.state === "CANCELED") counters.canceled += 1;

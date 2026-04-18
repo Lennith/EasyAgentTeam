@@ -14,8 +14,8 @@ import {
 import { buildTaskAssignmentMessageForTask } from "../../task-actions/shared.js";
 import {
   buildNormalizedDispatchSelectionResult,
-  buildOrchestratorTaskSubtreePayload,
-  buildOrchestratorTaskSubtreeSummary
+  buildOrchestratorTaskRedispatchSummary,
+  buildOrchestratorTaskSubtreePayload
 } from "../shared/index.js";
 import type { DispatchKind, DispatchProjectInput, SessionDispatchResult } from "./project-orchestrator-types.js";
 import type { NormalizedDispatchSelectionResult, OrchestratorDispatchSelectionAdapter } from "../shared/contracts.js";
@@ -86,7 +86,7 @@ function buildSyntheticTaskDispatchMessage(
   return buildTaskAssignmentMessageForTask(project, task, {
     requestId: firstSourceMessage?.envelope.correlation.request_id,
     parentRequestId: firstSourceMessage?.envelope.correlation.parent_request_id,
-    summary: buildOrchestratorTaskSubtreeSummary(taskSubtree, task.lastSummary),
+    summary: buildOrchestratorTaskRedispatchSummary(task.state, taskSubtree, task.lastSummary),
     taskSubtree
   });
 }

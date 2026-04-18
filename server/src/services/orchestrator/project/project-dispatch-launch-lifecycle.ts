@@ -118,9 +118,26 @@ export function createProjectDispatchLaunchExecutionAdapter(
     },
     onFailure: async (launchContext: ProjectDispatchLaunchContext, error: unknown) => {
       const reason = resolveOrchestratorErrorMessage(error);
-      const markFailure =
-        isProviderLaunchError(error) && error.category === "config"
+      if (launchContext.input.dispatchKind === "message" && launchContext.input.selectedMessageIds.length > 0) {
+        await operations.releasePendingMessagesForRole(
+          launchContext.input.paths,
+          launchContext.input.project.projectId,
+          launchContext.input.session.role,
+          launchContext.input.selectedMessageIds
+        );
+      }
+      const isTransientProviderError =
+        isProviderLaunchError(error) && error.retryable && error.code === "PROVIDER_UPSTREAM_TRANSIENT_ERROR";
+      const markFailure = isProviderLaunchError(error)
+        ? error.category === "config"
           ? operations.markRunnerBlocked
+          : isTransientProviderError
+            ? (operations.markRunnerTransientError ?? operations.markRunnerRetryableError)
+            : launchContext.input.dispatchKind === "message"
+              ? operations.markRunnerRetryableError
+              : operations.markRunnerFatalError
+        : launchContext.input.dispatchKind === "message"
+          ? operations.markRunnerRetryableError
           : operations.markRunnerFatalError;
       await markFailure({
         dataRoot: context.dataRoot,
@@ -134,7 +151,14 @@ export function createProjectDispatchLaunchExecutionAdapter(
             : undefined,
         dispatchId: launchContext.dispatchId,
         provider: launchContext.providerId,
-        error: reason
+        error: reason,
+        ...(isTransientProviderError
+          ? {
+              code: error.code,
+              nextAction: error.nextAction,
+              rawStatus: error.details?.status as number | string | null | undefined
+            }
+          : {})
       });
       return {
         sessionId: launchContext.input.session.sessionId,

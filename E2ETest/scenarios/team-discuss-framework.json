@@ -64,7 +64,7 @@
       "task_kind": "EXECUTION",
       "priority": 90,
       "dependencies": ["task-discuss-lead-plan"],
-      "content": "Produce B's design proposal under docs/architecture/."
+      "content": "Produce B's design proposal under docs/architecture/. This draft task is DONE once the draft is delivered to the lead and reported complete; later cross-review or correction replies happen through discuss flow and do not keep this draft task open."
     },
     "task_design_c": {
       "task_id": "task-discuss-arch-c",
@@ -72,7 +72,7 @@
       "task_kind": "EXECUTION",
       "priority": 90,
       "dependencies": ["task-discuss-lead-plan"],
-      "content": "Produce C's design proposal under docs/architecture/."
+      "content": "Produce C's design proposal under docs/architecture/. This draft task is DONE once the draft is delivered to the lead and reported complete; later cross-review or correction replies happen through discuss flow and do not keep this draft task open."
     },
     "task_design_d": {
       "task_id": "task-discuss-arch-d",
@@ -80,7 +80,7 @@
       "task_kind": "EXECUTION",
       "priority": 90,
       "dependencies": ["task-discuss-lead-plan"],
-      "content": "Produce D's design proposal under docs/architecture/."
+      "content": "Produce D's design proposal under docs/architecture/. This draft task is DONE once the draft is delivered to the lead and reported complete; later cross-review or correction replies happen through discuss flow and do not keep this draft task open."
     },
     "task_alignment": {
       "task_id": "task-discuss-alignment",

@@ -32,7 +32,7 @@
           "taskId": { "type": "string" },
           "outcome": {
             "type": "string",
-            "enum": ["IN_PROGRESS", "BLOCKED_DEP", "MAY_BE_DONE", "DONE", "CANCELED"]
+            "enum": ["IN_PROGRESS", "BLOCKED_DEP", "DONE", "CANCELED"]
           },
           "summary": { "type": "string" },
           "blockers": {

@@ -1,6 +1,6 @@
 import { getRoleMessageStatus } from "../../../data/repository/project/role-message-status-repository.js";
 import type { ManagerToAgentMessage, ProjectRecord, TaskRecord } from "../../../domain/models.js";
-import { extractTaskIdFromMessage } from "../../orchestrator-dispatch-core.js";
+import { extractTaskIdFromMessage, readMessageTypeUpper } from "../../orchestrator-dispatch-core.js";
 import { resolveOrchestratorDispatchCandidate } from "../shared/index.js";
 import type { DispatchKind } from "./project-orchestrator-types.js";
 
@@ -19,6 +19,15 @@ export interface ProjectDispatchMessageSelectionResult {
   selectedTaskId: string;
   dispatchKind: DispatchKind;
   selectedTask: TaskRecord | null;
+}
+
+function isAutomaticTaskRedispatchMessage(message: ManagerToAgentMessage): boolean {
+  const body = message.body as Record<string, unknown>;
+  const messageType = readMessageTypeUpper(message);
+  if (messageType === "TASK_ASSIGNMENT" || messageType === "TASK_CREATOR_TERMINAL_REPORT") {
+    return true;
+  }
+  return messageType === "MANAGER_MESSAGE" && typeof body.reminder === "object" && body.reminder !== null;
 }
 
 export function resolveProjectDispatchMessageSelection(

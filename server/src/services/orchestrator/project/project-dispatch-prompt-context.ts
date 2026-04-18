@@ -46,13 +46,7 @@ class ProjectDispatchPromptFrameBuilder implements OrchestratorPromptFrameBuilde
         : input.project.workspacePath,
       focusTaskId: focusTask?.taskId ?? input.taskId ?? null,
       visibleActionableTasks: visibleRoleTasks
-        .filter(
-          (item) =>
-            item.state === "READY" ||
-            item.state === "DISPATCHED" ||
-            item.state === "IN_PROGRESS" ||
-            item.state === "MAY_BE_DONE"
-        )
+        .filter((item) => item.state === "READY" || item.state === "DISPATCHED" || item.state === "IN_PROGRESS")
         .map((item) => `${item.taskId}(${item.state})`),
       visibleBlockedTasks: visibleRoleTasks
         .filter((item) => item.state === "BLOCKED_DEP")

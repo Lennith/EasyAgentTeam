@@ -13,8 +13,9 @@ import {
 } from "../../orchestrator-dispatch-core.js";
 import {
   buildOrchestratorTaskAssignmentMessage,
+  buildOrchestratorTaskRedispatchSummary,
   buildOrchestratorTaskSubtreePayload,
-  buildOrchestratorTaskSubtreeSummary,
+  type OrchestratorDispatchCandidate,
   resolveOrchestratorDispatchCandidate
 } from "../shared/index.js";
 
@@ -107,7 +108,7 @@ function buildSyntheticWorkflowTaskMessage(
     expect: "TASK_REPORT",
     assignmentTaskId: taskId,
     title: task.resolvedTitle,
-    summary: buildOrchestratorTaskSubtreeSummary(taskSubtree, runtimeTask.lastSummary),
+    summary: buildOrchestratorTaskRedispatchSummary(runtimeTask.state, taskSubtree, runtimeTask.lastSummary),
     task: {
       taskId,
       parentTaskId: task.parentTaskId ?? null,
@@ -158,9 +159,7 @@ export async function resolveWorkflowDispatchRoleSelection(
   const runnableRoleTasks = roleTasks.filter(
     (task) =>
       task.state === "READY" ||
-      (input.force &&
-        input.taskFilter === task.taskId &&
-        (task.state === "DISPATCHED" || task.state === "IN_PROGRESS" || task.state === "MAY_BE_DONE"))
+      (input.force && input.taskFilter === task.taskId && (task.state === "DISPATCHED" || task.state === "IN_PROGRESS"))
   );
 
   const candidate = resolveOrchestratorDispatchCandidate({

@@ -35,7 +35,7 @@ export function buildWorkflowDispatchPrompt(context: WorkflowDispatchPromptConte
     "3) Use TeamTool task actions from the runtime tool registry only (task_create_assign / task_report_* / discuss_*).",
     "4) Focus task first: prioritize this-turn focus task over other visible tasks.",
     "5) Non-focus task report is allowed only when dependencies are already satisfied; treat it as non-preferred side work.",
-    "6) Never report IN_PROGRESS/DONE/MAY_BE_DONE for tasks whose dependencies are not ready.",
+    "6) Never report IN_PROGRESS/DONE for tasks whose dependencies are not ready.",
     "7) If report fails due to dependencies, wait for dependency completion signal/reminder and then retry; retract or downgrade conflicting premature completion claims to draft.",
     "8) If blocked, report BLOCKED_DEP with concrete blockers.",
     "9) On completion, report DONE for the phase task, not only subtasks.",

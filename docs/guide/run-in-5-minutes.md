@@ -1,0 +1,49 @@
+﻿# 5 分钟上手（最后更新：2026-04-16）
+
+这条路径面向第一次接触仓库的人，目标是在最短时间内使用项目专用建项目 Agent 初始化一个可用工作区。
+
+## 前置条件
+
+- Node.js 20+
+- pnpm 9+
+- PowerShell
+
+## 步骤
+
+1. 安装依赖。
+
+```powershell
+pnpm i
+```
+
+2. 启动后端和 Dashboard。
+
+```powershell
+pnpm dev
+```
+
+3. 使用项目专用建项目 Agent 初始化工作区。
+
+```powershell
+pnpm agent-workspace -- init --goal "build a first project workspace" --base-url http://127.0.0.1:43123 --workspace .\tmp\project-builder-workspace
+```
+
+4. 进入生成的工作区，按本地 TemplateAgent 提交流程检查和发布。
+
+```powershell
+node .\tmp\project-builder-workspace\.agent-tools\scripts\template_bundle_guard.mjs check
+node .\tmp\project-builder-workspace\.agent-tools\scripts\template_bundle_guard.mjs publish
+```
+
+## 成功标志
+
+- Dashboard 可以访问
+- 初始化工作区生成成功
+- `template_bundle_guard` 检查通过
+- 发布结果里能看到模板或项目注册成功
+
+## 下一步
+
+- 看项目文档：[what-is-this.md](./what-is-this.md)
+- 看外部 Agent 工作区说明：[agent-workspace.guide.md](./agent-workspace.guide.md)
+- 做 E2E 验证：[../../E2ETest/README.md](../../E2ETest/README.md)

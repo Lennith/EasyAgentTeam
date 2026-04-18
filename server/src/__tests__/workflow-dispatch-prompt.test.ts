@@ -63,6 +63,6 @@ test("workflow dispatch prompt includes team/shared workspace contract", async (
   assert.match(prompt, /Focus task id \(this turn\): task_a/);
   assert.match(prompt, /This turn should operate on: task_a/);
   assert.match(prompt, /Visible blocked tasks \(same role\):/);
-  assert.match(prompt, /Never report IN_PROGRESS\/DONE\/MAY_BE_DONE for tasks whose dependencies are not ready/);
+  assert.match(prompt, /Never report IN_PROGRESS\/DONE for tasks whose dependencies are not ready/);
   assert.match(prompt, /Non-focus task report is allowed only when dependencies are already satisfied/);
 });

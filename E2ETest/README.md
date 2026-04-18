@@ -1,265 +1,73 @@
-# E2E Baseline Regression
+﻿# E2E 场景说明（最后更新：2026-04-16）
 
-This folder is the official scenario entry for orchestration validation, not an auxiliary test set.
+本目录只描述当前有效的场景脚本、官方 baseline 口径，以及辅助验证入口。
 
-## Scope
+## 官方 Baseline
 
-Supported baseline scripts:
+正式 baseline 只包含 3 个主场景：
 
 - `E2ETest/scripts/run-standard-e2e.ps1`
 - `E2ETest/scripts/run-discuss-e2e.ps1`
 - `E2ETest/scripts/run-workflow-e2e.ps1`
+- 聚合入口：`E2ETest/scripts/run-multi-e2e.ps1`
+
+当前 baseline 默认使用 mixed-provider `agent_model_matrix`：
+
+- 每个主场景都同时覆盖 `codex` 与 `minimax`
+- `codex` 默认模型：`gpt-5.4` + `medium`
+- `minimax` 默认模型：`MiniMax-M2.7-High-speed` + `high`
+- `-ProviderId codex|minimax` 只作为诊断强制覆盖，不是正式 baseline 口径
+
+## Auxiliary / Template 场景
+
+以下脚本保留为辅助或模板验证入口，不属于正式 release baseline：
+
 - `E2ETest/scripts/run-template-agent-e2e.ps1`
+- `E2ETest/scripts/run-external-agent-3dof-e2e.ps1`
+- `E2ETest/scripts/run-workflow-loop-30-validation.ps1`
 
-Coverage is scenario-first:
+## 设计边界
 
-- reminder behavior is validated inside all three baselines
-- skill import and runtime skill usage are validated inside workflow baseline
-- mechanism-only scripts are intentionally excluded from baseline entry
-- no standalone reminder-only or skill-import-only official E2E entry is maintained
-- all three baseline scripts accept `-ProviderId minimax|codex` as a diagnostic force-override
-- baseline default is mixed-provider `agent_model_matrix`
-- each baseline case must exercise both `codex` and `minimax`
-- `pnpm e2e:baseline` is the formal mixed baseline entry; `pnpm e2e:codex-parity` remains a diagnostic all-Codex override
+- reminder、redispatch、repair、timeout recovery 等机制必须在主场景内验证
+- 不新增 reminder-only、skill-import-only 之类 mechanism-only E2E
+- release gate 的正式上线检测规则以仓库根 `AGENTS.md` 为准
+- 本文档只说明脚本用途、场景覆盖和预期产物，不承担正式 release gate 规则定义
 
-## What Each E2E Validates
+## Provider / Model 隔离边界
 
-- `standard`: project dependency-chain orchestration and close-loop completion
-- `discuss`: multi-agent architecture discussion and convergence flow
-- `workflow`: workflow template/run/session orchestration plus skill injection evidence
-- `template-agent`: static TemplateAgent workspace fixture publish flow (`workflow + project` two-case serial run)
-- `multi`: aggregate launcher for the official mixed baseline `standard + discuss + workflow`
+- baseline 脚本优先通过 scenario `agent_model_matrix`、agent 默认模型和 project/workflow role 配置来控制 provider/model
+- `codex` 路径不依赖全局 `/api/settings` 模型项
+- 由于当前 server 的 `minimax` 运行时仍会优先读取 runtime settings 里的 `minimaxModel`，mixed baseline 在包含 `minimax` 时仍会做最小必要的全局 `minimaxModel` patch
+- `run-standard-e2e.ps1` 和 `run-discuss-e2e.ps1` 只会在确实需要 `minimax` 且当前模型不匹配时 patch `minimaxModel`
+- `run-workflow-e2e.ps1` 默认也只 patch `minimaxModel`；只有显式传入 `-MiniMaxApiKeyOverride`、`-MiniMaxApiBaseOverride` 或 `-ClearMiniMaxSettings` 时，才会额外 patch 凭证/base
+- 如果测试前没有显式配置 `minimaxModel`，restore 会回到 server 当前默认 MiniMax 模型，而不会把 E2E 测试模型残留在全局 settings
+- 三个主脚本都会在 artifact 目录输出 `settings_isolation_audit.json`，记录 apply/restore 边界
 
-## E2E Usage Template
+## 主场景覆盖
 
-Use the same structure for every scenario:
+- `standard`：project 依赖链、任务派发、收敛闭环
+- `discuss`：多角色讨论流与收敛
+- `workflow`：template -> run -> sessions -> dispatch -> convergence，以及 skill 生效证据
+- `multi`：聚合 `standard + discuss + workflow`
+- `template-agent`：辅助静态模板工作区校验，不计入正式 baseline
 
-1. Purpose
-2. Prerequisites
-3. Config to replace
-4. Command
-5. Expected result
-6. Common failure points
-
-### Standard Baseline (`run-standard-e2e.ps1`)
-
-1. Purpose
-
-- Validate project-mode dependency, dispatch, reminder, and close-loop completion.
-
-2. Prerequisites
-
-- backend is running and reachable at `BaseUrl`
-- provider setup is available (default scenario uses mixed-provider `agent_model_matrix`)
-
-3. Config to replace
-
-- `BaseUrl`
-- `WorkspaceRoot`
-- `ScenarioPath` (if using custom scenario)
-- scenario fields: `agent_model_matrix`, `route_table`, `task_assign_route_table`, `route_discuss_rounds`
-
-4. Command
+## 常用命令
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1
-```
-
-Forced single-provider diagnostic:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-standard-e2e.ps1 -ProviderId codex
-```
-
-5. Expected result
-
-- terminal includes `runtime_pass=True` and `analysis_pass=True`
-- artifacts include `run_summary.md`, `task_tree_final.json`, and `events.ndjson`
-- dashboard `Projects -> task-tree / timeline` matches artifacts
-
-6. Common failure points
-
-- provider is unavailable or key/base/model is not configured
-- workspace path is not writable
-- role/route mismatch in scenario prevents convergence
-
-### Discuss Baseline (`run-discuss-e2e.ps1`)
-
-1. Purpose
-
-- Validate multi-role discussion path, discuss-round policy, and convergence.
-
-2. Prerequisites
-
-- backend and provider are available
-
-3. Config to replace
-
-- `BaseUrl`
-- `WorkspaceRoot`
-- `ScenarioPath`
-- scenario fields: `agent_model_matrix`, discuss routing, and round policy
-
-4. Command
-
-```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-discuss-e2e.ps1
-```
-
-Forced single-provider diagnostic:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-discuss-e2e.ps1 -ProviderId codex
-```
-
-5. Expected result
-
-- terminal run closes normally
-- discussion traffic is visible in timeline
-- artifacts include `run_summary.md` and analysis outputs
-
-6. Common failure points
-
-- route/discuss-round policy mismatch
-- provider latency causing timeout
-
-### Workflow Baseline (`run-workflow-e2e.ps1`)
-
-1. Purpose
-
-- Validate workflow end-to-end (`template -> run -> sessions -> dispatch -> convergence`) and skill injection path.
-
-2. Prerequisites
-
-- backend and provider are available
-- if skill probe is enabled, `/api/skills/import` source path is readable
-
-3. Config to replace
-
-- `BaseUrl`
-- `WorkspaceRoot`
-- `ScenarioPath`
-- scenario fields: `agent_model_matrix`, route config, `skill_probe`, bound role skill list
-
-4. Command
-
-```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1
-```
-
-Forced single-provider diagnostic:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 -ProviderId codex
-```
-
-Setup-only smoke:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-workflow-e2e.ps1 `
-  -WorkspaceRoot "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace" `
-  -SetupOnly
-```
-
-5. Expected result
-
-- `run_summary.md` includes `runtime_pass=True`
-- pass gate is process-first: run is `finished`, main phases are `DONE`, phase dependency order is valid, no running sessions remain
-- code output validation passes (`code_output_requirements` in scenario)
-- official mixed baseline also expects workflow telemetry to stay green:
-  - `artifact_validation_pass=True`
-  - `subtask_stats_overall_pass=True`
-  - `skill_probe_pass=True`
-  - `provider_session_audit_pass=True`
-  - `provider_activity_pass=True`
-- workflow script should exit non-zero when the official mixed-baseline telemetry set above is `False`
-- reminder probe remains a telemetry export; a `False` reminder result still requires investigation but does not by itself fail the workflow case
-- timeline and task-runtime terminal states are consistent
-
-6. Common failure points
-
-- skill import path invalid or bound role mismatch
-- provider setup missing so sessions cannot start
-
-### Multi Baseline (`run-multi-e2e.ps1`)
-
-1. Purpose
-
-- Run the official mixed baseline `chain + discuss + workflow` in one command.
-
-2. Prerequisites
-
-- all baseline prerequisites are satisfied
-
-3. Config to replace
-
-- `BaseUrl`
-- each case workspace root
-- optional `Cases` selection
-
-4. Command
-
-```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1
 ```
 
-Forced single-provider diagnostic:
+单 provider 诊断覆盖：
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 -ProviderId codex
+PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-multi-e2e.ps1 -ProviderId minimax
 ```
 
-5. Expected result
-
-- all selected cases show `[done]`
-- default baseline resolves both `codex` and `minimax` inside each primary case
-- any case failure returns non-zero for the whole run
-
-6. Common failure points
-
-- one case has provider/path issue and fails aggregate run
-
-### TemplateAgent Baseline (`run-template-agent-e2e.ps1`)
-
-1. Purpose
-
-- Validate static `TemplateAgentWorkspace` fixture flow end-to-end:
-  - workflow case: `check -> publish -> start run -> finish`
-  - project case: `check -> publish -> registration verification`
-
-2. Prerequisites
-
-- backend is running and reachable at `BaseUrl`
-- repository root contains static workspace `TemplateAgentWorkspace/`
-
-3. Config to replace
-
-- `BaseUrl`
-- `WorkspaceRoot` (optional)
-- `DataRoot` (optional, default `data/`)
-- `MaxSeconds`
-
-4. Command
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-template-agent-e2e.ps1
-```
-
-5. Expected result
-
-- both sub-cases finish with `pass` or `pass_with_event_gap`
-- artifacts output includes:
-  - `template_agent_e2e_results.json|md`
-  - `workflow.result.json|md`
-  - `project.result.json|md`
-
-6. Common failure points
-
-- static workspace missing or corrupted
-- publish conflict from duplicated IDs
-- workflow run cannot reach terminal state in timeout
-
-## Default Scenarios
+## 默认 Scenario
 
 - `E2ETest/scenarios/a-self-decompose-chain.json`
 - `E2ETest/scenarios/team-discuss-framework.json`
@@ -267,30 +75,19 @@ PowerShell -ExecutionPolicy Bypass -File .\E2ETest\scripts\run-template-agent-e2
 - `E2ETest/scenarios/workflow-external-agent-3dof.json`
 - `E2ETest/scenarios/template-agent-two-case.json`
 
-Scenario files include probe metadata:
-
-- `reminder_probe`
-- `skill_probe` (workflow)
-
-## Artifacts
-
-Project baselines:
-
-- `<workspace>\docs\e2e\<timestamp>\`
-
-Workflow baseline:
-
-- `<workspace>\docs\e2e\<timestamp>-workflow-observer\`
-
-Common outputs:
+## 主场景公共产物
 
 - `run_summary.md`
-- `events.ndjson` or `workflow_events.jsonl`
-- `task_tree_final.json` or `workflow_task_tree_runtime.json`
-- `sessions_final.json` or `workflow_sessions.json`
-- `reminder_probe.json` or `workflow_reminder_probe.json`
+- `events.ndjson` 或 `workflow_events.jsonl`
+- `task_tree_final.json` 或 `workflow_task_tree_runtime.json`
+- `sessions_final.json` 或 `workflow_sessions.json`
+- `reminder_probe.json` 或 `workflow_reminder_probe.json`
+- `settings_isolation_audit.json`
+- `provider_matrix_resolved.json`
+- `provider_session_audit.json`
+- `provider_activity_summary.json`
 
-Workflow extra outputs:
+## Workflow 额外产物
 
 - `workflow_skill_import.json`
 - `workflow_skill_validation.json`
@@ -300,22 +97,31 @@ Workflow extra outputs:
 - `workflow_subtask_dependency_validation.json`
 - `workflow_code_output_validation.json`
 - `workflow_agent_subtask_stats.json`
+- `workflow_perf_trace.jsonl`
+- `workflow_perf_summary.json`
+- `workflow_perf_report.md`
 
-Template-agent outputs:
+## Template / Auxiliary 产物
 
 - `template_agent_e2e_results.json`
 - `template_agent_e2e_results.md`
 - `workflow.result.json`
 - `project.result.json`
 
-## Cleanup Script
+## 正式 mixed baseline 的通过观察点
 
-Safe cleanup for historical template-agent test artifacts and test data:
+- `workflow` 需要 `artifact_validation_pass=True`
+- `workflow` 需要 `subtask_stats_overall_pass=True`
+- `workflow` 需要 `skill_probe_pass=True`
+- `workflow` 需要 `provider_session_audit_pass=True`
+- `workflow` 需要 `provider_activity_pass=True`
+
+## Cleanup Script
 
 ```powershell
 node .\E2ETest\scripts\cleanup-template-agent-test-data.mjs
 node .\E2ETest\scripts\cleanup-template-agent-test-data.mjs --confirm
 ```
 
-- default is dry-run
-- cleanup scope is repo-local allowlist paths + data IDs matching configured prefixes
+- 默认是 dry-run
+- cleanup scope 只清理 allowlist 路径和测试前缀数据

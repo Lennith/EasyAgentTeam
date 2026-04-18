@@ -55,7 +55,7 @@ export async function applyWorkflowTaskReportMutation<TState extends WorkflowTas
       });
       continue;
     }
-    const target = parseOrchestratorTaskReportOutcome(result.outcome, { allowMayBeDone: true });
+    const target = parseOrchestratorTaskReportOutcome(result.outcome);
     if (!target) {
       state.rejectedResults.push({
         taskId: result.taskId,

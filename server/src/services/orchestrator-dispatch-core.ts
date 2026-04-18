@@ -23,7 +23,7 @@ export interface TaskDispatchSelection<TMessage extends DispatchMessageLike> {
   dispatchKind: "task" | "message";
 }
 
-const REMINDABLE_TASK_STATES = new Set(["READY", "DISPATCHED", "IN_PROGRESS", "MAY_BE_DONE"]);
+const REMINDABLE_TASK_STATES = new Set(["READY", "DISPATCHED", "IN_PROGRESS"]);
 
 export function extractTaskIdFromMessage<TMessage extends DispatchMessageLike>(message: TMessage): string | undefined {
   const payload = message.body ?? {};

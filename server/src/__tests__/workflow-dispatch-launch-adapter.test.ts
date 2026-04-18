@@ -3,7 +3,7 @@ import test from "node:test";
 import { WorkflowDispatchLaunchAdapter } from "../services/orchestrator/workflow/workflow-dispatch-launch-adapter.js";
 import { ProviderLaunchError } from "../services/provider-launch-error.js";
 
-test("workflow dispatch launch adapter dismisses session when minimax is not configured", async () => {
+test("workflow dispatch launch adapter blocks session when minimax is not configured", async () => {
   const emitted: Array<{ kind: string; scope: unknown; details: unknown }> = [];
   const touchedSessions: Array<{ runId: string; sessionId: string; patch: Record<string, unknown> }> = [];
   let runSessionCalled = false;
@@ -128,12 +128,13 @@ test("workflow dispatch launch adapter dismisses session when minimax is not con
       runId: "run-1",
       sessionId: "session-1",
       patch: {
-        status: "dismissed",
+        status: "blocked",
         errorStreak: 3,
         lastFailureAt: touchedSessions[0]?.patch.lastFailureAt,
         lastFailureKind: "error",
         cooldownUntil: null,
-        agentPid: null
+        agentPid: null,
+        lastRunId: "run-1"
       }
     }
   ]);
@@ -232,6 +233,115 @@ test("workflow dispatch launch adapter blocks session on provider config error",
   );
   assert.equal(touchedSessions.length, 1);
   assert.equal(touchedSessions[0]?.patch.status, "blocked");
+});
+
+test("workflow dispatch launch adapter keeps transient provider errors retryable with cooldown", async () => {
+  const emitted: Array<{ kind: string; scope: unknown; details: unknown }> = [];
+  const appendedEvents: Array<Record<string, unknown>> = [];
+  const touchedSessions: Array<{ runId: string; sessionId: string; patch: Record<string, unknown> }> = [];
+  const originalCooldown = process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS;
+  process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS = "30000";
+
+  try {
+    const adapter = new WorkflowDispatchLaunchAdapter(
+      {
+        dataRoot: "C:\\memory",
+        providerRegistry: {
+          runSessionWithTools: async () => {
+            throw new ProviderLaunchError({
+              code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+              category: "runtime",
+              retryable: true,
+              message: "MiniMax upstream returned transient status 529.",
+              nextAction: "Wait for cooldown and retry the same task/message dispatch.",
+              details: {
+                status: 529
+              }
+            });
+          }
+        } as any,
+        repositories: {
+          sessions: {
+            touchSession: async (runId: string, sessionId: string, patch: Record<string, unknown>) => {
+              touchedSessions.push({ runId, sessionId, patch });
+            },
+            getSession: async () => ({ errorStreak: 1 })
+          },
+          events: {
+            appendEvent: async (_runId: string, event: Record<string, unknown>) => {
+              appendedEvents.push(event);
+            },
+            listEvents: async () => []
+          }
+        } as any,
+        touchSessionHeartbeat: async () => {},
+        ensureRuntime: async () => ({ tasks: [] }) as any,
+        applyTaskActions: async () => ({ appliedTaskIds: [] }) as any,
+        sendRunMessage: async () => ({}),
+        eventAdapter: {
+          appendStarted: async () => {},
+          appendFinished: async () => {},
+          appendFailed: async (scope: unknown, details: unknown) => {
+            emitted.push({ kind: "failed", scope, details });
+          }
+        } as any
+      },
+      {
+        listAgents: async () =>
+          [
+            {
+              agentId: "lead",
+              prompt: "you are lead",
+              summary: "lead"
+            }
+          ] as any,
+        resolveSkillIdsForAgent: async () => [],
+        resolveImportedSkillPromptSegments: async () => ({ segments: [] }) as any,
+        getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+        ensureAgentWorkspaces: async () => ({ created: [], updated: [] }) as any,
+        buildDefaultRolePrompt: () => "default prompt"
+      }
+    );
+
+    await adapter.launch({
+      run: {
+        runId: "run-transient",
+        name: "Workflow Run",
+        workspacePath: "C:\\workspace\\wf",
+        createdAt: "2026-04-17T10:00:00.000Z",
+        updatedAt: "2026-04-17T10:00:00.000Z",
+        tasks: [{ ownerRole: "lead" }]
+      } as any,
+      session: {
+        sessionId: "session-transient",
+        role: "lead",
+        provider: "minimax",
+        errorStreak: 1
+      } as any,
+      role: "lead",
+      dispatchKind: "task",
+      taskId: "task-transient",
+      message: null,
+      requestId: "req-transient",
+      dispatchId: "dispatch-transient"
+    });
+
+    assert.equal(emitted.length, 1);
+    assert.equal(touchedSessions.length, 1);
+    assert.equal(touchedSessions[0]?.patch.status, "idle");
+    assert.equal(touchedSessions[0]?.patch.currentTaskId, "task-transient");
+    assert.equal(typeof touchedSessions[0]?.patch.cooldownUntil, "string");
+    assert.equal(
+      appendedEvents.some((event) => event.eventType === "RUNNER_TRANSIENT_ERROR_SOFT"),
+      true
+    );
+  } finally {
+    if (originalCooldown === undefined) {
+      delete process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS;
+    } else {
+      process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS = originalCooldown;
+    }
+  }
 });
 
 test("workflow dispatch launch adapter records codex provider observations", async () => {

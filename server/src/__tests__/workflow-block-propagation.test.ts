@@ -61,7 +61,7 @@ test("workflow dependency propagation moves blocked tasks to READY after depende
   }
 
   async function waitForTaskDoneEligible(taskIds: string[], timeoutMs: number) {
-    const reportableStates = new Set(["PLANNED", "READY", "DISPATCHED", "IN_PROGRESS", "MAY_BE_DONE"]);
+    const reportableStates = new Set(["PLANNED", "READY", "DISPATCHED", "IN_PROGRESS"]);
     const terminalStates = new Set(["DONE", "CANCELED"]);
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {

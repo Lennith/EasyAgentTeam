@@ -257,7 +257,6 @@ export function UpdateTaskView({ projectId, project, tasks, timeline, reload }: 
                     <option value="DISPATCHED">Dispatched</option>
                     <option value="IN_PROGRESS">In Progress</option>
                     <option value="BLOCKED_DEP">Blocked (Dependency)</option>
-                    <option value="MAY_BE_DONE">May Be Done</option>
                     <option value="DONE">Done</option>
                     <option value="CANCELED">Canceled</option>
                   </select>

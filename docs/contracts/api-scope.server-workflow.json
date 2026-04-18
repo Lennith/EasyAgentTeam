@@ -7,187 +7,169 @@
       "method": "GET",
       "path": "/api/workflow-orchestrator/status",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "GET",
       "path": "/api/workflow-templates",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "GET",
       "path": "/api/workflow-templates/:template_id",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "POST",
       "path": "/api/workflow-templates",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "PATCH",
       "path": "/api/workflow-templates/:template_id",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "DELETE",
       "path": "/api/workflow-templates/:template_id",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "GET",
       "path": "/api/workflow-runs",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "POST",
       "path": "/api/workflow-runs",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "GET",
       "path": "/api/workflow-runs/:run_id",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "POST",
       "path": "/api/workflow-runs/:run_id/start",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "POST",
       "path": "/api/workflow-runs/:run_id/stop",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "GET",
       "path": "/api/workflow-runs/:run_id/status",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "GET",
       "path": "/api/workflow-runs/:run_id/step-runtime",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "POST",
       "path": "/api/workflow-runs/:run_id/step-actions",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "GET",
       "path": "/api/workflow-runs/:run_id/task-tree-runtime",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Workflow_Runtime.md", "dashboard-v2/docs/Workflow_Mode_Backend_API.md"]
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "POST",
       "path": "/api/projects/:id/task-actions",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Task_Protocol.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/task-protocol.prd.md"]
     },
     {
       "method": "GET",
       "path": "/api/projects/:id/task-tree",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Task_Protocol.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/task-protocol.prd.md"]
     },
     {
       "method": "GET",
       "path": "/api/projects/:id/tasks/:task_id/detail",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Task_Protocol.md", "server/docs/PRD_Debug_Services.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/task-protocol.prd.md"]
     },
     {
       "method": "GET",
       "path": "/api/projects/:id/sessions",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Session_Management.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
     },
     {
       "method": "POST",
       "path": "/api/projects/:id/sessions",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Session_Management.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
     },
     {
       "method": "POST",
       "path": "/api/projects/:id/sessions/:session_id/dismiss",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Session_Management.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
     },
     {
       "method": "POST",
       "path": "/api/projects/:id/sessions/:session_id/repair",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Session_Management.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
     },
     {
       "method": "GET",
       "path": "/api/projects/:id/orchestrator/settings",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Orchestrator.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
     },
     {
       "method": "PATCH",
       "path": "/api/projects/:id/orchestrator/settings",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Orchestrator.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
     },
     {
       "method": "GET",
       "path": "/api/projects/:id/agent-io/timeline",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Debug_Services.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/debug-observability.prd.md"]
     },
     {
       "method": "POST",
       "path": "/api/projects/:id/messages/send",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Routing_Orchestration.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
     },
     {
       "method": "POST",
       "path": "/api/projects/:id/agent-chat",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Debug_Services.md", "server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/debug-observability.prd.md"]
     },
     {
       "method": "POST",
       "path": "/api/projects/:id/agent-chat/:sessionId/interrupt",
       "status": "active",
-      "docRefs": ["server/docs/PRD_Debug_Services.md", "server/docs/ServerPRD_Index.md"]
-    },
-    {
-      "method": "POST",
-      "path": "/api/projects/:id/agent-handoff",
-      "status": "retired",
-      "docRefs": ["server/docs/ServerPRD_Index.md"]
-    },
-    {
-      "method": "POST",
-      "path": "/api/projects/:id/reports",
-      "status": "retired",
-      "docRefs": ["server/docs/ServerPRD_Index.md"]
-    },
-    {
-      "method": "GET",
-      "path": "/api/projects/:id/tasks",
-      "status": "retired",
-      "docRefs": ["server/docs/ServerPRD_Index.md"]
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/debug-observability.prd.md"]
     }
   ]
 }

@@ -11,9 +11,11 @@ Use this skill only when you are editing or creating the workflow UI spec docume
 
 Preferred target paths:
 
+- `docs/ui/03_ui_spec.md`
 - `docs/ui/01_android_ui_spec.md`
 - `docs/ui/01_ui_spec.md`
 - `docs/design/ui/01_ui_spec.md`
+- `TeamWorkSpace/docs/ui/03_ui_spec.md`
 - `TeamWorkSpace/docs/ui/01_android_ui_spec.md`
 - `TeamWorkSpace/docs/ui/01_ui_spec.md`
 - `TeamWorkSpace/docs/design/ui/01_ui_spec.md`

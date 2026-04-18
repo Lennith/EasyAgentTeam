@@ -7,6 +7,7 @@ import { isMiniMaxRunnerActive } from "./minimax-runner.js";
 
 const DEFAULT_TIMEOUT_ESCALATION_THRESHOLD = 3;
 const DEFAULT_TIMEOUT_COOLDOWN_MS = 0;
+const DEFAULT_TRANSIENT_ERROR_COOLDOWN_MS = 30000;
 
 interface ResolveActiveSessionInput {
   dataRoot: string;
@@ -31,6 +32,12 @@ interface RunnerLifecycleBaseInput {
 
 interface RunnerErrorInput extends RunnerLifecycleBaseInput {
   error: string;
+}
+
+interface RunnerTransientErrorInput extends RunnerErrorInput {
+  code?: string;
+  nextAction?: string;
+  rawStatus?: number | string | null;
 }
 
 function parseTimestampMs(value: string | undefined): number {
@@ -72,6 +79,14 @@ export function getTimeoutCooldownMs(): number {
   const raw = Number(process.env.SESSION_TIMEOUT_COOLDOWN_MS ?? DEFAULT_TIMEOUT_COOLDOWN_MS);
   if (!Number.isFinite(raw) || raw < 0) {
     return DEFAULT_TIMEOUT_COOLDOWN_MS;
+  }
+  return Math.floor(raw);
+}
+
+export function getTransientErrorCooldownMs(): number {
+  const raw = Number(process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS ?? DEFAULT_TRANSIENT_ERROR_COOLDOWN_MS);
+  if (!Number.isFinite(raw) || raw < 0) {
+    return DEFAULT_TRANSIENT_ERROR_COOLDOWN_MS;
   }
   return Math.floor(raw);
 }
@@ -310,6 +325,89 @@ export async function markRunnerFatalError(input: RunnerErrorInput): Promise<Ses
       runId: input.runId ?? updated.lastRunId ?? null,
       dispatchId: input.dispatchId ?? updated.lastDispatchId ?? null,
       error: input.error
+    }
+  });
+  return updated;
+}
+
+export async function markRunnerRetryableError(input: RunnerErrorInput): Promise<SessionRecord | null> {
+  const existing = await getSession(input.paths, input.project.projectId, input.sessionId);
+  if (!existing) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  const errorStreak = (existing.errorStreak ?? 0) + 1;
+  const updated = await touchSession(input.paths, input.project.projectId, existing.sessionId, {
+    status: "idle",
+    currentTaskId: input.taskId ?? existing.currentTaskId ?? null,
+    lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
+    lastDispatchedAt: now,
+    providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
+    provider: input.provider ?? existing.provider ?? "minimax",
+    errorStreak,
+    lastFailureAt: now,
+    lastFailureKind: "error",
+    lastRunId: input.runId ?? existing.lastRunId,
+    lastDispatchId: input.dispatchId ?? existing.lastDispatchId,
+    cooldownUntil: null,
+    agentPid: null
+  });
+
+  await appendEvent(input.paths, {
+    projectId: input.project.projectId,
+    eventType: "RUNNER_RUNTIME_ERROR_SOFT",
+    source: "manager",
+    sessionId: updated.sessionId,
+    taskId: updated.currentTaskId,
+    payload: {
+      runId: input.runId ?? updated.lastRunId ?? null,
+      dispatchId: input.dispatchId ?? updated.lastDispatchId ?? null,
+      error: input.error
+    }
+  });
+  return updated;
+}
+
+export async function markRunnerTransientError(input: RunnerTransientErrorInput): Promise<SessionRecord | null> {
+  const existing = await getSession(input.paths, input.project.projectId, input.sessionId);
+  if (!existing) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  const errorStreak = (existing.errorStreak ?? 0) + 1;
+  const cooldownMs = getTransientErrorCooldownMs();
+  const cooldownUntil = cooldownMs <= 0 ? null : new Date(Date.now() + cooldownMs).toISOString();
+  const updated = await touchSession(input.paths, input.project.projectId, existing.sessionId, {
+    status: "idle",
+    currentTaskId: input.taskId ?? existing.currentTaskId ?? null,
+    lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
+    lastDispatchedAt: now,
+    providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
+    provider: input.provider ?? existing.provider ?? "minimax",
+    errorStreak,
+    lastFailureAt: now,
+    lastFailureKind: "error",
+    lastRunId: input.runId ?? existing.lastRunId,
+    lastDispatchId: input.dispatchId ?? existing.lastDispatchId,
+    cooldownUntil,
+    agentPid: null
+  });
+
+  await appendEvent(input.paths, {
+    projectId: input.project.projectId,
+    eventType: "RUNNER_TRANSIENT_ERROR_SOFT",
+    source: "manager",
+    sessionId: updated.sessionId,
+    taskId: updated.currentTaskId,
+    payload: {
+      runId: input.runId ?? updated.lastRunId ?? null,
+      dispatchId: input.dispatchId ?? updated.lastDispatchId ?? null,
+      error: input.error,
+      code: input.code ?? null,
+      retryable: true,
+      nextAction: input.nextAction ?? null,
+      rawStatus: input.rawStatus ?? null,
+      cooldownUntil
     }
   });
   return updated;

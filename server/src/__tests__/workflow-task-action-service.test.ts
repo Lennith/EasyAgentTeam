@@ -14,7 +14,6 @@ function buildSnapshot(tasks: Array<Record<string, unknown>>) {
       ready: 0,
       dispatched: 0,
       inProgress: 0,
-      mayBeDone: 0,
       blocked: 0,
       done: 0,
       canceled: 0

@@ -35,7 +35,6 @@ test("workflow runtime view builds snapshot and counters deterministically", () 
       ready: 1,
       dispatched: 0,
       inProgress: 0,
-      mayBeDone: 0,
       blocked: 1,
       done: 1,
       canceled: 0

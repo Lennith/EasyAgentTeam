@@ -155,7 +155,6 @@ export type { BuildOrchestratorToolSessionInput } from "./tool-session-input.js"
 export { buildOrchestratorToolSessionInput } from "./tool-session-input.js";
 export type { CollectOrchestratorRoleSetInput } from "./role-candidates.js";
 export { collectOrchestratorRoleSet, sortOrchestratorRoles } from "./role-candidates.js";
-export type { ParseOrchestratorTaskReportOutcomeOptions } from "./task-report-policy.js";
 export {
   buildOrchestratorDependencyNotReadyNextAction,
   getOrchestratorTaskReportOutcomeLabel,
@@ -164,13 +163,12 @@ export {
   normalizeOrchestratorTaskReportOutcomeToken,
   parseOrchestratorTaskReportOutcome
 } from "./task-report-policy.js";
-export type { OrchestratorCompletionEventLike, OrchestratorMayBeDoneSettings } from "./completion-policy.js";
+export type { OrchestratorCompletionEventLike } from "./completion-policy.js";
 export {
   countOrchestratorTaskDispatches,
   hasOrchestratorSuccessfulRunFinishEvent,
   isOrchestratorTerminalTaskState,
-  isOrchestratorValidProgressContent,
-  resolveOrchestratorMayBeDoneSettings
+  isOrchestratorValidProgressContent
 } from "./completion-policy.js";
 export type {
   BuildOrchestratorReminderMessageInput,
@@ -199,6 +197,7 @@ export {
 export type { OrchestratorTaskSubtreeNode } from "./task-subtree.js";
 export {
   buildOrchestratorTaskSubtreePayload,
+  buildOrchestratorTaskRedispatchSummary,
   buildOrchestratorTaskSubtreeSummary,
   hasOrchestratorUnresolvedDescendants
 } from "./task-subtree.js";

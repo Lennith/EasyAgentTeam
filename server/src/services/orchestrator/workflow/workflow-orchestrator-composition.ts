@@ -134,8 +134,6 @@ export function createWorkflowOrchestratorComposition(
       activeRunIds.delete(runId);
       transientState.clearRunScopedState(runId);
     },
-    loadRunOrThrow: (runId) => runtimeSupportService.loadRunOrThrow(runId),
-    readConvergedRuntime: (run) => runtimeSupportService.readConvergedRuntime(run),
     runWorkflowTransaction: (runId, operation) => runtimeSupportService.runWorkflowTransaction(runId, operation)
   });
 

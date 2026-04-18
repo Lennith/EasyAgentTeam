@@ -22,9 +22,7 @@ export async function resolveProjectTaskSelection(
   params: ResolveProjectTaskSelectionInput
 ): Promise<ProjectTaskSelectionResult> {
   const { repositories, project, paths, session, input, allTasks, prioritizedRunnableTasks, runnableTasks } = params;
-  let taskCandidate: TaskRecord | null = !input.force
-    ? (prioritizedRunnableTasks.find((task) => task.state !== "MAY_BE_DONE") ?? null)
-    : (prioritizedRunnableTasks[0] ?? null);
+  let taskCandidate: TaskRecord | null = prioritizedRunnableTasks[0] ?? null;
 
   if (!input.taskId) {
     return { status: "selected", task: taskCandidate };

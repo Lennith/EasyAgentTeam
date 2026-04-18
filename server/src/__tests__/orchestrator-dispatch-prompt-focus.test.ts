@@ -29,5 +29,5 @@ test("project dispatch prompt defines focus-task and dependency-ready reporting 
   assert.equal(source.includes("visible_blocked_tasks"), true);
   assert.equal(source.includes("focus_task_dependencies_ready"), true);
   assert.equal(source.includes("non-focus task reporting is allowed only when dependencies are already ready"), true);
-  assert.equal(source.includes("never report IN_PROGRESS/DONE/MAY_BE_DONE for dependency-blocked tasks"), true);
+  assert.equal(source.includes("never report IN_PROGRESS/DONE for dependency-blocked tasks"), true);
 });

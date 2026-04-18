@@ -1,6 +1,7 @@
 import type { ProjectRepositoryBundle } from "../../../data/repository/project/repository-bundle.js";
 import type { ProjectPaths, ProjectRecord, TaskRecord } from "../../../domain/models.js";
 import type { ProjectDispatchInput as ProviderProjectDispatchInput } from "../../provider-runtime.js";
+import { isProviderLaunchError, tryDeserializeProviderLaunchError } from "../../provider-launch-error.js";
 import type { DispatchKind, DispatchProjectInput, SessionDispatchResult } from "./project-orchestrator-types.js";
 import {
   ProjectDispatchEventAdapter,
@@ -77,7 +78,14 @@ interface ProjectDispatchRunOutcomeLike {
 }
 
 interface ProjectDispatchLifecycleDependencies {
-  operations: Pick<ProjectDispatchLaunchOperations, "markRunnerTimeout" | "markRunnerSuccess" | "markRunnerFatalError">;
+  operations: Pick<
+    ProjectDispatchLaunchOperations,
+    | "markRunnerTimeout"
+    | "markRunnerSuccess"
+    | "markRunnerRetryableError"
+    | "markRunnerTransientError"
+    | "markRunnerFatalError"
+  >;
   helpers: {
     buildRunnerPayload(
       context: ProjectDispatchLaunchContext,
@@ -339,7 +347,27 @@ export async function finalizeProjectDispatchRunLifecycle(
     return null;
   }
   const failedReason = input.error ?? `runner exited with code ${input.exitCode}`;
-  await dependencies.operations.markRunnerFatalError({
+  const providerError =
+    (isProviderLaunchError(input.error) ? input.error : undefined) ?? tryDeserializeProviderLaunchError(input.error);
+  if (providerError?.retryable && providerError.code === "PROVIDER_UPSTREAM_TRANSIENT_ERROR") {
+    const markTransientError =
+      dependencies.operations.markRunnerTransientError ?? dependencies.operations.markRunnerRetryableError;
+    await markTransientError({
+      ...runnerPayload,
+      providerSessionId: input.providerSessionId,
+      provider: input.provider,
+      error: providerError.message,
+      code: providerError.code,
+      nextAction: providerError.nextAction,
+      rawStatus: providerError.details?.status as number | string | null | undefined
+    });
+    return providerError.message;
+  }
+  const markFailure =
+    context.input.dispatchKind === "message"
+      ? dependencies.operations.markRunnerRetryableError
+      : dependencies.operations.markRunnerFatalError;
+  await markFailure({
     ...runnerPayload,
     providerSessionId: input.providerSessionId,
     provider: input.provider,

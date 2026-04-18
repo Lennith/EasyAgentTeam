@@ -1,14 +1,5 @@
 import { readPayloadString } from "./dispatch-engine.js";
 
-const DEFAULT_MAY_BE_DONE_DISPATCH_THRESHOLD = 5;
-const DEFAULT_MAY_BE_DONE_CHECK_WINDOW_MS = 60 * 60 * 1000;
-
-export interface OrchestratorMayBeDoneSettings {
-  enabled: boolean;
-  threshold: number;
-  windowMs: number;
-}
-
 export interface OrchestratorCompletionEventLike {
   eventType: string;
   taskId?: string | null;
@@ -20,17 +11,6 @@ function parsePositiveInteger(value: number, fallback: number): number {
     return fallback;
   }
   return Math.floor(value);
-}
-
-export function resolveOrchestratorMayBeDoneSettings(): OrchestratorMayBeDoneSettings {
-  const enabled = String(process.env.MAY_BE_DONE_ENABLED ?? "1").trim() !== "0";
-  const thresholdRaw = Number(process.env.MAY_BE_DONE_DISPATCH_THRESHOLD ?? DEFAULT_MAY_BE_DONE_DISPATCH_THRESHOLD);
-  const windowRaw = Number(process.env.MAY_BE_DONE_CHECK_WINDOW_MS ?? DEFAULT_MAY_BE_DONE_CHECK_WINDOW_MS);
-  return {
-    enabled,
-    threshold: parsePositiveInteger(thresholdRaw, DEFAULT_MAY_BE_DONE_DISPATCH_THRESHOLD),
-    windowMs: parsePositiveInteger(windowRaw, DEFAULT_MAY_BE_DONE_CHECK_WINDOW_MS)
-  };
 }
 
 export function isOrchestratorTerminalTaskState(state: string): boolean {

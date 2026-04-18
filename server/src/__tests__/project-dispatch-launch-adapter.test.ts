@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectDispatchLaunchAdapter } from "../services/orchestrator/project/project-dispatch-launch-adapter.js";
-import { ProviderLaunchError } from "../services/provider-launch-error.js";
+import { ProviderLaunchError, serializeProviderLaunchError } from "../services/provider-launch-error.js";
 
 test("project dispatch launch adapter handles sync task dispatch and terminal event emission", async () => {
   const launchCalls: Array<{ providerId: string; input: Record<string, unknown> }> = [];
   const taskPatches: Array<{ taskId: string; patch: Record<string, unknown> }> = [];
   const runnerStarted: unknown[] = [];
   const runnerSucceeded: unknown[] = [];
+  const retryableErrors: unknown[] = [];
+  let releaseCount = 0;
   const emitted: Array<{ kind: string; scope: unknown; details: unknown }> = [];
   let confirmCount = 0;
   let fatalErrorCalled = false;
@@ -84,6 +86,13 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
           pendingConfirmedMessages: []
         } as any;
       },
+      releasePendingMessagesForRole: async () => {
+        releaseCount += 1;
+        return {
+          confirmedMessageIds: [],
+          pendingConfirmedMessages: []
+        } as any;
+      },
       markRunnerStarted: async (payload: unknown) => {
         runnerStarted.push(payload);
         return null;
@@ -94,6 +103,10 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
       },
       markRunnerTimeout: async () => ({ escalated: false }) as any,
       markRunnerBlocked: async () => null,
+      markRunnerRetryableError: async (payload: unknown) => {
+        retryableErrors.push(payload);
+        return null;
+      },
       markRunnerFatalError: async () => {
         fatalErrorCalled = true;
         return null;
@@ -137,6 +150,8 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
   assert.equal(result.outcome, "dispatched");
   assert.equal(result.runId, "run-1");
   assert.equal(confirmCount, 1);
+  assert.equal(releaseCount, 0);
+  assert.equal(retryableErrors.length, 0);
   assert.equal(fatalErrorCalled, false);
   assert.equal(runnerStarted.length, 1);
   assert.equal(runnerSucceeded.length, 1);
@@ -257,6 +272,11 @@ test("project dispatch launch adapter resumes codex only when provider session i
           confirmedMessageIds: [],
           pendingConfirmedMessages: []
         }) as any,
+      releasePendingMessagesForRole: async () =>
+        ({
+          confirmedMessageIds: [],
+          pendingConfirmedMessages: []
+        }) as any,
       confirmPendingMessagesForRole: async () =>
         ({
           confirmedMessageIds: [],
@@ -266,6 +286,7 @@ test("project dispatch launch adapter resumes codex only when provider session i
       markRunnerSuccess: async () => null,
       markRunnerTimeout: async () => ({ escalated: false }) as any,
       markRunnerBlocked: async () => null,
+      markRunnerRetryableError: async () => null,
       markRunnerFatalError: async () => null
     }
   );
@@ -314,6 +335,7 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
   const emitted: Array<{ kind: string; scope: unknown; details: unknown }> = [];
   let addPendingCount = 0;
   let confirmCount = 0;
+  let releaseCount = 0;
 
   const adapter = new ProjectDispatchLaunchAdapter(
     {
@@ -397,6 +419,13 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
           pendingConfirmedMessages: []
         } as any;
       },
+      releasePendingMessagesForRole: async () => {
+        releaseCount += 1;
+        return {
+          confirmedMessageIds: [],
+          pendingConfirmedMessages: []
+        } as any;
+      },
       markRunnerStarted: async (payload: unknown) => {
         runnerStarted.push(payload);
         return null;
@@ -407,6 +436,7 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
       },
       markRunnerTimeout: async () => ({ escalated: false }) as any,
       markRunnerBlocked: async () => null,
+      markRunnerRetryableError: async () => null,
       markRunnerFatalError: async () => null
     }
   );
@@ -445,7 +475,8 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
   assert.equal(result.outcome, "dispatched");
   assert.equal(result.runId, "run-async-1");
   assert.equal(addPendingCount, 1);
-  assert.equal(confirmCount, 2);
+  assert.equal(confirmCount, 1);
+  assert.equal(releaseCount, 0);
   assert.equal(runnerStarted.length, 1);
   assert.equal(runnerSucceeded.length, 1);
   assert.deepEqual(emitted, [
@@ -476,6 +507,7 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
 test("project dispatch launch adapter blocks session on provider config error", async () => {
   const blocked: unknown[] = [];
   const fatal: unknown[] = [];
+  const retryable: unknown[] = [];
 
   const adapter = new ProjectDispatchLaunchAdapter(
     {
@@ -519,11 +551,16 @@ test("project dispatch launch adapter blocks session on provider config error", 
       },
       addPendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
       confirmPendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      releasePendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
       markRunnerStarted: async () => null,
       markRunnerSuccess: async () => null,
       markRunnerTimeout: async () => ({ escalated: false }) as any,
       markRunnerBlocked: async (payload: unknown) => {
         blocked.push(payload);
+        return null;
+      },
+      markRunnerRetryableError: async (payload: unknown) => {
+        retryable.push(payload);
         return null;
       },
       markRunnerFatalError: async (payload: unknown) => {
@@ -563,5 +600,553 @@ test("project dispatch launch adapter blocks session on provider config error", 
 
   assert.equal(result.outcome, "dispatch_failed");
   assert.equal(blocked.length, 1);
+  assert.equal(retryable.length, 0);
   assert.equal(fatal.length, 0);
+});
+
+test("project dispatch launch adapter keeps message dispatch retryable after async minimax transient failure", async () => {
+  const runnerStarted: unknown[] = [];
+  const retryableErrors: unknown[] = [];
+  const transientErrors: unknown[] = [];
+  const fatalErrors: unknown[] = [];
+  const emitted: Array<{ kind: string; details: unknown }> = [];
+  let addPendingCount = 0;
+  let confirmCount = 0;
+  let releaseCount = 0;
+
+  const adapter = new ProjectDispatchLaunchAdapter(
+    {
+      dataRoot: "C:\\memory",
+      providerRegistry: {
+        launchProjectDispatch: async (
+          providerId: string,
+          _project: unknown,
+          _paths: unknown,
+          _input: Record<string, unknown>,
+          _runtimeSettings: unknown,
+          callbacks?: {
+            wakeUpCallback?(sessionId: string, runId: string): Promise<void>;
+            completionCallback?(result: any, sessionId: string, runId: string): Promise<void>;
+          }
+        ) => {
+          assert.equal(providerId, "minimax");
+          await callbacks?.wakeUpCallback?.("session-minimax-msg", "run-async-msg");
+          await callbacks?.completionCallback?.(
+            {
+              finishedAt: "2026-03-28T12:05:00.000Z",
+              exitCode: 1,
+              timedOut: false,
+              sessionId: "provider-session-async-msg",
+              error: serializeProviderLaunchError(
+                new ProviderLaunchError({
+                  code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+                  category: "runtime",
+                  retryable: true,
+                  message: "MiniMax upstream returned transient status 529.",
+                  nextAction: "Wait for cooldown and retry the same task/message dispatch.",
+                  details: {
+                    status: 529
+                  }
+                })
+              )
+            },
+            "session-minimax-msg",
+            "run-async-msg"
+          );
+          return {
+            mode: "async" as const,
+            runId: "run-async-msg"
+          };
+        }
+      } as any,
+      repositories: {
+        taskboard: {
+          listTasks: async () => [],
+          patchTask: async () => {}
+        },
+        sessions: {
+          touchSession: async () => {}
+        },
+        events: {
+          appendEvent: async () => {},
+          listEvents: async () => []
+        }
+      } as any,
+      eventAdapter: {
+        appendStarted: async () => {},
+        appendFinished: async (_scope: unknown, details: unknown) => {
+          emitted.push({ kind: "finished", details });
+        },
+        appendFailed: async (_scope: unknown, details: unknown) => {
+          emitted.push({ kind: "failed", details });
+        }
+      } as any
+    },
+    {
+      now: () => "2026-03-28T12:00:00.000Z",
+      createDispatchId: () => "dispatch-async-msg",
+      getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+      prepareProjectDispatchLaunch: async () =>
+        ({
+          routingSnapshot: { routes: [] },
+          prompt: "dispatch prompt",
+          promptArtifactPath: "C:\\memory\\project-msg\\prompts\\dispatch-async-msg.md",
+          modelCommand: undefined,
+          modelParams: {}
+        }) as any,
+      addPendingMessagesForRole: async () => {
+        addPendingCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      confirmPendingMessagesForRole: async () => {
+        confirmCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      releasePendingMessagesForRole: async () => {
+        releaseCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      markRunnerStarted: async (payload: unknown) => {
+        runnerStarted.push(payload);
+        return null;
+      },
+      markRunnerSuccess: async () => null,
+      markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async () => null,
+      markRunnerRetryableError: async (payload: unknown) => {
+        retryableErrors.push(payload);
+        return null;
+      },
+      markRunnerTransientError: async (payload: unknown) => {
+        transientErrors.push(payload);
+        return null;
+      },
+      markRunnerFatalError: async (payload: unknown) => {
+        fatalErrors.push(payload);
+        return null;
+      }
+    }
+  );
+
+  const result = await adapter.launch({
+    project: { projectId: "project-msg" } as any,
+    paths: { projectRootDir: "C:\\memory\\project-msg" } as any,
+    session: {
+      sessionId: "session-msg",
+      role: "arch-b",
+      provider: "minimax"
+    } as any,
+    taskId: "task-discuss-alignment",
+    input: { mode: "manual" },
+    dispatchKind: "message",
+    selectedMessageIds: ["msg-discuss-1"],
+    messages: [] as any,
+    allTasks: [] as any,
+    firstMessage: {
+      envelope: {
+        message_id: "msg-discuss-1",
+        correlation: {
+          request_id: "req-msg-1"
+        }
+      }
+    } as any,
+    activeTask: null,
+    rolePromptMap: new Map([["arch-b", "role prompt"]]),
+    roleSummaryMap: new Map([["arch-b", "architect b"]]),
+    registeredAgentIds: ["arch-b"]
+  });
+
+  assert.equal(result.outcome, "dispatched");
+  assert.equal(addPendingCount, 1);
+  assert.equal(confirmCount, 0);
+  assert.equal(releaseCount, 1);
+  assert.equal(runnerStarted.length, 1);
+  assert.equal(retryableErrors.length, 0);
+  assert.equal(transientErrors.length, 1);
+  assert.equal(fatalErrors.length, 0);
+  assert.deepEqual(emitted, [
+    {
+      kind: "failed",
+      details: {
+        dispatchId: "dispatch-async-msg",
+        dispatchKind: "message",
+        requestId: "req-msg-1",
+        mode: "manual",
+        messageIds: ["msg-discuss-1"],
+        runId: "run-async-msg",
+        exitCode: 1,
+        timedOut: false,
+        startedAt: "2026-03-28T12:00:00.000Z",
+        finishedAt: "2026-03-28T12:05:00.000Z",
+        error: "MiniMax upstream returned transient status 529."
+      }
+    }
+  ]);
+});
+
+test("project dispatch launch adapter keeps task dispatch retryable after async minimax transient failure", async () => {
+  const transientErrors: unknown[] = [];
+  const fatalErrors: unknown[] = [];
+
+  const adapter = new ProjectDispatchLaunchAdapter(
+    {
+      dataRoot: "C:\\memory",
+      providerRegistry: {
+        launchProjectDispatch: async (
+          providerId: string,
+          _project: unknown,
+          _paths: unknown,
+          _input: Record<string, unknown>,
+          _runtimeSettings: unknown,
+          callbacks?: {
+            wakeUpCallback?(sessionId: string, runId: string): Promise<void>;
+            completionCallback?(result: any, sessionId: string, runId: string): Promise<void>;
+          }
+        ) => {
+          assert.equal(providerId, "minimax");
+          await callbacks?.wakeUpCallback?.("session-minimax-task", "run-async-task");
+          await callbacks?.completionCallback?.(
+            {
+              finishedAt: "2026-03-28T12:05:00.000Z",
+              exitCode: 1,
+              timedOut: false,
+              sessionId: "provider-session-async-task",
+              error: serializeProviderLaunchError(
+                new ProviderLaunchError({
+                  code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+                  category: "runtime",
+                  retryable: true,
+                  message: "MiniMax upstream returned transient status 529.",
+                  nextAction: "Wait for cooldown and retry the same task/message dispatch.",
+                  details: {
+                    status: 529
+                  }
+                })
+              )
+            },
+            "session-minimax-task",
+            "run-async-task"
+          );
+          return {
+            mode: "async" as const,
+            runId: "run-async-task"
+          };
+        }
+      } as any,
+      repositories: {
+        taskboard: {
+          listTasks: async () => [{ taskId: "task-async-529", state: "READY" }],
+          patchTask: async () => {}
+        },
+        sessions: {
+          touchSession: async () => {}
+        },
+        events: {
+          appendEvent: async () => {},
+          listEvents: async () => []
+        }
+      } as any,
+      eventAdapter: {
+        appendStarted: async () => {},
+        appendFinished: async () => {},
+        appendFailed: async () => {}
+      } as any
+    },
+    {
+      now: () => "2026-03-28T12:00:00.000Z",
+      createDispatchId: () => "dispatch-async-task",
+      getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+      prepareProjectDispatchLaunch: async () =>
+        ({
+          routingSnapshot: { routes: [] },
+          prompt: "dispatch prompt",
+          promptArtifactPath: "C:\\memory\\project-task\\prompts\\dispatch-async-task.md",
+          modelCommand: undefined,
+          modelParams: {}
+        }) as any,
+      addPendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      confirmPendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      releasePendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      markRunnerStarted: async () => null,
+      markRunnerSuccess: async () => null,
+      markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async () => null,
+      markRunnerRetryableError: async () => null,
+      markRunnerTransientError: async (payload: unknown) => {
+        transientErrors.push(payload);
+        return null;
+      },
+      markRunnerFatalError: async (payload: unknown) => {
+        fatalErrors.push(payload);
+        return null;
+      }
+    }
+  );
+
+  const result = await adapter.launch({
+    project: { projectId: "project-task" } as any,
+    paths: { projectRootDir: "C:\\memory\\project-task" } as any,
+    session: {
+      sessionId: "session-task",
+      role: "lead",
+      provider: "minimax"
+    } as any,
+    taskId: "task-async-529",
+    input: { mode: "manual" },
+    dispatchKind: "task",
+    selectedMessageIds: [],
+    messages: [] as any,
+    allTasks: [] as any,
+    firstMessage: {
+      envelope: {
+        message_id: "msg-task",
+        correlation: {
+          request_id: "req-task"
+        }
+      }
+    } as any,
+    activeTask: {
+      taskId: "task-async-529",
+      title: "Task 529"
+    } as any,
+    rolePromptMap: new Map([["lead", "role prompt"]]),
+    roleSummaryMap: new Map([["lead", "lead"]]),
+    registeredAgentIds: ["lead"]
+  });
+
+  assert.equal(result.outcome, "dispatched");
+  assert.equal(transientErrors.length, 1);
+  assert.equal(fatalErrors.length, 0);
+});
+
+test("project dispatch launch adapter releases message dispatch when minimax async launch throws before run creation", async () => {
+  const retryableErrors: unknown[] = [];
+  const blockedErrors: unknown[] = [];
+  const fatalErrors: unknown[] = [];
+  let addPendingCount = 0;
+  let confirmCount = 0;
+  let releaseCount = 0;
+
+  const adapter = new ProjectDispatchLaunchAdapter(
+    {
+      dataRoot: "C:\\memory",
+      providerRegistry: {
+        launchProjectDispatch: async () => {
+          throw new Error("529 overloaded_error");
+        }
+      } as any,
+      repositories: {
+        taskboard: {
+          listTasks: async () => [],
+          patchTask: async () => {}
+        },
+        sessions: {
+          touchSession: async () => {}
+        },
+        events: {
+          appendEvent: async () => {},
+          listEvents: async () => []
+        }
+      } as any,
+      eventAdapter: {
+        appendStarted: async () => {},
+        appendFinished: async () => {},
+        appendFailed: async () => {}
+      } as any
+    },
+    {
+      now: () => "2026-03-28T12:00:00.000Z",
+      createDispatchId: () => "dispatch-async-throw",
+      getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+      prepareProjectDispatchLaunch: async () =>
+        ({
+          routingSnapshot: { routes: [] },
+          prompt: "dispatch prompt",
+          promptArtifactPath: "C:\\memory\\project-msg\\prompts\\dispatch-async-throw.md",
+          modelCommand: undefined,
+          modelParams: {}
+        }) as any,
+      addPendingMessagesForRole: async () => {
+        addPendingCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      confirmPendingMessagesForRole: async () => {
+        confirmCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      releasePendingMessagesForRole: async () => {
+        releaseCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      markRunnerStarted: async () => null,
+      markRunnerSuccess: async () => null,
+      markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async (payload: unknown) => {
+        blockedErrors.push(payload);
+        return null;
+      },
+      markRunnerRetryableError: async (payload: unknown) => {
+        retryableErrors.push(payload);
+        return null;
+      },
+      markRunnerFatalError: async (payload: unknown) => {
+        fatalErrors.push(payload);
+        return null;
+      }
+    }
+  );
+
+  const result = await adapter.launch({
+    project: { projectId: "project-msg" } as any,
+    paths: { projectRootDir: "C:\\memory\\project-msg" } as any,
+    session: {
+      sessionId: "session-msg",
+      role: "arch-b",
+      provider: "minimax"
+    } as any,
+    taskId: "task-discuss-alignment",
+    input: { mode: "manual" },
+    dispatchKind: "message",
+    selectedMessageIds: ["msg-discuss-1"],
+    messages: [] as any,
+    allTasks: [] as any,
+    firstMessage: {
+      envelope: {
+        message_id: "msg-discuss-1",
+        correlation: {
+          request_id: "req-msg-1"
+        }
+      }
+    } as any,
+    activeTask: null,
+    rolePromptMap: new Map([["arch-b", "role prompt"]]),
+    roleSummaryMap: new Map([["arch-b", "architect b"]]),
+    registeredAgentIds: ["arch-b"]
+  });
+
+  assert.equal(result.outcome, "dispatch_failed");
+  assert.equal(addPendingCount, 1);
+  assert.equal(confirmCount, 0);
+  assert.equal(releaseCount, 1);
+  assert.equal(retryableErrors.length, 1);
+  assert.equal(blockedErrors.length, 0);
+  assert.equal(fatalErrors.length, 0);
+});
+
+test("project dispatch launch adapter releases message dispatch if terminal lifecycle fails after successful run", async () => {
+  const retryableErrors: unknown[] = [];
+  const fatalErrors: unknown[] = [];
+  let addPendingCount = 0;
+  let confirmCount = 0;
+  let releaseCount = 0;
+
+  const adapter = new ProjectDispatchLaunchAdapter(
+    {
+      dataRoot: "C:\\memory",
+      providerRegistry: {
+        launchProjectDispatch: async () => ({
+          mode: "sync" as const,
+          result: {
+            runId: "run-sync-msg",
+            exitCode: 0,
+            timedOut: false,
+            finishedAt: "2026-03-28T12:05:00.000Z",
+            sessionId: "provider-session-sync-msg"
+          }
+        })
+      } as any,
+      repositories: {
+        taskboard: {
+          listTasks: async () => [],
+          patchTask: async () => {}
+        },
+        sessions: {
+          touchSession: async () => {}
+        },
+        events: {
+          appendEvent: async () => {},
+          listEvents: async () => []
+        }
+      } as any,
+      eventAdapter: {
+        appendStarted: async () => {},
+        appendFinished: async () => {},
+        appendFailed: async () => {}
+      } as any
+    },
+    {
+      now: () => "2026-03-28T12:00:00.000Z",
+      createDispatchId: () => "dispatch-sync-msg",
+      getRuntimeSettings: async () => ({ codexCliCommand: "codex" }) as any,
+      prepareProjectDispatchLaunch: async () =>
+        ({
+          routingSnapshot: { routes: [] },
+          prompt: "dispatch prompt",
+          promptArtifactPath: "C:\\memory\\project-msg\\prompts\\dispatch-sync-msg.md",
+          modelCommand: undefined,
+          modelParams: {}
+        }) as any,
+      addPendingMessagesForRole: async () => {
+        addPendingCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      confirmPendingMessagesForRole: async () => {
+        confirmCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      releasePendingMessagesForRole: async () => {
+        releaseCount += 1;
+        return { confirmedMessageIds: [], pendingConfirmedMessages: [] } as any;
+      },
+      markRunnerStarted: async () => null,
+      markRunnerSuccess: async () => {
+        throw new Error("session persistence failed");
+      },
+      markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async () => null,
+      markRunnerRetryableError: async (payload: unknown) => {
+        retryableErrors.push(payload);
+        return null;
+      },
+      markRunnerFatalError: async (payload: unknown) => {
+        fatalErrors.push(payload);
+        return null;
+      }
+    }
+  );
+
+  const result = await adapter.launch({
+    project: { projectId: "project-msg" } as any,
+    paths: { projectRootDir: "C:\\memory\\project-msg" } as any,
+    session: {
+      sessionId: "session-msg",
+      role: "arch-b",
+      provider: "codex"
+    } as any,
+    taskId: "task-discuss-alignment",
+    input: { mode: "manual" },
+    dispatchKind: "message",
+    selectedMessageIds: ["msg-discuss-1"],
+    messages: [] as any,
+    allTasks: [] as any,
+    firstMessage: {
+      envelope: {
+        message_id: "msg-discuss-1",
+        correlation: {
+          request_id: "req-msg-1"
+        }
+      }
+    } as any,
+    activeTask: null,
+    rolePromptMap: new Map([["arch-b", "role prompt"]]),
+    roleSummaryMap: new Map([["arch-b", "architect b"]]),
+    registeredAgentIds: ["arch-b"]
+  });
+
+  assert.equal(result.outcome, "dispatch_failed");
+  assert.equal(addPendingCount, 1);
+  assert.equal(confirmCount, 0);
+  assert.equal(releaseCount, 1);
+  assert.equal(retryableErrors.length, 1);
+  assert.equal(fatalErrors.length, 0);
 });

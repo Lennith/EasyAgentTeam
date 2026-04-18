@@ -90,6 +90,34 @@ export async function confirmPendingMessagesForRole(
   return updated;
 }
 
+export async function releasePendingMessagesForRole(
+  paths: ProjectPaths,
+  projectId: string,
+  role: string,
+  messageIds?: readonly string[]
+): Promise<RoleMessageStatus> {
+  const project = await readProjectFromPaths(paths);
+  const current = getRoleMessageStatus(project, role);
+  const targetIds = messageIds && messageIds.length > 0 ? new Set(messageIds) : null;
+  const released = current.pendingConfirmedMessages.filter((item) =>
+    targetIds ? targetIds.has(item.messageId) : true
+  );
+  const retained = current.pendingConfirmedMessages.filter((item) =>
+    targetIds ? !targetIds.has(item.messageId) : false
+  );
+
+  const updated: RoleMessageStatus = {
+    ...current,
+    pendingConfirmedMessages: retained
+  };
+
+  logger.info(
+    `[releasePendingMessagesForRole] role=${role}, released ${released.length} pending messages back to inbox`
+  );
+  await updateRoleMessageStatus(paths, projectId, role, updated);
+  return updated;
+}
+
 export async function setLastDispatchedAtForRole(
   paths: ProjectPaths,
   projectId: string,

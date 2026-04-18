@@ -16,10 +16,7 @@ This repository is a `pnpm` monorepo for AutoDev task-driven collaboration.
 - Task query is `GET /api/projects/:id/task-tree`.
 - Auto dispatch config is `auto_dispatch_enabled` + `auto_dispatch_remaining`.
 - Discuss uses `TASK_DISCUSS_REQUEST|TASK_DISCUSS_REPLY|TASK_DISCUSS_CLOSED`.
-- Retired APIs remain retired:
-  - `POST /api/projects/:id/agent-handoff` -> `410`
-  - `POST /api/projects/:id/reports` -> `410`
-  - `GET /api/projects/:id/tasks` -> `410`
+- Legacy project task APIs have been removed and must not be reintroduced as compatibility stubs.
 
 ## Commands
 

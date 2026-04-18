@@ -5,17 +5,12 @@ const ORCHESTRATOR_REPORTABLE_TASK_STATES = new Set<TaskState>([
   "READY",
   "DISPATCHED",
   "IN_PROGRESS",
-  "BLOCKED_DEP",
-  "MAY_BE_DONE"
+  "BLOCKED_DEP"
 ]);
 
 const ORCHESTRATOR_RETIRED_TASK_REPORT_OUTCOMES = new Set(["PARTIAL", "BLOCKED", "FAILED"]);
 
 const ORCHESTRATOR_STABLE_TASK_REPORT_OUTCOMES = ["IN_PROGRESS", "BLOCKED_DEP", "DONE", "CANCELED"] as const;
-
-export interface ParseOrchestratorTaskReportOutcomeOptions {
-  allowMayBeDone?: boolean;
-}
 
 export function normalizeOrchestratorTaskReportOutcomeToken(outcome: string): string {
   return outcome.trim().toUpperCase();
@@ -25,17 +20,11 @@ export function isOrchestratorRetiredTaskReportOutcome(outcome: string): boolean
   return ORCHESTRATOR_RETIRED_TASK_REPORT_OUTCOMES.has(normalizeOrchestratorTaskReportOutcomeToken(outcome));
 }
 
-export function getOrchestratorTaskReportOutcomeLabel(options: ParseOrchestratorTaskReportOutcomeOptions = {}): string {
-  if (options.allowMayBeDone) {
-    return [...ORCHESTRATOR_STABLE_TASK_REPORT_OUTCOMES, "MAY_BE_DONE"].join("|");
-  }
+export function getOrchestratorTaskReportOutcomeLabel(): string {
   return ORCHESTRATOR_STABLE_TASK_REPORT_OUTCOMES.join("|");
 }
 
-export function parseOrchestratorTaskReportOutcome(
-  outcome: string,
-  options: ParseOrchestratorTaskReportOutcomeOptions = {}
-): TaskState | null {
+export function parseOrchestratorTaskReportOutcome(outcome: string): TaskState | null {
   const normalized = normalizeOrchestratorTaskReportOutcomeToken(outcome);
   if (normalized === "IN_PROGRESS") {
     return "IN_PROGRESS";
@@ -49,9 +38,6 @@ export function parseOrchestratorTaskReportOutcome(
   if (normalized === "CANCELED") {
     return "CANCELED";
   }
-  if (normalized === "MAY_BE_DONE" && options.allowMayBeDone) {
-    return "MAY_BE_DONE";
-  }
   return null;
 }
 
@@ -64,7 +50,7 @@ export function buildOrchestratorDependencyNotReadyNextAction(taskId: string, de
   return (
     `Task '${taskId}' is blocked by dependencies [${deps}]. ` +
     "Wait for dependencies to resolve first. " +
-    "Wait until they are DONE/CANCELED before reporting IN_PROGRESS/DONE/MAY_BE_DONE. " +
+    "Wait until they are DONE/CANCELED before reporting IN_PROGRESS/DONE. " +
     "If you already wrote conflicting completion claims, retract or downgrade them to draft until dependencies are ready."
   );
 }

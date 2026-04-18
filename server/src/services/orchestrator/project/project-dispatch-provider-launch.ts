@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   addPendingMessagesForRole,
-  confirmPendingMessagesForRole
+  confirmPendingMessagesForRole,
+  releasePendingMessagesForRole
 } from "../../../data/repository/project/role-message-status-repository.js";
 import {
   getRuntimeSettings,
@@ -10,6 +11,8 @@ import {
 import {
   markRunnerBlocked,
   markRunnerFatalError,
+  markRunnerRetryableError,
+  markRunnerTransientError,
   markRunnerStarted,
   markRunnerSuccess,
   markRunnerTimeout
@@ -46,10 +49,13 @@ export const defaultProjectDispatchLaunchOperations: ProjectDispatchLaunchOperat
   prepareProjectDispatchLaunch,
   addPendingMessagesForRole,
   confirmPendingMessagesForRole,
+  releasePendingMessagesForRole,
   markRunnerStarted,
   markRunnerSuccess,
   markRunnerTimeout,
   markRunnerBlocked,
+  markRunnerRetryableError,
+  markRunnerTransientError,
   markRunnerFatalError
 };
 
@@ -59,8 +65,6 @@ async function handleProjectMiniMaxWakeUp(
   sessionId: string,
   runId: string
 ): Promise<void> {
-  const { input } = context;
-  await dependencies.operations.confirmPendingMessagesForRole(input.paths, input.project.projectId, input.session.role);
   await dependencies.helpers.markTaskDispatchedIfNeeded(context);
   await dependencies.operations.markRunnerStarted({
     ...dependencies.helpers.buildRunnerPayload(context, runId, sessionId),
@@ -76,7 +80,6 @@ async function handleProjectMiniMaxCompletion(
   runId: string
 ): Promise<void> {
   const { input } = context;
-  await dependencies.operations.confirmPendingMessagesForRole(input.paths, input.project.projectId, input.session.role);
   const dispatchFailedReason = await finalizeProjectDispatchRunLifecycle(dependencies, context, {
     runId,
     sessionId,
@@ -93,6 +96,20 @@ async function handleProjectMiniMaxCompletion(
     timedOut: result.timedOut,
     finishedAt: result.finishedAt
   });
+  if (result.exitCode === 0 && !result.timedOut) {
+    await dependencies.operations.confirmPendingMessagesForRole(
+      input.paths,
+      input.project.projectId,
+      input.session.role
+    );
+  } else {
+    await dependencies.operations.releasePendingMessagesForRole(
+      input.paths,
+      input.project.projectId,
+      input.session.role,
+      input.selectedMessageIds
+    );
+  }
 }
 
 async function runProjectMiniMaxDispatch(
@@ -269,7 +286,6 @@ async function runProjectSyncDispatch(
       }))
     );
   }
-  await dependencies.operations.confirmPendingMessagesForRole(input.paths, input.project.projectId, input.session.role);
   await dependencies.helpers.markTaskDispatchedIfNeeded(context);
 
   const nextProviderSessionId = run.sessionId ?? (resumedFailedAndReset ? undefined : resumeCandidate || undefined);
@@ -288,6 +304,20 @@ async function runProjectSyncDispatch(
     timedOut: run.timedOut,
     finishedAt: run.finishedAt ?? new Date().toISOString()
   });
+  if (run.exitCode === 0 && !run.timedOut) {
+    await dependencies.operations.confirmPendingMessagesForRole(
+      input.paths,
+      input.project.projectId,
+      input.session.role
+    );
+  } else {
+    await dependencies.operations.releasePendingMessagesForRole(
+      input.paths,
+      input.project.projectId,
+      input.session.role,
+      input.selectedMessageIds
+    );
+  }
 
   return buildProjectDispatchTerminalResult(context, run, dispatchFailedReason);
 }

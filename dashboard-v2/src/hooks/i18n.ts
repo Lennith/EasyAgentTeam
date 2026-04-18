@@ -130,7 +130,6 @@ interface Translations {
   taskDispatched: string;
   taskInProgress: string;
   taskBlockedDep: string;
-  taskMayBeDone: string;
   taskDone: string;
   taskCanceled: string;
   taskTodo: string;
@@ -326,7 +325,6 @@ const translations: Record<Language, Translations> = {
     taskDispatched: "Dispatched",
     taskInProgress: "In Progress",
     taskBlockedDep: "Blocked (Dependency)",
-    taskMayBeDone: "May Be Done",
     taskDone: "Done",
     taskCanceled: "Canceled",
     taskTodo: "TODO",
@@ -519,7 +517,6 @@ const translations: Record<Language, Translations> = {
     taskDispatched: "已派发",
     taskInProgress: "进行中",
     taskBlockedDep: "依赖阻塞",
-    taskMayBeDone: "可能完成",
     taskDone: "完成",
     taskCanceled: "已取消",
     taskTodo: "待办",

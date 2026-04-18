@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectTickService } from "../services/orchestrator/project/project-tick-service.js";
 
-test("project tick service executes timeout -> reminder -> may-be-done -> observability -> budget update order", async () => {
+test("project tick service executes timeout -> reminder -> observability -> budget update order", async () => {
   const order: string[] = [];
   const project = {
     projectId: "project-order",
@@ -48,9 +48,6 @@ test("project tick service executes timeout -> reminder -> may-be-done -> observ
       }
     } as any,
     completionService: {
-      checkAndMarkMayBeDone: async () => {
-        order.push("may-be-done");
-      },
       emitDispatchObservabilitySnapshot: async () => {
         order.push("observability");
       }
@@ -68,5 +65,5 @@ test("project tick service executes timeout -> reminder -> may-be-done -> observ
   });
 
   await service.tickLoop();
-  assert.deepEqual(order, ["timeout", "reminder", "may-be-done", "observability", "dispatch"]);
+  assert.deepEqual(order, ["timeout", "reminder", "observability", "dispatch"]);
 });

@@ -4,22 +4,13 @@ import {
   checkAndFinalizeWorkflowRunByStableWindow,
   type WorkflowCompletionFinalizeContext
 } from "./workflow-completion-finalize.js";
-import {
-  checkWorkflowTasksMayBeDone,
-  type WorkflowCompletionMayBeDoneContext
-} from "./workflow-completion-may-be-done.js";
 
-export interface WorkflowCompletionServiceContext
-  extends WorkflowCompletionMayBeDoneContext, WorkflowCompletionFinalizeContext {
+export interface WorkflowCompletionServiceContext extends WorkflowCompletionFinalizeContext {
   repositories: WorkflowRepositoryBundle;
 }
 
 export class WorkflowCompletionService {
   constructor(private readonly context: WorkflowCompletionServiceContext) {}
-
-  async checkAndMarkMayBeDone(run: WorkflowRunRecord, runtime: WorkflowRunRuntimeState): Promise<void> {
-    await checkWorkflowTasksMayBeDone(this.context, run, runtime);
-  }
 
   async checkAndFinalizeRunByStableWindow(
     run: WorkflowRunRecord,
