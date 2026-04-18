@@ -7,6 +7,7 @@ import type {
 } from "./workflow-dispatch-event-adapter.js";
 import { applyOrchestratorDispatchTerminalState, resolveOrchestratorErrorMessage } from "../shared/index.js";
 import { isProviderLaunchError } from "../../provider-launch-error.js";
+import { getTransientErrorCooldownMs } from "../../session-lifecycle-authority.js";
 
 type WorkflowDispatchEventWriter = {
   appendStarted(scope: WorkflowDispatchEventScope, details: WorkflowDispatchStartedDetails): Promise<void>;
@@ -101,12 +102,13 @@ export async function handleMissingWorkflowMiniMaxConfiguration(
     error: "minimax_not_configured"
   });
   await dependencies.repositories.sessions.touchSession(context.runId, context.sessionId, {
-    status: "dismissed",
+    status: "blocked",
     errorStreak: context.errorStreak + 1,
     lastFailureAt: new Date().toISOString(),
     lastFailureKind: "error",
     cooldownUntil: null,
-    agentPid: null
+    agentPid: null,
+    lastRunId: context.runId
   });
 }
 
@@ -230,15 +232,47 @@ export async function handleWorkflowDispatchLaunchError(
 
   const latestSession = await dependencies.repositories.sessions.getSession(context.runId, context.sessionId);
   const blockedByConfig = isProviderLaunchError(error) && error.category === "config";
-  await dependencies.repositories.sessions
-    .touchSession(context.runId, context.sessionId, {
-      status: blockedByConfig ? "blocked" : "dismissed",
-      errorStreak: (latestSession?.errorStreak ?? 0) + 1,
-      lastFailureAt: new Date().toISOString(),
-      lastFailureKind: "error",
-      cooldownUntil: null,
-      agentPid: null,
-      lastRunId: context.runId
-    })
-    .catch(() => {});
+  const transientProviderError =
+    isProviderLaunchError(error) && error.retryable && error.code === "PROVIDER_UPSTREAM_TRANSIENT_ERROR"
+      ? error
+      : null;
+  const transientCooldownMs = transientProviderError ? getTransientErrorCooldownMs() : 0;
+  const transientCooldownUntil =
+    transientProviderError && transientCooldownMs > 0 ? new Date(Date.now() + transientCooldownMs).toISOString() : null;
+  const sessionPatch: Record<string, unknown> = {
+    status: blockedByConfig ? "blocked" : transientProviderError ? "idle" : "dismissed",
+    errorStreak: (latestSession?.errorStreak ?? 0) + 1,
+    lastFailureAt: new Date().toISOString(),
+    lastFailureKind: "error",
+    cooldownUntil: blockedByConfig ? null : transientCooldownUntil,
+    agentPid: null,
+    lastRunId: context.runId
+  };
+  if (transientProviderError) {
+    sessionPatch.currentTaskId = context.taskId;
+  }
+  await dependencies.repositories.sessions.touchSession(context.runId, context.sessionId, sessionPatch).catch(() => {});
+  if (transientProviderError) {
+    await dependencies.repositories.events
+      .appendEvent(context.runId, {
+        eventType: "RUNNER_TRANSIENT_ERROR_SOFT",
+        source: "system",
+        sessionId: context.sessionId,
+        taskId: context.taskId ?? undefined,
+        payload: {
+          requestId: context.requestId,
+          dispatchId: context.dispatchId,
+          runId: context.runId,
+          dispatchKind: context.dispatchKind,
+          messageId: context.messageId ?? null,
+          error: transientProviderError.message,
+          code: transientProviderError.code,
+          retryable: true,
+          next_action: transientProviderError.nextAction,
+          cooldownUntil: transientCooldownUntil,
+          rawStatus: transientProviderError.details?.status ?? null
+        }
+      })
+      .catch(() => {});
+  }
 }

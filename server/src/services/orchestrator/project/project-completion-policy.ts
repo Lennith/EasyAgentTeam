@@ -3,8 +3,7 @@ import {
   countOrchestratorTaskDispatches,
   hasOrchestratorSuccessfulRunFinishEvent,
   isOrchestratorTerminalTaskState,
-  isOrchestratorValidProgressContent,
-  resolveOrchestratorMayBeDoneSettings
+  isOrchestratorValidProgressContent
 } from "../shared/index.js";
 
 export function isTerminalTaskState(state: string): boolean {
@@ -21,23 +20,4 @@ export function hasSuccessfulRunFinishEvent(taskId: string, recentEvents: EventR
 
 export function isValidAgentProgressContent(content: string | undefined): boolean {
   return isOrchestratorValidProgressContent(content);
-}
-
-export function resolveProjectMayBeDoneSettings() {
-  return resolveOrchestratorMayBeDoneSettings();
-}
-
-export function shouldMarkTaskMayBeDone(input: {
-  task: TaskRecord;
-  dispatchCount: number;
-  threshold: number;
-  hasValidOutput: boolean;
-}): boolean {
-  if (isTerminalTaskState(input.task.state) || input.task.state === "MAY_BE_DONE") {
-    return false;
-  }
-  if (input.dispatchCount < input.threshold) {
-    return false;
-  }
-  return input.hasValidOutput;
 }

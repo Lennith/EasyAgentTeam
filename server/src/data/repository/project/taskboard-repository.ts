@@ -15,14 +15,12 @@ const VALID_TASK_STATES = new Set<TaskState>([
   "DISPATCHED",
   "IN_PROGRESS",
   "BLOCKED_DEP",
-  "MAY_BE_DONE",
   "DONE",
   "CANCELED"
 ]);
 
 const TERMINAL_TASK_STATES = new Set<TaskState>(["DONE", "CANCELED"]);
 const ACTIVE_TASK_STATES = new Set<TaskState>(["DISPATCHED", "IN_PROGRESS"]);
-const PRESERVED_STATES = new Set<TaskState>(["MAY_BE_DONE"]);
 
 export class TaskboardStoreError extends Error {
   constructor(
@@ -120,12 +118,26 @@ function normalizeStringArray(input: string[] | undefined): string[] {
   return (input ?? []).map((item) => item.trim()).filter((item) => item.length > 0);
 }
 
-function normalizeTaskState(state: TaskState | undefined): TaskState {
-  const normalized = (state ?? "PLANNED") as TaskState;
-  if (!VALID_TASK_STATES.has(normalized)) {
+function normalizeTaskState(state: string | undefined): TaskState {
+  const normalized = String(state ?? "PLANNED").trim().toUpperCase();
+  if (normalized === "MAY_BE_DONE") {
+    return "DONE";
+  }
+  const normalizedState = normalized as TaskState;
+  if (!VALID_TASK_STATES.has(normalizedState)) {
     throw new TaskboardStoreError(`Invalid task state: ${state}`, "INVALID_TASK_STATE");
   }
-  return normalized;
+  return normalizedState;
+}
+
+function normalizeLoadedTaskboard(state: TaskboardState): TaskboardState {
+  return {
+    ...state,
+    tasks: state.tasks.map((task) => ({
+      ...task,
+      state: normalizeTaskState(task.state)
+    }))
+  };
 }
 
 function normalizeTaskKind(kind: TaskKind | undefined): TaskKind {
@@ -447,7 +459,8 @@ function recomputeParentStates(tasks: TaskRecord[]): boolean {
 }
 
 export async function readTaskboard(paths: ProjectPaths, projectId: string): Promise<TaskboardState> {
-  return readJsonFile<TaskboardState>(paths.taskboardFile, defaultTaskboard(projectId));
+  const state = await readJsonFile<TaskboardState>(paths.taskboardFile, defaultTaskboard(projectId));
+  return normalizeLoadedTaskboard(state);
 }
 
 export async function writeTaskboard(paths: ProjectPaths, state: TaskboardState): Promise<void> {
@@ -645,9 +658,6 @@ export async function recomputeRunnableStates(
       continue;
     }
     if (ACTIVE_TASK_STATES.has(task.state)) {
-      continue;
-    }
-    if (PRESERVED_STATES.has(task.state)) {
       continue;
     }
     const hasChildren = state.tasks.some((item) => item.parentTaskId === task.taskId && item.taskId !== task.taskId);

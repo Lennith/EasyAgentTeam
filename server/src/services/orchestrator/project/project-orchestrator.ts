@@ -27,7 +27,7 @@ import { resolveOrchestratorErrorMessage } from "../shared/index.js";
  * visible_blocked_tasks
  * focus_task_dependencies_ready
  * non-focus task reporting is allowed only when dependencies are already ready
- * never report IN_PROGRESS/DONE/MAY_BE_DONE for dependency-blocked tasks
+ * never report IN_PROGRESS/DONE for dependency-blocked tasks
  * `discuss_request`, `discuss_reply`, `discuss_close`
  * `task_report_in_progress`, `task_report_done`, `task_report_block`
  */

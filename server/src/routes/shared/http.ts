@@ -316,7 +316,7 @@ export function readWorkflowTaskActionRequest(raw: unknown): {
   };
   results?: Array<{
     taskId: string;
-    outcome: "IN_PROGRESS" | "BLOCKED_DEP" | "MAY_BE_DONE" | "DONE" | "CANCELED";
+    outcome: "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
     summary?: string;
     blockers?: string[];
   }>;
@@ -371,7 +371,6 @@ export function readWorkflowTaskActionRequest(raw: unknown): {
           const outcome =
             outcomeRaw === "IN_PROGRESS" ||
             outcomeRaw === "BLOCKED_DEP" ||
-            outcomeRaw === "MAY_BE_DONE" ||
             outcomeRaw === "DONE" ||
             outcomeRaw === "CANCELED"
               ? outcomeRaw
@@ -386,7 +385,7 @@ export function readWorkflowTaskActionRequest(raw: unknown): {
         .filter((item) => item.taskId.length > 0 && item.outcome !== null)
         .map((item) => ({
           taskId: item.taskId,
-          outcome: item.outcome as "IN_PROGRESS" | "BLOCKED_DEP" | "MAY_BE_DONE" | "DONE" | "CANCELED",
+          outcome: item.outcome as "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED",
           summary: item.summary,
           blockers: item.blockers
         }))

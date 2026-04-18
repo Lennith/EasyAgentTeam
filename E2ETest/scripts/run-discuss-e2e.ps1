@@ -18,6 +18,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 . (Join-Path $scriptDir "invoke-api.ps1")
 . (Join-Path $scriptDir "e2e-provider-matrix.ps1")
+. (Join-Path $scriptDir "e2e-settings-isolation.ps1")
 
 if (-not $ScenarioPath) {
   $ScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\team-discuss-framework.json"
@@ -56,7 +57,9 @@ $scriptRunStart = Get-Date
 $script:stabilityFallbackEvents = @()
 $script:stabilityOutDir = $null
 $script:stabilityCaseId = "discuss"
-$script:settingsRestoreSnapshot = $null
+$script:settingsIsolationPlan = $null
+$script:settingsIsolationApplyAudit = $null
+$script:settingsIsolationRestoreAudit = $null
 $finalReason = "not_started"
 $pass = $false
 $analysisExit = 1
@@ -235,52 +238,9 @@ function Build-ProjectProviderActivitySummary {
   }
 }
 
-function Build-ProjectProviderSettingsPatch {
-  param(
-    [Parameter(Mandatory = $true)][object]$SettingsBody
-  )
-
-  if (-not (@($resolvedMatrix.providers) -contains "minimax")) {
-    return $null
-  }
-
-  $targetModel = [string](Get-E2EDefaultAgentModelConfig -ProviderId "minimax").model
-  $currentModel = Get-E2EObjectString -Obj $SettingsBody -Names @("minimaxModel", "minimax_model")
-  $script:settingsRestoreSnapshot = [ordered]@{
-    minimaxModel = $currentModel
-  }
-  if ($currentModel -eq $targetModel) {
-    return $null
-  }
-
-  return @{
-    minimaxModel = $targetModel
-  }
-}
-
-function Restore-ProjectProviderSettings {
-  if (-not $script:settingsRestoreSnapshot) {
-    return
-  }
-
-  $restoreModel = [string]$script:settingsRestoreSnapshot.minimaxModel
-  if ([string]::IsNullOrWhiteSpace($restoreModel)) {
-    $restoreModel = [string](Get-E2EDefaultAgentModelConfig -ProviderId "minimax").model
-  }
-
-  try {
-    Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body @{
-      minimaxModel = $restoreModel
-    } | Out-Null
-  } catch {
-    Write-Warning ("Failed to restore E2E runtime settings: {0}" -f $_.Exception.Message)
-  } finally {
-    $script:settingsRestoreSnapshot = $null
-  }
-}
-
 $providerSettingsResp = Assert-E2EProvidersConfigured -BaseUrl $BaseUrl -ResolvedMatrix $resolvedMatrix
-$providerSettingsPatch = Build-ProjectProviderSettingsPatch -SettingsBody $providerSettingsResp.body
+$script:settingsIsolationPlan = New-E2ESettingsIsolationPlan -SettingsBody $providerSettingsResp.body -ResolvedMatrix $resolvedMatrix
+$providerSettingsPatch = if ($script:settingsIsolationPlan) { $script:settingsIsolationPlan.patch } else { $null }
 
 function Add-StabilityFallbackEvent {
   param(
@@ -368,8 +328,36 @@ trap {
   if (-not [string]::IsNullOrWhiteSpace($errStack)) {
     Write-Host ("script_exception_stack={0}" -f $errStack)
   }
-  Restore-ProjectProviderSettings
-  Write-StabilityMetrics -OutDir $trapOutDir -CaseId $script:stabilityCaseId -StartTime $scriptRunStart -FinalPass $false -FinalReason $finalReason -ExitCode 2
+  if (-not $script:settingsIsolationRestoreAudit) {
+    try {
+      $script:settingsIsolationRestoreAudit = Invoke-E2ESettingsIsolationRestore -BaseUrl $BaseUrl -Plan $script:settingsIsolationPlan
+    } catch {
+      $errDetail.settings_restore_failed = $_.Exception.Message
+      $script:settingsIsolationRestoreAudit = Get-E2ESettingsIsolationAuditPayload -Plan $script:settingsIsolationPlan
+    }
+  }
+  if ($script:settingsIsolationPlan) {
+    (Get-E2ESettingsIsolationAuditPayload -Plan $script:settingsIsolationPlan | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath (Join-Path $trapOutDir "settings_isolation_audit.json") -Encoding UTF8
+  }
+  $writeMetricsCommand = Get-Command Write-StabilityMetrics -ErrorAction SilentlyContinue
+  if ($writeMetricsCommand) {
+    Write-StabilityMetrics -OutDir $trapOutDir -CaseId $script:stabilityCaseId -StartTime $scriptRunStart -FinalPass $false -FinalReason $finalReason -ExitCode 2
+  } else {
+    $fallbackMetrics = [ordered]@{
+      case_id = $script:stabilityCaseId
+      start_time = $scriptRunStart.ToString("o")
+      end_time = (Get-Date).ToString("o")
+      exit_code = 2
+      final_pass = $false
+      final_reason = [string]$finalReason
+      toolcall_failed_count = 0
+      toolcall_failed_timestamps = @()
+      timeout_recovered_count = 0
+      timeout_recovered_timestamps = @()
+      fallback_events = @($script:stabilityFallbackEvents)
+    }
+    ($fallbackMetrics | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath (Join-Path $trapOutDir "stability_metrics.json") -Encoding UTF8
+  }
   exit 2
 }
 
@@ -432,6 +420,9 @@ function Build-AgentPrompt {
     "Your owned execution task id is $roleOwnedTaskId.",
     "Your local progress file absolute path is $roleProgressPath.",
     "Write one architecture design proposal for your owned task and share it via task report + discuss.",
+    "Your owned draft task is DONE once you have delivered the draft to TeamLeader and submitted task_report_done for $roleOwnedTaskId.",
+    "Later cross-review, corrections, and alignment replies happen through discuss flow. They do not keep $roleOwnedTaskId open unless you still have substantive unfinished draft work.",
+    "If TeamLeader asks for draft corrections, update the draft artifact and reply in discuss. If $roleOwnedTaskId is not DONE yet, submit task_report_done once; if it is already DONE, continue in discuss only and do not resend an identical DONE report.",
     "Cross-review peers when asked and resolve conflicts with TeamLeader.",
     "Use TeamTools report/discuss tools only.",
     "Only call task_report_* on tasks you own or create. In this scenario that means your owned execution task ($roleOwnedTaskId) or a child task you explicitly create.",
@@ -824,6 +815,8 @@ function Suppress-ManagerSessions {
   return @($suppressed)
 }
 
+$outDir = $null
+try {
 Write-Host "== Preflight =="
 $health = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/healthz"
 if ($health.body.status -ne "ok") {
@@ -832,7 +825,7 @@ if ($health.body.status -ne "ok") {
 
 if ($providerSettingsPatch) {
   Write-Host "== Apply runtime provider settings override =="
-  Invoke-ApiJson -BaseUrl $BaseUrl -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $providerSettingsPatch | Out-Null
+  $script:settingsIsolationApplyAudit = Invoke-E2ESettingsIsolationApply -BaseUrl $BaseUrl -Plan $script:settingsIsolationPlan
 }
 
 Write-Host "== Reset target project if exists =="
@@ -1285,9 +1278,23 @@ $summary += "- provider_session_audit_pass: $($providerSessionAudit.all_sessions
 $summary += "- provider_activity_pass: $($providerActivitySummary.overall_pass)"
 $summary += "- artifacts_dir: $outDir"
 [System.IO.File]::WriteAllLines((Join-Path $outDir "run_summary.md"), $summary, [System.Text.UTF8Encoding]::new($false))
+} finally {
+  $restoreError = $null
+  try {
+    $script:settingsIsolationRestoreAudit = Invoke-E2ESettingsIsolationRestore -BaseUrl $BaseUrl -Plan $script:settingsIsolationPlan
+  } catch {
+    $restoreError = $_
+    $script:settingsIsolationRestoreAudit = Get-E2ESettingsIsolationAuditPayload -Plan $script:settingsIsolationPlan
+  }
+  if (-not [string]::IsNullOrWhiteSpace([string]$outDir) -and (Test-Path -LiteralPath $outDir)) {
+    [System.IO.File]::WriteAllLines((Join-Path $outDir "settings_isolation_audit.json"), @(((Get-E2ESettingsIsolationAuditPayload -Plan $script:settingsIsolationPlan) | ConvertTo-Json -Depth 20)), [System.Text.UTF8Encoding]::new($false))
+  }
+  if ($restoreError) {
+    throw $restoreError
+  }
+}
 
 Write-Host "== Done =="
-Restore-ProjectProviderSettings
 Write-Host "artifacts=$outDir"
 Write-Host "final_reason=$finalReason"
 Write-Host "runtime_pass=$pass"

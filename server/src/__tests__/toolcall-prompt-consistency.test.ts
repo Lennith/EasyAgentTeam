@@ -11,10 +11,10 @@ import { buildAgentWorkspaceAgentsMd, ensureAgentWorkspaces } from "../services/
 import { composeSystemPrompt } from "../services/prompt-composer.js";
 import { TEAM_TOOL_NAMES, buildCodexTeamToolAlias } from "../services/teamtool-contract.js";
 
-function resolveTeamToolsListPath(): string {
+function resolveTeamToolSpecPath(): string {
   const candidates = [
-    path.resolve(process.cwd(), "TeamsTools", "TeamToolsList.md"),
-    path.resolve(process.cwd(), "..", "TeamsTools", "TeamToolsList.md")
+    path.resolve(process.cwd(), "docs", "spec", "server", "teamtool.spec.md"),
+    path.resolve(process.cwd(), "..", "docs", "spec", "server", "teamtool.spec.md")
   ];
   for (const candidate of candidates) {
     if (!existsSync(candidate)) {
@@ -25,7 +25,7 @@ function resolveTeamToolsListPath(): string {
       return candidate;
     }
   }
-  throw new Error("TeamToolsList.md not found from current test working directory");
+  throw new Error("teamtool.spec.md not found from current test working directory");
 }
 
 function resolveOrchestratorServicePath(): string {
@@ -81,9 +81,9 @@ test("agent-visible prompts/doc index use registered TeamTools names consistentl
   assert.equal(generatedAgentsMd.includes("discuss_*.ps1"), false);
   assert.equal(generatedAgentsMd.includes("report_task_*"), false);
 
-  const teamToolsList = await fs.readFile(resolveTeamToolsListPath(), "utf8");
+  const teamToolsList = await fs.readFile(resolveTeamToolSpecPath(), "utf8");
   for (const toolName of TEAM_TOOL_NAMES) {
-    assert.equal(teamToolsList.includes(`\`${toolName}\``), true, `TeamToolsList should include ${toolName}`);
+    assert.equal(teamToolsList.includes(`\`${toolName}\``), true, `teamtool spec should include ${toolName}`);
   }
 
   const orchestratorSource = await fs.readFile(resolveOrchestratorServicePath(), "utf8");

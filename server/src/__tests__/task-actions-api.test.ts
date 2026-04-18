@@ -20,7 +20,7 @@ async function seedAgent(baseUrl: string, agentId: string): Promise<void> {
   assert.equal(res.status, 201);
 }
 
-test("retired task endpoints return 410", async () => {
+test("legacy project task endpoints are not exposed", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-retired-endpoints-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
@@ -44,9 +44,9 @@ test("retired task endpoints return 410", async () => {
       fetch(`${baseUrl}/api/projects/retiredcheck/reports`, { method: "POST" }),
       fetch(`${baseUrl}/api/projects/retiredcheck/tasks`)
     ]);
-    assert.equal(handoffRes.status, 410);
-    assert.equal(reportsRes.status, 410);
-    assert.equal(tasksRes.status, 410);
+    assert.equal(handoffRes.status, 404);
+    assert.equal(reportsRes.status, 404);
+    assert.equal(tasksRes.status, 404);
   } finally {
     await serverHandle.close();
   }

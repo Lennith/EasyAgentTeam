@@ -22,6 +22,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 . (Join-Path $scriptDir "invoke-api.ps1")
 . (Join-Path $scriptDir "e2e-provider-matrix.ps1")
+. (Join-Path $scriptDir "e2e-settings-isolation.ps1")
 
 if (-not $ScenarioPath) {
   $ScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\workflow-gesture-real-agent.json"
@@ -93,7 +94,9 @@ $script:agentChatTranscripts = New-Object System.Collections.Generic.List[object
 $script:workflowRecoveryState = @{}
 $script:stabilityFallbackEvents = New-Object System.Collections.Generic.List[object]
 $script:postProcessDeadline = $null
-$script:settingsRestoreSnapshot = $null
+$script:settingsIsolationPlan = $null
+$script:settingsIsolationApplyAudit = $null
+$script:settingsIsolationRestoreAudit = $null
 $script:activeMiniMaxRuntimeModel = $null
 $script:appliedMiniMaxRuntimeModel = $null
 $strictMode = [bool]$StrictObserve
@@ -168,6 +171,32 @@ function Get-StringArrayProp {
   }
 
   return @(Get-E2EUniqueStringValues -Values $values)
+}
+
+function Get-IntProp {
+  param(
+    [object]$Obj,
+    [string[]]$Names,
+    [int]$Default = 0
+  )
+
+  if (-not $Obj) {
+    return $Default
+  }
+
+  foreach ($name in $Names) {
+    $p = $Obj.PSObject.Properties[$name]
+    if (-not $p -or $null -eq $p.Value) {
+      continue
+    }
+    try {
+      return [int]$p.Value
+    } catch {
+      continue
+    }
+  }
+
+  return $Default
 }
 
 function Get-DateTimeProp {
@@ -307,7 +336,7 @@ function Build-AgentPrompt {
     "- TASK_REPORT",
     $teamToolNameText,
     ($workspaceInspectionRules -join "`n"),
-    "- When using lock_manage, lock_key must be a workspace-relative path such as docs/ux/ui/01_ui_spec.md. Never pass an absolute path or an agent-local path as lock_key.",
+  "- When using lock_manage, lock_key must be a workspace-relative path such as docs/ui/03_ui_spec.md. Never pass an absolute path or an agent-local path as lock_key.",
     "- Only call task_report_* on phase tasks owned by your role or subtasks created by your role.",
     "- If you are replying inside a discuss thread on another role's task, use discuss_reply/discuss_close and local progress only; do not task_report_* that foreign task.",
     "- If task_report_* returns TASK_RESULT_INVALID_TARGET, stop retrying that foreign task and continue via discuss flow or create an owned subtask first.",
@@ -337,67 +366,6 @@ function Get-ResolvedRoleModelConfig {
     throw "Missing resolved workflow agent model config for role '$RoleId'."
   }
   return $config
-}
-
-function Build-WorkflowProviderSettingsPatch {
-  param(
-    [Parameter(Mandatory = $true)][object]$SettingsBody
-  )
-
-  $providers = if ($resolvedMatrix.providers) { @($resolvedMatrix.providers) } else { @() }
-  $hasMiniMax = $providers -contains "minimax"
-  $patch = @{}
-  if ($hasMiniMax) {
-    $currentModel = Get-StringProp -Obj $SettingsBody -Names @("minimaxModel", "minimax_model")
-    $targetModel = [string](Get-E2EDefaultAgentModelConfig -ProviderId "minimax").model
-    $script:activeMiniMaxRuntimeModel = if ([string]::IsNullOrWhiteSpace($currentModel)) { $targetModel } else { $targetModel }
-    $script:appliedMiniMaxRuntimeModel = $targetModel
-    if ($ClearMiniMaxSettings.IsPresent) {
-      $patch["minimaxApiKey"] = $null
-      $patch["minimaxApiBase"] = $null
-    }
-    if (-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiKeyOverride)) {
-      $patch["minimaxApiKey"] = $effectiveMiniMaxApiKeyOverride.Trim()
-    }
-    if (-not [string]::IsNullOrWhiteSpace($effectiveMiniMaxApiBaseOverride)) {
-      $patch["minimaxApiBase"] = $effectiveMiniMaxApiBaseOverride.Trim()
-    }
-    $patch["minimaxModel"] = $targetModel
-  } else {
-    $script:activeMiniMaxRuntimeModel = $null
-    $script:appliedMiniMaxRuntimeModel = $null
-  }
-
-  if ($patch.Keys.Count -eq 0) {
-    return $null
-  }
-
-  $script:settingsRestoreSnapshot = [ordered]@{
-    minimaxApiKey = Get-StringProp -Obj $SettingsBody -Names @("minimaxApiKey", "minimax_api_key")
-    minimaxApiBase = Get-StringProp -Obj $SettingsBody -Names @("minimaxApiBase", "minimax_api_base")
-    minimaxModel = Get-StringProp -Obj $SettingsBody -Names @("minimaxModel", "minimax_model")
-  }
-  return $patch
-}
-
-function Restore-WorkflowProviderSettings {
-  if (-not $script:settingsRestoreSnapshot) {
-    return
-  }
-
-  $restorePatch = @{
-    minimaxApiKey = if ([string]::IsNullOrWhiteSpace([string]$script:settingsRestoreSnapshot.minimaxApiKey)) { $null } else { [string]$script:settingsRestoreSnapshot.minimaxApiKey }
-    minimaxApiBase = if ([string]::IsNullOrWhiteSpace([string]$script:settingsRestoreSnapshot.minimaxApiBase)) { $null } else { [string]$script:settingsRestoreSnapshot.minimaxApiBase }
-    minimaxModel = if ([string]::IsNullOrWhiteSpace([string]$script:settingsRestoreSnapshot.minimaxModel)) { (Get-E2EDefaultAgentModelConfig -ProviderId "minimax").model } else { [string]$script:settingsRestoreSnapshot.minimaxModel }
-  }
-  try {
-    Invoke-TimedApi -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $restorePatch | Out-Null
-  } catch {
-    $script:warnings.Add("settings_restore_failed: $($_.Exception.Message)")
-  } finally {
-    $script:settingsRestoreSnapshot = $null
-    $script:activeMiniMaxRuntimeModel = $null
-  }
 }
 
 function Build-WorkflowProviderSessionAudit {
@@ -841,6 +809,15 @@ function Invoke-WorkflowAgentChatTrigger {
     $script:agentChatTranscripts.Add($record)
     return $record
   }
+}
+
+$settingsIsolationGetInvoker = {
+  Invoke-TimedApi -Method GET -Path "/api/settings" -AllowStatus @(200)
+}
+
+$settingsIsolationPatchInvoker = {
+  param($Body)
+  Invoke-TimedApi -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $Body
 }
 
 function Get-PhaseStates {
@@ -1842,6 +1819,10 @@ function Build-ArtifactValidation {
       $pathCandidates = @($relativePath)
     }
     $keywords = @($spec.keywords)
+    $keywordMinMatch = Get-IntProp -Obj $spec -Names @("keyword_min_match", "keywordMinMatch")
+    if ($keywordMinMatch -le 0) {
+      $keywordMinMatch = if ($keywords.Count -gt 0) { $keywords.Count } else { 0 }
+    }
     $candidateRefs = @(Resolve-WorkspaceArtifactCandidates -Workspace $Workspace -RelativePaths $pathCandidates)
     if ($candidateRefs.Count -eq 0) {
       $candidateRefs = @(
@@ -1874,12 +1855,16 @@ function Build-ArtifactValidation {
           $candidateMissingKeywords += $kwText
         }
       }
+      $candidateKeywordPass = ($candidateFoundKeywords.Count -ge $keywordMinMatch)
       $shouldSelect = $false
       if (-not $selectedRef) {
         $shouldSelect = $true
       } else {
         $selectedExists = [bool]$selectedRef.exists
+        $selectedKeywordPass = ($selectedFoundKeywords.Count -ge $keywordMinMatch)
         if ($candidateRef.exists -and -not $selectedExists) {
+          $shouldSelect = $true
+        } elseif (($candidateRef.exists -eq $selectedExists) -and $candidateKeywordPass -and -not $selectedKeywordPass) {
           $shouldSelect = $true
         } elseif (($candidateRef.exists -eq $selectedExists) -and ($candidateMissingKeywords.Count -lt $selectedMissingKeywords.Count)) {
           $shouldSelect = $true
@@ -1898,7 +1883,7 @@ function Build-ArtifactValidation {
         $selectedMissingKeywords = @($candidateMissingKeywords)
         $selectedFoundKeywords = @($candidateFoundKeywords)
       }
-      if ($candidateRef.exists -and $candidateMissingKeywords.Count -eq 0) {
+      if ($candidateRef.exists -and $candidateKeywordPass) {
         break
       }
     }
@@ -1909,7 +1894,7 @@ function Build-ArtifactValidation {
 
     $absolutePath = [string]$selectedRef.path
     $exists = [bool]$selectedRef.exists
-    $keywordPass = ($selectedMissingKeywords.Count -eq 0)
+    $keywordPass = ($selectedFoundKeywords.Count -ge $keywordMinMatch)
     $items += [pscustomobject]@{
       task_id = $taskId
       path = if ($pathCandidates.Count -eq 1) { $pathCandidates[0] } else { $relativePath }
@@ -1917,6 +1902,7 @@ function Build-ArtifactValidation {
       absolute_path = $absolutePath
       resolution_mode = [string]$selectedRef.mode
       exists = $exists
+      keyword_min_match = $keywordMinMatch
       keyword_pass = $keywordPass
       found_keywords = @($selectedFoundKeywords)
       missing_keywords = @($selectedMissingKeywords)
@@ -2502,11 +2488,31 @@ try {
   }
 
   $settings = Invoke-TimedApi -Method GET -Path "/api/settings" -AllowStatus @(200)
-  $settingsPatch = Build-WorkflowProviderSettingsPatch -SettingsBody $settings.body
-  if ($settingsPatch) {
+  $script:settingsIsolationPlan = New-E2ESettingsIsolationPlan `
+    -SettingsBody $settings.body `
+    -ResolvedMatrix $resolvedMatrix `
+    -AllowMiniMaxCredentialPatch `
+    -MiniMaxApiKeyOverride $effectiveMiniMaxApiKeyOverride `
+    -MiniMaxApiBaseOverride $effectiveMiniMaxApiBaseOverride `
+    -ClearMiniMaxSettings:$ClearMiniMaxSettings.IsPresent
+  $script:activeMiniMaxRuntimeModel = [string]$script:settingsIsolationPlan.effective_minimax_runtime_model
+  $script:appliedMiniMaxRuntimeModel = if (
+    $script:settingsIsolationPlan -and
+    $script:settingsIsolationPlan.changed_keys -and
+    @($script:settingsIsolationPlan.changed_keys) -contains "minimaxModel"
+  ) {
+    [string]$script:settingsIsolationPlan.effective_minimax_runtime_model
+  } else {
+    $null
+  }
+  if ($script:settingsIsolationPlan.patch) {
     Write-Host "== Apply workflow provider settings override =="
-    Invoke-TimedApi -Method PATCH -Path "/api/settings" -AllowStatus @(200) -Body $settingsPatch | Out-Null
-    $settings = Invoke-TimedApi -Method GET -Path "/api/settings" -AllowStatus @(200)
+    $script:settingsIsolationApplyAudit = Invoke-E2ESettingsIsolationApply `
+      -BaseUrl $BaseUrl `
+      -Plan $script:settingsIsolationPlan `
+      -PatchInvoker $settingsIsolationPatchInvoker `
+      -GetInvoker $settingsIsolationGetInvoker
+    $settings = & $settingsIsolationGetInvoker
   }
   try {
     Assert-E2EProvidersConfigured -BaseUrl $BaseUrl -ResolvedMatrix $resolvedMatrix | Out-Null
@@ -2901,8 +2907,7 @@ try {
   $script:warnings.Add("exception: $($_.Exception.Message)")
 }
 
-Restore-WorkflowProviderSettings
-
+try {
 if ($script:runStarted -and -not $SetupOnly) {
   try {
     Add-WorkflowSample -Label "final" | Out-Null
@@ -3192,6 +3197,29 @@ $summary += "- timeout_recovered_count: $(@($timeoutRecoveredTimestamps).Count)"
 $summary += "- artifacts_dir: $outDir"
 
 Write-Utf8NoBom -Path (Join-Path $outDir "run_summary.md") -Content ($summary -join "`n")
+} finally {
+  $restoreError = $null
+  try {
+    $script:settingsIsolationRestoreAudit = Invoke-E2ESettingsIsolationRestore `
+      -BaseUrl $BaseUrl `
+      -Plan $script:settingsIsolationPlan `
+      -PatchInvoker $settingsIsolationPatchInvoker `
+      -GetInvoker $settingsIsolationGetInvoker
+  } catch {
+    $restoreError = $_
+    $script:settingsIsolationRestoreAudit = Get-E2ESettingsIsolationAuditPayload -Plan $script:settingsIsolationPlan
+    $script:warnings.Add("settings_restore_failed: $($_.Exception.Message)")
+  } finally {
+    $script:activeMiniMaxRuntimeModel = $null
+    $script:appliedMiniMaxRuntimeModel = $null
+  }
+  if (-not [string]::IsNullOrWhiteSpace([string]$outDir) -and (Test-Path -LiteralPath $outDir)) {
+    Save-JsonSafe -Path (Join-Path $outDir "settings_isolation_audit.json") -Data (Get-E2ESettingsIsolationAuditPayload -Plan $script:settingsIsolationPlan) -Tag "settings_isolation_audit"
+  }
+  if ($restoreError) {
+    throw $restoreError
+  }
+}
 
 Write-Host "== Done =="
 Write-Host "artifacts=$outDir"

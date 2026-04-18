@@ -1,0 +1,60 @@
+# Release QA Report 20260418（最后更新：2026-04-18）
+
+## Run @ 2026-04-18T09:30:00+08:00
+
+- Check time: `2026-04-18T09:30:00+08:00`
+- Target branch and commit information:
+  - Branch: `codex/remove-maybe-done-and-retired-project-apis`
+  - Base commit before release commit: `8d418ec4bd36a05df54d598c4b8a37be1d1bd91e`
+  - Working tree before release commit: `dirty`
+- Unit test command and result:
+  - `pnpm test` -> `PASS`
+- README command checklist and run results:
+  - `pnpm i` -> `NOT RERUN IN THIS RELEASE DECISION`
+  - `pnpm dev` -> `NOT RERUN IN THIS RELEASE DECISION`
+  - `pnpm build` -> `PASS`
+  - `pnpm test` -> `PASS`
+  - `pnpm e2e:first-run` -> `NOT RERUN IN THIS RELEASE DECISION`
+- `e2e:first-run` 5-minute stability result:
+  - Status: `NOT RERUN IN THIS RELEASE DECISION`
+- Full E2E (`e2e:baseline`) command and result:
+  - Command: `pnpm e2e:baseline`
+  - Run mode: foreground run in current operator session
+  - Aggregated cases:
+    - `chain`: `PASS`, `reason=closed_loop`
+    - `discuss`: `PASS`, `reason=closed_loop`
+    - `workflow`: `FAIL`, `reason=workflow_telemetry_regression`
+  - Workflow blocker shape:
+    - `process_validation_pass=True`
+    - `run_finished_pass=True`
+    - `main_phase_done_pass=True`
+    - `phase_dependency_order_pass=True`
+    - `no_running_sessions_pass=True`
+    - `provider_session_audit_pass=True`
+    - `provider_activity_pass=True`
+    - `skill_probe_pass=True`
+    - `artifact_validation_pass=True`
+    - `subtask_stats_overall_pass=False`
+- Blocker check conclusion:
+  - Functional convergence and provider runtime evidence are acceptable for release.
+  - Remaining failure is telemetry-only on workflow subtask stats and is assessed as non-blocking for this release decision.
+- Waiver path:
+  - Approver statement: requester explicitly approved release with `允许发版。`
+  - Additional requester judgment: `那个通常是manager prompt问题。`
+  - Current unfinished test scope:
+    - README full command runnability was not fully rerun in this release decision.
+    - `pnpm e2e:first-run` was not rerun in this release decision.
+    - `pnpm e2e:baseline` did not reach full green because workflow telemetry subtask stats remained false.
+  - Waiver basis:
+    - release decision is based on orchestrator/provider behavior conformance
+    - MiniMax transient 529 handling is covered by unit/integration tests
+    - baseline primary scenarios `chain` and `discuss` passed
+    - workflow process convergence, provider audit, provider activity, skill path, and artifact validation passed
+- Final decision: `PASS by waiver`
+- Evidence paths:
+  - `D:\AgentWorkSpace\TestTeam\TestRound20\docs\e2e\20260417_223524\run_summary.md`
+  - `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss\docs\e2e\20260417_225056\run_summary.md`
+  - `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace\docs\e2e\20260417_232820-workflow-observer\run_summary.md`
+  - `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace\docs\e2e\20260417_232820-workflow-observer\workflow_agent_subtask_stats.json`
+  - `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace\docs\e2e\20260417_232820-workflow-observer\workflow_process_validation.json`
+  - `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace\docs\e2e\20260417_232820-workflow-observer\provider_activity_summary.json`

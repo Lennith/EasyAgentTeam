@@ -45,9 +45,7 @@ export class ProjectTickService {
         }
       },
       completion: {
-        runCompletion: async (scope) => {
-          await this.options.completionService.checkAndMarkMayBeDone(scope.project, scope.paths);
-        },
+        runCompletion: async () => {},
         emitObservabilitySnapshot: async (scope) => {
           await this.options.completionService.emitDispatchObservabilitySnapshot(scope.project, scope.paths);
         }

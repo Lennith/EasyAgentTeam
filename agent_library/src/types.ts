@@ -87,7 +87,7 @@ export type TaskActionType =
 
 export interface TaskActionResultItem {
   taskId: string;
-  outcome: "IN_PROGRESS" | "BLOCKED_DEP" | "MAY_BE_DONE" | "DONE" | "CANCELED";
+  outcome: "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
   summary?: string;
   blockers?: string[];
 }

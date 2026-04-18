@@ -29,7 +29,6 @@ test("dependency gate collects unresolved dependency ids", () => {
 test("dependency gate requires ready dependencies except BLOCKED_DEP/CANCELED by default", () => {
   assert.equal(requiresOrchestratorReadyDependencies("IN_PROGRESS"), true);
   assert.equal(requiresOrchestratorReadyDependencies("DONE"), true);
-  assert.equal(requiresOrchestratorReadyDependencies("MAY_BE_DONE"), true);
   assert.equal(requiresOrchestratorReadyDependencies("BLOCKED_DEP"), false);
   assert.equal(requiresOrchestratorReadyDependencies("CANCELED"), false);
 });

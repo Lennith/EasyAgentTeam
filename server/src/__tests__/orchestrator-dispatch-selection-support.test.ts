@@ -43,6 +43,17 @@ test("dispatch selection support blocks cooldown session", () => {
   assert.equal(result.reason, `session cooldown active until ${cooldown}`);
 });
 
+test("dispatch selection support blocks blocked session when force is disabled", () => {
+  const result = evaluateOrchestratorDispatchSessionAvailability({
+    sessionStatus: "blocked",
+    onlyIdle: false,
+    force: false
+  });
+  assert.equal(result.available, false);
+  assert.equal(result.busy, true);
+  assert.equal(result.reason, "session status is blocked");
+});
+
 test("dispatch selection support allows running session when running gate is disabled", () => {
   const result = evaluateOrchestratorDispatchSessionAvailability({
     sessionStatus: "running",

@@ -113,7 +113,7 @@ test("project bootstrap creates per-agent AGENTS.md with direct ToolCall guidanc
     const agentWorkspaceAgentsPath = path.join(workspacePath, "Agents", "pm_product", "AGENTS.md");
     const agentWorkspaceAgentsContent = await fs.readFile(agentWorkspaceAgentsPath, "utf8");
     const rootAgentsContent = await fs.readFile(path.join(workspacePath, "AGENTS.md"), "utf8");
-    assert.equal(agentWorkspaceAgentsContent.includes("../../TeamTools/TeamToolsList.md"), false);
+    assert.equal(agentWorkspaceAgentsContent.includes("../../TeamTools/"), false);
     assert.equal(agentWorkspaceAgentsContent.includes("Read `../TEAM.md`"), true);
     assert.equal(agentWorkspaceAgentsContent.includes("task_create_assign"), true);
     assert.equal(agentWorkspaceAgentsContent.includes("task_report_in_progress"), true);
@@ -128,7 +128,7 @@ test("project bootstrap creates per-agent AGENTS.md with direct ToolCall guidanc
     const roleMdPath = path.join(workspacePath, "Agents", "pm_product", "role.md");
     const roleMdContent = await fs.readFile(roleMdPath, "utf8");
     assert.equal(roleMdContent.includes("You own product requirements."), true);
-    assert.equal(roleMdContent.includes("../../TeamTools/TeamToolsList.md"), false);
+    assert.equal(roleMdContent.includes("../../TeamTools/"), false);
     assert.equal(roleMdContent.includes("Tool schemas are exposed directly by runtime tool registry."), true);
     assert.equal(roleMdContent.includes("TeamTool entries are model-callable tools."), true);
   } finally {

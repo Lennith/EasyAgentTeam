@@ -64,22 +64,26 @@ test("dispatch selection candidate prefers task/message selection when messages 
   assert.equal(result?.firstMessage, message);
 });
 
-test("dispatch selection candidate fallback skips MAY_BE_DONE when preferNonMayBeDoneOnFallback is enabled", () => {
-  const mayBeDoneTask = createTask({ taskId: "task-a", state: "MAY_BE_DONE", createdAt: "2026-03-29T00:00:00.000Z" });
+test("dispatch selection candidate fallback selects the highest-priority runnable task", () => {
+  const highPriorityTask = createTask({
+    taskId: "task-a",
+    state: "READY",
+    createdAt: "2026-03-29T00:00:00.000Z",
+    priority: 10
+  });
   const readyTask = createTask({ taskId: "task-b", state: "READY", createdAt: "2026-03-29T00:00:01.000Z" });
   const result = resolveOrchestratorDispatchCandidate({
     messages: [],
-    runnableTasks: [mayBeDoneTask, readyTask],
-    allTasks: [mayBeDoneTask, readyTask],
+    runnableTasks: [highPriorityTask, readyTask],
+    allTasks: [highPriorityTask, readyTask],
     force: false,
-    preferNonMayBeDoneOnFallback: true,
     resolveTaskById: (taskId) =>
-      taskId === mayBeDoneTask.taskId ? mayBeDoneTask : taskId === readyTask.taskId ? readyTask : null
+      taskId === highPriorityTask.taskId ? highPriorityTask : taskId === readyTask.taskId ? readyTask : null
   });
 
   assert.notEqual(result, null);
   assert.equal(result?.dispatchKind, "task");
-  assert.equal(result?.taskId, "task-b");
+  assert.equal(result?.taskId, "task-a");
   assert.equal(result?.firstMessage, null);
 });
 

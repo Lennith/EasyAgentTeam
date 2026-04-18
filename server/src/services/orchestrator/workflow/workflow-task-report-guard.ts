@@ -28,7 +28,7 @@ export async function checkWorkflowTaskReportDependencyGate<TState extends Workf
     if (!taskDef || !runtimeTask) {
       continue;
     }
-    const target = parseOrchestratorTaskReportOutcome(result.outcome, { allowMayBeDone: true });
+    const target = parseOrchestratorTaskReportOutcome(result.outcome);
     if (!target) {
       continue;
     }

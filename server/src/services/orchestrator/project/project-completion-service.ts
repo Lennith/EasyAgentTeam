@@ -1,20 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type {
-  EventRecord,
-  ManagerToAgentMessage,
-  ProjectPaths,
-  ProjectRecord,
-  TaskRecord
-} from "../../../domain/models.js";
+import type { EventRecord, ProjectPaths, ProjectRecord, TaskRecord } from "../../../domain/models.js";
 import { extractTaskIdFromMessage } from "../../orchestrator-dispatch-core.js";
 import {
-  countRecentTaskDispatches,
   hasSuccessfulRunFinishEvent,
   isTerminalTaskState,
-  isValidAgentProgressContent,
-  resolveProjectMayBeDoneSettings,
-  shouldMarkTaskMayBeDone
+  isValidAgentProgressContent
 } from "./project-completion-policy.js";
 import type { ProjectCompletionContext } from "./project-orchestrator-types.js";
 
@@ -27,7 +18,7 @@ export class ProjectCompletionService {
     const taskById = new Map(allTasks.map((task) => [task.taskId, task]));
     const messageIds = inboxMessages
       .filter((message) => {
-        const taskId = extractTaskIdFromMessage(message as ManagerToAgentMessage);
+        const taskId = extractTaskIdFromMessage(message);
         const task = taskId ? taskById.get(taskId) : null;
         return task ? isTerminalTaskState(task.state) : false;
       })
@@ -36,47 +27,6 @@ export class ProjectCompletionService {
       return 0;
     }
     return this.context.repositories.inbox.removeInboxMessages(paths, role, messageIds);
-  }
-
-  async checkAndMarkMayBeDone(project: ProjectRecord, paths: ProjectPaths): Promise<void> {
-    const mayBeDoneSettings = resolveProjectMayBeDoneSettings();
-    if (!mayBeDoneSettings.enabled) {
-      return;
-    }
-    const { threshold, windowMs } = mayBeDoneSettings;
-
-    const allTasks = await this.context.repositories.taskboard.listTasks(paths, project.projectId);
-    const nonTerminalTasks = allTasks.filter((task) => !isTerminalTaskState(task.state));
-    if (nonTerminalTasks.length === 0) {
-      return;
-    }
-
-    const events = await this.context.repositories.events.listEvents(paths);
-    const cutoff = Date.now() - windowMs;
-    const recentEvents = events.filter((event) => Date.parse(event.createdAt) >= cutoff);
-
-    for (const task of nonTerminalTasks) {
-      const dispatchCount = countRecentTaskDispatches(task.taskId, recentEvents);
-      const hasValidOutput = await this.hasValidAgentOutput(project, task, recentEvents);
-      if (!shouldMarkTaskMayBeDone({ task, dispatchCount, threshold, hasValidOutput })) {
-        continue;
-      }
-      await this.context.repositories.taskboard.patchTask(paths, project.projectId, task.taskId, {
-        state: "MAY_BE_DONE"
-      });
-      await this.context.repositories.events.appendEvent(paths, {
-        projectId: project.projectId,
-        eventType: "TASK_MAY_BE_DONE_MARKED",
-        source: "manager",
-        taskId: task.taskId,
-        payload: {
-          dispatchCount,
-          threshold,
-          windowMs,
-          reason: "dispatch_threshold_exceeded_with_valid_output"
-        }
-      });
-    }
   }
 
   async emitDispatchObservabilitySnapshot(project: ProjectRecord, paths: ProjectPaths): Promise<void> {

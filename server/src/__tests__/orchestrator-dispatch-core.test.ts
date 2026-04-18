@@ -38,7 +38,6 @@ test("isRemindableTaskState aligns reminder candidates with actionable dispatch 
   assert.equal(isRemindableTaskState("READY"), true);
   assert.equal(isRemindableTaskState("DISPATCHED"), true);
   assert.equal(isRemindableTaskState("IN_PROGRESS"), true);
-  assert.equal(isRemindableTaskState("MAY_BE_DONE"), true);
 
   assert.equal(isRemindableTaskState("PLANNED"), false);
   assert.equal(isRemindableTaskState("BLOCKED_DEP"), false);

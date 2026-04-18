@@ -1,103 +1,32 @@
-# Architecture and API Navigation
+﻿# 架构与接口导航（最后更新：2026-04-16）
 
-Use this page as the main navigation after the 5-minute path.
+这是一份导航文档，不承担规范定义职责。
 
-## Runtime Modes and Core API Entry
+## 后端入口
 
-### Project Runtime
+- 路由层：`server/src/routes/`
+- 编排器：`server/src/services/orchestrator/`
+- 任务动作：`server/src/services/task-actions/`
+- Provider 运行时：`server/src/services/provider-runtime.ts`
+- 数据与仓储：`server/src/data/`
 
-- Main write path: `POST /api/projects/:id/task-actions`
-- Main query path: `GET /api/projects/:id/task-tree`
-- Runtime observability:
-  - `GET /api/projects/:id/agent-io/timeline?limit=200`
-  - `GET /api/projects/:id/events`
-- Orchestrator control:
-  - `GET/PATCH /api/projects/:id/orchestrator/settings`
-  - `POST /api/projects/:id/orchestrator/dispatch`
+## 前端入口
 
-### Workflow Runtime
+- 路由与页面：`dashboard-v2/src/views/`
+- API 映射：`dashboard-v2/src/services/api.ts`
+- 类型：`dashboard-v2/src/types/`
 
-- Main write path: `POST /api/workflow-runs/:run_id/task-actions`
-- Main query path:
-  - `GET /api/workflow-runs/:run_id/task-runtime`
-  - `GET /api/workflow-runs/:run_id/task-tree-runtime`
-- Orchestrator control:
-  - `GET/PATCH /api/workflow-runs/:run_id/orchestrator/settings`
-  - `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
+## 正式规范入口
 
-## Key Implementation Entry Points
+- 后端 PRD：[docs/prd/server/backend-modules.prd.md](./prd/server/backend-modules.prd.md)
+- 后端 API：[docs/spec/server/server-api.api-spec.md](./spec/server/server-api.api-spec.md)
+- Workflow API：[docs/spec/server/workflow-runtime.api-spec.md](./spec/server/workflow-runtime.api-spec.md)
+- 前端 Workflow UI：[docs/spec/dashboard/workflow-ui.api-spec.md](./spec/dashboard/workflow-ui.api-spec.md)
+- TeamTool 协议：[docs/spec/server/teamtool.spec.md](./spec/server/teamtool.spec.md)
 
-- Backend route entry: `server/src/routes/`
-- Orchestrator runtime entry: `server/src/services/orchestrator/`
-- Task action service entry: `server/src/services/task-actions/`
-- Data/repository/runtime entry: `server/src/data/`
-- Dashboard integration entry: `dashboard-v2/src/`
+## 逻辑设计入口
 
-## PRD Navigation
-
-- PRD index: `server/docs/ServerPRD_Index.md`
-- Orchestrator: `server/docs/PRD_Orchestrator.md`
-- Data storage: `server/docs/PRD_Data_Storage.md`
-- Task protocol: `server/docs/PRD_Task_Protocol.md`
-- Workflow runtime: `server/docs/PRD_Workflow_Runtime.md`
-- Routing orchestration: `server/docs/PRD_Routing_Orchestration.md`
-
-## Data Boundary Summary
-
-- Route layer must not open transactions directly.
-- Application service owns `UnitOfWork.run(...)` boundaries.
-- Mainline writes should pass through repository bundles:
-  - project: `ProjectRepositoryBundle`
-  - workflow: `WorkflowRepositoryBundle`
-- Shared scope seam remains:
-  - `resolveScope(...)`
-  - `runInUnitOfWork(...)`
-  - `runWithResolvedScope(...)`
-
-Boundary review helper:
-
-- `pnpm check:boundaries`
-- `pnpm check:boundaries:strict`
-
-## E2E and Gate Navigation
-
-- E2E baseline entry: [E2ETest/README.md](../E2ETest/README.md)
-- First-run wrapper: `pnpm e2e:first-run`
-- TemplateAgent 2-case baseline: `pnpm e2e:template-agent`
-- Aggregate baseline: `pnpm e2e:baseline` (includes template-agent)
-- Standard engineering gate: `pnpm gate:standard`
-- Gate SOP: [docs/gates/standard-gate-sop.md](./gates/standard-gate-sop.md)
-
-Gate-to-doc index contract:
-
-- JSON contract: `docs/contracts/gate-doc-index.contract.json`
-- Manual generation command: `pnpm gate:index`
-
-## External Agent Workspace
-
-- Static copy-ready workspace: `TemplateAgentWorkspace/`
-- External workspace/import CLI: `agent-workspace/cli.mjs`
-- `agent-workspace init` mode: copy static template + patch `.agent-tools/config.json` `base_url`
-- Contract: `docs/contracts/agent-workspace-bundle.contract.json`
-- Navigation doc: `docs/agent-workspace/README.md`
-- Sample bundle: `agent-workspace/examples/bundle.sample.json`
-- Campaign entry: `pnpm agent-workspace:campaign -- --manifest <path> --base-url <url>`
-- Campaign contracts:
-  - `docs/contracts/agent-workspace-campaign-manifest.contract.json`
-  - `docs/contracts/agent-workspace-campaign-report.contract.json`
-- External-agent 3dof workflow E2E: `pnpm e2e:external-agent-3dof`
-
-## Common Change Landing Map
-
-- If you change task action behavior:
-  - update `server/src/services/task-actions/**` and related tests
-  - sync PRD: `server/docs/PRD_Task_Protocol.md`
-- If you change orchestrator routing/dispatch/completion:
-  - update `server/src/services/orchestrator/**` and related tests
-  - sync PRD: `server/docs/PRD_Orchestrator.md`
-- If you change storage/repository/transaction boundaries:
-  - update `server/src/data/**` and repository tests
-  - sync PRD: `server/docs/PRD_Data_Storage.md`
-- If you change public endpoints or payloads:
-  - update route handlers + docs contract
-  - sync `server/docs/ServerPRD_Index.md` and related module PRD
+- Dispatch 选择：[docs/logic/server/dispatch-selection.logic.md](./logic/server/dispatch-selection.logic.md)
+- Reminder 门禁：[docs/logic/server/reminder-gate.logic.md](./logic/server/reminder-gate.logic.md)
+- Session Authority：[docs/logic/server/session-authority.logic.md](./logic/server/session-authority.logic.md)
+- Workflow 工作区联动：[docs/logic/dashboard/workflow-workspace.logic.md](./logic/dashboard/workflow-workspace.logic.md)

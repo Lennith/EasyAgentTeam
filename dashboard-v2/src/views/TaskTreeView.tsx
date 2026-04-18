@@ -164,7 +164,6 @@ export function TaskTreeView({
     DISPATCHED: t.taskDispatched,
     IN_PROGRESS: t.taskInProgress,
     BLOCKED_DEP: t.taskBlockedDep,
-    MAY_BE_DONE: t.taskMayBeDone ?? "May Be Done",
     DONE: t.taskDone,
     CANCELED: t.taskCanceled
   };
@@ -175,7 +174,6 @@ export function TaskTreeView({
     DISPATCHED: "var(--accent-secondary)",
     IN_PROGRESS: "var(--accent-warning)",
     BLOCKED_DEP: "var(--accent-danger)",
-    MAY_BE_DONE: "var(--accent-success)",
     DONE: "var(--accent-success)",
     CANCELED: "var(--text-muted)"
   };

@@ -65,7 +65,6 @@ export function TaskboardView({ projectId, sessions, tasks, reload }: TaskboardV
     Ready: ["READY"],
     "In Progress": ["DISPATCHED", "IN_PROGRESS"],
     Blocked: ["BLOCKED_DEP"],
-    "May Be Done": ["MAY_BE_DONE"],
     Done: ["DONE", "CANCELED"]
   };
 
@@ -75,7 +74,6 @@ export function TaskboardView({ projectId, sessions, tasks, reload }: TaskboardV
     DISPATCHED: t.taskDispatched,
     IN_PROGRESS: t.taskInProgress,
     BLOCKED_DEP: t.taskBlockedDep,
-    MAY_BE_DONE: t.taskMayBeDone ?? "May Be Done",
     DONE: t.taskDone,
     CANCELED: t.taskCanceled
   };
@@ -86,7 +84,6 @@ export function TaskboardView({ projectId, sessions, tasks, reload }: TaskboardV
     DISPATCHED: "var(--accent-secondary)",
     IN_PROGRESS: "var(--accent-warning)",
     BLOCKED_DEP: "var(--accent-danger)",
-    MAY_BE_DONE: "var(--accent-success)",
     DONE: "var(--accent-success)",
     CANCELED: "var(--text-muted)"
   };
@@ -129,7 +126,6 @@ export function TaskboardView({ projectId, sessions, tasks, reload }: TaskboardV
           <StatCard label="In Progress" value={groupedTasks["In Progress"].length} color="var(--accent-warning)" />
           <StatCard label="Done" value={groupedTasks["Done"].length} color="var(--accent-success)" />
           <StatCard label="Blocked" value={groupedTasks["Blocked"].length} color="var(--accent-danger)" />
-          <StatCard label="May Be Done" value={groupedTasks["May Be Done"].length} color="var(--accent-success)" />
         </div>
       </div>
 

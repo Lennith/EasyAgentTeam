@@ -14,7 +14,6 @@ export interface ResolveOrchestratorDispatchCandidateInput<
   allTasks: TTask[];
   force: boolean;
   allowFallbackTask?: boolean;
-  preferNonMayBeDoneOnFallback?: boolean;
   resolveTaskById(taskId: string): TTask | null;
 }
 
@@ -50,11 +49,7 @@ export function resolveOrchestratorDispatchCandidate<
   if (input.allowFallbackTask === false) {
     return null;
   }
-
-  const fallbackTask =
-    input.force || !input.preferNonMayBeDoneOnFallback
-      ? (prioritizedRunnableTasks[0] ?? null)
-      : (prioritizedRunnableTasks.find((task) => task.state !== "MAY_BE_DONE") ?? null);
+  const fallbackTask = prioritizedRunnableTasks[0] ?? null;
   if (!fallbackTask) {
     return null;
   }

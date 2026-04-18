@@ -5,7 +5,7 @@ import { patchProjectTask } from "../services/project-task-use-cases.js";
 import { getProjectRuntimeContext, type ProjectTaskPatchInput } from "../services/project-runtime-api-service.js";
 import { logger } from "../utils/logger.js";
 import type { AppRuntimeContext } from "./shared/context.js";
-import { resolveTaskActionNextAction, retiredEndpoint } from "./shared/http.js";
+import { resolveTaskActionNextAction } from "./shared/http.js";
 
 export function registerProjectTaskRoutes(app: express.Application, context: AppRuntimeContext): void {
   const { dataRoot } = context;
@@ -47,18 +47,6 @@ export function registerProjectTaskRoutes(app: express.Application, context: App
       }
       next(error);
     }
-  });
-
-  app.post("/api/projects/:id/agent-handoff", async (_req, res) => {
-    retiredEndpoint(res, "/api/projects/:id/task-actions");
-  });
-
-  app.post("/api/projects/:id/reports", async (_req, res) => {
-    retiredEndpoint(res, "/api/projects/:id/task-actions");
-  });
-
-  app.get("/api/projects/:id/tasks", async (_req, res) => {
-    retiredEndpoint(res, "/api/projects/:id/task-tree");
   });
 
   app.get("/api/projects/:id/task-tree", async (req, res, next) => {

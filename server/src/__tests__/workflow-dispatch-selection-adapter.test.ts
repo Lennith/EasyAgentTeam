@@ -52,7 +52,6 @@ function createRuntime(
       ready: states.filter((item) => item.state === "READY").length,
       dispatched: states.filter((item) => item.state === "DISPATCHED").length,
       inProgress: states.filter((item) => item.state === "IN_PROGRESS").length,
-      mayBeDone: states.filter((item) => item.state === "MAY_BE_DONE").length,
       blocked: states.filter((item) => item.state === "BLOCKED_DEP").length,
       done: states.filter((item) => item.state === "DONE").length,
       canceled: states.filter((item) => item.state === "CANCELED").length
@@ -226,6 +225,32 @@ test("workflow dispatch selection reports busy when session is already running w
   const result = await adapter.select(
     { run, runtime, sessions: [session] },
     { force: false, onlyIdle: false, requestId: "request-running", remainingBudget: 3 }
+  );
+
+  assert.equal(result.status, "none");
+  if (result.status !== "none") {
+    return;
+  }
+  assert.equal(result.busyFound, true);
+});
+
+test("workflow dispatch selection reports busy when session is blocked", async () => {
+  const run = createRun();
+  const runtime = createRuntime([{ taskId: "task_a", state: "READY" }]);
+  const session = createSession({
+    status: "blocked"
+  });
+  const { repositories } = createRepositories({});
+  const adapter = new WorkflowDispatchSelectionAdapter({
+    repositories,
+    inFlightDispatchSessionKeys: new OrchestratorSingleFlightGate(),
+    buildRunSessionKey: (runId, sessionId) => `${runId}:${sessionId}`,
+    resolveAuthoritativeSession: async () => session
+  });
+
+  const result = await adapter.select(
+    { run, runtime, sessions: [session] },
+    { force: false, onlyIdle: false, requestId: "request-blocked", remainingBudget: 3 }
   );
 
   assert.equal(result.status, "none");

@@ -66,8 +66,7 @@ class WorkflowDispatchPromptFrameBuilder implements OrchestratorPromptFrameBuild
           (item) =>
             item.runtimeTask.state === "READY" ||
             item.runtimeTask.state === "DISPATCHED" ||
-            item.runtimeTask.state === "IN_PROGRESS" ||
-            item.runtimeTask.state === "MAY_BE_DONE"
+            item.runtimeTask.state === "IN_PROGRESS"
         )
         .map((item) => `${item.runtimeTask.taskId}(${item.runtimeTask.state})`),
       visibleBlockedTasks: visibleRoleTasks

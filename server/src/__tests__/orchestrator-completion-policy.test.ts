@@ -4,33 +4,8 @@ import {
   countOrchestratorTaskDispatches,
   hasOrchestratorSuccessfulRunFinishEvent,
   isOrchestratorTerminalTaskState,
-  isOrchestratorValidProgressContent,
-  resolveOrchestratorMayBeDoneSettings
+  isOrchestratorValidProgressContent
 } from "../services/orchestrator/shared/completion-policy.js";
-
-test("completion policy resolves MAY_BE_DONE settings from env with stable fallback", () => {
-  const previousEnabled = process.env.MAY_BE_DONE_ENABLED;
-  const previousThreshold = process.env.MAY_BE_DONE_DISPATCH_THRESHOLD;
-  const previousWindow = process.env.MAY_BE_DONE_CHECK_WINDOW_MS;
-  try {
-    process.env.MAY_BE_DONE_ENABLED = "0";
-    process.env.MAY_BE_DONE_DISPATCH_THRESHOLD = "not-a-number";
-    process.env.MAY_BE_DONE_CHECK_WINDOW_MS = "-1";
-    const settings = resolveOrchestratorMayBeDoneSettings();
-    assert.deepEqual(settings, {
-      enabled: false,
-      threshold: 5,
-      windowMs: 60 * 60 * 1000
-    });
-  } finally {
-    if (previousEnabled === undefined) delete process.env.MAY_BE_DONE_ENABLED;
-    else process.env.MAY_BE_DONE_ENABLED = previousEnabled;
-    if (previousThreshold === undefined) delete process.env.MAY_BE_DONE_DISPATCH_THRESHOLD;
-    else process.env.MAY_BE_DONE_DISPATCH_THRESHOLD = previousThreshold;
-    if (previousWindow === undefined) delete process.env.MAY_BE_DONE_CHECK_WINDOW_MS;
-    else process.env.MAY_BE_DONE_CHECK_WINDOW_MS = previousWindow;
-  }
-});
 
 test("completion policy counts task dispatch starts by taskId and dispatchKind", () => {
   const count = countOrchestratorTaskDispatches("task-1", [

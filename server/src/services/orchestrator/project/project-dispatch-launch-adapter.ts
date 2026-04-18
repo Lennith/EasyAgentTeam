@@ -1,6 +1,7 @@
 import type {
   addPendingMessagesForRole,
-  confirmPendingMessagesForRole
+  confirmPendingMessagesForRole,
+  releasePendingMessagesForRole
 } from "../../../data/repository/project/role-message-status-repository.js";
 import type {
   getRuntimeSettings,
@@ -18,6 +19,8 @@ import type { ProjectDispatchInput as ProviderProjectDispatchInput, ProviderRegi
 import type {
   markRunnerFatalError,
   markRunnerBlocked,
+  markRunnerRetryableError,
+  markRunnerTransientError,
   markRunnerStarted,
   markRunnerSuccess,
   markRunnerTimeout
@@ -73,10 +76,13 @@ export interface ProjectDispatchLaunchOperations {
   prepareProjectDispatchLaunch: typeof prepareProjectDispatchLaunch;
   addPendingMessagesForRole: typeof addPendingMessagesForRole;
   confirmPendingMessagesForRole: typeof confirmPendingMessagesForRole;
+  releasePendingMessagesForRole: typeof releasePendingMessagesForRole;
   markRunnerStarted: typeof markRunnerStarted;
   markRunnerSuccess: typeof markRunnerSuccess;
   markRunnerTimeout: typeof markRunnerTimeout;
   markRunnerBlocked: typeof markRunnerBlocked;
+  markRunnerRetryableError: typeof markRunnerRetryableError;
+  markRunnerTransientError?: typeof markRunnerTransientError;
   markRunnerFatalError: typeof markRunnerFatalError;
 }
 

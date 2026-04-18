@@ -16,6 +16,7 @@ import type { ProviderSessionRunInput } from "./provider-session-types.js";
 import { composeSystemPrompt } from "./prompt-composer.js";
 import { resolveSkillPromptSegments } from "./skill-catalog.js";
 import { getDefaultShellType } from "../runtime-platform.js";
+import { normalizeMiniMaxRuntimeFailure } from "./provider-launch-error.js";
 
 type ProjectSyncRunResult = ModelRunResult | MiniMaxRunResultInternal;
 
@@ -231,11 +232,19 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
 
     this.activeToolSessions.set(sessionKey, agent);
     try {
-      return await agent.runWithResult({
-        prompt: input.prompt,
-        sessionId: input.providerSessionId,
-        callback: input.callback
-      });
+      try {
+        return await agent.runWithResult({
+          prompt: input.prompt,
+          sessionId: input.providerSessionId,
+          callback: input.callback
+        });
+      } catch (error) {
+        const normalized = normalizeMiniMaxRuntimeFailure(error);
+        if (normalized) {
+          throw normalized;
+        }
+        throw error;
+      }
     } finally {
       const active = this.activeToolSessions.get(sessionKey);
       if (active === agent) {

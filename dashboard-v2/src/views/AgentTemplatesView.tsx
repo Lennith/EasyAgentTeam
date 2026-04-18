@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
+import { useSettings } from "@/hooks/useSettings";
+import * as mockData from "@/mock/data";
 import type { AgentTemplateDefinition } from "@/types";
 import { templateApi } from "@/services/api";
 import { Plus, Save, Trash2, Loader, Edit, Copy } from "lucide-react";
 
 export function AgentTemplatesView() {
   const t = useTranslation();
+  const { settings } = useSettings();
   const [builtInTemplates, setBuiltInTemplates] = useState<AgentTemplateDefinition[]>([]);
   const [customTemplates, setCustomTemplates] = useState<AgentTemplateDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +26,18 @@ export function AgentTemplatesView() {
   useEffect(() => {
     let closed = false;
     async function load() {
+      if (!closed) {
+        setLoading(true);
+      }
+      if (settings.useMockData) {
+        if (!closed) {
+          setBuiltInTemplates(mockData.mockAgentTemplates.builtInItems ?? []);
+          setCustomTemplates(mockData.mockAgentTemplates.customItems ?? []);
+          setError(null);
+          setLoading(false);
+        }
+        return;
+      }
       try {
         const data = await templateApi.list();
         if (!closed) {
@@ -42,7 +57,7 @@ export function AgentTemplatesView() {
     return () => {
       closed = true;
     };
-  }, []);
+  }, [settings.useMockData]);
 
   const startEdit = (template: AgentTemplateDefinition) => {
     setEditingId(template.templateId);
@@ -59,10 +74,12 @@ export function AgentTemplatesView() {
   const saveEdit = async (templateId: string) => {
     try {
       setSaving(true);
-      await templateApi.update(templateId, {
-        display_name: editDisplayName,
-        prompt: editPrompt
-      });
+      if (!settings.useMockData) {
+        await templateApi.update(templateId, {
+          display_name: editDisplayName,
+          prompt: editPrompt
+        });
+      }
       setCustomTemplates(
         customTemplates.map((t) =>
           t.templateId === templateId ? { ...t, displayName: editDisplayName, prompt: editPrompt } : t
@@ -79,7 +96,9 @@ export function AgentTemplatesView() {
   const deleteTemplate = async (templateId: string) => {
     if (!window.confirm(`Delete template '${templateId}'?`)) return;
     try {
-      await templateApi.delete(templateId);
+      if (!settings.useMockData) {
+        await templateApi.delete(templateId);
+      }
       setCustomTemplates(customTemplates.filter((t) => t.templateId !== templateId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete");
@@ -89,13 +108,25 @@ export function AgentTemplatesView() {
   const createTemplate = async () => {
     try {
       setSaving(true);
-      await templateApi.create({
-        template_id: newTemplateId,
-        display_name: newDisplayName,
-        prompt: newPrompt
-      });
-      const data = await templateApi.list();
-      setCustomTemplates(data.customItems ?? []);
+      if (settings.useMockData) {
+        setCustomTemplates((prev) => [
+          ...prev,
+          {
+            templateId: newTemplateId,
+            displayName: newDisplayName,
+            prompt: newPrompt,
+            source: "custom"
+          }
+        ]);
+      } else {
+        await templateApi.create({
+          template_id: newTemplateId,
+          display_name: newDisplayName,
+          prompt: newPrompt
+        });
+        const data = await templateApi.list();
+        setCustomTemplates(data.customItems ?? []);
+      }
       setShowNew(false);
       setNewTemplateId("");
       setNewDisplayName("");

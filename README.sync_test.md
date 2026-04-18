@@ -1,89 +1,24 @@
-# EasyAgentTeam
+﻿# 仓库同步校验速查（最后更新：2026-04-16）
 
-Task-driven multi-agent orchestration framework with project/workflow runtimes and observable execution.
+本页只保留同步校验和最小验证命令，不重复承担项目介绍与完整上手说明。
 
-## What Is This
+## 参考入口
 
-EasyAgentTeam is used to:
+- 正式文档入口：[docs/README.md](./docs/README.md)
+- 5 分钟上手：[docs/guide/run-in-5-minutes.md](./docs/guide/run-in-5-minutes.md)
+- E2E 说明：[E2ETest/README.md](./E2ETest/README.md)
 
-- orchestrate role agents with task dependencies and routing
-- observe execution through task tree, timeline, sessions, and runtime events
-
-Learn more: [docs/what-is-this.md](./docs/what-is-this.md)
-
-## Run It In 5 Minutes
-
-1. Install dependencies.
+## 最小校验集
 
 ```powershell
 pnpm i
-```
-
-2. Start backend + dashboard.
-
-```powershell
-pnpm dev
-```
-
-3. In another terminal, run official first-run E2E wrapper.
-
-```powershell
-pnpm e2e:first-run
-```
-
-4. Verify observability evidence:
-
-- task tree: `GET /api/projects/:id/task-tree`
-- timeline: `GET /api/projects/:id/agent-io/timeline?limit=200`
-- workspace evidence: `<workspace>/docs/e2e/<timestamp>/run_summary.md`
-
-Detailed guide: [docs/run-in-5-minutes.md](./docs/run-in-5-minutes.md)
-
-## Official E2E Entry
-
-E2E scripts are a first-class product entry, not auxiliary tests:
-
-- standard project baseline: `pnpm e2e:standard`
-- discuss baseline: `pnpm e2e:discuss`
-- workflow baseline: `pnpm e2e:workflow`
-- aggregate baseline suite (chain + discuss + workflow): `pnpm e2e:baseline`
-
-Usage template for each E2E case: [E2ETest/README.md](./E2ETest/README.md)
-
-## Standard Engineering Gate
-
-Run smoke + core project E2E + core workflow E2E:
-
-```powershell
-pnpm gate:standard
-```
-
-Failure triage SOP: [docs/gates/standard-gate-sop.md](./docs/gates/standard-gate-sop.md)
-
-## Architecture / API Details
-
-Entry page: [docs/architecture-and-api.md](./docs/architecture-and-api.md)
-
-Deep docs:
-
-- backend PRDs: `server/docs/`
-- dashboard docs: `dashboard-v2/docs/`
-- E2E baselines: `E2ETest/README.md`
-
-## Commands
-
-```powershell
-pnpm dev
 pnpm build
 pnpm test
+pnpm docs:check
 pnpm e2e:first-run
-pnpm e2e:standard
-pnpm e2e:discuss
-pnpm e2e:workflow
-pnpm e2e:baseline
-pnpm gate:standard
 ```
 
-## License
+## 说明
 
-This project is source-available for non-commercial use.
+- 本页用于仓库同步、镜像验证和基础命令自检。
+- 完整发布门禁仍以根 [AGENTS.md](./AGENTS.md) 为准。

@@ -142,7 +142,7 @@ export function buildProjectDispatchPrompt(context: ProjectDispatchPromptContext
     "- non-focus task reporting is allowed only when dependencies are already ready; this is non-preferred compared to focus task."
   );
   lines.push(
-    "- never report IN_PROGRESS/DONE/MAY_BE_DONE for dependency-blocked tasks; wait for dependency completion signal/reminder."
+    "- never report IN_PROGRESS/DONE for dependency-blocked tasks; wait for dependency completion signal/reminder."
   );
   lines.push(
     "- if dependency-related report is rejected, retract or downgrade conflicting premature completion claims to draft and retry later."

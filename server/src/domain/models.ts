@@ -1,14 +1,6 @@
 import type { ProviderId } from "@autodev/agent-library";
 
-export type TaskState =
-  | "PLANNED"
-  | "READY"
-  | "DISPATCHED"
-  | "IN_PROGRESS"
-  | "BLOCKED_DEP"
-  | "MAY_BE_DONE"
-  | "DONE"
-  | "CANCELED";
+export type TaskState = "PLANNED" | "READY" | "DISPATCHED" | "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
 
 export type TaskKind = "PROJECT_ROOT" | "USER_ROOT" | "EXECUTION";
 export type ReminderMode = "backoff" | "fixed_interval";
@@ -677,7 +669,7 @@ export interface WorkflowRunTaskRecord extends WorkflowTemplateTaskRecord {
 
 export type WorkflowTaskState = TaskState;
 
-export type WorkflowTaskOutcome = "IN_PROGRESS" | "BLOCKED_DEP" | "MAY_BE_DONE" | "DONE" | "CANCELED";
+export type WorkflowTaskOutcome = "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
 
 export type WorkflowBlockReasonCode =
   | "DEP_UNSATISFIED"
@@ -761,7 +753,6 @@ export interface WorkflowRunRuntimeCounters {
   planned: number;
   ready: number;
   dispatched: number;
-  mayBeDone: number;
   blocked: number;
   inProgress: number;
   done: number;

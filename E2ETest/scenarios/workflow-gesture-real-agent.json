@@ -186,10 +186,12 @@
     "bind_role_refs": ["ui_designer"],
     "dispatch_role_ref": "ui_designer",
     "artifact_paths": [
+      "docs/ui/03_ui_spec.md",
       "docs/ux/ui/01_ui_spec.md",
       "docs/ui/01_android_ui_spec.md",
       "docs/ui/01_ui_spec.md",
       "docs/design/ui/01_ui_spec.md",
+      "TeamWorkSpace/docs/ui/03_ui_spec.md",
       "TeamWorkSpace/docs/ux/ui/01_ui_spec.md",
       "TeamWorkSpace/docs/ui/01_android_ui_spec.md",
       "TeamWorkSpace/docs/ui/01_ui_spec.md",
@@ -236,7 +238,7 @@
       "title": "Define product scope, target users, and MVP boundaries",
       "owner_role": "e2e_mgr_product_owner",
       "dependencies": ["wf_plan_master"],
-      "artifacts": ["docs/product/01_requirements.md"],
+      "artifacts": ["docs/product_definition/01_mvp_definition.md", "docs/product_definition/02_acceptance_matrix.md"],
       "acceptance": [
         "Clarify target users and key scenarios.",
         "Define MVP features and out-of-scope items.",
@@ -248,7 +250,7 @@
       "title": "Produce interaction flow and key journey decisions",
       "owner_role": "e2e_mgr_interaction_designer",
       "dependencies": ["wf_product_definition"],
-      "artifacts": ["docs/ux/interaction/01_interaction_spec.md"],
+      "artifacts": ["docs/interaction/01_core_flows.md"],
       "acceptance": [
         "Cover end-to-end interaction flow and state transitions.",
         "Include gesture interaction feedback rules.",
@@ -260,7 +262,7 @@
       "title": "Produce UI specification and visual component constraints",
       "owner_role": "e2e_mgr_ui_designer",
       "dependencies": ["wf_interaction_design"],
-      "artifacts": ["docs/ui/01_ui_spec.md"],
+      "artifacts": ["docs/ui/03_ui_spec.md"],
       "acceptance": [
         "Define key screens and UI component rules.",
         "Define accessibility and visual consistency baseline.",
@@ -272,7 +274,7 @@
       "title": "RD lead decomposes engineering plan and ownership",
       "owner_role": "e2e_mgr_rd_lead",
       "dependencies": ["wf_product_definition", "wf_interaction_design", "wf_ui_design"],
-      "artifacts": ["docs/engineering/01_architecture_plan.md"],
+      "artifacts": ["docs/engineering/01_architecture_and_workplan.md", "docs/engineering/01_decomposition.md"],
       "acceptance": [
         "Break down Android/ML/QA/Release work packages.",
         "Include dependency order and integration checkpoints.",
@@ -286,6 +288,7 @@
       "dependencies": ["wf_engineering_decomposition"],
       "artifacts": [
         "src/android-app/src/main/AndroidManifest.xml",
+        "src/androidApp/app/src/main/AndroidManifest.xml",
         "src/android-app/build.gradle.kts",
         "src/app/src/main/AndroidManifest.xml",
         "src/app/build.gradle.kts"
@@ -301,9 +304,10 @@
       "owner_role": "e2e_mgr_qa_engineer",
       "dependencies": ["wf_engineering_execution"],
       "artifacts": [
-        "docs/qa/01_gesture_validation_plan.md",
-        "docs/qa/02_test_execution_report.md",
-        "docs/release/01_mvp_release_checklist.md"
+        "docs/qa/01_test_plan.md",
+        "docs/qa/02_test_results.md",
+        "docs/release/01_release_checklist.md",
+        "docs/release/02_build_and_run.md"
       ],
       "acceptance": [
         "Define documentation-first QA validation evidence for the delivered Android source tree and interaction/UI docs.",
@@ -316,8 +320,7 @@
       "owner_role": "e2e_mgr_product_owner",
       "dependencies": ["wf_quality_release"],
       "artifacts": [
-        "delivery/01_final_delivery_package.md",
-        "docs/release/70_final_delivery.md",
+        "docs/final/07_delivery_summary.md",
         "src/android-gesture-app/build.bat",
         "src/android-app/build.bat"
       ],
@@ -330,56 +333,20 @@
   ],
   "code_output_requirements": [
     {
-      "relative_paths_any": [
-        "TeamWorkSpace/src/android/app/src/main/AndroidManifest.xml",
-        "TeamWorkSpace/src/android-gesture-app/app/src/main/AndroidManifest.xml",
-        "TeamWorkSpace/src/android-app/app/src/main/AndroidManifest.xml",
-        "TeamWorkSpace/src/android-app/src/main/AndroidManifest.xml",
-        "TeamWorkSpace/src/app/src/main/AndroidManifest.xml",
-        "src/android/app/src/main/AndroidManifest.xml",
-        "src/android-gesture-app/app/src/main/AndroidManifest.xml",
-        "src/android-app/app/src/main/AndroidManifest.xml",
-        "src/android-app/src/main/AndroidManifest.xml",
-        "src/app/src/main/AndroidManifest.xml"
-      ]
-    },
-    {
-      "relative_paths_any": [
-        "TeamWorkSpace/src/android/settings.gradle.kts",
-        "TeamWorkSpace/src/android/app/build.gradle.kts",
-        "TeamWorkSpace/src/android/app/build.gradle",
-        "TeamWorkSpace/src/android-gesture-app/app/build.gradle.kts",
-        "TeamWorkSpace/src/android-gesture-app/app/build.gradle",
-        "TeamWorkSpace/src/android-app/app/build.gradle.kts",
-        "TeamWorkSpace/src/android-app/app/build.gradle",
-        "TeamWorkSpace/src/android-app/build.gradle.kts",
-        "TeamWorkSpace/src/app/build.gradle.kts",
-        "TeamWorkSpace/src/app/build.gradle",
-        "src/android/settings.gradle.kts",
-        "src/android/app/build.gradle.kts",
-        "src/android/app/build.gradle",
-        "src/android-gesture-app/app/build.gradle.kts",
-        "src/android-gesture-app/app/build.gradle",
-        "src/android-app/app/build.gradle.kts",
-        "src/android-app/app/build.gradle",
-        "src/android-app/build.gradle.kts",
-        "src/app/build.gradle.kts",
-        "src/app/build.gradle"
-      ]
+      "dir_patterns_any": ["TeamWorkSpace/src/**/AndroidManifest.xml", "src/**/AndroidManifest.xml"]
     },
     {
       "dir_patterns_any": [
-        "TeamWorkSpace/src/android/app/src/main/java/**/*.kt",
-        "TeamWorkSpace/src/android-gesture-app/app/src/main/java/**/*.kt",
-        "TeamWorkSpace/src/android-app/app/src/main/java/**/*.kt",
-        "TeamWorkSpace/src/android-app/src/main/java/**/*.kt",
-        "TeamWorkSpace/src/app/src/main/java/**/*.kt",
-        "src/android/app/src/main/java/**/*.kt",
-        "src/android-gesture-app/app/src/main/java/**/*.kt",
-        "src/android-app/app/src/main/java/**/*.kt",
-        "src/android-app/src/main/java/**/*.kt",
-        "src/app/src/main/java/**/*.kt"
-      ],
+        "TeamWorkSpace/src/**/build.gradle.kts",
+        "TeamWorkSpace/src/**/build.gradle",
+        "TeamWorkSpace/src/**/settings.gradle.kts",
+        "src/**/build.gradle.kts",
+        "src/**/build.gradle",
+        "src/**/settings.gradle.kts"
+      ]
+    },
+    {
+      "dir_patterns_any": ["TeamWorkSpace/src/**/*.kt", "src/**/*.kt"],
       "min_count": 1
     }
   ],
@@ -392,6 +359,10 @@
     {
       "task_id": "wf_product_definition",
       "paths_any": [
+        "docs/product_definition/01_mvp_definition.md",
+        "docs/product_definition/02_acceptance_matrix.md",
+        "docs/product/01_product_brief.md",
+        "docs/product/02_scope_and_success_metrics.md",
         "TeamWorkSpace/docs/product/01_mvp_brief.md",
         "TeamWorkSpace/docs/product/01_mvp_requirements.md",
         "docs/product/01_mvp_requirements.md",
@@ -412,6 +383,9 @@
     {
       "task_id": "wf_interaction_design",
       "paths_any": [
+        "docs/ux/02_interaction_spec.md",
+        "docs/ux/interaction/01_interaction_flows.md",
+        "docs/ux/interaction/01_interaction_flow.md",
         "TeamWorkSpace/docs/ux/interaction/01_gesture_flow.md",
         "TeamWorkSpace/docs/interaction/01_gesture_flows.md",
         "docs/ux/interaction/01_gesture_flow.md",
@@ -420,13 +394,19 @@
         "docs/interaction/01_capture_flow.md",
         "TeamWorkSpace/docs/interaction/01_interaction_spec.md",
         "TeamWorkSpace/docs/ux/interaction/01_interaction_spec.md",
+        "TeamWorkSpace/docs/ux/interaction/01_interaction_flows.md",
+        "TeamWorkSpace/docs/ux/interaction/01_interaction_flow.md",
         "TeamWorkSpace/docs/interaction/01_interaction_flows.md",
+        "TeamWorkSpace/docs/interaction/01_interaction_flow.md",
         "TeamWorkSpace/docs/interaction/01_gesture_flow_spec.md",
         "TeamWorkSpace/docs/interaction/01_gesture_flow.md",
         "TeamWorkSpace/docs/ux/01_interaction_spec.md",
         "docs/interaction/01_interaction_spec.md",
         "docs/ux/interaction/01_interaction_spec.md",
+        "docs/ux/interaction/01_interaction_flows.md",
+        "docs/ux/interaction/01_interaction_flow.md",
         "docs/interaction/01_interaction_flows.md",
+        "docs/interaction/01_interaction_flow.md",
         "docs/interaction/01_gesture_flow_spec.md",
         "docs/interaction/01_gesture_flow.md",
         "docs/ux/01_interaction_spec.md",
@@ -444,6 +424,7 @@
     {
       "task_id": "wf_ui_design",
       "paths_any": [
+        "docs/ui/03_ui_spec.md",
         "docs/ux/ui/01_ui_spec.md",
         "docs/ui/01_android_ui_spec.md",
         "docs/ui/01_ui_spec.md",
@@ -463,6 +444,10 @@
     {
       "task_id": "wf_engineering_decomposition",
       "paths_any": [
+        "docs/engineering/01_architecture_and_workplan.md",
+        "docs/engineering/01_decomposition.md",
+        "docs/engineering/01_architecture.md",
+        "docs/engineering/02_execution_plan.md",
         "TeamWorkSpace/docs/engineering/01_architecture_and_backlog.md",
         "TeamWorkSpace/docs/engineering/01_architecture_plan.md",
         "docs/engineering/01_architecture_and_backlog.md",
@@ -483,6 +468,7 @@
         "src/android-gesture-app/app/src/main/AndroidManifest.xml",
         "src/android-app/app/src/main/AndroidManifest.xml",
         "src/android-app/src/main/AndroidManifest.xml",
+        "src/androidApp/app/src/main/AndroidManifest.xml",
         "src/app/src/main/AndroidManifest.xml"
       ],
       "keywords": ["application", "android.intent.action.MAIN", "android.intent.category.LAUNCHER"]
@@ -490,6 +476,23 @@
     {
       "task_id": "wf_quality_release",
       "paths_any": [
+        "docs/qa/validation_matrix.md",
+        "docs/qa/01_test_plan.md",
+        "docs/qa/02_test_results.md",
+        "docs/release/01_release_checklist.md",
+        "docs/release/02_build_and_run.md",
+        "docs/qa/05_validation_report.md",
+        "docs/release/06_release_notes.md",
+        "docs/qa/01_test_and_release_report.md",
+        "docs/qa/01_android_release_verification_report.md",
+        "docs/qa/01_test_strategy.md",
+        "docs/qa/01_test_matrix.md",
+        "docs/qa/02_quality_report.md",
+        "docs/qa/02_validation_matrix.md",
+        "docs/qa/03_test_specifications.md",
+        "docs/quality/validation_matrix.md",
+        "docs/quality/test_specifications.md",
+        "docs/quality/traceability.md",
         "TeamWorkSpace/docs/qa/01_quality_plan.md",
         "TeamWorkSpace/docs/qa/01_release_validation.md",
         "docs/qa/00_qa_report.md",
@@ -522,11 +525,31 @@
         "docs/release/01_release_summary.md",
         "qa/01_test_plan.md"
       ],
-      "keywords": ["validation"]
+      "keywords": ["validation", "verification", "test", "strategy", "matrix", "specification"],
+      "keyword_min_match": 1
     },
     {
       "task_id": "wf_quality_release",
       "paths_any": [
+        "docs/qa/validation_matrix.md",
+        "docs/qa/01_test_plan.md",
+        "docs/qa/02_test_results.md",
+        "docs/release/01_release_checklist.md",
+        "docs/release/02_build_and_run.md",
+        "docs/qa/05_validation_report.md",
+        "docs/release/06_release_notes.md",
+        "docs/qa/01_test_and_release_report.md",
+        "docs/qa/01_android_release_verification_report.md",
+        "docs/qa/01_test_strategy.md",
+        "docs/qa/04_release_checklist.md",
+        "docs/qa/02_acceptance_trace.md",
+        "docs/quality/release_checklist.md",
+        "docs/release/01_release_readiness.md",
+        "docs/release/01_build_and_release_steps.md",
+        "docs/release/01_release_plan.md",
+        "docs/release/01_mvp_release_checklist.md",
+        "docs/release/02_release_manifest.md",
+        "docs/release/wf_quality_release_done.md",
         "TeamWorkSpace/docs/qa/02_test_report.md",
         "TeamWorkSpace/docs/qa/01_release_validation.md",
         "docs/qa/01_release_validation.md",
@@ -550,11 +573,14 @@
         "docs/release/01_release_summary.md",
         "release/01_release_runbook.md"
       ],
-      "keywords": ["release"]
+      "keywords": ["release", "handoff", "plan", "checklist", "summary"],
+      "keyword_min_match": 1
     },
     {
       "task_id": "wf_final_delivery",
       "paths_any": [
+        "docs/final/07_delivery_summary.md",
+        "TeamWorkSpace/docs/final/01_delivery_summary.md",
         "TeamWorkSpace/delivery/01_final_delivery_package.md",
         "TeamWorkSpace/docs/release/01_final_delivery.md",
         "TeamWorkSpace/docs/delivery/01_final_delivery.md",
@@ -563,16 +589,20 @@
         "TeamWorkSpace/docs/delivery/01_release_handoff.md",
         "TeamWorkSpace/docs/delivery/70_final_delivery.md",
         "TeamWorkSpace/docs/release/70_final_delivery.md",
+        "docs/final/01_delivery_summary.md",
         "docs/delivery/01_final_delivery.md",
         "docs/delivery/01_final_delivery_package.md",
         "docs/delivery/01_delivery_summary.md",
         "docs/delivery/01_release_handoff.md",
         "docs/delivery/70_final_delivery.md",
         "docs/release/01_final_delivery.md",
+        "docs/release/01_build_and_release_steps.md",
+        "docs/release/01_release_plan.md",
         "docs/release/70_final_delivery.md",
         "delivery/01_final_delivery_package.md"
       ],
-      "keywords": ["delivery", "summary"]
+      "keywords": ["delivery", "summary", "release", "handoff", "plan"],
+      "keyword_min_match": 2
     }
   ]
 }

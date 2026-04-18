@@ -45,7 +45,10 @@ test("TeamTool schema builder preserves object properties and array|string union
 });
 
 test("TeamTool prompt and docs use next_action without hint wording", () => {
-  const teamToolDoc = fs.readFileSync(path.resolve(process.cwd(), "..", "TeamsTools", "TeamToolsList.md"), "utf8");
+  const teamToolDoc = fs.readFileSync(
+    path.resolve(process.cwd(), "..", "docs", "spec", "server", "teamtool.spec.md"),
+    "utf8"
+  );
   assert.equal(BASE_PROMPT_TEXT.includes("hint"), false);
   assert.equal(BASE_PROMPT_TEXT.includes("next_action"), true);
   assert.equal(teamToolDoc.includes("hint"), false);

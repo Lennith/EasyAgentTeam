@@ -56,7 +56,7 @@ export interface WorkflowMiniMaxTeamToolBridgeContext {
 
 function readTaskOutcome(input: unknown): WorkflowTaskOutcome | null {
   const raw = readString(input);
-  if (raw === "IN_PROGRESS" || raw === "BLOCKED_DEP" || raw === "MAY_BE_DONE" || raw === "DONE" || raw === "CANCELED") {
+  if (raw === "IN_PROGRESS" || raw === "BLOCKED_DEP" || raw === "DONE" || raw === "CANCELED") {
     return raw;
   }
   return null;

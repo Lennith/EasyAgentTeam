@@ -280,8 +280,7 @@ export async function runWorkflowDispatchLoop(
             }
             const canMarkDispatched =
               task.state === "READY" ||
-              (loopState.force &&
-                (task.state === "DISPATCHED" || task.state === "IN_PROGRESS" || task.state === "MAY_BE_DONE"));
+              (loopState.force && (task.state === "DISPATCHED" || task.state === "IN_PROGRESS"));
             if (!canMarkDispatched) {
               continue;
             }

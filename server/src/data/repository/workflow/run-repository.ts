@@ -388,11 +388,12 @@ function mapLegacyWorkflowState(raw: string | undefined): WorkflowTaskState {
     case "DISPATCHED":
     case "IN_PROGRESS":
     case "BLOCKED_DEP":
-    case "MAY_BE_DONE":
     case "DONE":
     case "CANCELED":
     case "PLANNED":
       return state as WorkflowTaskState;
+    case "MAY_BE_DONE":
+      return "DONE";
     case "CREATED":
       return "PLANNED";
     case "FAILED":

@@ -27,8 +27,12 @@ import type {
   UpdateTeamRequest,
   WorkflowTemplateRecord,
   WorkflowRunRecord,
+  WorkflowRunRuntimeCounters,
   WorkflowRunRuntimeStatus,
   WorkflowRunRuntimeSnapshot,
+  WorkflowTaskRuntimeRecord,
+  WorkflowTaskTransitionRecord,
+  WorkflowTaskTreeRuntimeNode,
   WorkflowTaskTreeRuntimeResponse,
   WorkflowTaskActionRequest,
   WorkflowTaskActionResult,
@@ -40,6 +44,7 @@ import type {
   SkillImportResult,
   SkillListDefinition
 } from "@/types";
+import type { ProviderId } from "@autodev/agent-library";
 
 const API_BASE = "/api";
 
@@ -90,6 +95,140 @@ async function fetchText(url: string): Promise<string> {
     throw new Error(formatError((data as { error?: unknown }).error) ?? `HTTP ${response.status}`);
   }
   return response.text();
+}
+
+async function readApiError(response: Response): Promise<string> {
+  const text = await response.text();
+  if (!text) {
+    return `HTTP ${response.status}`;
+  }
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+    return formatError(parsed.error) ?? formatError(parsed.message) ?? `HTTP ${response.status}`;
+  } catch {
+    return text;
+  }
+}
+
+async function fetchStream(url: string, options?: RequestInit): Promise<Response> {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+  return response;
+}
+
+const TASK_STATES = new Set<TaskTreeNode["state"]>([
+  "PLANNED",
+  "READY",
+  "DISPATCHED",
+  "IN_PROGRESS",
+  "BLOCKED_DEP",
+  "DONE",
+  "CANCELED"
+]);
+
+const WORKFLOW_TASK_STATES = new Set<WorkflowTaskRuntimeRecord["state"]>([
+  "PLANNED",
+  "READY",
+  "DISPATCHED",
+  "IN_PROGRESS",
+  "BLOCKED_DEP",
+  "DONE",
+  "CANCELED"
+]);
+
+function normalizeTaskState(state: unknown): TaskTreeNode["state"] {
+  if (typeof state === "string" && TASK_STATES.has(state as TaskTreeNode["state"])) {
+    return state as TaskTreeNode["state"];
+  }
+  return "PLANNED";
+}
+
+function normalizeWorkflowTaskState(state: unknown): WorkflowTaskRuntimeRecord["state"] {
+  if (typeof state === "string" && WORKFLOW_TASK_STATES.has(state as WorkflowTaskRuntimeRecord["state"])) {
+    return state as WorkflowTaskRuntimeRecord["state"];
+  }
+  return "PLANNED";
+}
+
+function normalizeTaskTreeNode(node: TaskTreeNode): TaskTreeNode {
+  return {
+    ...node,
+    state: normalizeTaskState(node.state)
+  };
+}
+
+function normalizeTaskTreeResponse(response: TaskTreeResponse): TaskTreeResponse {
+  return {
+    ...response,
+    focus: response.focus ? normalizeTaskTreeNode(response.focus) : null,
+    nodes: (response.nodes ?? []).map(normalizeTaskTreeNode)
+  };
+}
+
+function normalizeTaskDetail(detail: TaskDetail): TaskDetail {
+  return {
+    ...detail,
+    task: normalizeTaskTreeNode(detail.task)
+  };
+}
+
+function normalizeWorkflowTaskTransitionRecord(transition: WorkflowTaskTransitionRecord): WorkflowTaskTransitionRecord {
+  return {
+    ...transition,
+    fromState: transition.fromState ? normalizeWorkflowTaskState(transition.fromState) : null,
+    toState: normalizeWorkflowTaskState(transition.toState)
+  };
+}
+
+function normalizeWorkflowTaskRuntimeRecord(record: WorkflowTaskRuntimeRecord): WorkflowTaskRuntimeRecord {
+  return {
+    ...record,
+    state: normalizeWorkflowTaskState(record.state),
+    transitions: (record.transitions ?? []).map(normalizeWorkflowTaskTransitionRecord)
+  };
+}
+
+function normalizeWorkflowRunRuntimeCounters(counters: WorkflowRunRuntimeCounters): WorkflowRunRuntimeCounters {
+  return counters;
+}
+
+function normalizeWorkflowRunRuntimeSnapshot(snapshot: WorkflowRunRuntimeSnapshot): WorkflowRunRuntimeSnapshot {
+  return {
+    ...snapshot,
+    counters: normalizeWorkflowRunRuntimeCounters(snapshot.counters),
+    tasks: (snapshot.tasks ?? []).map(normalizeWorkflowTaskRuntimeRecord)
+  };
+}
+
+function normalizeWorkflowTaskTreeRuntimeNode(node: WorkflowTaskTreeRuntimeNode): WorkflowTaskTreeRuntimeNode {
+  return {
+    ...node,
+    runtime: node.runtime ? normalizeWorkflowTaskRuntimeRecord(node.runtime) : null
+  };
+}
+
+function normalizeWorkflowTaskTreeRuntimeResponse(
+  response: WorkflowTaskTreeRuntimeResponse
+): WorkflowTaskTreeRuntimeResponse {
+  return {
+    ...response,
+    counters: normalizeWorkflowRunRuntimeCounters(response.counters),
+    nodes: (response.nodes ?? []).map(normalizeWorkflowTaskTreeRuntimeNode)
+  };
+}
+
+function normalizeWorkflowRunRecord(run: WorkflowRunRecord): WorkflowRunRecord {
+  return {
+    ...run,
+    runtime: run.runtime
+      ? {
+          ...run.runtime,
+          tasks: (run.runtime.tasks ?? []).map(normalizeWorkflowTaskRuntimeRecord)
+        }
+      : run.runtime
+  };
 }
 
 function mapSessionFields(raw: Record<string, unknown>): SessionRecord {
@@ -154,6 +293,50 @@ function mapSkillListDefinition(raw: Record<string, unknown>): SkillListDefiniti
   };
 }
 
+function mapWorkflowSessionFields(raw: Record<string, unknown>): WorkflowSessionRecord {
+  return {
+    schemaVersion: (raw.schemaVersion ?? raw.schema_version ?? "1.0") as "1.0",
+    sessionId: (raw.sessionId ?? raw.session_id ?? raw.sessionKey) as string,
+    runId: (raw.runId ?? raw.run_id) as string,
+    role: raw.role as string,
+    provider: (raw.provider ?? raw.provider_id) as ProviderId,
+    providerSessionId:
+      (raw.providerSessionId ?? raw.provider_session_id) === null
+        ? null
+        : ((raw.providerSessionId ?? raw.provider_session_id) as string | undefined),
+    status: raw.status as WorkflowSessionRecord["status"],
+    createdAt: (raw.createdAt ?? raw.created_at) as string,
+    updatedAt: (raw.updatedAt ?? raw.updated_at) as string,
+    lastActiveAt: (raw.lastActiveAt ?? raw.last_active_at) as string,
+    currentTaskId: (raw.currentTaskId ?? raw.current_task_id) as string | undefined,
+    lastInboxMessageId: (raw.lastInboxMessageId ?? raw.last_inbox_message_id) as string | undefined,
+    lastDispatchedAt: (raw.lastDispatchedAt ?? raw.last_dispatched_at) as string | undefined,
+    lastDispatchId: (raw.lastDispatchId ?? raw.last_dispatch_id) as string | undefined,
+    lastDispatchedMessageId: (raw.lastDispatchedMessageId ?? raw.last_dispatched_message_id) as string | undefined
+  };
+}
+
+type AgentChatScope = { projectId: string; runId?: never } | { runId: string; projectId?: never };
+
+interface AgentChatRequest {
+  role: string;
+  prompt: string;
+  sessionId: string;
+  providerSessionId?: string | null;
+}
+
+function buildAgentChatBasePath(scope: AgentChatScope): string {
+  const projectId = (scope as { projectId?: string }).projectId;
+  if (typeof projectId === "string") {
+    return `${API_BASE}/projects/${encodeURIComponent(projectId)}/agent-chat`;
+  }
+  const runId = (scope as { runId?: string }).runId;
+  if (typeof runId === "string") {
+    return `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/agent-chat`;
+  }
+  throw new Error("Missing chat scope: projectId or runId is required");
+}
+
 export const projectApi = {
   list: () => fetchJSON<{ items: ProjectSummary[] }>(`${API_BASE}/projects`),
 
@@ -201,13 +384,13 @@ export const projectApi = {
       params.set("include_external_dependencies", String(options.include_external_dependencies));
     const query = params.toString();
     const url = `${API_BASE}/projects/${encodeURIComponent(projectId)}/task-tree${query ? `?${query}` : ""}`;
-    return fetchJSON<TaskTreeResponse>(url);
+    return fetchJSON<TaskTreeResponse>(url).then(normalizeTaskTreeResponse);
   },
 
   getTaskDetail: (projectId: string, taskId: string) =>
     fetchJSON<TaskDetail>(
       `${API_BASE}/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/detail`
-    ),
+    ).then(normalizeTaskDetail),
 
   taskAction: (projectId: string, data: TaskActionRequest) =>
     fetchJSON<{ taskId?: string; success: boolean }>(
@@ -225,7 +408,10 @@ export const projectApi = {
         method: "PATCH",
         body: JSON.stringify(data)
       }
-    ),
+    ).then((payload) => ({
+      ...payload,
+      task: normalizeTaskTreeNode(payload.task)
+    })),
 
   getLocks: (projectId: string) =>
     fetchJSON<{ items: LockRecord[] }>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/locks`),
@@ -591,6 +777,22 @@ export const templateApi = {
     })
 };
 
+export const agentChatApi = {
+  stream: (scope: AgentChatScope, data: AgentChatRequest, signal?: AbortSignal) =>
+    fetchStream(buildAgentChatBasePath(scope), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      signal
+    }),
+
+  interrupt: (scope: AgentChatScope, sessionId: string) =>
+    fetchJSON<{ success: boolean; cancelled?: boolean }>(
+      `${buildAgentChatBasePath(scope)}/${encodeURIComponent(sessionId)}/interrupt`,
+      { method: "POST" }
+    )
+};
+
 export const projectTemplateApi = {
   list: () => fetchJSON<{ items: TemplateDefinition[] }>(`${API_BASE}/project-templates`)
 };
@@ -659,9 +861,16 @@ export const workflowApi = {
       }
     ),
 
-  listRuns: () => fetchJSON<{ items: WorkflowRunRecord[]; total: number }>(`${API_BASE}/workflow-runs`),
+  listRuns: () =>
+    fetchJSON<{ items: WorkflowRunRecord[]; total: number }>(`${API_BASE}/workflow-runs`).then((payload) => ({
+      ...payload,
+      items: (payload.items ?? []).map(normalizeWorkflowRunRecord)
+    })),
 
-  getRun: (runId: string) => fetchJSON<WorkflowRunRecord>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}`),
+  getRun: (runId: string) =>
+    fetchJSON<WorkflowRunRecord>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}`).then(
+      normalizeWorkflowRunRecord
+    ),
 
   createRun: (data: {
     template_id: string;
@@ -691,7 +900,10 @@ export const workflowApi = {
       {
         method: "POST"
       }
-    ),
+    ).then((payload) => ({
+      ...payload,
+      run: payload.run ? normalizeWorkflowRunRecord(payload.run) : payload.run
+    })),
 
   stopRun: (runId: string) =>
     fetchJSON<{ runtime: WorkflowRunRuntimeStatus; run: WorkflowRunRecord | null }>(
@@ -699,18 +911,23 @@ export const workflowApi = {
       {
         method: "POST"
       }
-    ),
+    ).then((payload) => ({
+      ...payload,
+      run: payload.run ? normalizeWorkflowRunRecord(payload.run) : payload.run
+    })),
 
   getRunStatus: (runId: string) =>
     fetchJSON<WorkflowRunRuntimeStatus>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/status`),
 
   getTaskRuntime: (runId: string) =>
-    fetchJSON<WorkflowRunRuntimeSnapshot>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/task-runtime`),
+    fetchJSON<WorkflowRunRuntimeSnapshot>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/task-runtime`).then(
+      normalizeWorkflowRunRuntimeSnapshot
+    ),
 
   getTaskTreeRuntime: (runId: string) =>
     fetchJSON<WorkflowTaskTreeRuntimeResponse>(
       `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/task-tree-runtime`
-    ),
+    ).then(normalizeWorkflowTaskTreeRuntimeResponse),
 
   getTaskTree: (
     runId: string,
@@ -731,24 +948,30 @@ export const workflowApi = {
     const suffix = params.toString();
     return fetchJSON<TaskTreeResponse>(
       `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/task-tree${suffix ? `?${suffix}` : ""}`
-    );
+    ).then(normalizeTaskTreeResponse);
   },
 
   getTaskDetail: (runId: string, taskId: string) =>
     fetchJSON<TaskDetail>(
       `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/detail`
-    ),
+    ).then(normalizeTaskDetail),
 
   taskAction: (runId: string, data: WorkflowTaskActionRequest) =>
     fetchJSON<WorkflowTaskActionResult>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/task-actions`, {
       method: "POST",
       body: JSON.stringify(data)
-    }),
+    }).then((payload) => ({
+      ...payload,
+      snapshot: normalizeWorkflowRunRuntimeSnapshot(payload.snapshot)
+    })),
 
   getSessions: (runId: string) =>
-    fetchJSON<{ run_id: string; items: WorkflowSessionRecord[] }>(
+    fetchJSON<{ run_id: string; items: Record<string, unknown>[] }>(
       `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions`
-    ),
+    ).then((payload) => ({
+      run_id: payload.run_id,
+      items: (payload.items ?? []).map(mapWorkflowSessionFields)
+    })),
 
   registerSession: (
     runId: string,
@@ -761,13 +984,16 @@ export const workflowApi = {
       provider_session_id?: string;
     }
   ) =>
-    fetchJSON<{ session: WorkflowSessionRecord; created: boolean }>(
+    fetchJSON<{ session: Record<string, unknown>; created: boolean }>(
       `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions`,
       {
         method: "POST",
         body: JSON.stringify(data)
       }
-    ),
+    ).then((payload) => ({
+      session: mapWorkflowSessionFields(payload.session),
+      created: payload.created
+    })),
 
   sendMessage: (
     runId: string,

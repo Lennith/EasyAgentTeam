@@ -80,6 +80,13 @@ export function evaluateOrchestratorDispatchSessionAvailability(
       reason: "session already dispatching"
     };
   }
+  if (!force && sessionStatus === "blocked") {
+    return {
+      available: false,
+      busy: true,
+      reason: "session status is blocked"
+    };
+  }
   if (!force && treatRunningAsBusy && sessionStatus === "running") {
     return {
       available: false,

@@ -109,3 +109,11 @@ export function buildOrchestratorTaskSubtreeSummary(
     "Use task_subtree to decide whether to continue, wait for descendants, or report parent progress."
   );
 }
+
+export function buildOrchestratorTaskRedispatchSummary(
+  taskState: string,
+  taskSubtree: TaskSubtreePayload,
+  fallbackSummary?: string | null
+): string {
+  return buildOrchestratorTaskSubtreeSummary(taskSubtree, fallbackSummary);
+}
