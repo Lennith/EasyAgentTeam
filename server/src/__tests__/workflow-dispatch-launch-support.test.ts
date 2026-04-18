@@ -95,12 +95,16 @@ test("workflow dispatch launch support appends synthetic finished event when dis
 test("workflow dispatch launch support appends failed event and dismisses session on open launch error", async () => {
   const emitted: Array<{ kind: string; scope: unknown; details: unknown }> = [];
   const touched: Array<Record<string, unknown>> = [];
+  const appended: Array<Record<string, unknown>> = [];
 
   await handleWorkflowDispatchLaunchError(
     {
       repositories: {
         events: {
-          listEvents: async () => []
+          listEvents: async () => [],
+          appendEvent: async (_runId: string, event: Record<string, unknown>) => {
+            appended.push(event);
+          }
         },
         sessions: {
           getSession: async () => ({ errorStreak: 3 }),
@@ -151,6 +155,26 @@ test("workflow dispatch launch support appends failed event and dismisses sessio
     }
   ]);
   assert.equal(typeof (touched[0]?.lastFailureAt as string | undefined), "string");
+  assert.deepEqual(appended, [
+    {
+      eventType: "RUNNER_FATAL_ERROR_DISMISSED",
+      source: "system",
+      sessionId: "session-1",
+      taskId: "task-1",
+      payload: {
+        request_id: "req-1",
+        run_id: "run-1",
+        dispatch_id: "dispatch-1",
+        dispatch_kind: "task",
+        message_id: null,
+        error: "provider launch failed",
+        code: null,
+        retryable: false,
+        next_action: null,
+        raw_status: null
+      }
+    }
+  ]);
 });
 
 test("workflow dispatch launch support writes max-tokens recovery event with dispatch metadata", async () => {

@@ -1,4 +1,4 @@
-﻿# 后端系统与 Project API 规范（最后更新：2026-04-17）
+# 后端系统与 Project API 规范（最后更新：2026-04-19）
 
 本页只覆盖系统、catalog、project 相关公开 API。  
 workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
@@ -82,3 +82,4 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - 输入非法返回 4xx
 - provider/model 不匹配返回稳定错误码，而不是隐式修正
 - project `agent-chat` 的 SSE `error` 事件在 provider 错误场景下返回结构化 payload：`code`、`category`、`retryable`、`message`、`next_action`、`details`
+- project runtime failure 事件对外字段统一使用 snake_case，包括 `next_action`、`raw_status`、`cooldown_until`

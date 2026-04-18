@@ -82,6 +82,7 @@ interface ProjectDispatchLifecycleDependencies {
     ProjectDispatchLaunchOperations,
     | "markRunnerTimeout"
     | "markRunnerSuccess"
+    | "markRunnerBlocked"
     | "markRunnerRetryableError"
     | "markRunnerTransientError"
     | "markRunnerFatalError"
@@ -349,6 +350,18 @@ export async function finalizeProjectDispatchRunLifecycle(
   const failedReason = input.error ?? `runner exited with code ${input.exitCode}`;
   const providerError =
     (isProviderLaunchError(input.error) ? input.error : undefined) ?? tryDeserializeProviderLaunchError(input.error);
+  if (providerError?.category === "config") {
+    await dependencies.operations.markRunnerBlocked({
+      ...runnerPayload,
+      providerSessionId: input.providerSessionId,
+      provider: input.provider,
+      error: providerError.message,
+      code: providerError.code,
+      nextAction: providerError.nextAction,
+      rawStatus: providerError.details?.status as number | string | null | undefined
+    });
+    return providerError.message;
+  }
   if (providerError?.retryable && providerError.code === "PROVIDER_UPSTREAM_TRANSIENT_ERROR") {
     const markTransientError =
       dependencies.operations.markRunnerTransientError ?? dependencies.operations.markRunnerRetryableError;
@@ -371,7 +384,14 @@ export async function finalizeProjectDispatchRunLifecycle(
     ...runnerPayload,
     providerSessionId: input.providerSessionId,
     provider: input.provider,
-    error: failedReason
+    error: failedReason,
+    ...(providerError
+      ? {
+          code: providerError.code,
+          nextAction: providerError.nextAction,
+          rawStatus: providerError.details?.status as number | string | null | undefined
+        }
+      : {})
   });
   return failedReason;
 }

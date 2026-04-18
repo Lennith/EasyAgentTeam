@@ -47,7 +47,15 @@ export function buildWorkflowDispatchPrompt(context: WorkflowDispatchPromptConte
     `15) Route discovery tool is ${formatTeamToolNameWithCodexAlias("route_targets_get")}.`,
     "16) Only call task_report_* for tasks owned by your role or created by your role.",
     "17) If task_create_assign returns TASK_EXISTS, do not retry the same create call. Inspect the existing task first and recover via next_action.",
-    "18) If a TeamTool call fails, quote error_code and next_action, then recover from next_action. Do not describe the tool as unavailable."
+    "18) If a TeamTool call fails, quote error_code and next_action, then recover from next_action. Do not describe the tool as unavailable.",
+    context.requiresExecutionSubtaskBeforeDone
+      ? "19) This focus task is a decomposition phase and no execution subtask exists yet. Before reporting DONE, create at least one concrete non-manager execution subtask under this focus task."
+      : "19) If the focus task is a decomposition phase and no execution subtask exists yet, create at least one concrete non-manager execution subtask before reporting DONE.",
+    "20) The required execution subtask must use the focus task as parent_task_id and include explicit owner_role, dependencies, acceptance, and artifacts.",
+    "21) For decomposition phases, only create immediate execution subtasks that can advance from the current phase inputs. Do not create QA/release subtasks that depend on future phase tasks.",
+    "22) If the focus task is not explicitly a planning/decomposition task, do not create new subtasks. Execute directly on the focus task and report progress there unless delegation is explicitly required by the task itself.",
+    "23) Non-decomposition design/specification phases must hand off downstream work through shared artifacts and discuss messages, not by creating execution subtasks for later-phase owners.",
+    "24) If the focus task is already a delegated execution subtask that you own, treat it as the execution unit. Do not create another self-owned child subtask underneath it."
   ]
     .filter((line) => line.length > 0)
     .join("\n\n");

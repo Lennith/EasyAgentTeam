@@ -1,4 +1,4 @@
-﻿# Provider Runtime 规范（最后更新：2026-04-16）
+# Provider Runtime 规范（最后更新：2026-04-19）
 
 ## 范围
 
@@ -25,7 +25,9 @@
 - MiniMax `429`、`500/502/503/504/529`、连接超时、连接重置会归一为 `PROVIDER_UPSTREAM_TRANSIENT_ERROR`
 - `PROVIDER_UPSTREAM_TRANSIENT_ERROR` 属于 `category=runtime`、`retryable=true`
 - project / workflow 命中这类错误后统一落为 `idle + cooldown`，不落 `blocked` 或 `dismissed`
+- project / workflow 的 runner failure transition 使用共享决策规则输出 session 落态、cooldown 与 runtime event payload
 - `agent-chat` SSE 的 `error` 事件必须直接透出结构化 provider error payload
+- provider error 与 runtime failure 相关对外字段统一使用 snake_case：`next_action`、`raw_status`、`cooldown_until`
 
 ## 兼容边界
 

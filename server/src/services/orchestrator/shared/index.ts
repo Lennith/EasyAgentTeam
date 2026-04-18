@@ -202,6 +202,12 @@ export {
   hasOrchestratorUnresolvedDescendants
 } from "./task-subtree.js";
 export type {
+  ResolveRunnerFailureTransitionInput,
+  RunnerFailureTransitionEventType,
+  RunnerFailureTransitionResult
+} from "./runner-failure-transition.js";
+export { resolveRunnerFailureTransition } from "./runner-failure-transition.js";
+export type {
   ResolveOrchestratorRolePromptSkillBundleInput,
   ResolveOrchestratorRolePromptSkillBundleResult,
   OrchestratorRolePromptSkillBundleOperations

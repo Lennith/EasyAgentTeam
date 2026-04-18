@@ -11,7 +11,11 @@ import {
 } from "../data/repository/project/runtime-repository.js";
 import { appendEvent, listEvents } from "../data/repository/project/event-repository.js";
 import { addSession, getSession, touchSession } from "../data/repository/project/session-repository.js";
-import { markRunnerTimeout, resolveActiveSessionForRole } from "../services/session-lifecycle-authority.js";
+import {
+  markRunnerTimeout,
+  markRunnerTransientError,
+  resolveActiveSessionForRole
+} from "../services/session-lifecycle-authority.js";
 
 test("resolveActiveSessionForRole dismisses conflicted sessions and updates role map", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-lifecycle-conflict-"));
@@ -123,13 +127,83 @@ test("markRunnerTimeout escalates after threshold and dismisses session", async 
     assert.equal(second.session?.timeoutStreak, 2);
 
     const events = await listEvents(paths);
-    assert.ok(events.find((item) => item.eventType === "RUNNER_TIMEOUT_SOFT"));
-    assert.ok(events.find((item) => item.eventType === "RUNNER_TIMEOUT_ESCALATED"));
+    const softTimeout = events.find((item) => item.eventType === "RUNNER_TIMEOUT_SOFT");
+    const escalatedTimeout = events.find((item) => item.eventType === "RUNNER_TIMEOUT_ESCALATED");
+    assert.ok(softTimeout);
+    assert.ok(escalatedTimeout);
+    assert.equal((softTimeout?.payload as Record<string, unknown>).dispatch_id, "dispatch-timeout");
+    assert.equal((softTimeout?.payload as Record<string, unknown>).dispatch_kind, "task");
+    assert.equal("cooldown_until" in ((softTimeout?.payload as Record<string, unknown>) ?? {}), true);
   } finally {
     if (previousThreshold === undefined) {
       delete process.env.SESSION_TIMEOUT_ESCALATION_THRESHOLD;
     } else {
       process.env.SESSION_TIMEOUT_ESCALATION_THRESHOLD = previousThreshold;
+    }
+  }
+});
+
+test("markRunnerTransientError emits snake_case event payload and keeps session idle with cooldown", async () => {
+  const previousCooldown = process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS;
+  process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS = "30000";
+  try {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-lifecycle-transient-"));
+    const dataRoot = path.join(tempRoot, "data");
+    const workspacePath = path.join(tempRoot, "workspace");
+    const created = await createProject(dataRoot, {
+      projectId: "lifecycletransient",
+      name: "Lifecycle Transient",
+      workspacePath
+    });
+    const project = created.project;
+    const paths = await ensureProjectRuntime(dataRoot, project.projectId);
+
+    await addSession(paths, project.projectId, {
+      sessionId: "session-transient",
+      role: "dev_impl",
+      status: "running",
+      currentTaskId: "task-transient"
+    });
+
+    const updated = await markRunnerTransientError({
+      dataRoot,
+      project,
+      paths,
+      sessionId: "session-transient",
+      runId: "run-transient",
+      dispatchId: "dispatch-transient",
+      taskId: "task-transient",
+      provider: "minimax",
+      error: "MiniMax upstream returned transient status 529.",
+      code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+      nextAction: "Wait for cooldown and retry the same task/message dispatch.",
+      rawStatus: 529
+    });
+
+    assert.equal(updated?.status, "idle");
+    assert.equal(updated?.currentTaskId, "task-transient");
+    assert.equal(typeof updated?.cooldownUntil, "string");
+
+    const events = await listEvents(paths);
+    const transientEvent = events.find((item) => item.eventType === "RUNNER_TRANSIENT_ERROR_SOFT");
+    assert.ok(transientEvent);
+    assert.deepEqual(transientEvent?.payload, {
+      run_id: "run-transient",
+      dispatch_id: "dispatch-transient",
+      dispatch_kind: "task",
+      message_id: null,
+      error: "MiniMax upstream returned transient status 529.",
+      code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+      retryable: true,
+      next_action: "Wait for cooldown and retry the same task/message dispatch.",
+      raw_status: 529,
+      cooldown_until: updated?.cooldownUntil ?? null
+    });
+  } finally {
+    if (previousCooldown === undefined) {
+      delete process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS;
+    } else {
+      process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS = previousCooldown;
     }
   }
 });

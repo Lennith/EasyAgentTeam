@@ -129,6 +129,7 @@ test("workflow dispatch launch adapter blocks session when minimax is not config
       sessionId: "session-1",
       patch: {
         status: "blocked",
+        currentTaskId: "task-1",
         errorStreak: 3,
         lastFailureAt: touchedSessions[0]?.patch.lastFailureAt,
         lastFailureKind: "error",
@@ -144,6 +145,7 @@ test("workflow dispatch launch adapter blocks session when minimax is not config
 test("workflow dispatch launch adapter blocks session on provider config error", async () => {
   const emitted: Array<{ kind: string; scope: unknown; details: unknown }> = [];
   const touchedSessions: Array<{ runId: string; sessionId: string; patch: Record<string, unknown> }> = [];
+  const appendedEvents: Array<Record<string, unknown>> = [];
 
   const adapter = new WorkflowDispatchLaunchAdapter(
     {
@@ -167,7 +169,9 @@ test("workflow dispatch launch adapter blocks session on provider config error",
           getSession: async () => ({ errorStreak: 0 })
         },
         events: {
-          appendEvent: async () => {},
+          appendEvent: async (_runId: string, event: Record<string, unknown>) => {
+            appendedEvents.push(event);
+          },
           listEvents: async () => []
         }
       } as any,
@@ -233,6 +237,20 @@ test("workflow dispatch launch adapter blocks session on provider config error",
   );
   assert.equal(touchedSessions.length, 1);
   assert.equal(touchedSessions[0]?.patch.status, "blocked");
+  const blockedEvent = appendedEvents.find((event) => event.eventType === "RUNNER_CONFIG_ERROR_BLOCKED");
+  assert.ok(blockedEvent);
+  assert.deepEqual(blockedEvent?.payload, {
+    request_id: "req-blocked",
+    run_id: "run-blocked",
+    dispatch_id: "dispatch-blocked",
+    dispatch_kind: "task",
+    message_id: null,
+    error: "Codex provider cannot use MiniMax model 'MiniMax-M2.5'.",
+    code: "PROVIDER_MODEL_MISMATCH",
+    retryable: false,
+    next_action: "Use a Codex model such as gpt-5.3-codex, or switch provider to minimax.",
+    raw_status: null
+  });
 });
 
 test("workflow dispatch launch adapter keeps transient provider errors retryable with cooldown", async () => {
@@ -331,10 +349,21 @@ test("workflow dispatch launch adapter keeps transient provider errors retryable
     assert.equal(touchedSessions[0]?.patch.status, "idle");
     assert.equal(touchedSessions[0]?.patch.currentTaskId, "task-transient");
     assert.equal(typeof touchedSessions[0]?.patch.cooldownUntil, "string");
-    assert.equal(
-      appendedEvents.some((event) => event.eventType === "RUNNER_TRANSIENT_ERROR_SOFT"),
-      true
-    );
+    const transientEvent = appendedEvents.find((event) => event.eventType === "RUNNER_TRANSIENT_ERROR_SOFT");
+    assert.ok(transientEvent);
+    assert.deepEqual(transientEvent?.payload, {
+      request_id: "req-transient",
+      run_id: "run-transient",
+      dispatch_id: "dispatch-transient",
+      dispatch_kind: "task",
+      message_id: null,
+      error: "MiniMax upstream returned transient status 529.",
+      code: "PROVIDER_UPSTREAM_TRANSIENT_ERROR",
+      retryable: true,
+      next_action: "Wait for cooldown and retry the same task/message dispatch.",
+      raw_status: 529,
+      cooldown_until: touchedSessions[0]?.patch.cooldownUntil ?? null
+    });
   } finally {
     if (originalCooldown === undefined) {
       delete process.env.SESSION_TRANSIENT_ERROR_COOLDOWN_MS;

@@ -152,7 +152,7 @@ export function createProjectDispatchLaunchExecutionAdapter(
         dispatchId: launchContext.dispatchId,
         provider: launchContext.providerId,
         error: reason,
-        ...(isTransientProviderError
+        ...(isProviderLaunchError(error)
           ? {
               code: error.code,
               nextAction: error.nextAction,

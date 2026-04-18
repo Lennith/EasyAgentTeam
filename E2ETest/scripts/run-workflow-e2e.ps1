@@ -321,6 +321,41 @@ function Build-AgentPrompt {
       "- Before claiming ENGINEERING_ARTIFACTS_MISSING, verify TeamWorkSpace/src/android, TeamWorkSpace/src/android-app, TeamWorkSpace/src/android-gesture-app, and TeamWorkSpace/docs with PowerShell Test-Path/Get-ChildItem.",
       "- Only report missing engineering artifacts if all known Android source roots and TeamWorkSpace/docs are truly absent after that PowerShell verification."
     )
+  } elseif ($RoleKey -eq "rd_lead") {
+    $roleSpecificRules = @(
+      "",
+      "Engineering decomposition guidance:",
+      "- When assigning Android implementation work, require Kotlin source files under TeamWorkSpace/src/android/** or compatible Android source roots.",
+      "- Android execution subtasks must call out Kotlin/Gradle KTS deliverables explicitly in acceptance and artifacts.",
+      "- Do not accept Java-only Android implementation as complete for this workflow baseline.",
+      "- During engineering decomposition, only create immediate execution handoff subtasks that can start from current phase inputs.",
+      "- Do not create QA or release subtasks under the engineering decomposition phase; those belong to their own later phases."
+    )
+  } elseif ($RoleKey -eq "ui_designer") {
+    $roleSpecificRules = @(
+      "",
+      "UI design handoff guidance:",
+      "- Deliver the complete UI specification, component rules, and implementation notes directly on the assigned UI design phase task.",
+      "- Do not create Android implementation subtasks from the UI design phase. Handoff to engineering through shared artifacts and discuss messages instead of task_create_assign."
+    )
+  } elseif ($RoleKey -eq "android_dev") {
+    $roleSpecificRules = @(
+      "",
+      "Android implementation guidance:",
+      "- Deliver Android production and test sources in Kotlin (`.kt`) for this workflow baseline.",
+      "- Prefer Android Studio standard layout under TeamWorkSpace/src/android/** with Gradle Kotlin DSL (`build.gradle.kts`, `settings.gradle.kts`).",
+      "- Do not introduce Java-only source sets unless you are editing an existing Kotlin codebase that explicitly requires interop; this baseline expects Kotlin outputs.",
+      "- Execute directly on your assigned phase task. Do not create follow-up subtasks for yourself unless the current task explicitly requires delegation that you cannot satisfy within the assigned task."
+    )
+  } elseif ($RoleKey -ne "rd_lead") {
+    $roleSpecificRules = @(
+      "",
+      "Execution guidance:",
+      "- Execute directly on your assigned phase task or on subtasks already assigned to you.",
+      "- Do not create additional subtasks unless the current task explicitly requires delegation or the manager/RD lead instructs you to decompose further.",
+      "- If you can deliver the requested artifacts yourself, report progress or DONE on the assigned task instead of creating self-owned subtasks.",
+      "- If you already own a delegated subtask, treat it as the execution unit. Do not split it into another self-owned child task."
+    )
   }
   return @(
     "You are role '$RoleId' ($RoleKey) in a workflow E2E run.",
@@ -345,7 +380,8 @@ function Build-AgentPrompt {
     "- parent_task_id must be one of these high-level phase tasks: $phaseScope",
     "- Each subtask must define title, dependencies, acceptance, and artifacts.",
     "- Never mark downstream tasks/subtasks complete before dependencies are complete.",
-    "- Prefer assigning subtasks to yourself or an explicit owner role.",
+    "- In this workflow baseline, only the RD lead should proactively decompose phase work into new subtasks unless the current task explicitly requires another role to delegate.",
+    "- Non-RD roles should complete assigned phase tasks or delegated subtasks directly. Do not create self-owned child subtasks as an extra execution layer.",
     "",
     "Output contract:",
     "- Prioritize concrete code artifacts under src/ before supporting docs.",
@@ -2801,7 +2837,7 @@ try {
         request_id = "e2e_gesture_kickoff_$runStamp"
         content = @(
           "Primary goal: $primaryGoal",
-          "Please drive the workflow to final delivery with autonomous subtask creation by agents.",
+          "Please drive the workflow to final delivery. Only create subtasks when a phase explicitly requires decomposition; otherwise complete the assigned phase directly.",
           "Complete phase tasks with TASK_REPORT and produce required artifacts."
         ) -join "`n"
       } | Out-Null

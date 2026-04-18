@@ -66,3 +66,69 @@ test("workflow dispatch prompt includes team/shared workspace contract", async (
   assert.match(prompt, /Never report IN_PROGRESS\/DONE for tasks whose dependencies are not ready/);
   assert.match(prompt, /Non-focus task report is allowed only when dependencies are already satisfied/);
 });
+
+test("workflow dispatch prompt requires execution subtask before decomposition phase can finish", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-dispatch-prompt-"));
+  const service = createWorkflowOrchestratorService(tempRoot, createProviderRegistry()) as unknown as {
+    buildDispatchPrompt(input: {
+      run: WorkflowRunRecord;
+      role: string;
+      taskId: string | null;
+      dispatchKind: "task" | "message";
+      message: null;
+      taskState: "READY" | null;
+      runtimeTasks: Array<{ taskId: string; state: string; blockedBy?: string[] }>;
+      rolePrompt?: string;
+    }): string;
+  };
+
+  const run = {
+    runId: "wf_prompt_run_02",
+    name: "Workflow Prompt Run",
+    description: "verify decomposition prompt semantics",
+    workspacePath: "D:\\AgentWorkSpace\\DemoWorkflow",
+    tasks: [
+      {
+        taskId: "wf_engineering_decomposition",
+        ownerRole: "e2e_mgr_rd_lead",
+        title: "RD lead decomposes engineering plan and ownership",
+        resolvedTitle: "RD lead decomposes engineering plan and ownership",
+        parentTaskId: null,
+        dependencies: [],
+        acceptance: [
+          "Break down Android/ML/QA/Release work packages.",
+          "Include dependency order and integration checkpoints."
+        ],
+        artifacts: ["docs/engineering/01_decomposition.md"]
+      }
+    ]
+  } as unknown as WorkflowRunRecord;
+
+  const prompt = service.buildDispatchPrompt({
+    run,
+    role: "e2e_mgr_rd_lead",
+    taskId: "wf_engineering_decomposition",
+    dispatchKind: "task",
+    message: null,
+    taskState: "READY",
+    runtimeTasks: [{ taskId: "wf_engineering_decomposition", state: "READY", blockedBy: [] }],
+    rolePrompt: "Role: e2e_mgr_rd_lead"
+  });
+
+  assert.match(prompt, /no execution subtask exists yet/i);
+  assert.match(prompt, /Before reporting DONE, create at least one concrete non-manager execution subtask/i);
+  assert.match(prompt, /use the focus task as parent_task_id/i);
+  assert.match(prompt, /Do not create QA\/release subtasks that depend on future phase tasks/i);
+  assert.match(
+    prompt,
+    /If the focus task is not explicitly a planning\/decomposition task, do not create new subtasks/i
+  );
+  assert.match(
+    prompt,
+    /Non-decomposition design\/specification phases must hand off downstream work through shared artifacts and discuss messages/i
+  );
+  assert.match(
+    prompt,
+    /If the focus task is already a delegated execution subtask that you own, treat it as the execution unit/i
+  );
+});

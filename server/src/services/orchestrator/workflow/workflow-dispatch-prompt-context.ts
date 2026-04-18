@@ -26,6 +26,7 @@ export interface WorkflowDispatchPromptContext {
   taskState: WorkflowTaskState | null;
   task: WorkflowRunRecord["tasks"][number] | null;
   dependencyStatus: string;
+  requiresExecutionSubtaskBeforeDone: boolean;
   rolePrompt?: string;
 }
 
@@ -88,6 +89,36 @@ class WorkflowDispatchPromptFrameBuilder implements OrchestratorPromptFrameBuild
 
 const defaultWorkflowDispatchPromptFrameBuilder = new WorkflowDispatchPromptFrameBuilder();
 
+function collectDescendantTaskIds(run: WorkflowRunRecord, focusTaskId: string): string[] {
+  const descendants: string[] = [];
+  const pending = [focusTaskId];
+  const seen = new Set<string>(pending);
+  while (pending.length > 0) {
+    const currentTaskId = pending.shift() as string;
+    for (const task of run.tasks) {
+      if ((task.parentTaskId ?? "") !== currentTaskId) {
+        continue;
+      }
+      if (seen.has(task.taskId)) {
+        continue;
+      }
+      seen.add(task.taskId);
+      descendants.push(task.taskId);
+      pending.push(task.taskId);
+    }
+  }
+  return descendants;
+}
+
+function requiresDecompositionSubtask(task: WorkflowRunRecord["tasks"][number] | null): boolean {
+  if (!task) {
+    return false;
+  }
+  const content = [task.taskId, task.title, task.resolvedTitle, ...(task.acceptance ?? [])].join(" ").toLowerCase();
+  const keywordPatterns = [/decomposition/, /break down/, /decompose/, /work package/, /ownership/, /拆分/, /分解/];
+  return keywordPatterns.some((pattern) => pattern.test(content));
+}
+
 export function buildWorkflowDispatchPromptContext(
   input: BuildWorkflowDispatchPromptContextInput
 ): WorkflowDispatchPromptContext {
@@ -107,6 +138,7 @@ export function buildWorkflowDispatchPromptContext(
       ? String((input.message.body as Record<string, unknown>).content)
       : "";
   const taskSubtreeRaw = input.message ? (input.message.body as Record<string, unknown>).task_subtree : null;
+  const descendantTaskIds = input.taskId ? collectDescendantTaskIds(input.run, input.taskId) : [];
   return {
     frame,
     run: input.run,
@@ -121,6 +153,7 @@ export function buildWorkflowDispatchPromptContext(
     taskState: input.taskState,
     task,
     dependencyStatus,
+    requiresExecutionSubtaskBeforeDone: requiresDecompositionSubtask(task) && descendantTaskIds.length === 0,
     rolePrompt: input.rolePrompt
   };
 }

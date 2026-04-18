@@ -1,4 +1,4 @@
-﻿# Workflow Runtime API 规范（最后更新：2026-04-16）
+# Workflow Runtime API 规范（最后更新：2026-04-19）
 
 ## Workflow Template
 
@@ -45,4 +45,5 @@
 - session 注册不接受独立 `model` 写入
 - orchestrator settings 负责 loop / schedule / reminder / hold 等公开控制参数
 - workflow `agent-chat` 的 SSE `error` 事件在 provider 错误场景下返回结构化 payload：`code`、`category`、`retryable`、`message`、`next_action`、`details`
-- workflow session 命中 provider 暂态错误时会回到 `idle` 并带 `cooldownUntil`，等待后续 reminder / tick 重试
+- workflow session 命中 provider 暂态错误时会回到 `idle` 并带 `cooldown_until`，等待后续 reminder / tick 重试
+- workflow runtime failure 事件对外字段统一使用 snake_case，包括 `next_action`、`raw_status`、`cooldown_until`

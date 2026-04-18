@@ -5,7 +5,11 @@ import type {
   WorkflowDispatchFinishedDetails,
   WorkflowDispatchStartedDetails
 } from "./workflow-dispatch-event-adapter.js";
-import { applyOrchestratorDispatchTerminalState, resolveOrchestratorErrorMessage } from "../shared/index.js";
+import {
+  applyOrchestratorDispatchTerminalState,
+  resolveOrchestratorErrorMessage,
+  resolveRunnerFailureTransition
+} from "../shared/index.js";
 import { isProviderLaunchError } from "../../provider-launch-error.js";
 import { getTransientErrorCooldownMs } from "../../session-lifecycle-authority.js";
 
@@ -93,6 +97,19 @@ export async function handleMissingWorkflowMiniMaxConfiguration(
   dependencies: WorkflowDispatchLifecycleDependencies,
   context: WorkflowDispatchLifecycleContext
 ): Promise<void> {
+  const transition = resolveRunnerFailureTransition({
+    kind: "config",
+    run_id: context.runId,
+    dispatch_id: context.dispatchId,
+    dispatch_kind: context.dispatchKind,
+    message_id: context.messageId ?? null,
+    error: "minimax_not_configured",
+    code: null,
+    next_action: "Configure MiniMax API settings, then retry the same task/message dispatch.",
+    current_task_id: context.taskId,
+    preserve_current_task_id: true,
+    existing_error_streak: context.errorStreak
+  });
   await dependencies.eventAdapter.appendFailed(buildWorkflowDispatchEventScope(context), {
     requestId: context.requestId,
     dispatchId: context.dispatchId,
@@ -102,13 +119,24 @@ export async function handleMissingWorkflowMiniMaxConfiguration(
     error: "minimax_not_configured"
   });
   await dependencies.repositories.sessions.touchSession(context.runId, context.sessionId, {
-    status: "blocked",
-    errorStreak: context.errorStreak + 1,
-    lastFailureAt: new Date().toISOString(),
-    lastFailureKind: "error",
-    cooldownUntil: null,
+    status: transition.session_patch.status,
+    currentTaskId: transition.session_patch.currentTaskId ?? context.taskId,
+    errorStreak: transition.session_patch.errorStreak,
+    lastFailureAt: transition.session_patch.lastFailureAt,
+    lastFailureKind: transition.session_patch.lastFailureKind,
+    cooldownUntil: transition.session_patch.cooldownUntil,
     agentPid: null,
     lastRunId: context.runId
+  });
+  await dependencies.repositories.events.appendEvent(context.runId, {
+    eventType: transition.event_type,
+    source: "system",
+    sessionId: context.sessionId,
+    taskId: context.taskId ?? undefined,
+    payload: {
+      request_id: context.requestId,
+      ...transition.event_payload
+    }
   });
 }
 
@@ -207,6 +235,8 @@ export async function handleWorkflowDispatchLaunchError(
   error: unknown
 ): Promise<void> {
   const reason = resolveOrchestratorErrorMessage(error);
+  const providerError = isProviderLaunchError(error) ? error : null;
+  const failureMessage = providerError?.message ?? reason;
   const dispatchTerminalState = await applyOrchestratorDispatchTerminalState(
     async () => await dependencies.repositories.events.listEvents(context.runId),
     context.sessionId,
@@ -221,7 +251,7 @@ export async function handleWorkflowDispatchLaunchError(
         dispatchKind: context.dispatchKind,
         messageId: context.messageId ?? null,
         requestedSkillIds: context.requestedSkillIds,
-        error: reason
+        error: failureMessage
       });
     }
   );
@@ -231,48 +261,84 @@ export async function handleWorkflowDispatchLaunchError(
   }
 
   const latestSession = await dependencies.repositories.sessions.getSession(context.runId, context.sessionId);
-  const blockedByConfig = isProviderLaunchError(error) && error.category === "config";
+  const blockedByConfig = providerError?.category === "config";
   const transientProviderError =
-    isProviderLaunchError(error) && error.retryable && error.code === "PROVIDER_UPSTREAM_TRANSIENT_ERROR"
-      ? error
-      : null;
-  const transientCooldownMs = transientProviderError ? getTransientErrorCooldownMs() : 0;
-  const transientCooldownUntil =
-    transientProviderError && transientCooldownMs > 0 ? new Date(Date.now() + transientCooldownMs).toISOString() : null;
-  const sessionPatch: Record<string, unknown> = {
-    status: blockedByConfig ? "blocked" : transientProviderError ? "idle" : "dismissed",
-    errorStreak: (latestSession?.errorStreak ?? 0) + 1,
-    lastFailureAt: new Date().toISOString(),
-    lastFailureKind: "error",
-    cooldownUntil: blockedByConfig ? null : transientCooldownUntil,
-    agentPid: null,
-    lastRunId: context.runId
-  };
-  if (transientProviderError) {
-    sessionPatch.currentTaskId = context.taskId;
-  }
-  await dependencies.repositories.sessions.touchSession(context.runId, context.sessionId, sessionPatch).catch(() => {});
-  if (transientProviderError) {
-    await dependencies.repositories.events
-      .appendEvent(context.runId, {
-        eventType: "RUNNER_TRANSIENT_ERROR_SOFT",
-        source: "system",
-        sessionId: context.sessionId,
-        taskId: context.taskId ?? undefined,
-        payload: {
-          requestId: context.requestId,
-          dispatchId: context.dispatchId,
-          runId: context.runId,
-          dispatchKind: context.dispatchKind,
-          messageId: context.messageId ?? null,
+    providerError?.retryable && providerError.code === "PROVIDER_UPSTREAM_TRANSIENT_ERROR" ? providerError : null;
+  const transition = blockedByConfig
+    ? resolveRunnerFailureTransition({
+        kind: "config",
+        run_id: context.runId,
+        dispatch_id: context.dispatchId,
+        dispatch_kind: context.dispatchKind,
+        message_id: context.messageId ?? null,
+        error: failureMessage,
+        code: providerError?.code ?? null,
+        next_action: providerError?.nextAction ?? null,
+        raw_status: (providerError?.details?.status as number | string | null | undefined) ?? null,
+        current_task_id: context.taskId,
+        preserve_current_task_id: false,
+        existing_error_streak: latestSession?.errorStreak ?? context.errorStreak
+      })
+    : transientProviderError
+      ? resolveRunnerFailureTransition({
+          kind: "transient",
+          run_id: context.runId,
+          dispatch_id: context.dispatchId,
+          dispatch_kind: context.dispatchKind,
+          message_id: context.messageId ?? null,
           error: transientProviderError.message,
           code: transientProviderError.code,
-          retryable: true,
           next_action: transientProviderError.nextAction,
-          cooldownUntil: transientCooldownUntil,
-          rawStatus: transientProviderError.details?.status ?? null
-        }
-      })
-      .catch(() => {});
-  }
+          raw_status: (transientProviderError.details?.status as number | string | null | undefined) ?? null,
+          current_task_id: context.taskId,
+          preserve_current_task_id: true,
+          existing_error_streak: latestSession?.errorStreak ?? context.errorStreak,
+          transient_cooldown_ms: getTransientErrorCooldownMs()
+        })
+      : resolveRunnerFailureTransition({
+          kind: "generic",
+          run_id: context.runId,
+          dispatch_id: context.dispatchId,
+          dispatch_kind: context.dispatchKind,
+          message_id: context.messageId ?? null,
+          error: failureMessage,
+          code: providerError?.code ?? null,
+          next_action: providerError?.nextAction ?? null,
+          raw_status: (providerError?.details?.status as number | string | null | undefined) ?? null,
+          current_task_id: context.taskId,
+          preserve_current_task_id: false,
+          existing_error_streak: latestSession?.errorStreak ?? context.errorStreak,
+          generic_runtime_strategy: {
+            session_status: "dismissed",
+            event_type: "RUNNER_FATAL_ERROR_DISMISSED",
+            retryable: false
+          }
+        });
+
+  await dependencies.repositories.sessions
+    .touchSession(context.runId, context.sessionId, {
+      status: transition.session_patch.status,
+      ...(transition.session_patch.currentTaskId !== undefined
+        ? { currentTaskId: transition.session_patch.currentTaskId }
+        : {}),
+      errorStreak: transition.session_patch.errorStreak,
+      lastFailureAt: transition.session_patch.lastFailureAt,
+      lastFailureKind: transition.session_patch.lastFailureKind,
+      cooldownUntil: transition.session_patch.cooldownUntil,
+      agentPid: null,
+      lastRunId: context.runId
+    })
+    .catch(() => {});
+  await dependencies.repositories.events
+    .appendEvent(context.runId, {
+      eventType: transition.event_type,
+      source: "system",
+      sessionId: context.sessionId,
+      taskId: context.taskId ?? undefined,
+      payload: {
+        request_id: context.requestId,
+        ...transition.event_payload
+      }
+    })
+    .catch(() => {});
 }

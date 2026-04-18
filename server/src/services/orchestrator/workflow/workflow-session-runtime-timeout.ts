@@ -6,6 +6,7 @@ import { hasOrchestratorSessionHeartbeatTimedOut } from "../shared/session-manag
 import { findLatestOpenDispatch } from "../shared/dispatch-engine.js";
 import { getRuntimeSettings } from "../../../data/repository/system/runtime-settings-repository.js";
 import type { WorkflowRepositoryBundle } from "../../../data/repository/workflow/repository-bundle.js";
+import { resolveRunnerFailureTransition } from "../shared/runner-failure-transition.js";
 import {
   buildOrchestratorMinimaxSessionDir,
   resolveOrchestratorProviderSessionId
@@ -61,11 +62,25 @@ export async function markWorkflowTimedOutSessions(
     const openDispatch = findLatestOpenDispatch(sessionEvents);
     const currentTaskId = session.currentTaskId ?? openDispatch?.event.taskId ?? null;
     const dispatchId = openDispatch?.dispatchId ?? session.lastDispatchId ?? null;
-    const timeoutStreak = (session.timeoutStreak ?? 0) + 1;
-    const escalated = timeoutStreak >= threshold;
-    const cooldownUntil =
-      escalated || cooldownMs <= 0 ? null : new Date(Date.now() + Math.max(0, cooldownMs)).toISOString();
-    const timeoutMarkedAt = new Date().toISOString();
+    const dispatchPayload = (openDispatch?.event.payload as Record<string, unknown> | undefined) ?? undefined;
+    const transition = resolveRunnerFailureTransition({
+      kind: "timeout",
+      run_id: run.runId,
+      dispatch_id: dispatchId,
+      dispatch_kind: dispatchPayload?.dispatchKind === "message" ? "message" : "task",
+      message_id:
+        typeof dispatchPayload?.messageId === "string" && dispatchPayload.messageId.trim().length > 0
+          ? dispatchPayload.messageId
+          : null,
+      current_task_id: currentTaskId,
+      preserve_current_task_id: true,
+      existing_timeout_streak: session.timeoutStreak ?? 0,
+      timeout_threshold: threshold,
+      timeout_cooldown_ms: cooldownMs
+    });
+    const timeoutStreak = transition.session_patch.timeoutStreak ?? (session.timeoutStreak ?? 0) + 1;
+    const escalated = transition.escalated;
+    const cooldownUntil = transition.cooldown_until;
     const timeoutDump =
       !escalated && providerId === "minimax"
         ? await dumpSessionMessagesOnSoftTimeout({
@@ -85,13 +100,13 @@ export async function markWorkflowTimedOutSessions(
     await dependencies.repositories.runInUnitOfWork({ run }, async () => {
       await dependencies.repositories.sessions
         .touchSession(run.runId, session.sessionId, {
-          status: escalated ? "dismissed" : "idle",
-          currentTaskId,
+          status: transition.session_patch.status,
+          currentTaskId: transition.session_patch.currentTaskId ?? currentTaskId,
           lastDispatchId: dispatchId,
-          timeoutStreak,
-          lastFailureAt: timeoutMarkedAt,
-          lastFailureKind: "timeout",
-          cooldownUntil,
+          timeoutStreak: transition.session_patch.timeoutStreak,
+          lastFailureAt: transition.session_patch.lastFailureAt,
+          lastFailureKind: transition.session_patch.lastFailureKind,
+          cooldownUntil: transition.session_patch.cooldownUntil,
           agentPid: null,
           lastRunId: run.runId
         })
@@ -124,32 +139,28 @@ export async function markWorkflowTimedOutSessions(
         sessionId: session.sessionId,
         taskId: currentTaskId ?? undefined,
         payload: {
-          previousStatus: "running",
-          timeoutMs: dependencies.sessionRunningTimeoutMs,
-          lastActiveAt: session.lastActiveAt,
+          previous_status: "running",
+          timeout_ms: dependencies.sessionRunningTimeoutMs,
+          last_active_at: session.lastActiveAt,
           provider: providerId,
-          providerSessionId: cancelSessionId,
-          cancelRequested,
-          timeoutStreak,
+          provider_session_id: cancelSessionId,
+          cancel_requested: cancelRequested,
+          timeout_streak: timeoutStreak,
           threshold,
           escalated,
-          cooldownUntil,
-          dispatchId
+          cooldown_until: cooldownUntil,
+          dispatch_id: dispatchId
         }
       });
       await dependencies.repositories.events.appendEvent(run.runId, {
-        eventType: escalated ? "RUNNER_TIMEOUT_ESCALATED" : "RUNNER_TIMEOUT_SOFT",
+        eventType: transition.event_type,
         source: "system",
         sessionId: session.sessionId,
         taskId: currentTaskId ?? undefined,
         payload: {
-          runId: run.runId,
-          dispatchId,
-          timeoutStreak,
-          threshold,
-          cooldownUntil,
-          timeoutMessageDumpPath: timeoutDump?.filePath ?? null,
-          timeoutMessageCount: timeoutDump?.messageCount ?? null
+          ...transition.event_payload,
+          timeout_message_dump_path: timeoutDump?.filePath ?? null,
+          timeout_message_count: timeoutDump?.messageCount ?? null
         }
       });
     });
