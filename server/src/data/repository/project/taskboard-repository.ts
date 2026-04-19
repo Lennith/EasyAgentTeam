@@ -8,6 +8,7 @@ import type {
   TaskboardState
 } from "../../../domain/models.js";
 import { readJsonFile, writeJsonFile } from "../../internal/persistence/store/store-runtime.js";
+import { isLegacyAmbiguousDoneState } from "../shared/legacy-task-state.js";
 
 const VALID_TASK_STATES = new Set<TaskState>([
   "PLANNED",
@@ -120,14 +121,29 @@ function normalizeStringArray(input: string[] | undefined): string[] {
 
 function normalizeTaskState(state: string | undefined): TaskState {
   const normalized = String(state ?? "PLANNED").trim().toUpperCase();
-  if (normalized === "MAY_BE_DONE") {
-    return "DONE";
-  }
   const normalizedState = normalized as TaskState;
   if (!VALID_TASK_STATES.has(normalizedState)) {
     throw new TaskboardStoreError(`Invalid task state: ${state}`, "INVALID_TASK_STATE");
   }
   return normalizedState;
+}
+
+function migrateLegacyTaskboard(state: TaskboardState): { state: TaskboardState; changed: boolean } {
+  let changed = false;
+  const nextTasks = state.tasks.map((task) => {
+    if (!isLegacyAmbiguousDoneState(task.state)) {
+      return task;
+    }
+    changed = true;
+    return {
+      ...task,
+      state: "DONE" as TaskState
+    };
+  });
+  return {
+    state: changed ? { ...state, updatedAt: new Date().toISOString(), tasks: nextTasks } : state,
+    changed
+  };
 }
 
 function normalizeLoadedTaskboard(state: TaskboardState): TaskboardState {
@@ -459,8 +475,12 @@ function recomputeParentStates(tasks: TaskRecord[]): boolean {
 }
 
 export async function readTaskboard(paths: ProjectPaths, projectId: string): Promise<TaskboardState> {
-  const state = await readJsonFile<TaskboardState>(paths.taskboardFile, defaultTaskboard(projectId));
-  return normalizeLoadedTaskboard(state);
+  const rawState = await readJsonFile<TaskboardState>(paths.taskboardFile, defaultTaskboard(projectId));
+  const migrated = migrateLegacyTaskboard(rawState);
+  if (migrated.changed) {
+    await writeJsonFile(paths.taskboardFile, migrated.state);
+  }
+  return normalizeLoadedTaskboard(migrated.state);
 }
 
 export async function writeTaskboard(paths: ProjectPaths, state: TaskboardState): Promise<void> {

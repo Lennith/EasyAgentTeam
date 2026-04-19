@@ -2,15 +2,15 @@
 
 ## 摘要
 
-本次发布收口了近期的编排器与文档治理大改动，重点是删除已退役接口和暧昧状态、统一 provider 失败恢复语义、修复 workflow mixed baseline 的行为型 telemetry 回归，并将正式文档收敛到根 `docs/` 目录。
+本次发布收口了近期的编排器与文档治理大改动，重点是删除已退役接口和历史模糊完成态、统一 provider 失败恢复语义、修复 workflow mixed baseline 的行为型 telemetry 回归，并将正式文档收敛到根 `docs/` 目录。
 
 ## 主要变更
 
 ### 编排器与任务状态
 
 - 删除 project 侧已退役接口，不再保留兼容 stub。
-- 删除 `MAY_BE_DONE` 状态及其相关协议、前端类型、自动打标、提醒与 redispatch 逻辑。
-- 历史落盘 `MAY_BE_DONE` 数据按读路径统一归一为 `DONE`。
+- 删除历史模糊完成态及其相关协议、前端类型、自动打标、提醒与 redispatch 逻辑。
+- 历史落盘的模糊完成态数据会迁移到 `DONE`。
 - 收紧 project/workflow reminder 与子树收敛规则，避免祖先任务抢占未收敛后代的处理时机。
 
 ### Provider 运行时
@@ -53,6 +53,6 @@
 
 ## 对使用方的影响
 
-- 任何仍依赖已退役 project 接口或 `MAY_BE_DONE` 状态的外部调用方都需要同步移除旧用法。
+- 任何仍依赖已退役 project 接口或历史模糊完成态的外部调用方都需要同步移除旧用法。
 - 观察 runtime error/SSE/event 时，应统一读取 snake_case 字段。
 - MiniMax 暂态上游错误现在会表现为“会话冷却后重试”，而不是直接终止。

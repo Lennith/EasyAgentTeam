@@ -465,6 +465,8 @@
       "task_id": "wf_engineering_execution",
       "paths_any": [
         "src/android/app/src/main/AndroidManifest.xml",
+        "src/android/gesture-app/app/src/main/AndroidManifest.xml",
+        "src/android/gesture-recognition-app/app/src/main/AndroidManifest.xml",
         "src/android-gesture-app/app/src/main/AndroidManifest.xml",
         "src/android-app/app/src/main/AndroidManifest.xml",
         "src/android-app/src/main/AndroidManifest.xml",

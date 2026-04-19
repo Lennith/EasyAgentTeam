@@ -31,10 +31,13 @@
 - `GET /api/workflow-runs/:run_id/status`
 - `GET /api/workflow-runs/:run_id/task-tree-runtime`
 - `GET /api/workflow-runs/:run_id/sessions`
+- `GET /api/workflow-runs/:run_id/runtime-recovery`
 - `GET /api/workflow-runs/:run_id/agent-io/timeline`
 - `GET /api/workflow-runs/:run_id/orchestrator/settings`
 - `PATCH /api/workflow-runs/:run_id/orchestrator/settings`
 - `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
+- `POST /api/workflow-runs/:run_id/sessions/:session_id/dismiss`
+- `POST /api/workflow-runs/:run_id/sessions/:session_id/repair`
 - `GET /api/workflow-templates/:template_id`
 - `POST /api/workflow-runs/:run_id/agent-chat`
 - `POST /api/workflow-runs/:run_id/agent-chat/:session_id/interrupt`
@@ -49,6 +52,7 @@
 - run workspace chat：timeline 只读观察
 - run workspace agent-chat：对单个会话发起聊天和中断
 - run workspace team-config：以模板快照展示 route matrix 与 discuss rounds
+- run workspace recovery：按当前 run 聚合需恢复 session、最近 failure、cooldown 与 dismiss/repair 动作
 
 ## 明确不属于当前工作区主契约的能力
 

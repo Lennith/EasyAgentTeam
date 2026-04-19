@@ -19,6 +19,8 @@
 - MiniMax 上游 `429`、明显 `5xx/529` 与连接超时这类暂态错误会归一为可恢复运行错误
 - project / workflow 的 runner failure transition 由统一决策规则决定最终 session 落态、cooldown 与错误事件，不再允许各自拼装不一致的失败收口
 - session 的活跃、阻塞、终态由编排生命周期统一收口
+- project / workflow 都提供 scope 内 recovery 视图所需的会话恢复读模型，围绕 session、当前任务、最近失败与 cooldown 聚合恢复信息
+- project / workflow 都支持手动 dismiss 与 repair，并且对齐到同一套恢复语义：dismiss 终止当前运行并清空当前任务，repair 只允许恢复到 `idle` 或 `blocked`
 - 任务消息和 discuss 消息只有在运行真正成功后才会被确认消费；瞬时运行错误会把消息留在未消费态，并保留 session 的可重试状态
 - provider 暂态错误不会把 session 直接落成 `dismissed`；编排会把 session 置回 `idle` 并写入 cooldown，等待下一轮 reminder / tick 重试
 - 工程分解阶段在首次收敛前必须先产出至少一个非 manager 执行子任务；只有分解结果已经落成可执行任务树时，父阶段才能报告完成
@@ -28,10 +30,13 @@
 
 - project 编排控制：`/api/projects/:id/orchestrator/*`
 - workflow 编排控制：`/api/workflow-runs/:run_id/orchestrator/*`
+- project recovery：`/api/projects/:id/runtime-recovery`
+- workflow recovery：`/api/workflow-runs/:run_id/runtime-recovery`
 - 对外保持现有 API path、payload、status code 与事件语义不变
 - provider 错误、runtime failure 事件与 `agent-chat` SSE 对外字段统一使用 snake_case，包括 `next_action`、`raw_status`、`cooldown_until`
 
 ## 兼容边界
 
 - provider 仅支持当前正式 provider 集合
+- 历史运行时中遗留的非正式终态会先经过一次性迁移再参与当前编排；正式实现不再保留长期读路径兼容分支
 - reminder、redispatch、timeout recovery 属于主场景内机制，不单独暴露为独立产品面

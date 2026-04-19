@@ -59,7 +59,8 @@ export function useRoute() {
             runViewRaw === "team-config" ||
             runViewRaw === "overview" ||
             runViewRaw === "chat" ||
-            runViewRaw === "agent-chat"
+            runViewRaw === "agent-chat" ||
+            runViewRaw === "recovery"
               ? runViewRaw
               : "overview";
           return { l1: "workflow", view: "run-workspace", runId, runView };

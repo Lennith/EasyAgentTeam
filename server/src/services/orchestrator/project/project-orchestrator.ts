@@ -151,6 +151,10 @@ export class OrchestratorService {
     return this.sessionRuntimeService.terminateSessionProcess(projectId, sessionId, reason);
   }
 
+  dismissSession(projectId: string, sessionId: string, reason: string) {
+    return this.sessionRuntimeService.dismissSession(projectId, sessionId, reason);
+  }
+
   repairSessionStatus(projectId: string, sessionId: string, targetStatus: "idle" | "blocked") {
     return this.sessionRuntimeService.repairSessionStatus(projectId, sessionId, targetStatus);
   }

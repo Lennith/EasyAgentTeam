@@ -26,6 +26,7 @@ export interface WorkflowDispatchPromptContext {
   taskState: WorkflowTaskState | null;
   task: WorkflowRunRecord["tasks"][number] | null;
   dependencyStatus: string;
+  isDecompositionPhase: boolean;
   requiresExecutionSubtaskBeforeDone: boolean;
   rolePrompt?: string;
 }
@@ -139,6 +140,7 @@ export function buildWorkflowDispatchPromptContext(
       : "";
   const taskSubtreeRaw = input.message ? (input.message.body as Record<string, unknown>).task_subtree : null;
   const descendantTaskIds = input.taskId ? collectDescendantTaskIds(input.run, input.taskId) : [];
+  const isDecompositionPhase = requiresDecompositionSubtask(task);
   return {
     frame,
     run: input.run,
@@ -153,7 +155,8 @@ export function buildWorkflowDispatchPromptContext(
     taskState: input.taskState,
     task,
     dependencyStatus,
-    requiresExecutionSubtaskBeforeDone: requiresDecompositionSubtask(task) && descendantTaskIds.length === 0,
+    isDecompositionPhase,
+    requiresExecutionSubtaskBeforeDone: isDecompositionPhase && descendantTaskIds.length === 0,
     rolePrompt: input.rolePrompt
   };
 }

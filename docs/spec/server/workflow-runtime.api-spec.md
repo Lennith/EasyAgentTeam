@@ -25,6 +25,9 @@
 - `POST /api/workflow-runs/:run_id/task-actions`
 - `GET /api/workflow-runs/:run_id/sessions`
 - `POST /api/workflow-runs/:run_id/sessions`
+- `POST /api/workflow-runs/:run_id/sessions/:session_id/dismiss`
+- `POST /api/workflow-runs/:run_id/sessions/:session_id/repair`
+- `GET /api/workflow-runs/:run_id/runtime-recovery`
 - `POST /api/workflow-runs/:run_id/messages/send`
 - `GET /api/workflow-runs/:run_id/agent-io/timeline`
 - `GET /api/workflow-runs/:run_id/orchestrator/settings`
@@ -47,3 +50,25 @@
 - workflow `agent-chat` 的 SSE `error` 事件在 provider 错误场景下返回结构化 payload：`code`、`category`、`retryable`、`message`、`next_action`、`details`
 - workflow session 命中 provider 暂态错误时会回到 `idle` 并带 `cooldown_until`，等待后续 reminder / tick 重试
 - workflow runtime failure 事件对外字段统一使用 snake_case，包括 `next_action`、`raw_status`、`cooldown_until`
+
+## Workflow Recovery Read Model
+
+- `GET /api/workflow-runs/:run_id/runtime-recovery`
+- 返回字段 shape 与 project recovery 保持一致，至少包含：
+  - `scope_kind`
+  - `scope_id`
+  - `generated_at`
+  - `summary`
+  - `items`
+- `items[]` 的恢复信息字段统一使用 snake_case，包括：
+  - `session_id`
+  - `provider_session_id`
+  - `current_task_id`
+  - `cooldown_until`
+  - `last_failure_at`
+  - `last_failure_kind`
+  - `next_action`
+  - `raw_status`
+  - `can_dismiss`
+  - `can_repair_to_idle`
+  - `can_repair_to_blocked`

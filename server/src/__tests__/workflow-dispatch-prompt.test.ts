@@ -121,7 +121,7 @@ test("workflow dispatch prompt requires execution subtask before decomposition p
   assert.match(prompt, /Do not create QA\/release subtasks that depend on future phase tasks/i);
   assert.match(
     prompt,
-    /If the focus task is not explicitly a planning\/decomposition task, do not create new subtasks/i
+    /If the focus task is not explicitly a planning\/decomposition task, execute directly on the focus task and report progress there\. Do not delegate through new subtasks/i
   );
   assert.match(
     prompt,

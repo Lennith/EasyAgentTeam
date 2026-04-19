@@ -62,6 +62,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - `POST /api/projects/:id/sessions`
 - `POST /api/projects/:id/sessions/:session_id/dismiss`
 - `POST /api/projects/:id/sessions/:session_id/repair`
+- `GET /api/projects/:id/runtime-recovery`
 - `GET /api/projects/:id/inbox/:role`
 - `POST /api/projects/:id/messages/send`
 - `POST /api/projects/:id/orchestrator/dispatch`
@@ -83,3 +84,34 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - provider/model 不匹配返回稳定错误码，而不是隐式修正
 - project `agent-chat` 的 SSE `error` 事件在 provider 错误场景下返回结构化 payload：`code`、`category`、`retryable`、`message`、`next_action`、`details`
 - project runtime failure 事件对外字段统一使用 snake_case，包括 `next_action`、`raw_status`、`cooldown_until`
+
+## Project Recovery Read Model
+
+- `GET /api/projects/:id/runtime-recovery`
+- 返回固定 shape：
+  - `scope_kind`
+  - `scope_id`
+  - `generated_at`
+  - `summary`
+  - `items`
+- `items[]` 至少包含：
+  - `role`
+  - `session_id`
+  - `provider`
+  - `provider_session_id`
+  - `status`
+  - `current_task_id`
+  - `cooldown_until`
+  - `last_failure_at`
+  - `last_failure_kind`
+  - `error_streak`
+  - `timeout_streak`
+  - `retryable`
+  - `code`
+  - `message`
+  - `next_action`
+  - `raw_status`
+  - `last_event_type`
+  - `can_dismiss`
+  - `can_repair_to_idle`
+  - `can_repair_to_blocked`

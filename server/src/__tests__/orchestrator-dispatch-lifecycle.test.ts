@@ -82,7 +82,7 @@ test("dispatch lifecycle loader resolves terminal state from repository callback
         createdAt: "2026-03-28T00:01:00.000Z",
         sessionId: "session-1",
         payload: {
-          dispatchId: "dispatch-1"
+          dispatch_id: "dispatch-1"
         }
       },
       {

@@ -52,6 +52,7 @@ import {
 } from "./shared/http.js";
 import { parseWorkflowScheduleExpression } from "../services/orchestrator/workflow/workflow-recurring-schedule.js";
 import { recordWorkflowPerfSpan, traceWorkflowPerfSpan } from "../services/workflow-perf-trace.js";
+import { buildWorkflowRuntimeRecovery } from "../services/runtime-recovery-service.js";
 
 function hasOwnField(body: Record<string, unknown>, ...keys: string[]): boolean {
   return keys.some((key) => Object.prototype.hasOwnProperty.call(body, key));
@@ -582,6 +583,15 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
     }
   });
 
+  app.get("/api/workflow-runs/:run_id/runtime-recovery", async (req, res, next) => {
+    try {
+      const payload = await buildWorkflowRuntimeRecovery(dataRoot, req.params.run_id);
+      res.status(200).json(payload);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/workflow-runs/:run_id/sessions", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
@@ -610,6 +620,56 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
       res
         .status(result.created ? 201 : 200)
         .json({ session: sanitizeSessionForApi(result.session), created: result.created });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/sessions/:session_id/dismiss", async (req, res, next) => {
+    try {
+      const token = req.params.session_id;
+      const dismissed = await workflowOrchestrator.dismissRunSession(
+        req.params.run_id,
+        token,
+        "session_dismissed_by_api"
+      );
+      await workflowOrchestrator.resetRoleReminderOnManualAction(
+        req.params.run_id,
+        dismissed.session.role,
+        "session_dismissed"
+      );
+      res.status(200).json({
+        session: sanitizeSessionForApi(dismissed.session),
+        mappingCleared: dismissed.mappingCleared,
+        cancelled: dismissed.cancelled,
+        provider: dismissed.provider,
+        provider_session_id: dismissed.provider_session_id
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workflow-runs/:run_id/sessions/:session_id/repair", async (req, res, next) => {
+    try {
+      const targetStatus = readStringField(req.body as Record<string, unknown>, ["target_status", "targetStatus"]);
+      if (targetStatus !== "idle" && targetStatus !== "blocked") {
+        sendApiError(
+          res,
+          400,
+          "SESSION_REPAIR_INVALID_TARGET",
+          "target_status must be idle|blocked",
+          "Use target_status=idle or target_status=blocked."
+        );
+        return;
+      }
+      const repaired = await workflowOrchestrator.repairRunSessionStatus(
+        req.params.run_id,
+        req.params.session_id,
+        targetStatus
+      );
+      await workflowOrchestrator.resetRoleReminderOnManualAction(req.params.run_id, repaired.role, "session_repaired");
+      res.status(200).json(sanitizeSessionForApi(repaired));
     } catch (error) {
       next(error);
     }

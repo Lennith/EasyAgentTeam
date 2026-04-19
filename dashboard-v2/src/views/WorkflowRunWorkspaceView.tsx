@@ -5,6 +5,7 @@ import { useWorkflowOrchestratorStatus, useWorkflowRunStatus } from "@/hooks/use
 import { AgentChatView } from "./AgentChatView";
 import { ChatTimelineView } from "./ChatTimelineView";
 import { TaskTreeView } from "./TaskTreeView";
+import { WorkflowRecoveryView } from "./WorkflowRecoveryView";
 import type {
   AgentIOTimelineItem,
   SessionRecord,
@@ -659,6 +660,8 @@ export function WorkflowRunWorkspaceView({ runId, view }: WorkflowRunWorkspaceVi
           )}
         </div>
       )}
+
+      {view === "recovery" && <WorkflowRecoveryView runId={runId} />}
 
       {view === "team-config" && (
         <div style={{ height: "calc(100vh - 220px)", minHeight: 0, display: "flex", flexDirection: "column" }}>

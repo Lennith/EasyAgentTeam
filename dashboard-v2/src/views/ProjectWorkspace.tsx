@@ -13,6 +13,7 @@ import { UpdateTaskView } from "./UpdateTaskView";
 import { LockManagerView } from "./LockManagerView";
 import { RoutingConfigView } from "./RoutingConfigView";
 import { ProjectSettingsView } from "./ProjectSettingsView";
+import { ProjectRecoveryView } from "./ProjectRecoveryView";
 
 interface ProjectWorkspaceProps {
   projectId: string;
@@ -26,6 +27,7 @@ export function ProjectWorkspace({ projectId, view }: ProjectWorkspaceProps) {
   const viewTitles: Record<ProjectView, string> = {
     timeline: t.eventTimeline,
     chat: t.chatTimeline,
+    recovery: "Recovery",
     "session-manager": t.sessionManager,
     "agent-io": t.agentIO,
     "agent-chat": t.agentChat,
@@ -79,6 +81,8 @@ export function ProjectWorkspace({ projectId, view }: ProjectWorkspaceProps) {
       return <EventTimelineView {...viewProps} />;
     case "chat":
       return <ChatTimelineView {...viewProps} />;
+    case "recovery":
+      return <ProjectRecoveryView projectId={projectId} />;
     case "session-manager":
       return <SessionManagerView {...viewProps} />;
     case "agent-io":

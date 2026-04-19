@@ -60,6 +60,7 @@ export class WorkflowRuntimeError extends Error {
 export class WorkflowOrchestratorService {
   private readonly loopCore;
   private readonly activeRunIds;
+  private readonly reminderService;
   private readonly sessionRuntimeService;
   private readonly dispatchService;
   private readonly taskActionService;
@@ -78,6 +79,7 @@ export class WorkflowOrchestratorService {
     });
     this.loopCore = composition.loopCore;
     this.activeRunIds = composition.activeRunIds;
+    this.reminderService = composition.reminderService;
     this.sessionRuntimeService = composition.sessionRuntimeService;
     this.dispatchService = composition.dispatchService;
     this.taskActionService = composition.taskActionService;
@@ -151,6 +153,22 @@ export class WorkflowOrchestratorService {
     }
   ): Promise<{ session: WorkflowSessionRecord; created: boolean }> {
     return this.sessionRuntimeService.registerRunSession(runId, input);
+  }
+
+  dismissRunSession(runId: string, sessionId: string, reason: string) {
+    return this.sessionRuntimeService.dismissSession(runId, sessionId, reason);
+  }
+
+  repairRunSessionStatus(runId: string, sessionId: string, targetStatus: "idle" | "blocked") {
+    return this.sessionRuntimeService.repairSessionStatus(runId, sessionId, targetStatus);
+  }
+
+  resetRoleReminderOnManualAction(
+    runId: string,
+    role: string,
+    reason: "session_created" | "session_dismissed" | "session_repaired"
+  ) {
+    return this.reminderService.resetRoleReminderOnManualAction(runId, role, reason);
   }
 
   async sendRunMessage(input: WorkflowRouteMessageInput): Promise<WorkflowMessageRouteResult> {

@@ -131,6 +131,10 @@ export function isOrchestratorDispatchClosed<T extends OrchestratorDispatchEvent
   });
 }
 
+function readDispatchId(payload: Record<string, unknown>): string | undefined {
+  return readPayloadString(payload, "dispatchId") ?? readPayloadString(payload, "dispatch_id");
+}
+
 export function wasOrchestratorDispatchTimedOut<T extends OrchestratorDispatchEventLike>(
   events: readonly T[],
   sessionId: string,
@@ -148,7 +152,7 @@ export function wasOrchestratorDispatchTimedOut<T extends OrchestratorDispatchEv
       return false;
     }
     const payload = event.payload as Record<string, unknown>;
-    return readPayloadString(payload, "dispatchId") === dispatchId;
+    return readDispatchId(payload) === dispatchId;
   });
 }
 

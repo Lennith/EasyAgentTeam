@@ -1,4 +1,4 @@
-﻿# 项目工作区 PRD（最后更新：2026-04-16）
+# 项目工作区 PRD（最后更新：2026-04-19）
 
 ## 状态
 
@@ -11,6 +11,7 @@
 ## 当前有效能力
 
 - 打开项目工作区并切换 task tree、timeline、sessions、routing、locks 等视图
+- 项目工作区提供 scoped Recovery 视图，用于查看当前项目内待恢复 session、最近失败、cooldown 与恢复动作
 - 发送 agent chat 与中断当前会话
 - 查看任务细节、时间线、事件和 session 状态
 

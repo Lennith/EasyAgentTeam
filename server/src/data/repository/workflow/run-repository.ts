@@ -22,6 +22,7 @@ import {
   writeWorkflowRunTaskRuntimeState
 } from "./runtime-repository.js";
 import { traceWorkflowPerfSpan } from "../../../services/workflow-perf-trace.js";
+import { isLegacyAmbiguousDoneState } from "../shared/legacy-task-state.js";
 
 export class WorkflowStoreError extends Error {
   constructor(
@@ -383,6 +384,9 @@ async function ensureWorkflowRuntime(dataRoot: string): Promise<WorkflowPaths> {
 
 function mapLegacyWorkflowState(raw: string | undefined): WorkflowTaskState {
   const state = String(raw ?? "").trim().toUpperCase();
+  if (isLegacyAmbiguousDoneState(state)) {
+    return "DONE";
+  }
   switch (state) {
     case "READY":
     case "DISPATCHED":
@@ -392,8 +396,6 @@ function mapLegacyWorkflowState(raw: string | undefined): WorkflowTaskState {
     case "CANCELED":
     case "PLANNED":
       return state as WorkflowTaskState;
-    case "MAY_BE_DONE":
-      return "DONE";
     case "CREATED":
       return "PLANNED";
     case "FAILED":

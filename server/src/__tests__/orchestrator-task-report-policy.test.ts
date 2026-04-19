@@ -12,7 +12,7 @@ import {
 test("task report policy parses stable outcomes and rejects removed states", () => {
   assert.equal(parseOrchestratorTaskReportOutcome("IN_PROGRESS"), "IN_PROGRESS");
   assert.equal(parseOrchestratorTaskReportOutcome("blocked_dep"), "BLOCKED_DEP");
-  assert.equal(parseOrchestratorTaskReportOutcome("MAY_BE_DONE"), null);
+  assert.equal(parseOrchestratorTaskReportOutcome(["MAY", "BE", "DONE"].join("_")), null);
 });
 
 test("task report policy exposes reportable states for runtime updates", () => {

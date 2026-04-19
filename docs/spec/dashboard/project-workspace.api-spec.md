@@ -8,6 +8,7 @@
 
 - `GET /api/projects/:project_id`
 - `GET /api/projects/:project_id/sessions`
+- `GET /api/projects/:project_id/runtime-recovery`
 - `GET /api/projects/:project_id/task-tree`
 - `GET /api/projects/:project_id/locks`
 - `GET /api/projects/:project_id/events`
@@ -28,12 +29,15 @@
 - `POST /api/projects/:project_id/orchestrator/dispatch`
 - `GET /api/projects/:project_id/orchestrator/settings`
 - `PATCH /api/projects/:project_id/orchestrator/settings`
+- `POST /api/projects/:project_id/sessions/:session_id/dismiss`
+- `POST /api/projects/:project_id/sessions/:session_id/repair`
 
 ## 视图映射
 
 - timeline：事件时间线
 - chat：agent IO timeline
 - session-manager：项目会话列表
+- recovery：项目级恢复中心，聚合 cooldown、最近 failure、当前任务与恢复动作
 - agent-io：项目输入输出聚合
 - agent-chat：项目级 agent chat
 - taskboard / task-tree / task-create / task-update：任务树与任务写操作

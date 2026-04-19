@@ -63,6 +63,49 @@ export interface SessionRecord {
   locksHeldCount?: number;
 }
 
+export interface RuntimeRecoveryItem {
+  role: string;
+  session_id: string;
+  provider: string;
+  provider_session_id: string | null;
+  status: "running" | "idle" | "blocked" | "dismissed";
+  current_task_id: string | null;
+  current_task_title: string | null;
+  current_task_state: string | null;
+  cooldown_until: string | null;
+  last_failure_at: string | null;
+  last_failure_kind: "timeout" | "error" | null;
+  error_streak: number;
+  timeout_streak: number;
+  retryable: boolean | null;
+  code: string | null;
+  message: string | null;
+  next_action: string | null;
+  raw_status: number | string | null;
+  last_event_type: string | null;
+  can_dismiss: boolean;
+  can_repair_to_idle: boolean;
+  can_repair_to_blocked: boolean;
+}
+
+export interface RuntimeRecoverySummary {
+  total: number;
+  running: number;
+  blocked: number;
+  idle: number;
+  dismissed: number;
+  cooling_down: number;
+  failed_recently: number;
+}
+
+export interface RuntimeRecoveryResponse {
+  scope_kind: "project" | "workflow";
+  scope_id: string;
+  generated_at: string;
+  summary: RuntimeRecoverySummary;
+  items: RuntimeRecoveryItem[];
+}
+
 export type TaskState = "PLANNED" | "READY" | "DISPATCHED" | "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
 
 export type TaskKind = "PROJECT_ROOT" | "USER_ROOT" | "EXECUTION";
@@ -395,6 +438,7 @@ export interface DispatchResult {
 export type ProjectView =
   | "timeline"
   | "chat"
+  | "recovery"
   | "session-manager"
   | "agent-io"
   | "agent-chat"
@@ -411,7 +455,7 @@ export type AgentView = "sessions" | "agents" | "templates";
 export type DebugView = "agent-sessions" | "session-prompts" | "agent-output";
 
 export type TeamView = "list" | "edit" | "new";
-export type WorkflowRunWorkspaceView = "overview" | "task-tree" | "chat" | "agent-chat" | "team-config";
+export type WorkflowRunWorkspaceView = "overview" | "task-tree" | "chat" | "agent-chat" | "team-config" | "recovery";
 export type WorkflowView = "runs" | "new-run" | "run-workspace" | "templates" | "new-template" | "edit-template";
 export type SkillView = "library" | "lists";
 

@@ -50,6 +50,7 @@ export interface WorkflowOrchestratorCompositionInput {
 export interface WorkflowOrchestratorComposition {
   loopCore: OrchestratorLoopCore;
   repositories: WorkflowRepositoryBundle;
+  reminderService: WorkflowReminderService;
   sessionRuntimeService: WorkflowSessionRuntimeService;
   dispatchService: WorkflowDispatchService;
   taskActionService: WorkflowTaskActionService;
@@ -193,6 +194,7 @@ export function createWorkflowOrchestratorComposition(
   return {
     loopCore,
     repositories,
+    reminderService,
     sessionRuntimeService,
     dispatchService,
     taskActionService,

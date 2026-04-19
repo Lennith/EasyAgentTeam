@@ -116,6 +116,7 @@ export default function App() {
     { id: "task-tree", label: t.taskTree },
     { id: "chat", label: t.chatTimeline },
     { id: "agent-chat", label: t.agentChat },
+    { id: "recovery", label: "Recovery" },
     { id: "team-config", label: t.teamConfig }
   ] as const;
 
@@ -127,6 +128,7 @@ export default function App() {
   const projectViews: { id: string; icon: React.ReactNode; label: string }[] = [
     { id: "timeline", icon: <Activity size={16} />, label: t.eventTimeline },
     { id: "chat", icon: <ChevronRight size={16} />, label: t.chatTimeline },
+    { id: "recovery", icon: <Bug size={16} />, label: "Recovery" },
     { id: "session-manager", icon: <Users size={16} />, label: t.sessionManager },
     { id: "agent-io", icon: <Zap size={16} />, label: t.agentIO },
     { id: "agent-chat", icon: <Cpu size={16} />, label: t.agentChat },

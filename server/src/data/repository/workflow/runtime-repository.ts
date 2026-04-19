@@ -19,6 +19,7 @@ import {
   writeJsonlLines
 } from "../../internal/persistence/store/store-runtime.js";
 import { traceWorkflowPerfSpan } from "../../../services/workflow-perf-trace.js";
+import { isLegacyAmbiguousDoneState } from "../shared/legacy-task-state.js";
 
 interface WorkflowRunRuntimePaths {
   runRootDir: string;
@@ -144,6 +145,51 @@ export async function ensureWorkflowRunRuntime(
   );
 }
 
+function migrateLegacyWorkflowRuntimeState(runtime: WorkflowRunRuntimeState): {
+  runtime: WorkflowRunRuntimeState;
+  changed: boolean;
+} {
+  let changed = false;
+  const nextTasks = runtime.tasks.map((task) => {
+    let nextTask = task;
+    if (isLegacyAmbiguousDoneState(task.state)) {
+      nextTask = { ...nextTask, state: "DONE" };
+      changed = true;
+    }
+    if (Array.isArray(nextTask.transitions) && nextTask.transitions.length > 0) {
+      let transitionChanged = false;
+      const nextTransitions = nextTask.transitions.map((transition) => {
+        let nextTransition = transition;
+        if (transition.fromState && isLegacyAmbiguousDoneState(transition.fromState)) {
+          nextTransition = { ...nextTransition, fromState: "DONE" };
+          transitionChanged = true;
+        }
+        if (isLegacyAmbiguousDoneState(transition.toState)) {
+          nextTransition = { ...nextTransition, toState: "DONE" };
+          transitionChanged = true;
+        }
+        return nextTransition;
+      });
+      if (transitionChanged) {
+        nextTask = { ...nextTask, transitions: nextTransitions };
+        changed = true;
+      }
+    }
+    return nextTask;
+  });
+  if (!changed) {
+    return { runtime, changed: false };
+  }
+  return {
+    runtime: {
+      ...runtime,
+      updatedAt: new Date().toISOString(),
+      tasks: nextTasks
+    },
+    changed: true
+  };
+}
+
 export async function readWorkflowRunTaskRuntimeState(
   dataRoot: string,
   runIdRaw: string
@@ -158,7 +204,14 @@ export async function readWorkflowRunTaskRuntimeState(
     },
     async () => {
       const paths = await ensureWorkflowRunRuntime(dataRoot, runId);
-      return await withRunWriteLock(runId, async () => readJsonFile(paths.tasksFile, defaultTaskRuntimeState()));
+      return await withRunWriteLock(runId, async () => {
+        const rawState = await readJsonFile(paths.tasksFile, defaultTaskRuntimeState());
+        const migrated = migrateLegacyWorkflowRuntimeState(rawState);
+        if (migrated.changed) {
+          await writeJsonFile(paths.tasksFile, migrated.runtime);
+        }
+        return migrated.runtime;
+      });
     }
   );
 }

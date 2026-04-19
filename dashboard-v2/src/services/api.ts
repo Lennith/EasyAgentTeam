@@ -39,6 +39,9 @@ import type {
   WorkflowOrchestratorStatus,
   WorkflowRunMode,
   WorkflowRunOrchestratorSettings,
+  RuntimeRecoveryItem,
+  RuntimeRecoveryResponse,
+  RuntimeRecoverySummary,
   WorkflowSessionRecord,
   SkillDefinition,
   SkillImportResult,
@@ -316,6 +319,58 @@ function mapWorkflowSessionFields(raw: Record<string, unknown>): WorkflowSession
   };
 }
 
+function mapRuntimeRecoveryItem(raw: Record<string, unknown>): RuntimeRecoveryItem {
+  return {
+    role: String(raw.role ?? ""),
+    session_id: String(raw.session_id ?? ""),
+    provider: String(raw.provider ?? ""),
+    provider_session_id:
+      raw.provider_session_id === null ? null : ((raw.provider_session_id as string | undefined) ?? null),
+    status: raw.status as RuntimeRecoveryItem["status"],
+    current_task_id: (raw.current_task_id as string | null | undefined) ?? null,
+    current_task_title: (raw.current_task_title as string | null | undefined) ?? null,
+    current_task_state: (raw.current_task_state as string | null | undefined) ?? null,
+    cooldown_until: (raw.cooldown_until as string | null | undefined) ?? null,
+    last_failure_at: (raw.last_failure_at as string | null | undefined) ?? null,
+    last_failure_kind: (raw.last_failure_kind as RuntimeRecoveryItem["last_failure_kind"] | undefined) ?? null,
+    error_streak: Number(raw.error_streak ?? 0),
+    timeout_streak: Number(raw.timeout_streak ?? 0),
+    retryable: typeof raw.retryable === "boolean" ? raw.retryable : null,
+    code: (raw.code as string | null | undefined) ?? null,
+    message: (raw.message as string | null | undefined) ?? null,
+    next_action: (raw.next_action as string | null | undefined) ?? null,
+    raw_status: typeof raw.raw_status === "number" || typeof raw.raw_status === "string" ? raw.raw_status : null,
+    last_event_type: (raw.last_event_type as string | null | undefined) ?? null,
+    can_dismiss: Boolean(raw.can_dismiss),
+    can_repair_to_idle: Boolean(raw.can_repair_to_idle),
+    can_repair_to_blocked: Boolean(raw.can_repair_to_blocked)
+  };
+}
+
+function mapRuntimeRecoverySummary(raw: Record<string, unknown>): RuntimeRecoverySummary {
+  return {
+    total: Number(raw.total ?? 0),
+    running: Number(raw.running ?? 0),
+    blocked: Number(raw.blocked ?? 0),
+    idle: Number(raw.idle ?? 0),
+    dismissed: Number(raw.dismissed ?? 0),
+    cooling_down: Number(raw.cooling_down ?? 0),
+    failed_recently: Number(raw.failed_recently ?? 0)
+  };
+}
+
+function mapRuntimeRecoveryResponse(raw: Record<string, unknown>): RuntimeRecoveryResponse {
+  return {
+    scope_kind: raw.scope_kind as RuntimeRecoveryResponse["scope_kind"],
+    scope_id: String(raw.scope_id ?? ""),
+    generated_at: String(raw.generated_at ?? ""),
+    summary: mapRuntimeRecoverySummary((raw.summary ?? {}) as Record<string, unknown>),
+    items: Array.isArray(raw.items)
+      ? raw.items.map((item) => mapRuntimeRecoveryItem(item as Record<string, unknown>))
+      : []
+  };
+}
+
 type AgentChatScope = { projectId: string; runId?: never } | { runId: string; projectId?: never };
 
 interface AgentChatRequest {
@@ -368,6 +423,11 @@ export const projectApi = {
     );
     return { items: (data.items ?? []).map(mapSessionFields) };
   },
+
+  getRuntimeRecovery: async (projectId: string): Promise<RuntimeRecoveryResponse> =>
+    mapRuntimeRecoveryResponse(
+      await fetchJSON<Record<string, unknown>>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/runtime-recovery`)
+    ),
 
   getTaskTree: (
     projectId: string,
@@ -973,6 +1033,13 @@ export const workflowApi = {
       items: (payload.items ?? []).map(mapWorkflowSessionFields)
     })),
 
+  getRuntimeRecovery: async (runId: string): Promise<RuntimeRecoveryResponse> =>
+    mapRuntimeRecoveryResponse(
+      await fetchJSON<Record<string, unknown>>(
+        `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/runtime-recovery`
+      )
+    ),
+
   registerSession: (
     runId: string,
     data: {
@@ -994,6 +1061,30 @@ export const workflowApi = {
       session: mapWorkflowSessionFields(payload.session),
       created: payload.created
     })),
+
+  dismissSession: (runId: string, sessionId: string, reason?: string) =>
+    fetchJSON<{
+      session: Record<string, unknown>;
+      mappingCleared: boolean;
+      cancelled: boolean;
+      provider: string;
+      provider_session_id: string;
+    }>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason ?? "dashboard_manual_dismiss" })
+    }).then((payload) => ({
+      ...payload,
+      session: mapWorkflowSessionFields(payload.session)
+    })),
+
+  repairSession: (runId: string, sessionId: string, targetStatus: "idle" | "blocked") =>
+    fetchJSON<Record<string, unknown>>(
+      `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/repair`,
+      {
+        method: "POST",
+        body: JSON.stringify({ target_status: targetStatus })
+      }
+    ).then(mapWorkflowSessionFields),
 
   sendMessage: (
     runId: string,

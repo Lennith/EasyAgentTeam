@@ -19,7 +19,6 @@ import {
 } from "../services/project-lock-service.js";
 import {
   appendProjectRuntimeEvent,
-  clearProjectRoleSessionMapping,
   createProjectSession,
   getProjectRuntimeContext,
   getProjectSessionById,
@@ -27,13 +26,13 @@ import {
   listProjectInboxItems,
   listProjectRuntimeEventsAsNdjson,
   listProjectSessionsById,
-  setProjectRoleSessionMapping,
-  touchProjectSession
+  setProjectRoleSessionMapping
 } from "../services/project-runtime-api-service.js";
 import { resolveSessionProviderId } from "../services/provider-runtime.js";
 import { createProjectToolExecutionAdapter, DefaultToolInjector } from "../services/tool-injector.js";
 import { validateRoleSessionMapWrite } from "../services/routing-guard-service.js";
 import { resolveActiveSessionForRole } from "../services/session-lifecycle-authority.js";
+import { buildProjectRuntimeRecovery } from "../services/runtime-recovery-service.js";
 import { logger } from "../utils/logger.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import { buildSessionId, readStringField, sanitizeSessionForApi, sendApiError } from "./shared/http.js";
@@ -161,32 +160,30 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
     }
   });
 
+  app.get("/api/projects/:id/runtime-recovery", async (req, res, next) => {
+    try {
+      const payload = await buildProjectRuntimeRecovery(dataRoot, req.params.id);
+      res.status(200).json(payload);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/projects/:id/sessions/:session_id/dismiss", async (req, res, next) => {
     try {
-      const { project, paths } = await getProjectRuntimeContext(dataRoot, req.params.id);
+      const { project } = await getProjectRuntimeContext(dataRoot, req.params.id);
       const token = req.params.session_id;
-      const session = await getProjectSessionById(dataRoot, project.projectId, token);
-      if (!session) {
-        res.status(404).json({ error: `session '${token}' not found` });
-        return;
-      }
-      const processTermination = await orchestrator.terminateSessionProcess(
+      const dismissed = await orchestrator.dismissSession(project.projectId, token, "session_dismissed_by_api");
+      await orchestrator.resetRoleReminderOnManualAction(
         project.projectId,
-        session.sessionId,
-        "session_dismissed_by_api"
+        dismissed.session.role,
+        "session_dismissed"
       );
-      const dismissed = await touchProjectSession(dataRoot, project.projectId, session.sessionId, {
-        status: "dismissed",
-        currentTaskId: null,
-        lastInboxMessageId: null,
-        agentPid: null
+      res.status(200).json({
+        session: sanitizeSessionForApi(dismissed.session),
+        mappingCleared: dismissed.mappingCleared,
+        processTermination: dismissed.processTermination
       });
-      const mappingCleared = project.roleSessionMap?.[session.role] === session.sessionId;
-      if (mappingCleared) {
-        await clearProjectRoleSessionMapping(dataRoot, project.projectId, session.role);
-      }
-      await orchestrator.resetRoleReminderOnManualAction(project.projectId, session.role, "session_dismissed");
-      res.status(200).json({ session: sanitizeSessionForApi(dismissed), mappingCleared, processTermination });
     } catch (error) {
       next(error);
     }

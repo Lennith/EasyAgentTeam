@@ -94,6 +94,24 @@
       "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
+      "method": "GET",
+      "path": "/api/workflow-runs/:run_id/runtime-recovery",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/sessions/:session_id/dismiss",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/sessions/:session_id/repair",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
+    },
+    {
       "method": "POST",
       "path": "/api/projects/:id/task-actions",
       "status": "active",
@@ -132,6 +150,12 @@
     {
       "method": "POST",
       "path": "/api/projects/:id/sessions/:session_id/repair",
+      "status": "active",
+      "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/:id/runtime-recovery",
       "status": "active",
       "docRefs": ["docs/spec/server/server-api.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
     },
