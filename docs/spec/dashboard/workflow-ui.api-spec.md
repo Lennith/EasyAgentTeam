@@ -1,4 +1,4 @@
-﻿# Workflow UI 规范（最后更新：2026-04-16）
+﻿# Workflow UI 规范（最后更新：2026-04-19）
 
 ## 页面范围
 
@@ -52,10 +52,11 @@
 - run workspace chat：timeline 只读观察
 - run workspace agent-chat：对单个会话发起聊天和中断
 - run workspace team-config：以模板快照展示 route matrix 与 discuss rounds
-- run workspace recovery：按当前 run 聚合需恢复 session、最近 failure、cooldown 与 dismiss/repair 动作
+- run workspace recovery：按当前 run 聚合需恢复 session、最近 failure、cooldown、dismiss/repair 动作与最近恢复审计片段
 
 ## 明确不属于当前工作区主契约的能力
 
 - 不把所有 workflow 后端接口都视为前端页面契约
 - 不在页面直接消费 task runtime 全量快照
 - 不在页面直接调用 task detail、task actions、messages send、sessions register 作为默认工作流
+- Recovery 动作由后端 policy 决定，前端只展示 `can_* / disabled_reason / risk / requires_confirmation`

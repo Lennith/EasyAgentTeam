@@ -155,8 +155,8 @@ export class OrchestratorService {
     return this.sessionRuntimeService.dismissSession(projectId, sessionId, reason);
   }
 
-  repairSessionStatus(projectId: string, sessionId: string, targetStatus: "idle" | "blocked") {
-    return this.sessionRuntimeService.repairSessionStatus(projectId, sessionId, targetStatus);
+  repairSessionStatus(projectId: string, sessionId: string, targetStatus: "idle" | "blocked", reason: string) {
+    return this.sessionRuntimeService.repairSessionStatus(projectId, sessionId, targetStatus, reason);
   }
 
   resetRoleReminderOnManualAction(

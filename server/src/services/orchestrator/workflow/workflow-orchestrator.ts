@@ -159,8 +159,8 @@ export class WorkflowOrchestratorService {
     return this.sessionRuntimeService.dismissSession(runId, sessionId, reason);
   }
 
-  repairRunSessionStatus(runId: string, sessionId: string, targetStatus: "idle" | "blocked") {
-    return this.sessionRuntimeService.repairSessionStatus(runId, sessionId, targetStatus);
+  repairRunSessionStatus(runId: string, sessionId: string, targetStatus: "idle" | "blocked", reason: string) {
+    return this.sessionRuntimeService.repairSessionStatus(runId, sessionId, targetStatus, reason);
   }
 
   resetRoleReminderOnManualAction(

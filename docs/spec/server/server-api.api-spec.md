@@ -92,8 +92,17 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `scope_kind`
   - `scope_id`
   - `generated_at`
-  - `summary`
-  - `items`
+- `summary`
+- `items`
+- `summary` 现在固定区分：
+  - `all_sessions_total`
+  - `recovery_candidates_total`
+  - `running`
+  - `blocked`
+  - `idle`
+  - `dismissed`
+  - `cooling_down`
+  - `failed_recently`
 - `items[]` 至少包含：
   - `role`
   - `session_id`
@@ -115,3 +124,19 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `can_dismiss`
   - `can_repair_to_idle`
   - `can_repair_to_blocked`
+  - `can_retry_dispatch`
+  - `disabled_reason`
+  - `risk`
+  - `requires_confirmation`
+  - `latest_events`
+- `dismiss` / `repair` 的 command contract 统一返回：
+  - `action`
+  - `session`
+  - `previous_status`
+  - `next_status`
+  - `warnings`
+- `dismiss` 额外返回：
+  - `provider_cancel`
+  - `process_termination`
+  - `mapping_cleared`
+- project recovery actionability 由后端 policy 决定，前端不得再按 `status` 自行推导 repair/dismiss 能力

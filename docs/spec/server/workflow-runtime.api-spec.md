@@ -72,3 +72,13 @@
   - `can_dismiss`
   - `can_repair_to_idle`
   - `can_repair_to_blocked`
+  - `can_retry_dispatch`
+  - `disabled_reason`
+  - `risk`
+  - `requires_confirmation`
+  - `latest_events`
+- `summary` 统一区分 `all_sessions_total` 与 `recovery_candidates_total`，不再用单一 `total` 混合表示 scope 内 session 总数与 recovery candidate 数量
+- workflow dismiss / repair 的 command contract 与 project recovery 对齐：
+  - `dismiss` 返回 `action / session / previous_status / next_status / provider_cancel / process_termination / mapping_cleared / warnings`
+  - `repair` 返回 `action / session / previous_status / next_status / warnings`
+- workflow recovery actionability 由后端 policy 决定，`running` session 默认不允许 repair_to_idle

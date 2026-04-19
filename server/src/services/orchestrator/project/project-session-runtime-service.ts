@@ -6,6 +6,12 @@ import {
   type SessionProcessTerminationResultCode
 } from "./project-session-runtime-termination.js";
 import type { ProjectSessionRuntimeContext } from "./project-orchestrator-types.js";
+import type {
+  RecoveryDismissResult,
+  RecoveryProcessTerminationView,
+  RecoveryProviderCancelResult,
+  RecoveryRepairResult
+} from "../../runtime-recovery-action-policy.js";
 
 export {
   findLatestDispatchStarted,
@@ -16,6 +22,29 @@ export {
   terminateProcessByPid
 } from "./project-session-runtime-termination.js";
 export type { SessionProcessTerminationResult, SessionProcessTerminationResultCode };
+
+function buildProjectProviderCancelResult(): RecoveryProviderCancelResult {
+  return {
+    attempted: false,
+    confirmed: false,
+    result: "not_supported",
+    error: null
+  };
+}
+
+function buildProcessTerminationView(result: SessionProcessTerminationResult): RecoveryProcessTerminationView {
+  return {
+    attempted: result.attempted,
+    result: result.result,
+    message: result.message
+  };
+}
+
+function buildRepairWarnings(session: SessionRecord): string[] {
+  return session.currentTaskId
+    ? [`Current task '${session.currentTaskId}' remains attached to this session after repair.`]
+    : [];
+}
 
 export class ProjectSessionRuntimeService {
   constructor(private readonly context: ProjectSessionRuntimeContext) {}
@@ -42,8 +71,9 @@ export class ProjectSessionRuntimeService {
   async repairSessionStatus(
     projectId: string,
     sessionId: string,
-    targetStatus: "idle" | "blocked"
-  ): Promise<SessionRecord> {
+    targetStatus: "idle" | "blocked",
+    reason: string
+  ): Promise<RecoveryRepairResult<SessionRecord>> {
     const scope = await this.context.repositories.resolveScope(projectId);
     const { project, paths } = scope;
     const session = await this.context.repositories.sessions.getSession(paths, project.projectId, sessionId);
@@ -51,6 +81,7 @@ export class ProjectSessionRuntimeService {
       throw new Error(`session '${sessionId}' not found`);
     }
     return this.context.repositories.runInUnitOfWork(scope, async () => {
+      const warnings = buildRepairWarnings(session);
       const updated = await this.context.repositories.sessions.touchSession(paths, project.projectId, sessionId, {
         status: targetStatus,
         agentPid: null,
@@ -68,10 +99,26 @@ export class ProjectSessionRuntimeService {
         taskId: updated.currentTaskId,
         payload: {
           previous_status: session.status,
-          target_status: targetStatus
+          target_status: targetStatus,
+          previous_current_task_id: session.currentTaskId ?? null,
+          previous_failure_kind: session.lastFailureKind ?? null,
+          previous_last_failure_at: session.lastFailureAt ?? null,
+          previous_error_streak: session.errorStreak ?? 0,
+          previous_timeout_streak: session.timeoutStreak ?? 0,
+          previous_cooldown_until: session.cooldownUntil ?? null,
+          previous_provider_session_id: session.providerSessionId ?? null,
+          reason,
+          actor: "dashboard",
+          warnings
         }
       });
-      return updated;
+      return {
+        action: "repair",
+        session: updated,
+        previous_status: session.status,
+        next_status: targetStatus,
+        warnings
+      };
     });
   }
 
@@ -79,11 +126,7 @@ export class ProjectSessionRuntimeService {
     projectId: string,
     sessionId: string,
     reason: string
-  ): Promise<{
-    session: SessionRecord;
-    mappingCleared: boolean;
-    processTermination: SessionProcessTerminationResult;
-  }> {
+  ): Promise<RecoveryDismissResult<SessionRecord>> {
     const scope = await this.context.repositories.resolveScope(projectId);
     const { project, paths } = scope;
     const session = await this.context.repositories.sessions.getSession(paths, project.projectId, sessionId);
@@ -92,6 +135,7 @@ export class ProjectSessionRuntimeService {
     }
     return this.context.repositories.runInUnitOfWork(scope, async () => {
       const processTermination = await this.terminateSessionProcessInternal(project, paths, session, reason);
+      const processTerminationView = buildProcessTerminationView(processTermination);
       const dismissed = await this.context.repositories.sessions.touchSession(paths, project.projectId, sessionId, {
         status: "dismissed",
         currentTaskId: null,
@@ -104,6 +148,10 @@ export class ProjectSessionRuntimeService {
         await this.context.repositories.projectRuntime.clearRoleSessionMapping(project.projectId, session.role);
         mappingCleared = true;
       }
+      const warnings =
+        processTermination.result === "killed" || processTermination.result === "not_found"
+          ? []
+          : [processTermination.message];
       await this.context.repositories.events.appendEvent(paths, {
         projectId: project.projectId,
         eventType: "SESSION_STATUS_DISMISSED",
@@ -113,14 +161,21 @@ export class ProjectSessionRuntimeService {
         payload: {
           previous_status: session.status,
           reason,
+          provider_cancel: buildProjectProviderCancelResult(),
+          process_termination: processTerminationView,
           mapping_cleared: mappingCleared,
-          process_result: processTermination.result
+          warnings
         }
       });
       return {
+        action: "dismiss",
         session: dismissed,
-        mappingCleared,
-        processTermination
+        previous_status: session.status,
+        next_status: "dismissed",
+        provider_cancel: buildProjectProviderCancelResult(),
+        process_termination: processTerminationView,
+        mapping_cleared: mappingCleared,
+        warnings
       };
     });
   }

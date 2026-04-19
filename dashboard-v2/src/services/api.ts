@@ -343,13 +343,25 @@ function mapRuntimeRecoveryItem(raw: Record<string, unknown>): RuntimeRecoveryIt
     last_event_type: (raw.last_event_type as string | null | undefined) ?? null,
     can_dismiss: Boolean(raw.can_dismiss),
     can_repair_to_idle: Boolean(raw.can_repair_to_idle),
-    can_repair_to_blocked: Boolean(raw.can_repair_to_blocked)
+    can_repair_to_blocked: Boolean(raw.can_repair_to_blocked),
+    can_retry_dispatch: Boolean(raw.can_retry_dispatch),
+    disabled_reason: (raw.disabled_reason as string | null | undefined) ?? null,
+    risk: (raw.risk as string | null | undefined) ?? null,
+    requires_confirmation: Boolean(raw.requires_confirmation),
+    latest_events: Array.isArray(raw.latest_events)
+      ? raw.latest_events.map((event) => ({
+          event_type: String((event as Record<string, unknown>).event_type ?? ""),
+          created_at: String((event as Record<string, unknown>).created_at ?? ""),
+          payload_summary: String((event as Record<string, unknown>).payload_summary ?? "")
+        }))
+      : []
   };
 }
 
 function mapRuntimeRecoverySummary(raw: Record<string, unknown>): RuntimeRecoverySummary {
   return {
-    total: Number(raw.total ?? 0),
+    all_sessions_total: Number(raw.all_sessions_total ?? 0),
+    recovery_candidates_total: Number(raw.recovery_candidates_total ?? 0),
     running: Number(raw.running ?? 0),
     blocked: Number(raw.blocked ?? 0),
     idle: Number(raw.idle ?? 0),
@@ -587,7 +599,7 @@ export const projectApi = {
     ),
 
   dismissSession: (projectId: string, sessionId: string, reason?: string) =>
-    fetchJSON<{ success: boolean }>(
+    fetchJSON<Record<string, unknown>>(
       `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/dismiss`,
       {
         method: "POST",
@@ -596,11 +608,11 @@ export const projectApi = {
     ),
 
   repairSession: (projectId: string, sessionId: string, targetStatus: "idle" | "blocked") =>
-    fetchJSON<{ success: boolean }>(
+    fetchJSON<Record<string, unknown>>(
       `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/repair`,
       {
         method: "POST",
-        body: JSON.stringify({ target_status: targetStatus })
+        body: JSON.stringify({ target_status: targetStatus, reason: "dashboard_manual_repair" })
       }
     ),
 
@@ -1064,11 +1076,14 @@ export const workflowApi = {
 
   dismissSession: (runId: string, sessionId: string, reason?: string) =>
     fetchJSON<{
+      action: "dismiss";
       session: Record<string, unknown>;
-      mappingCleared: boolean;
-      cancelled: boolean;
-      provider: string;
-      provider_session_id: string;
+      previous_status: string;
+      next_status: string;
+      provider_cancel: Record<string, unknown>;
+      process_termination: Record<string, unknown> | null;
+      mapping_cleared: boolean;
+      warnings: string[];
     }>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/dismiss`, {
       method: "POST",
       body: JSON.stringify({ reason: reason ?? "dashboard_manual_dismiss" })
@@ -1078,13 +1093,19 @@ export const workflowApi = {
     })),
 
   repairSession: (runId: string, sessionId: string, targetStatus: "idle" | "blocked") =>
-    fetchJSON<Record<string, unknown>>(
-      `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/repair`,
-      {
-        method: "POST",
-        body: JSON.stringify({ target_status: targetStatus })
-      }
-    ).then(mapWorkflowSessionFields),
+    fetchJSON<{
+      action: "repair";
+      session: Record<string, unknown>;
+      previous_status: string;
+      next_status: string;
+      warnings: string[];
+    }>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/repair`, {
+      method: "POST",
+      body: JSON.stringify({ target_status: targetStatus, reason: "dashboard_manual_repair" })
+    }).then((payload) => ({
+      ...payload,
+      session: mapWorkflowSessionFields(payload.session)
+    })),
 
   sendMessage: (
     runId: string,

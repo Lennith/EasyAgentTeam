@@ -77,7 +77,8 @@ test("project runtime recovery aggregates latest runner failure and current task
   const payload = await buildProjectRuntimeRecovery(dataRoot, created.project.projectId);
   assert.equal(payload.scope_kind, "project");
   assert.equal(payload.scope_id, created.project.projectId);
-  assert.equal(payload.summary.total, 1);
+  assert.equal(payload.summary.all_sessions_total, 1);
+  assert.equal(payload.summary.recovery_candidates_total, 1);
   assert.equal(payload.summary.cooling_down, 1);
   assert.equal(payload.summary.failed_recently, 1);
 
@@ -96,7 +97,13 @@ test("project runtime recovery aggregates latest runner failure and current task
   assert.equal(item.last_event_type, "RUNNER_TRANSIENT_ERROR_SOFT");
   assert.equal(item.can_dismiss, true);
   assert.equal(item.can_repair_to_idle, false);
-  assert.equal(item.can_repair_to_blocked, true);
+  assert.equal(item.can_repair_to_blocked, false);
+  assert.equal(item.can_retry_dispatch, false);
+  assert.equal(
+    item.disabled_reason,
+    "Cooldown is still active. Wait for cooldown to expire before retrying or repairing this session."
+  );
+  assert.equal(item.latest_events.length > 0, true);
 });
 
 test("workflow runtime recovery aggregates session status, task snapshot, and latest failure", async () => {
@@ -161,7 +168,8 @@ test("workflow runtime recovery aggregates session status, task snapshot, and la
   const payload = await buildWorkflowRuntimeRecovery(dataRoot, "workflow_recovery_run");
   assert.equal(payload.scope_kind, "workflow");
   assert.equal(payload.scope_id, "workflow_recovery_run");
-  assert.equal(payload.summary.total, 1);
+  assert.equal(payload.summary.all_sessions_total, 1);
+  assert.equal(payload.summary.recovery_candidates_total, 1);
   assert.equal(payload.summary.blocked, 1);
   assert.equal(payload.summary.cooling_down, 1);
   assert.equal(payload.summary.failed_recently, 1);
@@ -180,6 +188,11 @@ test("workflow runtime recovery aggregates session status, task snapshot, and la
   assert.equal(item.can_dismiss, true);
   assert.equal(item.can_repair_to_idle, true);
   assert.equal(item.can_repair_to_blocked, false);
+  assert.equal(item.requires_confirmation, false);
+  assert.equal(
+    item.risk,
+    "Current task 'task_a' is still attached to this session; review its context before repairing."
+  );
 });
 
 test("project taskboard migration rewrites legacy ambiguous done state to DONE on read", async () => {

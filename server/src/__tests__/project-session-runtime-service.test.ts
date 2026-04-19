@@ -61,10 +61,16 @@ test("project session runtime service repairs session status and appends repair 
       sessionRunningTimeoutMs: 60_000
     });
 
-    const repaired = await service.repairSessionStatus(created.project.projectId, "session-dev", "idle");
+    const repaired = await service.repairSessionStatus(
+      created.project.projectId,
+      "session-dev",
+      "idle",
+      "manual_test_repair"
+    );
     const events = await fixture.repositories.events.listEvents(created.paths);
 
-    assert.equal(repaired.status, "idle");
+    assert.equal(repaired.session.status, "idle");
+    assert.equal(repaired.action, "repair");
     assert.equal(
       events.some((event) => event.eventType === "SESSION_STATUS_REPAIRED"),
       true

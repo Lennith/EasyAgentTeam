@@ -86,16 +86,28 @@ export interface RuntimeRecoveryItem {
   can_dismiss: boolean;
   can_repair_to_idle: boolean;
   can_repair_to_blocked: boolean;
+  can_retry_dispatch: boolean;
+  disabled_reason: string | null;
+  risk: string | null;
+  requires_confirmation: boolean;
+  latest_events: RuntimeRecoveryEventSummary[];
 }
 
 export interface RuntimeRecoverySummary {
-  total: number;
+  all_sessions_total: number;
+  recovery_candidates_total: number;
   running: number;
   blocked: number;
   idle: number;
   dismissed: number;
   cooling_down: number;
   failed_recently: number;
+}
+
+export interface RuntimeRecoveryEventSummary {
+  event_type: string;
+  created_at: string;
+  payload_summary: string;
 }
 
 export interface RuntimeRecoveryResponse {

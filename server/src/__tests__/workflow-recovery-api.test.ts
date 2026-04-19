@@ -101,6 +101,7 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
     assert.equal(recoveryRes.status, 200);
     const recoveryPayload = (await recoveryRes.json()) as {
       scope_kind: string;
+      summary: { all_sessions_total: number; recovery_candidates_total: number };
       items: Array<{
         session_id: string;
         role: string;
@@ -110,9 +111,12 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
         next_action: string | null;
         can_dismiss: boolean;
         can_repair_to_idle: boolean;
+        disabled_reason: string | null;
       }>;
     };
     assert.equal(recoveryPayload.scope_kind, "workflow");
+    assert.equal(recoveryPayload.summary.all_sessions_total, 1);
+    assert.equal(recoveryPayload.summary.recovery_candidates_total, 1);
     assert.equal(recoveryPayload.items.length, 1);
     assert.equal(recoveryPayload.items[0]?.session_id, "session-lead");
     assert.equal(recoveryPayload.items[0]?.role, "lead");
@@ -121,7 +125,28 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
     assert.equal(recoveryPayload.items[0]?.code, "PROVIDER_UPSTREAM_TRANSIENT_ERROR");
     assert.equal(recoveryPayload.items[0]?.next_action, "Wait for cooldown and retry the same task/message dispatch.");
     assert.equal(recoveryPayload.items[0]?.can_dismiss, true);
-    assert.equal(recoveryPayload.items[0]?.can_repair_to_idle, true);
+    assert.equal(recoveryPayload.items[0]?.can_repair_to_idle, false);
+    assert.equal(
+      recoveryPayload.items[0]?.disabled_reason,
+      "Session is still running. Dismiss it before attempting repair."
+    );
+
+    const deniedRepairRes = await fetch(
+      `${baseUrl}/api/workflow-runs/wf_recovery_run/sessions/${encodeURIComponent("session-lead")}/repair`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_status: "idle" })
+      }
+    );
+    assert.equal(deniedRepairRes.status, 409);
+    const deniedRepairPayload = (await deniedRepairRes.json()) as {
+      error_code: string;
+      next_action: string | null;
+      disabled_reason: string | null;
+    };
+    assert.equal(deniedRepairPayload.error_code, "SESSION_RECOVERY_ACTION_NOT_ALLOWED");
+    assert.equal(deniedRepairPayload.next_action, "Dismiss the running session before attempting repair.");
 
     const dismissRes = await fetch(
       `${baseUrl}/api/workflow-runs/wf_recovery_run/sessions/${encodeURIComponent("session-lead")}/dismiss`,
@@ -129,11 +154,22 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
     );
     assert.equal(dismissRes.status, 200);
     const dismissPayload = (await dismissRes.json()) as {
+      action: string;
       session: { status: string };
-      mappingCleared: boolean;
+      previous_status: string;
+      next_status: string;
+      provider_cancel: { attempted: boolean; confirmed: boolean; result: string };
+      process_termination: null;
+      mapping_cleared: boolean;
+      warnings: string[];
     };
+    assert.equal(dismissPayload.action, "dismiss");
     assert.equal(dismissPayload.session.status, "dismissed");
-    assert.equal(dismissPayload.mappingCleared, true);
+    assert.equal(dismissPayload.previous_status, "running");
+    assert.equal(dismissPayload.next_status, "dismissed");
+    assert.equal(typeof dismissPayload.provider_cancel.attempted, "boolean");
+    assert.equal(typeof dismissPayload.provider_cancel.result, "string");
+    assert.equal(dismissPayload.mapping_cleared, true);
 
     const dismissedSession = await getWorkflowSession(dataRoot, "wf_recovery_run", "session-lead");
     assert.equal(dismissedSession?.status, "dismissed");
@@ -147,12 +183,21 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_status: "idle" })
+        body: JSON.stringify({ target_status: "idle", reason: "manual_recovery" })
       }
     );
     assert.equal(repairRes.status, 200);
-    const repairPayload = (await repairRes.json()) as { status: string };
-    assert.equal(repairPayload.status, "idle");
+    const repairPayload = (await repairRes.json()) as {
+      action: string;
+      session: { status: string };
+      previous_status: string;
+      next_status: string;
+      warnings: string[];
+    };
+    assert.equal(repairPayload.action, "repair");
+    assert.equal(repairPayload.session.status, "idle");
+    assert.equal(repairPayload.previous_status, "dismissed");
+    assert.equal(repairPayload.next_status, "idle");
 
     const repairedSession = await getWorkflowSession(dataRoot, "wf_recovery_run", "session-lead");
     assert.equal(repairedSession?.status, "idle");

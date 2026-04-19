@@ -52,7 +52,9 @@ import {
 } from "./shared/http.js";
 import { parseWorkflowScheduleExpression } from "../services/orchestrator/workflow/workflow-recurring-schedule.js";
 import { recordWorkflowPerfSpan, traceWorkflowPerfSpan } from "../services/workflow-perf-trace.js";
+import { buildRecoveryActionRejection, resolveRecoveryActions } from "../services/runtime-recovery-action-policy.js";
 import { buildWorkflowRuntimeRecovery } from "../services/runtime-recovery-service.js";
+import type { WorkflowSessionRecord } from "../domain/models.js";
 
 function hasOwnField(body: Record<string, unknown>, ...keys: string[]): boolean {
   return keys.some((key) => Object.prototype.hasOwnProperty.call(body, key));
@@ -101,6 +103,38 @@ async function withWorkflowRoutePerfTrace<T>(
     },
     operation
   );
+}
+
+function buildWorkflowRecoveryPolicyInput(
+  run: { roleSessionMap?: Record<string, string> },
+  session: WorkflowSessionRecord
+) {
+  return {
+    scope_kind: "workflow",
+    session_status: session.status,
+    current_task_id: session.currentTaskId ?? null,
+    cooldown_until: session.cooldownUntil ?? null,
+    last_failure_kind: session.lastFailureKind ?? null,
+    provider_session_id: session.providerSessionId ?? null,
+    role_session_mapping: !run.roleSessionMap?.[session.role]
+      ? "none"
+      : run.roleSessionMap[session.role] === session.sessionId
+        ? "authoritative"
+        : "stale",
+    process_state:
+      session.status === "running"
+        ? "running"
+        : typeof session.agentPid === "number" && Number.isFinite(session.agentPid) && session.agentPid > 0
+          ? "unknown"
+          : "not_running"
+  } as const;
+}
+
+function resolveWorkflowRecoveryPolicy(
+  run: { roleSessionMap?: Record<string, string> },
+  session: WorkflowSessionRecord
+) {
+  return resolveRecoveryActions(buildWorkflowRecoveryPolicyInput(run, session));
 }
 
 export function registerWorkflowRoutes(app: express.Application, context: AppRuntimeContext): void {
@@ -627,23 +661,44 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
 
   app.post("/api/workflow-runs/:run_id/sessions/:session_id/dismiss", async (req, res, next) => {
     try {
+      const run = await readWorkflowRunForApi(dataRoot, req.params.run_id);
+      if (!run) {
+        sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", `run '${req.params.run_id}' not found`);
+        return;
+      }
+      const listed = await workflowOrchestrator.listRunSessions(req.params.run_id);
       const token = req.params.session_id;
-      const dismissed = await workflowOrchestrator.dismissRunSession(
-        req.params.run_id,
-        token,
-        "session_dismissed_by_api"
-      );
+      const session = listed.items.find((item) => item.sessionId === token);
+      if (!session) {
+        sendApiError(res, 404, "SESSION_NOT_FOUND", `session '${token}' not found`);
+        return;
+      }
+      const policy = resolveWorkflowRecoveryPolicy(run, session);
+      if (!policy.can_dismiss) {
+        const rejection = buildRecoveryActionRejection(
+          token,
+          "dismiss",
+          buildWorkflowRecoveryPolicyInput(run, session),
+          policy
+        );
+        sendApiError(res, 409, rejection.code, rejection.message, rejection.next_action, {
+          disabled_reason: rejection.disabled_reason,
+          risk: rejection.risk,
+          details: rejection.details
+        });
+        return;
+      }
+      const dismissReason =
+        readStringField(req.body as Record<string, unknown>, ["reason"]) ?? "session_dismissed_by_api";
+      const dismissed = await workflowOrchestrator.dismissRunSession(req.params.run_id, token, dismissReason);
       await workflowOrchestrator.resetRoleReminderOnManualAction(
         req.params.run_id,
         dismissed.session.role,
         "session_dismissed"
       );
       res.status(200).json({
-        session: sanitizeSessionForApi(dismissed.session),
-        mappingCleared: dismissed.mappingCleared,
-        cancelled: dismissed.cancelled,
-        provider: dismissed.provider,
-        provider_session_id: dismissed.provider_session_id
+        ...dismissed,
+        session: sanitizeSessionForApi(dismissed.session)
       });
     } catch (error) {
       next(error);
@@ -663,13 +718,51 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
         );
         return;
       }
+      const run = await readWorkflowRunForApi(dataRoot, req.params.run_id);
+      if (!run) {
+        sendApiError(res, 404, "WORKFLOW_RUN_NOT_FOUND", `run '${req.params.run_id}' not found`);
+        return;
+      }
+      const listed = await workflowOrchestrator.listRunSessions(req.params.run_id);
+      const session = listed.items.find((item) => item.sessionId === req.params.session_id);
+      if (!session) {
+        sendApiError(res, 404, "SESSION_NOT_FOUND", `session '${req.params.session_id}' not found`);
+        return;
+      }
+      const policy = resolveWorkflowRecoveryPolicy(run, session);
+      const action = targetStatus === "idle" ? "repair_to_idle" : "repair_to_blocked";
+      const allowed = targetStatus === "idle" ? policy.can_repair_to_idle : policy.can_repair_to_blocked;
+      if (!allowed) {
+        const rejection = buildRecoveryActionRejection(
+          req.params.session_id,
+          action,
+          buildWorkflowRecoveryPolicyInput(run, session),
+          policy
+        );
+        sendApiError(res, 409, rejection.code, rejection.message, rejection.next_action, {
+          disabled_reason: rejection.disabled_reason,
+          risk: rejection.risk,
+          details: rejection.details
+        });
+        return;
+      }
+      const repairReason =
+        readStringField(req.body as Record<string, unknown>, ["reason"]) ?? "session_repaired_by_api";
       const repaired = await workflowOrchestrator.repairRunSessionStatus(
         req.params.run_id,
         req.params.session_id,
-        targetStatus
+        targetStatus,
+        repairReason
       );
-      await workflowOrchestrator.resetRoleReminderOnManualAction(req.params.run_id, repaired.role, "session_repaired");
-      res.status(200).json(sanitizeSessionForApi(repaired));
+      await workflowOrchestrator.resetRoleReminderOnManualAction(
+        req.params.run_id,
+        repaired.session.role,
+        "session_repaired"
+      );
+      res.status(200).json({
+        ...repaired,
+        session: sanitizeSessionForApi(repaired.session)
+      });
     } catch (error) {
       next(error);
     }

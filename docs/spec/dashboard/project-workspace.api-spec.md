@@ -1,4 +1,4 @@
-﻿# 项目工作区规范（最后更新：2026-04-16）
+﻿# 项目工作区规范（最后更新：2026-04-19）
 
 ## 页面范围
 
@@ -37,7 +37,7 @@
 - timeline：事件时间线
 - chat：agent IO timeline
 - session-manager：项目会话列表
-- recovery：项目级恢复中心，聚合 cooldown、最近 failure、当前任务与恢复动作
+- recovery：项目级恢复中心，聚合 cooldown、最近 failure、当前任务、恢复动作与最近恢复审计片段
 - agent-io：项目输入输出聚合
 - agent-chat：项目级 agent chat
 - taskboard / task-tree / task-create / task-update：任务树与任务写操作
@@ -49,4 +49,5 @@
 
 - 页面不直接消费已退休的 project task/report/handoff 接口。
 - 页面不直接决定编排策略，只展示设置并触发显式动作。
+- Recovery 视图只展示后端 policy 允许的动作，不再按 session.status 在前端自行推导 repair/dismiss。
 - `dispatch-message` 属于后端能力，但不是当前项目工作区主页面默认消费路径。

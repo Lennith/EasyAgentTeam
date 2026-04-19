@@ -4,6 +4,12 @@ import type { WorkflowRepositoryBundle } from "../../../data/repository/workflow
 import { markWorkflowTimedOutSessions } from "./workflow-session-runtime-timeout.js";
 import { resolveSessionProviderId } from "../../provider-runtime.js";
 import { resolveOrchestratorProviderSessionId } from "../shared/index.js";
+import type {
+  RecoveryDismissResult,
+  RecoveryProcessTerminationView,
+  RecoveryProviderCancelResult,
+  RecoveryRepairResult
+} from "../../runtime-recovery-action-policy.js";
 import {
   loadWorkflowRunOrThrow,
   registerWorkflowRunSession,
@@ -21,6 +27,25 @@ interface WorkflowSessionRuntimeContext extends WorkflowSessionAuthorityContext 
 
 export class WorkflowSessionRuntimeService {
   constructor(private readonly context: WorkflowSessionRuntimeContext) {}
+
+  private buildWorkflowProviderCancelResult(cancelled: boolean): RecoveryProviderCancelResult {
+    return {
+      attempted: true,
+      confirmed: cancelled,
+      result: cancelled ? "cancelled" : "unknown",
+      error: cancelled ? null : "Provider did not confirm session cancellation."
+    };
+  }
+
+  private buildWorkflowProcessTerminationView(): RecoveryProcessTerminationView | null {
+    return null;
+  }
+
+  private buildRepairWarnings(session: WorkflowSessionRecord): string[] {
+    return session.currentTaskId
+      ? [`Current task '${session.currentTaskId}' remains attached to this session after repair.`]
+      : [];
+  }
 
   private async loadRunOrThrow(runId: string): Promise<WorkflowRunRecord> {
     return await loadWorkflowRunOrThrow(this.context.repositories, runId);
@@ -69,13 +94,7 @@ export class WorkflowSessionRuntimeService {
     runId: string,
     sessionId: string,
     reason: string
-  ): Promise<{
-    session: WorkflowSessionRecord;
-    mappingCleared: boolean;
-    cancelled: boolean;
-    provider: string;
-    provider_session_id: string;
-  }> {
+  ): Promise<RecoveryDismissResult<WorkflowSessionRecord>> {
     const scope = await this.context.repositories.resolveScope(runId);
     const { run } = scope;
     const session = await this.context.repositories.sessions.getSession(run.runId, sessionId);
@@ -85,6 +104,7 @@ export class WorkflowSessionRuntimeService {
     const providerId = session.provider ?? resolveSessionProviderId(run, session.role, "minimax");
     const cancelSessionId = resolveOrchestratorProviderSessionId(session.sessionId, session.providerSessionId);
     const cancelled = this.context.providerRegistry.cancelSession(providerId, cancelSessionId);
+    const providerCancel = this.buildWorkflowProviderCancelResult(cancelled);
     return this.context.repositories.runInUnitOfWork(scope, async () => {
       const dismissed = await this.context.repositories.sessions.touchSession(run.runId, session.sessionId, {
         status: "dismissed",
@@ -101,6 +121,9 @@ export class WorkflowSessionRuntimeService {
         });
         mappingCleared = true;
       }
+      const warnings = cancelled
+        ? []
+        : ["Provider cancellation was not confirmed; inspect the provider runtime before retrying."];
       await this.context.repositories.events.appendEvent(run.runId, {
         eventType: "SESSION_STATUS_DISMISSED",
         source: "dashboard",
@@ -109,18 +132,21 @@ export class WorkflowSessionRuntimeService {
         payload: {
           previous_status: session.status,
           reason,
-          provider: providerId,
-          provider_session_id: cancelSessionId,
-          cancelled,
-          mapping_cleared: mappingCleared
+          provider_cancel: providerCancel,
+          process_termination: this.buildWorkflowProcessTerminationView(),
+          mapping_cleared: mappingCleared,
+          warnings
         }
       });
       return {
+        action: "dismiss",
         session: dismissed,
-        mappingCleared,
-        cancelled,
-        provider: providerId,
-        provider_session_id: cancelSessionId
+        previous_status: session.status,
+        next_status: "dismissed",
+        provider_cancel: providerCancel,
+        process_termination: this.buildWorkflowProcessTerminationView(),
+        mapping_cleared: mappingCleared,
+        warnings
       };
     });
   }
@@ -128,8 +154,9 @@ export class WorkflowSessionRuntimeService {
   async repairSessionStatus(
     runId: string,
     sessionId: string,
-    targetStatus: "idle" | "blocked"
-  ): Promise<WorkflowSessionRecord> {
+    targetStatus: "idle" | "blocked",
+    reason: string
+  ): Promise<RecoveryRepairResult<WorkflowSessionRecord>> {
     const scope = await this.context.repositories.resolveScope(runId);
     const { run } = scope;
     const session = await this.context.repositories.sessions.getSession(run.runId, sessionId);
@@ -137,6 +164,7 @@ export class WorkflowSessionRuntimeService {
       throw new Error(`session '${sessionId}' not found`);
     }
     return this.context.repositories.runInUnitOfWork(scope, async () => {
+      const warnings = this.buildRepairWarnings(session);
       const repaired = await this.context.repositories.sessions.touchSession(run.runId, session.sessionId, {
         status: targetStatus,
         agentPid: null,
@@ -153,10 +181,26 @@ export class WorkflowSessionRuntimeService {
         taskId: repaired.currentTaskId,
         payload: {
           previous_status: session.status,
-          target_status: targetStatus
+          target_status: targetStatus,
+          previous_current_task_id: session.currentTaskId ?? null,
+          previous_failure_kind: session.lastFailureKind ?? null,
+          previous_last_failure_at: session.lastFailureAt ?? null,
+          previous_error_streak: session.errorStreak ?? 0,
+          previous_timeout_streak: session.timeoutStreak ?? 0,
+          previous_cooldown_until: session.cooldownUntil ?? null,
+          previous_provider_session_id: session.providerSessionId ?? null,
+          reason,
+          actor: "dashboard",
+          warnings
         }
       });
-      return repaired;
+      return {
+        action: "repair",
+        session: repaired,
+        previous_status: session.status,
+        next_status: targetStatus,
+        warnings
+      };
     });
   }
 

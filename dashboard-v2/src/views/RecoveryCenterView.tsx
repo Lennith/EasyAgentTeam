@@ -17,6 +17,10 @@ function formatDateTime(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function formatConfirmationMessage(title: string, risk: string | null): string {
+  return [title, risk].filter(Boolean).join("\n\n");
+}
+
 export function RecoveryCenterView({
   title,
   loading,
@@ -72,8 +76,9 @@ export function RecoveryCenterView({
           }}
         >
           {[
-            ["Total", summary.total],
-            ["Running", summary.running],
+            ["All Sessions", summary.all_sessions_total],
+            ["Recovery Candidates", summary.recovery_candidates_total],
+            ["Running Candidates", summary.running],
             ["Blocked", summary.blocked],
             ["Cooling Down", summary.cooling_down],
             ["Failed Recently", summary.failed_recently],
@@ -165,6 +170,8 @@ export function RecoveryCenterView({
                   ["Retryable", selected.retryable === null ? "-" : selected.retryable ? "yes" : "no"],
                   ["Raw Status", selected.raw_status ?? "-"],
                   ["Last Event", selected.last_event_type ?? "-"],
+                  ["Retry Dispatch", selected.can_retry_dispatch ? "yes" : "no"],
+                  ["Requires Confirmation", selected.requires_confirmation ? "yes" : "no"],
                   ["Error Streak", selected.error_streak],
                   ["Timeout Streak", selected.timeout_streak]
                 ].map(([label, value]) => (
@@ -181,6 +188,35 @@ export function RecoveryCenterView({
                   <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Next Action</div>
                   <div>{selected.next_action ?? "-"}</div>
                 </div>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Disabled Reason</div>
+                  <div>{selected.disabled_reason ?? "-"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Risk</div>
+                  <div>{selected.risk ?? "-"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Latest Recovery Events</div>
+                  {selected.latest_events.length === 0 ? (
+                    <div>-</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: "8px" }}>
+                      {selected.latest_events.map((event) => (
+                        <div
+                          key={`${event.event_type}:${event.created_at}`}
+                          className="card"
+                          style={{ padding: "10px" }}
+                        >
+                          <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                            {event.event_type} · {formatDateTime(event.created_at)}
+                          </div>
+                          <div>{event.payload_summary}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
                   <button
                     className="btn btn-secondary"
@@ -194,9 +230,17 @@ export function RecoveryCenterView({
                   <button
                     className="btn btn-secondary"
                     disabled={!selected.can_repair_to_idle || busyAction === `idle:${selected.session_id}`}
-                    onClick={() =>
-                      void runAction(() => onRepair(selected.session_id, "idle"), `idle:${selected.session_id}`)
-                    }
+                    onClick={() => {
+                      if (
+                        selected.requires_confirmation &&
+                        !window.confirm(
+                          formatConfirmationMessage("Manual recovery to idle requires confirmation.", selected.risk)
+                        )
+                      ) {
+                        return;
+                      }
+                      void runAction(() => onRepair(selected.session_id, "idle"), `idle:${selected.session_id}`);
+                    }}
                   >
                     Repair to Idle
                   </button>
