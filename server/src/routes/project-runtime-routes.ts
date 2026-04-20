@@ -32,38 +32,9 @@ import { resolveSessionProviderId } from "../services/provider-runtime.js";
 import { createProjectToolExecutionAdapter, DefaultToolInjector } from "../services/tool-injector.js";
 import { validateRoleSessionMapWrite } from "../services/routing-guard-service.js";
 import { resolveActiveSessionForRole } from "../services/session-lifecycle-authority.js";
-import { buildRecoveryActionRejection, resolveRecoveryActions } from "../services/runtime-recovery-action-policy.js";
-import { buildProjectRuntimeRecovery } from "../services/runtime-recovery-service.js";
 import { logger } from "../utils/logger.js";
-import type { SessionRecord } from "../domain/models.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import { buildSessionId, readStringField, sanitizeSessionForApi, sendApiError } from "./shared/http.js";
-
-function buildProjectRecoveryPolicyInput(project: { roleSessionMap?: Record<string, string> }, session: SessionRecord) {
-  return {
-    scope_kind: "project",
-    session_status: session.status,
-    current_task_id: session.currentTaskId ?? null,
-    cooldown_until: session.cooldownUntil ?? null,
-    last_failure_kind: session.lastFailureKind ?? null,
-    provider_session_id: session.providerSessionId ?? null,
-    role_session_mapping: !project.roleSessionMap?.[session.role]
-      ? "none"
-      : project.roleSessionMap[session.role] === session.sessionId
-        ? "authoritative"
-        : "stale",
-    process_state:
-      session.status === "running"
-        ? "running"
-        : typeof session.agentPid === "number" && Number.isFinite(session.agentPid) && session.agentPid > 0
-          ? "unknown"
-          : "not_running"
-  } as const;
-}
-
-function resolveProjectRecoveryPolicy(project: { roleSessionMap?: Record<string, string> }, session: SessionRecord) {
-  return resolveRecoveryActions(buildProjectRecoveryPolicyInput(project, session));
-}
 
 export function registerProjectRuntimeRoutes(app: express.Application, context: AppRuntimeContext): void {
   const { dataRoot, orchestrator, providerRegistry } = context;
@@ -183,111 +154,6 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
         }))
         .sort((a, b) => Date.parse(b.lastActiveAt) - Date.parse(a.lastActiveAt));
       res.json({ items, total: items.length });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/projects/:id/runtime-recovery", async (req, res, next) => {
-    try {
-      const payload = await buildProjectRuntimeRecovery(dataRoot, req.params.id);
-      res.status(200).json(payload);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/projects/:id/sessions/:session_id/dismiss", async (req, res, next) => {
-    try {
-      const { project } = await getProjectRuntimeContext(dataRoot, req.params.id);
-      const token = req.params.session_id;
-      const session = await getProjectSessionById(dataRoot, project.projectId, token);
-      if (!session) {
-        sendApiError(res, 404, "SESSION_NOT_FOUND", `session '${token}' not found`);
-        return;
-      }
-      const policy = resolveProjectRecoveryPolicy(project, session);
-      if (!policy.can_dismiss) {
-        const rejection = buildRecoveryActionRejection(
-          token,
-          "dismiss",
-          buildProjectRecoveryPolicyInput(project, session),
-          policy
-        );
-        sendApiError(res, 409, rejection.code, rejection.message, rejection.next_action, {
-          disabled_reason: rejection.disabled_reason,
-          risk: rejection.risk,
-          details: rejection.details
-        });
-        return;
-      }
-      const dismissReason =
-        readStringField(req.body as Record<string, unknown>, ["reason"]) ?? "session_dismissed_by_api";
-      const dismissed = await orchestrator.dismissSession(project.projectId, token, dismissReason);
-      await orchestrator.resetRoleReminderOnManualAction(
-        project.projectId,
-        dismissed.session.role,
-        "session_dismissed"
-      );
-      res.status(200).json({
-        ...dismissed,
-        session: sanitizeSessionForApi(dismissed.session)
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/projects/:id/sessions/:session_id/repair", async (req, res, next) => {
-    try {
-      const targetStatus = readStringField(req.body as Record<string, unknown>, ["target_status", "targetStatus"]);
-      if (targetStatus !== "idle" && targetStatus !== "blocked") {
-        sendApiError(
-          res,
-          400,
-          "SESSION_REPAIR_INVALID_TARGET",
-          "target_status must be idle|blocked",
-          "Use target_status=idle or target_status=blocked."
-        );
-        return;
-      }
-      const { project } = await getProjectRuntimeContext(dataRoot, req.params.id);
-      const token = req.params.session_id;
-      const session = await getProjectSessionById(dataRoot, project.projectId, token);
-      if (!session) {
-        sendApiError(res, 404, "SESSION_NOT_FOUND", `session '${token}' not found`);
-        return;
-      }
-      const policy = resolveProjectRecoveryPolicy(project, session);
-      const action = targetStatus === "idle" ? "repair_to_idle" : "repair_to_blocked";
-      const allowed = targetStatus === "idle" ? policy.can_repair_to_idle : policy.can_repair_to_blocked;
-      if (!allowed) {
-        const rejection = buildRecoveryActionRejection(
-          token,
-          action,
-          buildProjectRecoveryPolicyInput(project, session),
-          policy
-        );
-        sendApiError(res, 409, rejection.code, rejection.message, rejection.next_action, {
-          disabled_reason: rejection.disabled_reason,
-          risk: rejection.risk,
-          details: rejection.details
-        });
-        return;
-      }
-      const repairReason =
-        readStringField(req.body as Record<string, unknown>, ["reason"]) ?? "session_repaired_by_api";
-      const repaired = await orchestrator.repairSessionStatus(
-        req.params.id,
-        session.sessionId,
-        targetStatus,
-        repairReason
-      );
-      await orchestrator.resetRoleReminderOnManualAction(project.projectId, repaired.session.role, "session_repaired");
-      res.status(200).json({
-        ...repaired,
-        session: sanitizeSessionForApi(repaired.session)
-      });
     } catch (error) {
       next(error);
     }

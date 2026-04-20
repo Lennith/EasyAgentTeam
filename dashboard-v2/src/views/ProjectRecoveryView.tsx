@@ -36,8 +36,15 @@ export function ProjectRecoveryView({ projectId }: ProjectRecoveryViewProps) {
       error={error}
       response={response}
       onReload={() => void load()}
-      onDismiss={(sessionId) => projectApi.dismissSession(projectId, sessionId).then(() => undefined)}
-      onRepair={(sessionId, target) => projectApi.repairSession(projectId, sessionId, target).then(() => undefined)}
+      onDismiss={(sessionId, confirm) =>
+        projectApi.dismissSession(projectId, sessionId, undefined, confirm).then(() => undefined)
+      }
+      onRepair={(sessionId, target, confirm) =>
+        projectApi.repairSession(projectId, sessionId, target, confirm).then(() => undefined)
+      }
+      onRetry={(sessionId, confirm) =>
+        projectApi.retryDispatchSession(projectId, sessionId, confirm).then(() => undefined)
+      }
     />
   );
 }

@@ -11,6 +11,11 @@ import type {
   RecoveryRepairResult
 } from "../../runtime-recovery-action-policy.js";
 import {
+  buildDismissExternalStopUnconfirmed,
+  hasConfirmedDismissExternalStop
+} from "../../runtime-recovery-action-policy.js";
+import { RecoveryCommandError } from "../../runtime-recovery-command-error.js";
+import {
   loadWorkflowRunOrThrow,
   registerWorkflowRunSession,
   resolveWorkflowAuthoritativeSession,
@@ -23,6 +28,10 @@ interface WorkflowSessionRuntimeContext extends WorkflowSessionAuthorityContext 
   sessionRunningTimeoutMs: number;
   sessionHeartbeatThrottle: Map<string, number>;
   buildRunSessionKey(runId: string, sessionId: string): string;
+}
+
+function resolveRecoveryAuditSource(actor: "dashboard" | "api"): "dashboard" | "system" {
+  return actor === "dashboard" ? "dashboard" : "system";
 }
 
 export class WorkflowSessionRuntimeService {
@@ -93,7 +102,8 @@ export class WorkflowSessionRuntimeService {
   async dismissSession(
     runId: string,
     sessionId: string,
-    reason: string
+    reason: string,
+    actor: "dashboard" | "api" = "dashboard"
   ): Promise<RecoveryDismissResult<WorkflowSessionRecord>> {
     const scope = await this.context.repositories.resolveScope(runId);
     const { run } = scope;
@@ -105,6 +115,36 @@ export class WorkflowSessionRuntimeService {
     const cancelSessionId = resolveOrchestratorProviderSessionId(session.sessionId, session.providerSessionId);
     const cancelled = this.context.providerRegistry.cancelSession(providerId, cancelSessionId);
     const providerCancel = this.buildWorkflowProviderCancelResult(cancelled);
+    const processTermination = this.buildWorkflowProcessTerminationView();
+    const warnings = cancelled
+      ? []
+      : ["Provider cancellation was not confirmed; inspect the provider runtime before retrying."];
+    await this.context.repositories.events.appendEvent(run.runId, {
+      eventType: "SESSION_DISMISS_EXTERNAL_RESULT",
+      source: resolveRecoveryAuditSource(actor),
+      sessionId: session.sessionId,
+      taskId: session.currentTaskId,
+      payload: {
+        previous_status: session.status,
+        reason,
+        actor,
+        provider_cancel: providerCancel,
+        process_termination: processTermination,
+        warnings
+      }
+    });
+    if (!hasConfirmedDismissExternalStop(providerCancel, processTermination)) {
+      throw new RecoveryCommandError(
+        409,
+        buildDismissExternalStopUnconfirmed(
+          session.sessionId,
+          session.status,
+          providerCancel,
+          processTermination,
+          warnings
+        )
+      );
+    }
     return this.context.repositories.runInUnitOfWork(scope, async () => {
       const dismissed = await this.context.repositories.sessions.touchSession(run.runId, session.sessionId, {
         status: "dismissed",
@@ -121,19 +161,17 @@ export class WorkflowSessionRuntimeService {
         });
         mappingCleared = true;
       }
-      const warnings = cancelled
-        ? []
-        : ["Provider cancellation was not confirmed; inspect the provider runtime before retrying."];
       await this.context.repositories.events.appendEvent(run.runId, {
         eventType: "SESSION_STATUS_DISMISSED",
-        source: "dashboard",
+        source: resolveRecoveryAuditSource(actor),
         sessionId: dismissed.sessionId,
         taskId: session.currentTaskId,
         payload: {
           previous_status: session.status,
           reason,
+          actor,
           provider_cancel: providerCancel,
-          process_termination: this.buildWorkflowProcessTerminationView(),
+          process_termination: processTermination,
           mapping_cleared: mappingCleared,
           warnings
         }
@@ -144,7 +182,7 @@ export class WorkflowSessionRuntimeService {
         previous_status: session.status,
         next_status: "dismissed",
         provider_cancel: providerCancel,
-        process_termination: this.buildWorkflowProcessTerminationView(),
+        process_termination: processTermination,
         mapping_cleared: mappingCleared,
         warnings
       };
@@ -155,7 +193,8 @@ export class WorkflowSessionRuntimeService {
     runId: string,
     sessionId: string,
     targetStatus: "idle" | "blocked",
-    reason: string
+    reason: string,
+    actor: "dashboard" | "api" = "dashboard"
   ): Promise<RecoveryRepairResult<WorkflowSessionRecord>> {
     const scope = await this.context.repositories.resolveScope(runId);
     const { run } = scope;
@@ -176,7 +215,7 @@ export class WorkflowSessionRuntimeService {
       });
       await this.context.repositories.events.appendEvent(run.runId, {
         eventType: "SESSION_STATUS_REPAIRED",
-        source: "dashboard",
+        source: resolveRecoveryAuditSource(actor),
         sessionId: repaired.sessionId,
         taskId: repaired.currentTaskId,
         payload: {
@@ -190,7 +229,7 @@ export class WorkflowSessionRuntimeService {
           previous_cooldown_until: session.cooldownUntil ?? null,
           previous_provider_session_id: session.providerSessionId ?? null,
           reason,
-          actor: "dashboard",
+          actor,
           warnings
         }
       });

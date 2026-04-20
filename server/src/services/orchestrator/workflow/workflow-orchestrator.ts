@@ -155,18 +155,24 @@ export class WorkflowOrchestratorService {
     return this.sessionRuntimeService.registerRunSession(runId, input);
   }
 
-  dismissRunSession(runId: string, sessionId: string, reason: string) {
-    return this.sessionRuntimeService.dismissSession(runId, sessionId, reason);
+  dismissRunSession(runId: string, sessionId: string, reason: string, actor: "dashboard" | "api" = "dashboard") {
+    return this.sessionRuntimeService.dismissSession(runId, sessionId, reason, actor);
   }
 
-  repairRunSessionStatus(runId: string, sessionId: string, targetStatus: "idle" | "blocked", reason: string) {
-    return this.sessionRuntimeService.repairSessionStatus(runId, sessionId, targetStatus, reason);
+  repairRunSessionStatus(
+    runId: string,
+    sessionId: string,
+    targetStatus: "idle" | "blocked",
+    reason: string,
+    actor: "dashboard" | "api" = "dashboard"
+  ) {
+    return this.sessionRuntimeService.repairSessionStatus(runId, sessionId, targetStatus, reason, actor);
   }
 
   resetRoleReminderOnManualAction(
     runId: string,
     role: string,
-    reason: "session_created" | "session_dismissed" | "session_repaired"
+    reason: "session_created" | "session_dismissed" | "session_repaired" | "session_retry_dispatch_requested"
   ) {
     return this.reminderService.resetRoleReminderOnManualAction(runId, role, reason);
   }

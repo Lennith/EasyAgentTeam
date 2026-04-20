@@ -151,18 +151,29 @@ export class OrchestratorService {
     return this.sessionRuntimeService.terminateSessionProcess(projectId, sessionId, reason);
   }
 
-  dismissSession(projectId: string, sessionId: string, reason: string) {
-    return this.sessionRuntimeService.dismissSession(projectId, sessionId, reason);
+  dismissSession(projectId: string, sessionId: string, reason: string, actor: "dashboard" | "api" = "dashboard") {
+    return this.sessionRuntimeService.dismissSession(projectId, sessionId, reason, actor);
   }
 
-  repairSessionStatus(projectId: string, sessionId: string, targetStatus: "idle" | "blocked", reason: string) {
-    return this.sessionRuntimeService.repairSessionStatus(projectId, sessionId, targetStatus, reason);
+  repairSessionStatus(
+    projectId: string,
+    sessionId: string,
+    targetStatus: "idle" | "blocked",
+    reason: string,
+    actor: "dashboard" | "api" = "dashboard"
+  ) {
+    return this.sessionRuntimeService.repairSessionStatus(projectId, sessionId, targetStatus, reason, actor);
   }
 
   resetRoleReminderOnManualAction(
     projectId: string,
     role: string,
-    reason: "session_created" | "session_dismissed" | "session_repaired" | "force_dispatch_succeeded"
+    reason:
+      | "session_created"
+      | "session_dismissed"
+      | "session_repaired"
+      | "session_retry_dispatch_requested"
+      | "force_dispatch_succeeded"
   ): Promise<void> {
     return this.reminderService.resetRoleReminderOnManualAction(projectId, role, reason);
   }

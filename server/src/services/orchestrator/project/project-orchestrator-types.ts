@@ -70,6 +70,7 @@ export type ReminderResetReason =
   | "session_created"
   | "session_dismissed"
   | "session_repaired"
+  | "session_retry_dispatch_requested"
   | "force_dispatch_succeeded";
 
 export interface ProjectDispatchContext {

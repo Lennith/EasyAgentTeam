@@ -36,8 +36,15 @@ export function WorkflowRecoveryView({ runId }: WorkflowRecoveryViewProps) {
       error={error}
       response={response}
       onReload={() => void load()}
-      onDismiss={(sessionId) => workflowApi.dismissSession(runId, sessionId).then(() => undefined)}
-      onRepair={(sessionId, target) => workflowApi.repairSession(runId, sessionId, target).then(() => undefined)}
+      onDismiss={(sessionId, confirm) =>
+        workflowApi.dismissSession(runId, sessionId, undefined, confirm).then(() => undefined)
+      }
+      onRepair={(sessionId, target, confirm) =>
+        workflowApi.repairSession(runId, sessionId, target, confirm).then(() => undefined)
+      }
+      onRetry={(sessionId, confirm) =>
+        workflowApi.retryDispatchSession(runId, sessionId, confirm).then(() => undefined)
+      }
     />
   );
 }

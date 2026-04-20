@@ -38,6 +38,7 @@
 - `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
 - `POST /api/workflow-runs/:run_id/sessions/:session_id/dismiss`
 - `POST /api/workflow-runs/:run_id/sessions/:session_id/repair`
+- `POST /api/workflow-runs/:run_id/sessions/:session_id/retry-dispatch`
 - `GET /api/workflow-templates/:template_id`
 - `POST /api/workflow-runs/:run_id/agent-chat`
 - `POST /api/workflow-runs/:run_id/agent-chat/:session_id/interrupt`
@@ -53,6 +54,7 @@
 - run workspace agent-chat：对单个会话发起聊天和中断
 - run workspace team-config：以模板快照展示 route matrix 与 discuss rounds
 - run workspace recovery：按当前 run 聚合需恢复 session、最近 failure、cooldown、dismiss/repair 动作与最近恢复审计片段
+- run workspace recovery：高风险动作必须根据 `requires_confirmation` 显式提交 `confirm: true`，并直接展示 `disabled_reason / risk / latest_events`
 
 ## 明确不属于当前工作区主契约的能力
 

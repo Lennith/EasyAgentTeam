@@ -13,14 +13,11 @@ import { listProjectRuntimeEvents } from "./project-runtime-api-service.js";
 import { getWorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
 import { readWorkflowRunTaskRuntimeState } from "../data/repository/workflow/runtime-repository.js";
 import {
-  resolveRecoveryActions,
-  type RecoveryActionPolicy,
   type RecoveryFailureKind,
-  type RecoveryMappingState,
-  type RecoveryProcessState,
   type RecoveryScopeKind,
   type RecoveryStatus
 } from "./runtime-recovery-action-policy.js";
+import { buildRecoveryPolicyContext } from "./runtime-recovery-policy-context.js";
 
 const RUNNER_FAILURE_EVENT_TYPES = new Set([
   "RUNNER_CONFIG_ERROR_BLOCKED",
@@ -33,8 +30,10 @@ const RUNNER_FAILURE_EVENT_TYPES = new Set([
 
 const RECOVERY_AUDIT_EVENT_TYPES = new Set([
   ...RUNNER_FAILURE_EVENT_TYPES,
+  "SESSION_DISMISS_EXTERNAL_RESULT",
   "SESSION_STATUS_REPAIRED",
-  "SESSION_STATUS_DISMISSED"
+  "SESSION_STATUS_DISMISSED",
+  "SESSION_RETRY_DISPATCH_REQUESTED"
 ]);
 
 const RECENT_FAILURE_WINDOW_MS = 30 * 60 * 1000;
@@ -115,17 +114,6 @@ export interface RuntimeRecoveryResponse {
   items: RuntimeRecoveryItem[];
 }
 
-interface RecoveryActionContext {
-  scope_kind: RecoveryScopeKind;
-  status: RecoveryStatus;
-  current_task_id: string | null;
-  cooldown_until: string | null;
-  last_failure_kind: RecoveryFailureKind | null;
-  provider_session_id: string | null;
-  role_session_mapping: RecoveryMappingState;
-  process_state: RecoveryProcessState;
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -183,6 +171,18 @@ function summarizeRecoveryEventPayload(eventType: string, payload: Record<string
     const previousStatus = readString(payload.previous_status) ?? "unknown";
     const targetStatus = readString(payload.target_status) ?? "unknown";
     return `${previousStatus} -> ${targetStatus}`;
+  }
+  if (eventType === "SESSION_RETRY_DISPATCH_REQUESTED") {
+    const dispatchScope = readString(payload.dispatch_scope) ?? "role";
+    const accepted = payload.accepted === true ? "accepted" : "rejected";
+    return `retry ${accepted} (${dispatchScope})`;
+  }
+  if (eventType === "SESSION_DISMISS_EXTERNAL_RESULT") {
+    const providerCancel = asRecord(payload.provider_cancel);
+    const processTermination = asRecord(payload.process_termination);
+    const providerResult = readString(providerCancel.result);
+    const processResult = readString(processTermination.result);
+    return [providerResult, processResult].filter(Boolean).join(" / ") || eventType;
   }
   if (eventType === "SESSION_STATUS_DISMISSED") {
     const reason = readString(payload.reason) ?? "manual dismiss";
@@ -279,41 +279,6 @@ function summarizeItems(items: RuntimeRecoveryItem[], allSessionsTotal: number, 
   );
 }
 
-function resolveMappingState(
-  roleSessionMap: Record<string, string> | undefined,
-  role: string,
-  sessionId: string
-): RecoveryMappingState {
-  const mapped = roleSessionMap?.[role];
-  if (!mapped) {
-    return "none";
-  }
-  return mapped === sessionId ? "authoritative" : "stale";
-}
-
-function resolveProcessState(status: RecoveryStatus, agentPid: number | undefined): RecoveryProcessState {
-  if (status === "running") {
-    return "running";
-  }
-  if (typeof agentPid === "number" && Number.isFinite(agentPid) && agentPid > 0) {
-    return "unknown";
-  }
-  return "not_running";
-}
-
-function buildRecoveryActionPolicy(context: RecoveryActionContext): RecoveryActionPolicy {
-  return resolveRecoveryActions({
-    scope_kind: context.scope_kind,
-    session_status: context.status,
-    current_task_id: context.current_task_id,
-    cooldown_until: context.cooldown_until,
-    last_failure_kind: context.last_failure_kind,
-    provider_session_id: context.provider_session_id,
-    role_session_mapping: context.role_session_mapping,
-    process_state: context.process_state
-  });
-}
-
 function buildProjectRecoveryItem(
   session: SessionRecord,
   project: ProjectRecord,
@@ -323,15 +288,12 @@ function buildProjectRecoveryItem(
 ): RuntimeRecoveryItem {
   const currentTask = session.currentTaskId ? (tasksById.get(session.currentTaskId) ?? null) : null;
   const failure = buildFailureRecord(session, latestFailureBySession.get(session.sessionId));
-  const policy = buildRecoveryActionPolicy({
+  const { policy } = buildRecoveryPolicyContext({
     scope_kind: "project",
-    status: session.status,
-    current_task_id: session.currentTaskId ?? null,
-    cooldown_until: session.cooldownUntil ?? null,
+    session,
+    role_session_map: project.roleSessionMap,
     last_failure_kind: failure.last_failure_kind,
-    provider_session_id: session.providerSessionId ?? null,
-    role_session_mapping: resolveMappingState(project.roleSessionMap, session.role, session.sessionId),
-    process_state: resolveProcessState(session.status, session.agentPid)
+    provider_session_id: session.providerSessionId ?? null
   });
   return {
     role: session.role,
@@ -376,15 +338,12 @@ function buildWorkflowRecoveryItem(
     : null;
   const runtimeTask = session.currentTaskId ? (runtimeTasksById.get(session.currentTaskId) ?? null) : null;
   const failure = buildFailureRecord(session, latestFailureBySession.get(session.sessionId));
-  const policy = buildRecoveryActionPolicy({
+  const { policy } = buildRecoveryPolicyContext({
     scope_kind: "workflow",
-    status: session.status,
-    current_task_id: session.currentTaskId ?? null,
-    cooldown_until: session.cooldownUntil ?? null,
+    session,
+    role_session_map: run.roleSessionMap,
     last_failure_kind: failure.last_failure_kind,
-    provider_session_id: session.providerSessionId ?? null,
-    role_session_mapping: resolveMappingState(run.roleSessionMap, session.role, session.sessionId),
-    process_state: resolveProcessState(session.status, session.agentPid)
+    provider_session_id: session.providerSessionId ?? null
   });
   return {
     role: session.role,

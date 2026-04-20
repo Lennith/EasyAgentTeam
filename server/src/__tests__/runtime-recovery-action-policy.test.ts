@@ -84,3 +84,42 @@ test("dismissed session repair requires confirmation and marks manual recovery r
   assert.equal(policy.requires_confirmation, true);
   assert.equal(policy.risk, "Manual recovery may need to rebind this role before the session can run again.");
 });
+
+test("idle session with recovery context can retry dispatch", () => {
+  const policy = resolveRecoveryActions({
+    scope_kind: "project",
+    session_status: "idle",
+    current_task_id: "task_retry",
+    cooldown_until: null,
+    last_failure_kind: "error",
+    provider_session_id: "provider-retry",
+    role_session_mapping: "authoritative",
+    process_state: "not_running"
+  });
+
+  assert.equal(policy.can_retry_dispatch, true);
+  assert.equal(policy.can_repair_to_idle, false);
+  assert.equal(policy.disabled_reason, "Session is already idle and does not need manual repair.");
+  assert.equal(
+    policy.risk,
+    "Current task 'task_retry' is still attached to this session; review its context before repairing."
+  );
+});
+
+test("idle session with stale role mapping cannot retry dispatch", () => {
+  const policy = resolveRecoveryActions({
+    scope_kind: "workflow",
+    session_status: "idle",
+    current_task_id: "task_stale",
+    cooldown_until: null,
+    last_failure_kind: "error",
+    provider_session_id: "provider-stale",
+    role_session_mapping: "stale",
+    process_state: "not_running"
+  });
+
+  assert.equal(policy.can_retry_dispatch, false);
+  assert.equal(policy.can_dismiss, true);
+  assert.equal(policy.disabled_reason, "Session is no longer the authoritative session for this role.");
+  assert.match(policy.risk ?? "", /authoritative session/);
+});

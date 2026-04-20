@@ -31,6 +31,7 @@
 - `PATCH /api/projects/:project_id/orchestrator/settings`
 - `POST /api/projects/:project_id/sessions/:session_id/dismiss`
 - `POST /api/projects/:project_id/sessions/:session_id/repair`
+- `POST /api/projects/:project_id/sessions/:session_id/retry-dispatch`
 
 ## 视图映射
 
@@ -50,4 +51,6 @@
 - 页面不直接消费已退休的 project task/report/handoff 接口。
 - 页面不直接决定编排策略，只展示设置并触发显式动作。
 - Recovery 视图只展示后端 policy 允许的动作，不再按 session.status 在前端自行推导 repair/dismiss。
+- Recovery 动作命中 `requires_confirmation=true` 时，前端必须显式发送 `confirm: true`，不能只靠本地提示后直接复用原请求。
+- Recovery 视图直接消费后端返回的 `can_retry_dispatch / disabled_reason / risk / requires_confirmation / latest_events`。
 - `dispatch-message` 属于后端能力，但不是当前项目工作区主页面默认消费路径。

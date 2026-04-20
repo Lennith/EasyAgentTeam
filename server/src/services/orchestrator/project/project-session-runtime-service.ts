@@ -12,6 +12,11 @@ import type {
   RecoveryProviderCancelResult,
   RecoveryRepairResult
 } from "../../runtime-recovery-action-policy.js";
+import {
+  buildDismissExternalStopUnconfirmed,
+  hasConfirmedDismissExternalStop
+} from "../../runtime-recovery-action-policy.js";
+import { RecoveryCommandError } from "../../runtime-recovery-command-error.js";
 
 export {
   findLatestDispatchStarted,
@@ -46,6 +51,10 @@ function buildRepairWarnings(session: SessionRecord): string[] {
     : [];
 }
 
+function resolveRecoveryAuditSource(actor: "dashboard" | "api"): "dashboard" | "system" {
+  return actor === "dashboard" ? "dashboard" : "system";
+}
+
 export class ProjectSessionRuntimeService {
   constructor(private readonly context: ProjectSessionRuntimeContext) {}
 
@@ -72,7 +81,8 @@ export class ProjectSessionRuntimeService {
     projectId: string,
     sessionId: string,
     targetStatus: "idle" | "blocked",
-    reason: string
+    reason: string,
+    actor: "dashboard" | "api" = "dashboard"
   ): Promise<RecoveryRepairResult<SessionRecord>> {
     const scope = await this.context.repositories.resolveScope(projectId);
     const { project, paths } = scope;
@@ -94,7 +104,7 @@ export class ProjectSessionRuntimeService {
       await this.context.repositories.events.appendEvent(paths, {
         projectId: project.projectId,
         eventType: "SESSION_STATUS_REPAIRED",
-        source: "dashboard",
+        source: resolveRecoveryAuditSource(actor),
         sessionId,
         taskId: updated.currentTaskId,
         payload: {
@@ -108,7 +118,7 @@ export class ProjectSessionRuntimeService {
           previous_cooldown_until: session.cooldownUntil ?? null,
           previous_provider_session_id: session.providerSessionId ?? null,
           reason,
-          actor: "dashboard",
+          actor,
           warnings
         }
       });
@@ -125,7 +135,8 @@ export class ProjectSessionRuntimeService {
   async dismissSession(
     projectId: string,
     sessionId: string,
-    reason: string
+    reason: string,
+    actor: "dashboard" | "api" = "dashboard"
   ): Promise<RecoveryDismissResult<SessionRecord>> {
     const scope = await this.context.repositories.resolveScope(projectId);
     const { project, paths } = scope;
@@ -133,9 +144,41 @@ export class ProjectSessionRuntimeService {
     if (!session) {
       throw new Error(`session '${sessionId}' not found`);
     }
+    const providerCancel = buildProjectProviderCancelResult();
+    const processTermination = await this.terminateSessionProcessInternal(project, paths, session, reason);
+    const processTerminationView = buildProcessTerminationView(processTermination);
+    const warnings =
+      processTermination.result === "killed" || processTermination.result === "not_found"
+        ? []
+        : [processTermination.message];
+    await this.context.repositories.events.appendEvent(paths, {
+      projectId: project.projectId,
+      eventType: "SESSION_DISMISS_EXTERNAL_RESULT",
+      source: resolveRecoveryAuditSource(actor),
+      sessionId: session.sessionId,
+      taskId: session.currentTaskId,
+      payload: {
+        previous_status: session.status,
+        reason,
+        actor,
+        provider_cancel: providerCancel,
+        process_termination: processTerminationView,
+        warnings
+      }
+    });
+    if (!hasConfirmedDismissExternalStop(providerCancel, processTerminationView)) {
+      throw new RecoveryCommandError(
+        409,
+        buildDismissExternalStopUnconfirmed(
+          session.sessionId,
+          session.status,
+          providerCancel,
+          processTerminationView,
+          warnings
+        )
+      );
+    }
     return this.context.repositories.runInUnitOfWork(scope, async () => {
-      const processTermination = await this.terminateSessionProcessInternal(project, paths, session, reason);
-      const processTerminationView = buildProcessTerminationView(processTermination);
       const dismissed = await this.context.repositories.sessions.touchSession(paths, project.projectId, sessionId, {
         status: "dismissed",
         currentTaskId: null,
@@ -148,20 +191,17 @@ export class ProjectSessionRuntimeService {
         await this.context.repositories.projectRuntime.clearRoleSessionMapping(project.projectId, session.role);
         mappingCleared = true;
       }
-      const warnings =
-        processTermination.result === "killed" || processTermination.result === "not_found"
-          ? []
-          : [processTermination.message];
       await this.context.repositories.events.appendEvent(paths, {
         projectId: project.projectId,
         eventType: "SESSION_STATUS_DISMISSED",
-        source: "dashboard",
+        source: resolveRecoveryAuditSource(actor),
         sessionId: dismissed.sessionId,
         taskId: session.currentTaskId,
         payload: {
           previous_status: session.status,
           reason,
-          provider_cancel: buildProjectProviderCancelResult(),
+          actor,
+          provider_cancel: providerCancel,
           process_termination: processTerminationView,
           mapping_cleared: mappingCleared,
           warnings
@@ -172,7 +212,7 @@ export class ProjectSessionRuntimeService {
         session: dismissed,
         previous_status: session.status,
         next_status: "dismissed",
-        provider_cancel: buildProjectProviderCancelResult(),
+        provider_cancel: providerCancel,
         process_termination: processTerminationView,
         mapping_cleared: mappingCleared,
         warnings

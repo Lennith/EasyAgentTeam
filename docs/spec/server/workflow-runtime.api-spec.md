@@ -27,6 +27,7 @@
 - `POST /api/workflow-runs/:run_id/sessions`
 - `POST /api/workflow-runs/:run_id/sessions/:session_id/dismiss`
 - `POST /api/workflow-runs/:run_id/sessions/:session_id/repair`
+- `POST /api/workflow-runs/:run_id/sessions/:session_id/retry-dispatch`
 - `GET /api/workflow-runs/:run_id/runtime-recovery`
 - `POST /api/workflow-runs/:run_id/messages/send`
 - `GET /api/workflow-runs/:run_id/agent-io/timeline`
@@ -81,4 +82,11 @@
 - workflow dismiss / repair 的 command contract 与 project recovery 对齐：
   - `dismiss` 返回 `action / session / previous_status / next_status / provider_cancel / process_termination / mapping_cleared / warnings`
   - `repair` 返回 `action / session / previous_status / next_status / warnings`
+- workflow `retry-dispatch` 返回 `action / session / current_task_id / dispatch_scope / accepted / warnings`
+- `repair` 与 `retry-dispatch` 在 `requires_confirmation=true` 时必须显式提交 `confirm: true`
+- workflow recovery command rejection 统一返回：
+  - `SESSION_RECOVERY_CONFIRMATION_REQUIRED`
+  - `SESSION_RETRY_DISPATCH_NOT_ALLOWED`
+  - `SESSION_DISMISS_EXTERNAL_STOP_UNCONFIRMED`
+- workflow dismiss 先写 `SESSION_DISMISS_EXTERNAL_RESULT`，仅当 provider cancel 已确认或无需停止时才继续写 `SESSION_STATUS_DISMISSED`
 - workflow recovery actionability 由后端 policy 决定，`running` session 默认不允许 repair_to_idle

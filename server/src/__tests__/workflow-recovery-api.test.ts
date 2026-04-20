@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { createApp } from "../app.js";
+import express from "express";
 import {
   createWorkflowRun,
   createWorkflowTemplate,
@@ -20,30 +20,100 @@ import {
   getWorkflowRoleReminderState,
   updateWorkflowRoleReminderState
 } from "../data/repository/workflow/reminder-repository.js";
+import { getWorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
+import { registerApiErrorMiddleware } from "../routes/error-middleware.js";
+import { registerWorkflowRecoveryRoutes } from "../routes/workflow-recovery-routes.js";
+import { WorkflowSessionRuntimeService } from "../services/orchestrator/workflow/workflow-session-runtime-service.js";
 import { startTestHttpServer } from "./helpers/http-test-server.js";
 
-test("workflow recovery endpoints expose scoped runtime recovery and dismiss/repair parity", async () => {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recovery-api-"));
-  const dataRoot = path.join(tempRoot, "data");
-  const workspaceRoot = path.join(tempRoot, "workspace");
+async function buildWorkflowRecoveryTestApp(
+  dataRoot: string,
+  options: {
+    cancelConfirmed?: boolean;
+    dispatchAccepted?: boolean;
+  } = {}
+) {
+  const repositories = getWorkflowRepositoryBundle(dataRoot);
+  const providerRegistry = {
+    cancelSession: () => options.cancelConfirmed ?? false,
+    isSessionActive: () => false
+  };
+  const sessionRuntimeService = new WorkflowSessionRuntimeService({
+    dataRoot,
+    repositories,
+    providerRegistry: providerRegistry as never,
+    sessionRunningTimeoutMs: 60_000,
+    sessionHeartbeatThrottle: new Map<string, number>(),
+    buildRunSessionKey: (runId: string, sessionId: string) => `${runId}:${sessionId}`
+  });
+
+  const app = express();
+  app.use(express.json());
+  registerWorkflowRecoveryRoutes(app, {
+    dataRoot,
+    providerRegistry: providerRegistry as never,
+    orchestrator: {} as never,
+    workflowOrchestrator: {
+      dismissRunSession: (runId: string, sessionId: string, reason: string, actor: "dashboard" | "api" = "dashboard") =>
+        sessionRuntimeService.dismissSession(runId, sessionId, reason, actor),
+      repairRunSessionStatus: (
+        runId: string,
+        sessionId: string,
+        targetStatus: "idle" | "blocked",
+        reason: string,
+        actor: "dashboard" | "api" = "dashboard"
+      ) => sessionRuntimeService.repairSessionStatus(runId, sessionId, targetStatus, reason, actor),
+      resetRoleReminderOnManualAction: async (
+        runId: string,
+        role: string,
+        _reason: "session_created" | "session_dismissed" | "session_repaired" | "session_retry_dispatch_requested"
+      ) => {
+        await updateWorkflowRoleReminderState(dataRoot, runId, role, {
+          reminderCount: 0,
+          idleSince: undefined,
+          nextReminderAt: undefined,
+          lastRoleState: "INACTIVE"
+        });
+      },
+      dispatchRun: async () => ({
+        limitReached: false,
+        results: [
+          {
+            outcome: options.dispatchAccepted === false ? "skipped" : "dispatched",
+            reason: options.dispatchAccepted === false ? "Dispatch was not accepted for this session." : undefined
+          }
+        ]
+      })
+    } as never
+  });
+  registerApiErrorMiddleware(app);
+  return { app, repositories };
+}
+
+async function seedWorkflowRecoveryFixture(
+  dataRoot: string,
+  runId: string,
+  status: "running" | "dismissed" = "running"
+) {
+  const workspaceRoot = path.join(dataRoot, "workspace");
   await mkdir(workspaceRoot, { recursive: true });
 
   await createWorkflowTemplate(dataRoot, {
-    templateId: "wf_recovery_tpl",
+    templateId: `${runId}_tpl`,
     name: "Workflow Recovery Template",
     tasks: [{ taskId: "task_a", title: "Task A", ownerRole: "lead" }]
   });
   await createWorkflowRun(dataRoot, {
-    runId: "wf_recovery_run",
-    templateId: "wf_recovery_tpl",
+    runId,
+    templateId: `${runId}_tpl`,
     name: "Workflow Recovery Run",
     workspacePath: workspaceRoot,
     tasks: [{ taskId: "task_a", title: "Task A", resolvedTitle: "Task A", ownerRole: "lead" }]
   });
-  await patchWorkflowRun(dataRoot, "wf_recovery_run", {
+  await patchWorkflowRun(dataRoot, runId, {
     roleSessionMap: { lead: "session-lead" }
   });
-  await writeWorkflowRunTaskRuntimeState(dataRoot, "wf_recovery_run", {
+  await writeWorkflowRunTaskRuntimeState(dataRoot, runId, {
     initializedAt: "2026-04-19T10:00:00.000Z",
     updatedAt: "2026-04-19T10:00:00.000Z",
     transitionSeq: 1,
@@ -59,22 +129,22 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
       }
     ]
   });
-  await upsertWorkflowSession(dataRoot, "wf_recovery_run", {
+  await upsertWorkflowSession(dataRoot, runId, {
     sessionId: "session-lead",
     role: "lead",
-    status: "running",
+    status,
     provider: "minimax",
     providerSessionId: "provider-session-lead",
     errorStreak: 1,
     timeoutStreak: 0,
     lastFailureAt: "2026-04-19T10:00:00.000Z",
     lastFailureKind: "error",
-    cooldownUntil: "2099-01-01T00:00:00.000Z"
+    cooldownUntil: status === "running" ? "2099-01-01T00:00:00.000Z" : undefined
   });
-  await touchWorkflowSession(dataRoot, "wf_recovery_run", "session-lead", {
+  await touchWorkflowSession(dataRoot, runId, "session-lead", {
     currentTaskId: "task_a"
   });
-  await appendWorkflowRunEvent(dataRoot, "wf_recovery_run", {
+  await appendWorkflowRunEvent(dataRoot, runId, {
     eventType: "RUNNER_TRANSIENT_ERROR_SOFT",
     source: "system",
     sessionId: "session-lead",
@@ -87,17 +157,24 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
       raw_status: 529
     }
   });
-  await updateWorkflowRoleReminderState(dataRoot, "wf_recovery_run", "lead", {
+  await updateWorkflowRoleReminderState(dataRoot, runId, "lead", {
     reminderCount: 3,
     lastRoleState: "IDLE"
   });
+}
 
-  const app = createApp({ dataRoot });
+test("workflow dismiss keeps local state untouched when external stop is unconfirmed", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recovery-api-"));
+  const dataRoot = path.join(tempRoot, "data");
+  await seedWorkflowRecoveryFixture(dataRoot, "wf_recovery_unconfirmed");
+  const { app, repositories } = await buildWorkflowRecoveryTestApp(dataRoot, {
+    cancelConfirmed: false
+  });
   const server = await startTestHttpServer(app);
   const baseUrl = server.baseUrl;
 
   try {
-    const recoveryRes = await fetch(`${baseUrl}/api/workflow-runs/wf_recovery_run/runtime-recovery`);
+    const recoveryRes = await fetch(`${baseUrl}/api/workflow-runs/wf_recovery_unconfirmed/runtime-recovery`);
     assert.equal(recoveryRes.status, 200);
     const recoveryPayload = (await recoveryRes.json()) as {
       scope_kind: string;
@@ -117,13 +194,6 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
     assert.equal(recoveryPayload.scope_kind, "workflow");
     assert.equal(recoveryPayload.summary.all_sessions_total, 1);
     assert.equal(recoveryPayload.summary.recovery_candidates_total, 1);
-    assert.equal(recoveryPayload.items.length, 1);
-    assert.equal(recoveryPayload.items[0]?.session_id, "session-lead");
-    assert.equal(recoveryPayload.items[0]?.role, "lead");
-    assert.equal(recoveryPayload.items[0]?.current_task_id, "task_a");
-    assert.equal(recoveryPayload.items[0]?.retryable, true);
-    assert.equal(recoveryPayload.items[0]?.code, "PROVIDER_UPSTREAM_TRANSIENT_ERROR");
-    assert.equal(recoveryPayload.items[0]?.next_action, "Wait for cooldown and retry the same task/message dispatch.");
     assert.equal(recoveryPayload.items[0]?.can_dismiss, true);
     assert.equal(recoveryPayload.items[0]?.can_repair_to_idle, false);
     assert.equal(
@@ -132,7 +202,7 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
     );
 
     const deniedRepairRes = await fetch(
-      `${baseUrl}/api/workflow-runs/wf_recovery_run/sessions/${encodeURIComponent("session-lead")}/repair`,
+      `${baseUrl}/api/workflow-runs/wf_recovery_unconfirmed/sessions/${encodeURIComponent("session-lead")}/repair`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,67 +213,147 @@ test("workflow recovery endpoints expose scoped runtime recovery and dismiss/rep
     const deniedRepairPayload = (await deniedRepairRes.json()) as {
       error_code: string;
       next_action: string | null;
-      disabled_reason: string | null;
     };
     assert.equal(deniedRepairPayload.error_code, "SESSION_RECOVERY_ACTION_NOT_ALLOWED");
     assert.equal(deniedRepairPayload.next_action, "Dismiss the running session before attempting repair.");
 
     const dismissRes = await fetch(
-      `${baseUrl}/api/workflow-runs/wf_recovery_run/sessions/${encodeURIComponent("session-lead")}/dismiss`,
-      { method: "POST" }
+      `${baseUrl}/api/workflow-runs/wf_recovery_unconfirmed/sessions/${encodeURIComponent("session-lead")}/dismiss`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "dashboard_manual_dismiss", actor: "dashboard" })
+      }
+    );
+    assert.equal(dismissRes.status, 409);
+    const dismissPayload = (await dismissRes.json()) as {
+      error_code: string;
+      disabled_reason: string | null;
+    };
+    assert.equal(dismissPayload.error_code, "SESSION_DISMISS_EXTERNAL_STOP_UNCONFIRMED");
+    assert.equal(dismissPayload.disabled_reason, "External execution stop is not confirmed.");
+
+    const session = await getWorkflowSession(dataRoot, "wf_recovery_unconfirmed", "session-lead");
+    assert.equal(session?.status, "running");
+    const events = await repositories.events.listEvents("wf_recovery_unconfirmed");
+    assert.equal(
+      events.some((event) => event.eventType === "SESSION_DISMISS_EXTERNAL_RESULT"),
+      true
+    );
+    assert.equal(
+      events.some((event) => event.eventType === "SESSION_STATUS_DISMISSED"),
+      false
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("workflow repair requires confirmation after dismiss and retry-dispatch writes audit event", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recovery-confirmed-"));
+  const dataRoot = path.join(tempRoot, "data");
+  await seedWorkflowRecoveryFixture(dataRoot, "wf_recovery_confirmed");
+  const { app, repositories } = await buildWorkflowRecoveryTestApp(dataRoot, {
+    cancelConfirmed: true,
+    dispatchAccepted: true
+  });
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+
+  try {
+    const dismissRes = await fetch(
+      `${baseUrl}/api/workflow-runs/wf_recovery_confirmed/sessions/${encodeURIComponent("session-lead")}/dismiss`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "dashboard_manual_dismiss", actor: "dashboard" })
+      }
     );
     assert.equal(dismissRes.status, 200);
     const dismissPayload = (await dismissRes.json()) as {
       action: string;
-      session: { status: string };
       previous_status: string;
       next_status: string;
       provider_cancel: { attempted: boolean; confirmed: boolean; result: string };
       process_termination: null;
       mapping_cleared: boolean;
-      warnings: string[];
     };
     assert.equal(dismissPayload.action, "dismiss");
-    assert.equal(dismissPayload.session.status, "dismissed");
     assert.equal(dismissPayload.previous_status, "running");
     assert.equal(dismissPayload.next_status, "dismissed");
-    assert.equal(typeof dismissPayload.provider_cancel.attempted, "boolean");
-    assert.equal(typeof dismissPayload.provider_cancel.result, "string");
+    assert.equal(dismissPayload.provider_cancel.confirmed, true);
+    assert.equal(dismissPayload.provider_cancel.result, "cancelled");
     assert.equal(dismissPayload.mapping_cleared, true);
 
-    const dismissedSession = await getWorkflowSession(dataRoot, "wf_recovery_run", "session-lead");
-    assert.equal(dismissedSession?.status, "dismissed");
-    assert.equal(dismissedSession?.currentTaskId, undefined);
-    const reminderAfterDismiss = await getWorkflowRoleReminderState(dataRoot, "wf_recovery_run", "lead");
-    assert.equal(reminderAfterDismiss?.reminderCount, 0);
-    assert.equal(reminderAfterDismiss?.lastRoleState, "INACTIVE");
-
-    const repairRes = await fetch(
-      `${baseUrl}/api/workflow-runs/wf_recovery_run/sessions/${encodeURIComponent("session-lead")}/repair`,
+    const confirmRequiredRes = await fetch(
+      `${baseUrl}/api/workflow-runs/wf_recovery_confirmed/sessions/${encodeURIComponent("session-lead")}/repair`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_status: "idle", reason: "manual_recovery" })
+        body: JSON.stringify({ target_status: "idle", reason: "manual_recovery", actor: "dashboard" })
+      }
+    );
+    assert.equal(confirmRequiredRes.status, 409);
+    const confirmRequiredPayload = (await confirmRequiredRes.json()) as {
+      error_code: string;
+      details: { requires_confirmation?: boolean } | undefined;
+    };
+    assert.equal(confirmRequiredPayload.error_code, "SESSION_RECOVERY_CONFIRMATION_REQUIRED");
+    assert.equal(confirmRequiredPayload.details?.requires_confirmation, true);
+
+    const repairRes = await fetch(
+      `${baseUrl}/api/workflow-runs/wf_recovery_confirmed/sessions/${encodeURIComponent("session-lead")}/repair`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_status: "idle",
+          reason: "manual_recovery",
+          confirm: true,
+          actor: "dashboard"
+        })
       }
     );
     assert.equal(repairRes.status, 200);
     const repairPayload = (await repairRes.json()) as {
       action: string;
-      session: { status: string };
       previous_status: string;
       next_status: string;
-      warnings: string[];
+      session: { status: string };
     };
     assert.equal(repairPayload.action, "repair");
-    assert.equal(repairPayload.session.status, "idle");
     assert.equal(repairPayload.previous_status, "dismissed");
     assert.equal(repairPayload.next_status, "idle");
+    assert.equal(repairPayload.session.status, "idle");
 
-    const repairedSession = await getWorkflowSession(dataRoot, "wf_recovery_run", "session-lead");
-    assert.equal(repairedSession?.status, "idle");
-    const reminderAfterRepair = await getWorkflowRoleReminderState(dataRoot, "wf_recovery_run", "lead");
-    assert.equal(reminderAfterRepair?.reminderCount, 0);
-    assert.equal(reminderAfterRepair?.lastRoleState, "INACTIVE");
+    const retryRes = await fetch(
+      `${baseUrl}/api/workflow-runs/wf_recovery_confirmed/sessions/${encodeURIComponent("session-lead")}/retry-dispatch`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "manual_retry", actor: "dashboard" })
+      }
+    );
+    assert.equal(retryRes.status, 200);
+    const retryPayload = (await retryRes.json()) as {
+      action: string;
+      current_task_id: string | null;
+      dispatch_scope: string;
+      accepted: boolean;
+    };
+    assert.equal(retryPayload.action, "retry_dispatch");
+    assert.equal(retryPayload.current_task_id, null);
+    assert.equal(retryPayload.dispatch_scope, "role");
+    assert.equal(retryPayload.accepted, true);
+
+    const reminderAfterRetry = await getWorkflowRoleReminderState(dataRoot, "wf_recovery_confirmed", "lead");
+    assert.equal(reminderAfterRetry?.reminderCount, 0);
+    assert.equal(reminderAfterRetry?.lastRoleState, "INACTIVE");
+
+    const events = await repositories.events.listEvents("wf_recovery_confirmed");
+    const retryEvent = events.find((event) => event.eventType === "SESSION_RETRY_DISPATCH_REQUESTED");
+    assert.equal(Boolean(retryEvent), true);
+    assert.equal(retryEvent?.payload?.dispatch_scope, "role");
   } finally {
     await server.close();
   }

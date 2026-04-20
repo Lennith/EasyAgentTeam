@@ -18,7 +18,7 @@ export class WorkflowReminderService {
   async resetRoleReminderOnManualAction(
     runId: string,
     role: string,
-    reason: "session_created" | "session_dismissed" | "session_repaired"
+    reason: "session_created" | "session_dismissed" | "session_repaired" | "session_retry_dispatch_requested"
   ): Promise<void> {
     const normalizedRole = role.trim();
     if (!normalizedRole) {

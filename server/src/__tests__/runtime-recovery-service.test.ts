@@ -21,6 +21,7 @@ const LEGACY_DONE_STATE = ["MAY", "BE", "DONE"].join("_");
 test("project runtime recovery aggregates latest runner failure and current task context", async () => {
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-"));
   const repositories = getProjectRepositoryBundle(dataRoot);
+  const nowIso = new Date().toISOString();
   const created = await repositories.projectRuntime.createProject({
     projectId: "project_recovery_scope",
     name: "Project Recovery Scope",
@@ -56,7 +57,7 @@ test("project runtime recovery aggregates latest runner failure and current task
     cooldownUntil: "2099-01-01T00:00:00.000Z",
     errorStreak: 2,
     timeoutStreak: 1,
-    lastFailureAt: "2026-04-19T10:00:00.000Z",
+    lastFailureAt: nowIso,
     lastFailureKind: "error"
   });
   await appendEvent(created.paths, {
@@ -104,10 +105,13 @@ test("project runtime recovery aggregates latest runner failure and current task
     "Cooldown is still active. Wait for cooldown to expire before retrying or repairing this session."
   );
   assert.equal(item.latest_events.length > 0, true);
+  assert.equal(item.latest_events[0]?.event_type, "RUNNER_TRANSIENT_ERROR_SOFT");
+  assert.match(item.latest_events[0]?.payload_summary ?? "", /PROVIDER_UPSTREAM_TRANSIENT_ERROR/);
 });
 
 test("workflow runtime recovery aggregates session status, task snapshot, and latest failure", async () => {
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recovery-"));
+  const nowIso = new Date().toISOString();
   await createWorkflowTemplate(dataRoot, {
     templateId: "workflow_recovery_tpl",
     name: "Workflow Recovery Template",
@@ -145,7 +149,7 @@ test("workflow runtime recovery aggregates session status, task snapshot, and la
     cooldownUntil: "2099-01-01T00:00:00.000Z",
     errorStreak: 1,
     timeoutStreak: 0,
-    lastFailureAt: "2026-04-19T10:00:00.000Z",
+    lastFailureAt: nowIso,
     lastFailureKind: "error"
   });
   await touchWorkflowSession(dataRoot, "workflow_recovery_run", "session-lead", {
@@ -189,10 +193,80 @@ test("workflow runtime recovery aggregates session status, task snapshot, and la
   assert.equal(item.can_repair_to_idle, true);
   assert.equal(item.can_repair_to_blocked, false);
   assert.equal(item.requires_confirmation, false);
+  assert.equal(item.can_retry_dispatch, false);
   assert.equal(
     item.risk,
     "Current task 'task_a' is still attached to this session; review its context before repairing."
   );
+});
+
+test("dismissed recovery item carries confirmation requirement and latest recovery audit summary", async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recovery-dismissed-"));
+  await createWorkflowTemplate(dataRoot, {
+    templateId: "workflow_recovery_dismissed_tpl",
+    name: "Workflow Recovery Dismissed Template",
+    tasks: [{ taskId: "task_a", title: "Task A", ownerRole: "lead" }]
+  });
+  await createWorkflowRun(dataRoot, {
+    runId: "workflow_recovery_dismissed_run",
+    templateId: "workflow_recovery_dismissed_tpl",
+    name: "Workflow Recovery Dismissed Run",
+    workspacePath: path.join(dataRoot, "workspace"),
+    tasks: [{ taskId: "task_a", title: "Task A", resolvedTitle: "Task A", ownerRole: "lead" }],
+    roleSessionMap: {}
+  });
+  await writeWorkflowRunTaskRuntimeState(dataRoot, "workflow_recovery_dismissed_run", {
+    initializedAt: "2026-04-19T10:00:00.000Z",
+    updatedAt: "2026-04-19T10:00:00.000Z",
+    transitionSeq: 1,
+    tasks: [
+      {
+        taskId: "task_a",
+        state: "READY",
+        blockedBy: [],
+        blockedReasons: [],
+        lastTransitionAt: "2026-04-19T10:00:00.000Z",
+        transitionCount: 1,
+        transitions: [{ seq: 1, at: "2026-04-19T10:00:00.000Z", fromState: null, toState: "READY" }]
+      }
+    ]
+  });
+  await upsertWorkflowSession(dataRoot, "workflow_recovery_dismissed_run", {
+    sessionId: "session-lead",
+    role: "lead",
+    status: "dismissed",
+    provider: "minimax",
+    providerSessionId: "provider-session-lead",
+    errorStreak: 0,
+    timeoutStreak: 0
+  });
+  await touchWorkflowSession(dataRoot, "workflow_recovery_dismissed_run", "session-lead", {
+    currentTaskId: "task_a"
+  });
+  await appendWorkflowRunEvent(dataRoot, "workflow_recovery_dismissed_run", {
+    eventType: "SESSION_STATUS_DISMISSED",
+    source: "dashboard",
+    sessionId: "session-lead",
+    taskId: "task_a",
+    payload: {
+      previous_status: "running",
+      actor: "dashboard",
+      provider_cancel: { attempted: true, confirmed: true, result: "cancelled", error: null },
+      process_termination: null,
+      mapping_cleared: true,
+      warnings: []
+    }
+  });
+
+  const payload = await buildWorkflowRuntimeRecovery(dataRoot, "workflow_recovery_dismissed_run");
+  const item = payload.items[0];
+  assert.equal(item.status, "dismissed");
+  assert.equal(item.can_repair_to_idle, true);
+  assert.equal(item.requires_confirmation, true);
+  assert.equal(item.can_retry_dispatch, false);
+  assert.match(item.risk ?? "", /Manual recovery/);
+  assert.equal(item.latest_events[0]?.event_type, "SESSION_STATUS_DISMISSED");
+  assert.match(item.latest_events[0]?.payload_summary ?? "", /manual dismiss/i);
 });
 
 test("project taskboard migration rewrites legacy ambiguous done state to DONE on read", async () => {

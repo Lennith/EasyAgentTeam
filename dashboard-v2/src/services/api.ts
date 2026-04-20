@@ -598,21 +598,43 @@ export const projectApi = {
       }
     ),
 
-  dismissSession: (projectId: string, sessionId: string, reason?: string) =>
+  dismissSession: (projectId: string, sessionId: string, reason?: string, confirm?: boolean) =>
     fetchJSON<Record<string, unknown>>(
       `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/dismiss`,
       {
         method: "POST",
-        body: JSON.stringify({ reason: reason ?? "dashboard_manual_dismiss" })
+        body: JSON.stringify({
+          reason: reason ?? "dashboard_manual_dismiss",
+          actor: "dashboard",
+          ...(confirm ? { confirm: true } : {})
+        })
       }
     ),
 
-  repairSession: (projectId: string, sessionId: string, targetStatus: "idle" | "blocked") =>
+  repairSession: (projectId: string, sessionId: string, targetStatus: "idle" | "blocked", confirm?: boolean) =>
     fetchJSON<Record<string, unknown>>(
       `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/repair`,
       {
         method: "POST",
-        body: JSON.stringify({ target_status: targetStatus, reason: "dashboard_manual_repair" })
+        body: JSON.stringify({
+          target_status: targetStatus,
+          reason: "dashboard_manual_repair",
+          actor: "dashboard",
+          ...(confirm ? { confirm: true } : {})
+        })
+      }
+    ),
+
+  retryDispatchSession: (projectId: string, sessionId: string, confirm?: boolean) =>
+    fetchJSON<Record<string, unknown>>(
+      `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/retry-dispatch`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          reason: "dashboard_manual_retry_dispatch",
+          actor: "dashboard",
+          ...(confirm ? { confirm: true } : {})
+        })
       }
     ),
 
@@ -1074,7 +1096,7 @@ export const workflowApi = {
       created: payload.created
     })),
 
-  dismissSession: (runId: string, sessionId: string, reason?: string) =>
+  dismissSession: (runId: string, sessionId: string, reason?: string, confirm?: boolean) =>
     fetchJSON<{
       action: "dismiss";
       session: Record<string, unknown>;
@@ -1086,13 +1108,17 @@ export const workflowApi = {
       warnings: string[];
     }>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/dismiss`, {
       method: "POST",
-      body: JSON.stringify({ reason: reason ?? "dashboard_manual_dismiss" })
+      body: JSON.stringify({
+        reason: reason ?? "dashboard_manual_dismiss",
+        actor: "dashboard",
+        ...(confirm ? { confirm: true } : {})
+      })
     }).then((payload) => ({
       ...payload,
       session: mapWorkflowSessionFields(payload.session)
     })),
 
-  repairSession: (runId: string, sessionId: string, targetStatus: "idle" | "blocked") =>
+  repairSession: (runId: string, sessionId: string, targetStatus: "idle" | "blocked", confirm?: boolean) =>
     fetchJSON<{
       action: "repair";
       session: Record<string, unknown>;
@@ -1101,11 +1127,29 @@ export const workflowApi = {
       warnings: string[];
     }>(`${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/repair`, {
       method: "POST",
-      body: JSON.stringify({ target_status: targetStatus, reason: "dashboard_manual_repair" })
+      body: JSON.stringify({
+        target_status: targetStatus,
+        reason: "dashboard_manual_repair",
+        actor: "dashboard",
+        ...(confirm ? { confirm: true } : {})
+      })
     }).then((payload) => ({
       ...payload,
       session: mapWorkflowSessionFields(payload.session)
     })),
+
+  retryDispatchSession: (runId: string, sessionId: string, confirm?: boolean) =>
+    fetchJSON<Record<string, unknown>>(
+      `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/retry-dispatch`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          reason: "dashboard_manual_retry_dispatch",
+          actor: "dashboard",
+          ...(confirm ? { confirm: true } : {})
+        })
+      }
+    ),
 
   sendMessage: (
     runId: string,

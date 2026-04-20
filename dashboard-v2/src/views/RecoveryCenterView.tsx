@@ -7,8 +7,9 @@ interface RecoveryCenterViewProps {
   error: string | null;
   response: RuntimeRecoveryResponse | null;
   onReload: () => void;
-  onDismiss: (sessionId: string) => Promise<void>;
-  onRepair: (sessionId: string, target: "idle" | "blocked") => Promise<void>;
+  onDismiss: (sessionId: string, confirm?: boolean) => Promise<void>;
+  onRepair: (sessionId: string, target: "idle" | "blocked", confirm?: boolean) => Promise<void>;
+  onRetry: (sessionId: string, confirm?: boolean) => Promise<void>;
 }
 
 function formatDateTime(value: string | null): string {
@@ -28,7 +29,8 @@ export function RecoveryCenterView({
   response,
   onReload,
   onDismiss,
-  onRepair
+  onRepair,
+  onRetry
 }: RecoveryCenterViewProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -52,6 +54,13 @@ export function RecoveryCenterView({
     } finally {
       setBusyAction(null);
     }
+  }
+
+  function requireConfirmation(baseMessage: string, risk: string | null, required: boolean): boolean {
+    if (!required) {
+      return false;
+    }
+    return window.confirm(formatConfirmationMessage(baseMessage, risk));
   }
 
   return (
@@ -221,9 +230,17 @@ export function RecoveryCenterView({
                   <button
                     className="btn btn-secondary"
                     disabled={!selected.can_dismiss || busyAction === `dismiss:${selected.session_id}`}
-                    onClick={() =>
-                      void runAction(() => onDismiss(selected.session_id), `dismiss:${selected.session_id}`)
-                    }
+                    onClick={() => {
+                      const confirmed = requireConfirmation(
+                        "This dismiss action requires confirmation.",
+                        selected.risk,
+                        selected.requires_confirmation
+                      );
+                      if (selected.requires_confirmation && !confirmed) {
+                        return;
+                      }
+                      void runAction(() => onDismiss(selected.session_id, confirmed), `dismiss:${selected.session_id}`);
+                    }}
                   >
                     Dismiss
                   </button>
@@ -231,15 +248,18 @@ export function RecoveryCenterView({
                     className="btn btn-secondary"
                     disabled={!selected.can_repair_to_idle || busyAction === `idle:${selected.session_id}`}
                     onClick={() => {
-                      if (
-                        selected.requires_confirmation &&
-                        !window.confirm(
-                          formatConfirmationMessage("Manual recovery to idle requires confirmation.", selected.risk)
-                        )
-                      ) {
+                      const confirmed = requireConfirmation(
+                        "Manual recovery to idle requires confirmation.",
+                        selected.risk,
+                        selected.requires_confirmation
+                      );
+                      if (selected.requires_confirmation && !confirmed) {
                         return;
                       }
-                      void runAction(() => onRepair(selected.session_id, "idle"), `idle:${selected.session_id}`);
+                      void runAction(
+                        () => onRepair(selected.session_id, "idle", confirmed),
+                        `idle:${selected.session_id}`
+                      );
                     }}
                   >
                     Repair to Idle
@@ -247,11 +267,39 @@ export function RecoveryCenterView({
                   <button
                     className="btn btn-secondary"
                     disabled={!selected.can_repair_to_blocked || busyAction === `blocked:${selected.session_id}`}
-                    onClick={() =>
-                      void runAction(() => onRepair(selected.session_id, "blocked"), `blocked:${selected.session_id}`)
-                    }
+                    onClick={() => {
+                      const confirmed = requireConfirmation(
+                        "Repair to blocked requires confirmation.",
+                        selected.risk,
+                        selected.requires_confirmation
+                      );
+                      if (selected.requires_confirmation && !confirmed) {
+                        return;
+                      }
+                      void runAction(
+                        () => onRepair(selected.session_id, "blocked", confirmed),
+                        `blocked:${selected.session_id}`
+                      );
+                    }}
                   >
                     Repair to Blocked
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    disabled={!selected.can_retry_dispatch || busyAction === `retry:${selected.session_id}`}
+                    onClick={() => {
+                      const confirmed = requireConfirmation(
+                        "Retry dispatch requires confirmation.",
+                        selected.risk,
+                        selected.requires_confirmation
+                      );
+                      if (selected.requires_confirmation && !confirmed) {
+                        return;
+                      }
+                      void runAction(() => onRetry(selected.session_id, confirmed), `retry:${selected.session_id}`);
+                    }}
+                  >
+                    Retry Dispatch
                   </button>
                 </div>
               </div>

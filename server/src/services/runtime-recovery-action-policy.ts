@@ -26,8 +26,14 @@ export interface RecoveryActionPolicy {
   requires_confirmation: boolean;
 }
 
+export type RecoveryCommandAction = "dismiss" | "repair_to_idle" | "repair_to_blocked" | "retry_dispatch";
+
 export interface RecoveryActionRejection {
-  code: "SESSION_RECOVERY_ACTION_NOT_ALLOWED";
+  code:
+    | "SESSION_RECOVERY_ACTION_NOT_ALLOWED"
+    | "SESSION_RECOVERY_CONFIRMATION_REQUIRED"
+    | "SESSION_RETRY_DISPATCH_NOT_ALLOWED"
+    | "SESSION_DISMISS_EXTERNAL_STOP_UNCONFIRMED";
   message: string;
   next_action: string;
   disabled_reason: string | null;
@@ -69,6 +75,15 @@ export interface RecoveryRepairResult<TSession> {
   warnings: string[];
 }
 
+export interface RecoveryRetryDispatchResult<TSession> {
+  action: "retry_dispatch";
+  session: TSession;
+  current_task_id: string | null;
+  dispatch_scope: "task" | "role";
+  accepted: boolean;
+  warnings: string[];
+}
+
 function isCooldownActive(cooldownUntil: string | null | undefined): boolean {
   if (!cooldownUntil) {
     return false;
@@ -82,6 +97,16 @@ function buildCurrentTaskRisk(taskId: string | null | undefined): string | null 
     return null;
   }
   return `Current task '${taskId}' is still attached to this session; review its context before repairing.`;
+}
+
+function mergeRiskMessages(...messages: Array<string | null | undefined>): string | null {
+  const normalized = messages
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+  if (normalized.length === 0) {
+    return null;
+  }
+  return normalized.join(" ");
 }
 
 export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): RecoveryActionPolicy {
@@ -124,7 +149,11 @@ export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): Reco
       can_repair_to_blocked: false,
       can_retry_dispatch: false,
       disabled_reason: "Session is already dismissed.",
-      risk: bindingRisk ?? currentTaskRisk ?? "Manual recovery should be used only when the role is ready to resume.",
+      risk: mergeRiskMessages(
+        bindingRisk,
+        currentTaskRisk,
+        bindingRisk || currentTaskRisk ? null : "Manual recovery should be used only when the role is ready to resume."
+      ),
       requires_confirmation: true
     };
   }
@@ -143,6 +172,21 @@ export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): Reco
     };
   }
 
+  if (input.session_status === "idle" && input.role_session_mapping === "stale") {
+    return {
+      can_dismiss: true,
+      can_repair_to_idle: false,
+      can_repair_to_blocked: false,
+      can_retry_dispatch: false,
+      disabled_reason: "Session is no longer the authoritative session for this role.",
+      risk: mergeRiskMessages(
+        currentTaskRisk,
+        "Retry dispatch should be issued against the authoritative session for this role."
+      ),
+      requires_confirmation: false
+    };
+  }
+
   return {
     can_dismiss: true,
     can_repair_to_idle: false,
@@ -156,22 +200,39 @@ export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): Reco
 
 export function buildRecoveryActionRejection(
   sessionId: string,
-  action: "dismiss" | "repair_to_idle" | "repair_to_blocked",
+  action: RecoveryCommandAction,
   input: ResolveRecoveryActionsInput,
-  policy: RecoveryActionPolicy
+  policy: RecoveryActionPolicy,
+  code: "SESSION_RECOVERY_ACTION_NOT_ALLOWED" | "SESSION_RETRY_DISPATCH_NOT_ALLOWED" = action === "retry_dispatch"
+    ? "SESSION_RETRY_DISPATCH_NOT_ALLOWED"
+    : "SESSION_RECOVERY_ACTION_NOT_ALLOWED"
 ): RecoveryActionRejection {
   const actionLabel =
-    action === "dismiss" ? "dismiss" : action === "repair_to_idle" ? "repair to idle" : "repair to blocked";
+    action === "dismiss"
+      ? "dismiss"
+      : action === "repair_to_idle"
+        ? "repair to idle"
+        : action === "repair_to_blocked"
+          ? "repair to blocked"
+          : "retry dispatch";
   const defaultNextAction =
     action === "dismiss"
       ? "Leave the dismissed session as-is, or use repair to recover it when the role is ready to resume."
-      : input.session_status === "running" || input.process_state === "running"
-        ? "Dismiss the running session before attempting repair."
-        : input.session_status === "idle"
-          ? "Wait for cooldown to expire or leave the session idle if no recovery is needed."
-          : "Review the current task and status before attempting manual recovery.";
+      : action === "retry_dispatch"
+        ? input.session_status === "idle" && input.cooldown_until
+          ? "Wait for cooldown to expire before retrying dispatch for this session."
+          : input.session_status === "dismissed"
+            ? "Repair the dismissed session to idle before requesting retry dispatch."
+            : input.session_status === "blocked"
+              ? "Repair the blocked session to idle before retrying dispatch."
+              : "Review the session context and wait until it becomes idle before retrying dispatch."
+        : input.session_status === "running" || input.process_state === "running"
+          ? "Dismiss the running session before attempting repair."
+          : input.session_status === "idle"
+            ? "Wait for cooldown to expire or leave the session idle if no recovery is needed."
+            : "Review the current task and status before attempting manual recovery.";
   return {
-    code: "SESSION_RECOVERY_ACTION_NOT_ALLOWED",
+    code,
     message: `${actionLabel} is not allowed for session '${sessionId}' while status is '${input.session_status}'`,
     next_action: defaultNextAction,
     disabled_reason: policy.disabled_reason,
@@ -180,6 +241,65 @@ export function buildRecoveryActionRejection(
       action,
       session_id: sessionId,
       status: input.session_status
+    }
+  };
+}
+
+export function buildRecoveryConfirmationRequired(
+  sessionId: string,
+  action: RecoveryCommandAction,
+  input: ResolveRecoveryActionsInput,
+  policy: RecoveryActionPolicy
+): RecoveryActionRejection {
+  return {
+    code: "SESSION_RECOVERY_CONFIRMATION_REQUIRED",
+    message: `confirmation is required before executing '${action}' for session '${sessionId}'`,
+    next_action: "Repeat the same recovery command with confirm=true after reviewing the risk details.",
+    disabled_reason: policy.disabled_reason,
+    risk: policy.risk,
+    details: {
+      action,
+      session_id: sessionId,
+      status: input.session_status,
+      requires_confirmation: true
+    }
+  };
+}
+
+export function hasConfirmedDismissExternalStop(
+  providerCancel: RecoveryProviderCancelResult,
+  processTermination: RecoveryProcessTerminationView | null
+): boolean {
+  if (providerCancel.confirmed) {
+    return true;
+  }
+  if (providerCancel.result === "not_found" || providerCancel.result === "not_supported") {
+    return true;
+  }
+  const processResult = processTermination?.result ?? null;
+  return processResult === "killed" || processResult === "not_found";
+}
+
+export function buildDismissExternalStopUnconfirmed(
+  sessionId: string,
+  previousStatus: RecoveryStatus,
+  providerCancel: RecoveryProviderCancelResult,
+  processTermination: RecoveryProcessTerminationView | null,
+  warnings: string[]
+): RecoveryActionRejection {
+  return {
+    code: "SESSION_DISMISS_EXTERNAL_STOP_UNCONFIRMED",
+    message: `external stop could not be confirmed for session '${sessionId}'`,
+    next_action: "Inspect provider/process state, then retry dismiss once external execution is confirmed stopped.",
+    disabled_reason: "External execution stop is not confirmed.",
+    risk: "Local dismiss was not written because provider or process termination could not be confirmed.",
+    details: {
+      action: "dismiss",
+      session_id: sessionId,
+      status: previousStatus,
+      provider_cancel: providerCancel,
+      process_termination: processTermination,
+      warnings
     }
   };
 }

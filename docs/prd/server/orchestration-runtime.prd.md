@@ -21,8 +21,12 @@
 - session 的活跃、阻塞、终态由编排生命周期统一收口
 - project / workflow 都提供 scope 内 recovery 视图所需的会话恢复读模型，围绕 session、当前任务、最近失败、cooldown 与最近恢复审计片段聚合恢复信息
 - Recovery Center 的可操作性由后端统一 action policy 决定，不允许前端仅凭 session.status 自行推导 `dismiss` / `repair`
-- project / workflow 都支持手动 dismiss 与 repair，并且对齐到同一套恢复语义：dismiss 终止当前运行并清空当前任务，repair 只允许恢复到受 policy 允许的 `idle` 或 `blocked`
+- project / workflow 都支持手动 dismiss、repair 与 retry-dispatch，并且对齐到同一套恢复语义：dismiss 终止当前运行并清空当前任务，repair 只允许恢复到受 policy 允许的 `idle` 或 `blocked`，retry-dispatch 只允许在 `idle`、非 cooldown 且具备恢复上下文的 session 上触发
+- 所有 `requires_confirmation=true` 的 recovery command 都必须显式携带确认字段；缺少确认时返回稳定错误，而不是隐式执行高风险操作
+- dismiss / repair / retry-dispatch 的 command contract 由后端统一定义；route 只做请求解析与调用，不再各自拼装恢复规则
+- dismiss 采用“外部停止结果审计 -> 本地 dismiss 落盘”两阶段审计；外部停止未确认时不允许继续写本地 dismiss 状态
 - dismiss / repair 的对外响应会返回统一 command contract，包含前后状态、外部取消结果、本地终止结果、映射清理结果与 warnings
+- recovery read model 与 recovery command enforcement 共享同一套 policy context builder，确保 Recovery Center 展示与实际命令约束一致
 - 任务消息和 discuss 消息只有在运行真正成功后才会被确认消费；瞬时运行错误会把消息留在未消费态，并保留 session 的可重试状态
 - provider 暂态错误不会把 session 直接落成 `dismissed`；编排会把 session 置回 `idle` 并写入 cooldown，等待下一轮 reminder / tick 重试
 - 工程分解阶段在首次收敛前必须先产出至少一个非 manager 执行子任务；只有分解结果已经落成可执行任务树时，父阶段才能报告完成
@@ -36,6 +40,8 @@
 - workflow recovery：`/api/workflow-runs/:run_id/runtime-recovery`
 - project dismiss / repair：`/api/projects/:id/sessions/:session_id/dismiss|repair`
 - workflow dismiss / repair：`/api/workflow-runs/:run_id/sessions/:session_id/dismiss|repair`
+- project retry-dispatch：`/api/projects/:id/sessions/:session_id/retry-dispatch`
+- workflow retry-dispatch：`/api/workflow-runs/:run_id/sessions/:session_id/retry-dispatch`
 - 对外保持现有 API path、payload、status code 与事件语义不变
 - provider 错误、runtime failure 事件与 `agent-chat` SSE 对外字段统一使用 snake_case，包括 `next_action`、`raw_status`、`cooldown_until`
 

@@ -12,6 +12,8 @@
 
 - 打开项目工作区并切换 task tree、timeline、sessions、routing、locks 等视图
 - 项目工作区提供 scoped Recovery 视图，用于查看当前项目内待恢复 session、最近失败、cooldown、恢复动作与最近恢复审计片段
+- Recovery 视图的按钮能力完全以后端返回的 `can_* / requires_confirmation / disabled_reason / risk` 为准，前端只负责展示与确认，不自行推断动作是否允许
+- Recovery 视图支持受后端 policy 约束的 retry-dispatch；高风险动作必须显式确认后才允许提交
 - 发送 agent chat 与中断当前会话
 - 查看任务细节、时间线、事件和 session 状态
 

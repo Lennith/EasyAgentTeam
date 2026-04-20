@@ -62,6 +62,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - `POST /api/projects/:id/sessions`
 - `POST /api/projects/:id/sessions/:session_id/dismiss`
 - `POST /api/projects/:id/sessions/:session_id/repair`
+- `POST /api/projects/:id/sessions/:session_id/retry-dispatch`
 - `GET /api/projects/:id/runtime-recovery`
 - `GET /api/projects/:id/inbox/:role`
 - `POST /api/projects/:id/messages/send`
@@ -135,8 +136,21 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `previous_status`
   - `next_status`
   - `warnings`
+- `repair` 与 `retry-dispatch` 在 `requires_confirmation=true` 时必须显式提交 `confirm: true`
 - `dismiss` 额外返回：
   - `provider_cancel`
   - `process_termination`
   - `mapping_cleared`
+- `retry-dispatch` 统一返回：
+  - `action`
+  - `session`
+  - `current_task_id`
+  - `dispatch_scope`
+  - `accepted`
+  - `warnings`
+- recovery command 拒绝错误统一使用：
+  - `SESSION_RECOVERY_CONFIRMATION_REQUIRED`
+  - `SESSION_RETRY_DISPATCH_NOT_ALLOWED`
+  - `SESSION_DISMISS_EXTERNAL_STOP_UNCONFIRMED`
+- `dismiss` 现在先写 `SESSION_DISMISS_EXTERNAL_RESULT`，只有外部停止已确认后才写 `SESSION_STATUS_DISMISSED`
 - project recovery actionability 由后端 policy 决定，前端不得再按 `status` 自行推导 repair/dismiss 能力
