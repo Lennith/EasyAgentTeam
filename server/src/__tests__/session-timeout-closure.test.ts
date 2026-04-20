@@ -1,13 +1,16 @@
 ﻿import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import { appendEvent, listEvents } from "../data/repository/project/event-repository.js";
+import { createProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
 import { createProject, ensureProjectRuntime } from "../data/repository/project/runtime-repository.js";
 import { addSession, touchSession } from "../data/repository/project/session-repository.js";
+import { createTask, ensureUserRootTask, getTask } from "../data/repository/project/taskboard-repository.js";
 import { OrchestratorService } from "../services/orchestrator/index.js";
+import { markProjectTimedOutSessions } from "../services/orchestrator/project/project-session-runtime-timeout.js";
 import { createProviderRegistry } from "../services/provider-runtime.js";
 
 test("running session timeout appends dispatch/run closure events", async () => {
@@ -303,4 +306,94 @@ test("running minimax session timeout appends minimax synthetic run closure even
       process.env.SESSION_TIMEOUT_ESCALATION_THRESHOLD = previousEscalationThreshold;
     }
   }
+});
+
+test("project timeout skips kill when recent terminal report completed in trailing window", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-session-timeout-terminal-protection-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspacePath = path.join(tempRoot, "workspace");
+  const repositories = createProjectRepositoryBundle(dataRoot);
+  const terminated: string[] = [];
+
+  const created = await createProject(dataRoot, {
+    projectId: "sessiontimeoutterminal",
+    name: "Session Timeout Terminal Protection",
+    workspacePath
+  });
+  const project = created.project;
+  const paths = await ensureProjectRuntime(dataRoot, project.projectId);
+  const userRoot = await ensureUserRootTask(paths, project.projectId, {
+    taskId: "user-root-terminal",
+    title: "User Root"
+  });
+  await createTask(paths, project.projectId, {
+    taskId: "task-terminal-protected",
+    parentTaskId: userRoot.taskId,
+    rootTaskId: userRoot.taskId,
+    title: "Protected terminal task",
+    ownerRole: "lead",
+    ownerSession: "sess-terminal-protected",
+    state: "DONE"
+  });
+
+  await addSession(paths, project.projectId, {
+    sessionId: "sess-terminal-protected",
+    role: "lead",
+    status: "running",
+    provider: "codex",
+    currentTaskId: "task-terminal-protected"
+  });
+
+  await appendEvent(paths, {
+    projectId: project.projectId,
+    eventType: "TASK_REPORT_APPLIED",
+    source: "manager",
+    sessionId: "sess-terminal-protected",
+    taskId: "task-terminal-protected",
+    payload: {
+      fromAgent: "lead",
+      appliedTaskIds: ["task-terminal-protected"],
+      updatedTaskIds: ["task-terminal-protected"],
+      rejectedCount: 0
+    }
+  });
+  const staleAt = new Date(Date.now() - 60_000).toISOString();
+  const sessionsState = JSON.parse(await readFile(paths.sessionsFile, "utf8")) as {
+    updatedAt: string;
+    sessions: Array<Record<string, unknown>>;
+  };
+  const sessionEntry = sessionsState.sessions.find((item) => item.sessionId === "sess-terminal-protected");
+  assert.ok(sessionEntry);
+  sessionEntry.createdAt = staleAt;
+  sessionEntry.updatedAt = staleAt;
+  sessionEntry.lastActiveAt = staleAt;
+  sessionEntry.currentTaskId = "task-terminal-protected";
+  sessionsState.updatedAt = staleAt;
+  await writeFile(paths.sessionsFile, `${JSON.stringify(sessionsState, null, 2)}\n`, "utf8");
+
+  await markProjectTimedOutSessions(
+    {
+      dataRoot,
+      repositories,
+      sessionRunningTimeoutMs: 1_000,
+      terminateSessionProcess: async (_project, _paths, session) => {
+        terminated.push(session.sessionId);
+      }
+    },
+    project,
+    paths
+  );
+
+  const events = await listEvents(paths);
+  const skipped = events.find((item) => item.eventType === "SESSION_HEARTBEAT_TIMEOUT_SKIPPED");
+  const timeout = events.find((item) => item.eventType === "SESSION_HEARTBEAT_TIMEOUT");
+  const session = await repositories.sessions.getSession(paths, project.projectId, "sess-terminal-protected");
+  const task = await getTask(paths, project.projectId, "task-terminal-protected");
+
+  assert.deepEqual(terminated, []);
+  assert.ok(skipped);
+  assert.equal((skipped?.payload as Record<string, unknown>).reason, "recent_terminal_report");
+  assert.equal(timeout, undefined);
+  assert.equal(session?.status, "running");
+  assert.equal(task?.state, "DONE");
 });

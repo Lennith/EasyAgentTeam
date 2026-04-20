@@ -69,3 +69,26 @@ test("buildRecoveryPolicyContext keeps read model and command enforcement aligne
   assert.match(context.policy.risk ?? "", /Manual recovery/);
   assert.match(context.policy.risk ?? "", /task-a/);
 });
+
+test("buildRecoveryPolicyContext blocks recovery commands when agent pid leaves process state unknown", () => {
+  const context = buildRecoveryPolicyContext({
+    scope_kind: "project",
+    session: {
+      role: "dev",
+      sessionId: "session-dev",
+      status: "idle",
+      currentTaskId: "task-dev",
+      cooldownUntil: null,
+      lastFailureKind: "error",
+      providerSessionId: "provider-dev",
+      agentPid: 1234
+    },
+    role_session_map: { dev: "session-dev" }
+  });
+
+  assert.equal(context.input.process_state, "unknown");
+  assert.equal(context.policy.can_dismiss, true);
+  assert.equal(context.policy.can_repair_to_idle, false);
+  assert.equal(context.policy.can_retry_dispatch, false);
+  assert.match(context.policy.disabled_reason ?? "", /Local process state is unknown/);
+});

@@ -123,3 +123,26 @@ test("idle session with stale role mapping cannot retry dispatch", () => {
   assert.equal(policy.disabled_reason, "Session is no longer the authoritative session for this role.");
   assert.match(policy.risk ?? "", /authoritative session/);
 });
+
+test("unknown process state blocks repair and retry dispatch until dismiss", () => {
+  const policy = resolveRecoveryActions({
+    scope_kind: "project",
+    session_status: "idle",
+    current_task_id: "task_orphaned",
+    cooldown_until: null,
+    last_failure_kind: "error",
+    provider_session_id: "provider-orphaned",
+    role_session_mapping: "authoritative",
+    process_state: "unknown"
+  });
+
+  assert.equal(policy.can_dismiss, true);
+  assert.equal(policy.can_repair_to_idle, false);
+  assert.equal(policy.can_repair_to_blocked, false);
+  assert.equal(policy.can_retry_dispatch, false);
+  assert.equal(
+    policy.disabled_reason,
+    "Local process state is unknown. Dismiss the session before attempting repair or retry dispatch."
+  );
+  assert.match(policy.risk ?? "", /local agent process/i);
+});

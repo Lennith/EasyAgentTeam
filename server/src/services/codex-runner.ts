@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { appendJsonlLine } from "../utils/file-utils.js";
 import { appendEvent } from "../data/repository/project/event-repository.js";
 import { touchSession } from "../data/repository/project/session-repository.js";
@@ -76,7 +77,9 @@ export abstract class BaseModelRunner {
   protected readonly runId: string;
   protected readonly startedAt: string;
   private lastHeartbeatTime = 0;
+  private readonly heartbeatFailureKeys = new Set<string>();
   private static readonly HEARTBEAT_INTERVAL_MS = 1000;
+  private static readonly HEARTBEAT_RETRY_DELAYS_MS = [0, 50, 150] as const;
 
   constructor(project: ProjectRecord, paths: ProjectPaths, request: ModelRunRequest) {
     this.project = project;
@@ -226,6 +229,7 @@ export abstract class BaseModelRunner {
       await this.appendLog("stderr", stderrBuffer.trim());
     }
 
+    await this.recordActivity({ reason: "run_finished", force: true });
     await this.appendLog("system", `${this.request.cliTool} finished with exitCode=${exitCode} timedOut=${timedOut}`);
 
     const normalizedLaunchError = normalizeCodexLaunchFailure({
@@ -301,18 +305,124 @@ export abstract class BaseModelRunner {
         approval: "never"
       }
     });
-    await this.updateHeartbeat();
+    const activity = this.resolveSessionActivity(stream, content);
+    if (activity) {
+      await this.recordActivity(activity);
+    }
   }
 
-  protected async updateHeartbeat(): Promise<void> {
+  protected resolveSessionActivity(
+    stream: "stdout" | "stderr" | "system",
+    content: string
+  ): { reason: string; force?: boolean; observedAt?: string } | null {
+    if (stream === "system") {
+      return null;
+    }
+    const clean = this.stripAnsi(content);
+    if (!clean) {
+      return null;
+    }
+
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = JSON.parse(clean) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+
+    const eventType = typeof parsed.type === "string" ? parsed.type : "";
+    if (eventType === "thread.started") {
+      return { reason: "thread_started", force: true };
+    }
+    if (eventType === "turn.started") {
+      return { reason: "turn_started" };
+    }
+    if (eventType === "turn.completed") {
+      return { reason: "turn_completed", force: true };
+    }
+    if (eventType !== "item.started" && eventType !== "item.completed") {
+      return null;
+    }
+
+    const item = parsed.item as Record<string, unknown> | undefined;
+    const itemType = typeof item?.type === "string" ? item.type : "";
+    if (!itemType) {
+      return { reason: eventType };
+    }
+
+    const toolName = typeof item?.tool === "string" ? item.tool : "";
+    const isTailTool =
+      itemType === "mcp_tool_call" &&
+      eventType === "item.completed" &&
+      (toolName === "task_report_done" || toolName === "task_report_block");
+    const isForce = isTailTool || (eventType === "item.completed" && itemType === "file_change");
+    return {
+      reason: `${eventType}:${itemType}${toolName ? `:${toolName}` : ""}`,
+      force: isForce
+    };
+  }
+
+  protected async writeHeartbeat(lastActiveAt: string): Promise<void> {
+    await touchSession(this.paths, this.project.projectId, this.request.sessionId, { lastActiveAt });
+  }
+
+  protected async recordActivity(input: { reason: string; force?: boolean; observedAt?: string }): Promise<void> {
     const now = Date.now();
-    if (now - this.lastHeartbeatTime < BaseModelRunner.HEARTBEAT_INTERVAL_MS) {
+    if (!input.force && now - this.lastHeartbeatTime < BaseModelRunner.HEARTBEAT_INTERVAL_MS) {
       return;
     }
-    this.lastHeartbeatTime = now;
-    await touchSession(this.paths, this.project.projectId, this.request.sessionId, {
-      lastActiveAt: new Date().toISOString()
-    }).catch(() => {});
+    const heartbeatAt = input.observedAt ?? new Date(now).toISOString();
+    const persisted = await this.persistHeartbeat({
+      lastActiveAt: heartbeatAt,
+      reason: input.reason,
+      force: input.force === true
+    });
+    if (persisted) {
+      this.lastHeartbeatTime = now;
+    }
+  }
+
+  private async persistHeartbeat(input: { lastActiveAt: string; reason: string; force: boolean }): Promise<boolean> {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < BaseModelRunner.HEARTBEAT_RETRY_DELAYS_MS.length; attempt += 1) {
+      const delayMs = BaseModelRunner.HEARTBEAT_RETRY_DELAYS_MS[attempt];
+      if (delayMs > 0) {
+        await sleep(delayMs);
+      }
+      try {
+        await this.writeHeartbeat(input.lastActiveAt);
+        return true;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    await this.emitHeartbeatFailure(input, lastError);
+    return false;
+  }
+
+  private async emitHeartbeatFailure(
+    input: { lastActiveAt: string; reason: string; force: boolean },
+    error: unknown
+  ): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error ?? "unknown heartbeat error");
+    const dedupeKey = `${input.reason}:${message}`;
+    if (this.heartbeatFailureKeys.has(dedupeKey)) {
+      return;
+    }
+    this.heartbeatFailureKeys.add(dedupeKey);
+    try {
+      await this.appendEvent("SESSION_HEARTBEAT_TOUCH_FAILED", {
+        runId: this.runId,
+        provider: this.request.cliTool,
+        lastActiveAt: input.lastActiveAt,
+        reason: input.reason,
+        force: input.force,
+        attempts: BaseModelRunner.HEARTBEAT_RETRY_DELAYS_MS.length,
+        error: message
+      });
+    } catch {
+      // Ignore observability failures; runner flow should not crash on secondary event emission.
+    }
   }
 
   protected resolveWorkingDirectory(): string {

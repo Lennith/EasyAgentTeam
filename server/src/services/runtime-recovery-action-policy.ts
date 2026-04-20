@@ -113,6 +113,7 @@ export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): Reco
   const currentTaskRisk = buildCurrentTaskRisk(input.current_task_id ?? null);
   const coolingDown = isCooldownActive(input.cooldown_until ?? null);
   const hasProviderBinding = Boolean(input.provider_session_id);
+  const processStateUnknown = input.process_state === "unknown";
 
   if (input.session_status === "running" || input.process_state === "running") {
     return {
@@ -122,6 +123,19 @@ export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): Reco
       can_retry_dispatch: false,
       disabled_reason: "Session is still running. Dismiss it before attempting repair.",
       risk: currentTaskRisk,
+      requires_confirmation: false
+    };
+  }
+
+  if (processStateUnknown) {
+    return {
+      can_dismiss: true,
+      can_repair_to_idle: false,
+      can_repair_to_blocked: false,
+      can_retry_dispatch: false,
+      disabled_reason:
+        "Local process state is unknown. Dismiss the session before attempting repair or retry dispatch.",
+      risk: mergeRiskMessages(currentTaskRisk, "A local agent process may still be attached to this session."),
       requires_confirmation: false
     };
   }

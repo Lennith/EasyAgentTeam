@@ -59,6 +59,34 @@ function findCorrectTask(wrongTask: TaskRecord, targetRole: string, allTasks: Ta
   return null;
 }
 
+function findDependentDiscussTask(
+  wrongTask: TaskRecord,
+  targetRole: string,
+  allTasks: TaskRecord[]
+): TaskRecord | null {
+  const candidates = allTasks
+    .filter(
+      (task) =>
+        task.taskId !== wrongTask.taskId &&
+        task.ownerRole === targetRole &&
+        task.rootTaskId === wrongTask.rootTaskId &&
+        !isTerminalTaskState(task.state) &&
+        task.dependencies.includes(wrongTask.taskId)
+    )
+    .sort((a, b) => {
+      const priorityDiff = (b.priority ?? 0) - (a.priority ?? 0);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+      const createdAtDiff = Date.parse(a.createdAt) - Date.parse(b.createdAt);
+      if (Number.isFinite(createdAtDiff) && createdAtDiff !== 0) {
+        return createdAtDiff;
+      }
+      return a.taskId.localeCompare(b.taskId);
+    });
+  return candidates[0] ?? null;
+}
+
 export function resolveTaskDiscuss(
   message: ManagerToAgentMessage,
   targetRole: string,
@@ -75,7 +103,8 @@ export function resolveTaskDiscuss(
   if (!wrongTask || wrongTask.ownerRole === targetRole) {
     return message;
   }
-  const correctTask = findCorrectTask(wrongTask, targetRole, allTasks);
+  const correctTask =
+    findCorrectTask(wrongTask, targetRole, allTasks) ?? findDependentDiscussTask(wrongTask, targetRole, allTasks);
   if (!correctTask) {
     return message;
   }

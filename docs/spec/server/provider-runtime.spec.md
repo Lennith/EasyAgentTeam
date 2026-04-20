@@ -1,4 +1,4 @@
-# Provider Runtime 规范（最后更新：2026-04-19）
+# Provider Runtime 规范（最后更新：2026-04-20）
 
 ## 范围
 
@@ -20,12 +20,15 @@
 ## Session 运行时规则
 
 - `codex` session 运行时通过 CLI JSON event 解析 provider session id
+- `codex` project runner 必须把 `thread.started`、`turn.started`、`item.started/item.completed`、`turn.completed` 与终态 TeamTool 工具活动视作有效 heartbeat 信号；尾段关键活动不能被节流吞掉
+- `codex` runner 的 heartbeat 写入失败必须留下内部审计事件，不能静默吞错
 - workflow / session 运行中一旦拿到真实 provider session id，必须写回 authoritative session
 - resume 与 fresh launch 的选择必须基于 authoritative session 当前状态，而不是调用方猜测
 - MiniMax `429`、`500/502/503/504/529`、连接超时、连接重置会归一为 `PROVIDER_UPSTREAM_TRANSIENT_ERROR`
 - `PROVIDER_UPSTREAM_TRANSIENT_ERROR` 属于 `category=runtime`、`retryable=true`
 - project / workflow 命中这类错误后统一落为 `idle + cooldown`，不落 `blocked` 或 `dismissed`
 - project / workflow 的 runner failure transition 使用共享决策规则输出 session 落态、cooldown 与 runtime event payload
+- project session timeout 在真正执行 kill 前必须对 running session 做一次事实重判：如果 heartbeat 已刷新，或同一 session 对当前 task 的最近终态成功事件仍在 trailing 保护窗口内，则本轮 timeout kill 必须跳过
 - `agent-chat` SSE 的 `error` 事件必须直接透出结构化 provider error payload
 - provider error 与 runtime failure 相关对外字段统一使用 snake_case：`next_action`、`raw_status`、`cooldown_until`
 

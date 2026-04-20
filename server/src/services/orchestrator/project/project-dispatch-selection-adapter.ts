@@ -52,6 +52,23 @@ export type ProjectDispatchSelectionResult =
       result: SessionDispatchResult;
     };
 
+function shouldRetryPreviouslyFailedMessageDispatch(
+  session: SessionRecord,
+  dispatchKind: DispatchKind,
+  messageId: string,
+  force: boolean
+): boolean {
+  if (force || dispatchKind !== "message") {
+    return false;
+  }
+  if (session.lastInboxMessageId !== messageId) {
+    return false;
+  }
+  return (
+    session.status === "idle" && typeof session.lastFailureAt === "string" && session.lastFailureAt.trim().length > 0
+  );
+}
+
 function isAutomaticTaskRedispatchSource(message: ManagerToAgentMessage, focusTaskId: string): boolean {
   const body = message.body as Record<string, unknown>;
   if ((extractTaskIdFromMessage(message) ?? "") !== focusTaskId) {
@@ -203,7 +220,18 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
     }
 
     const firstMessage = selectedMessages[0];
-    if (!input.force && dispatchKind === "message" && session.lastInboxMessageId === firstMessage.envelope.message_id) {
+    const retryingFailedMessage = shouldRetryPreviouslyFailedMessageDispatch(
+      session,
+      dispatchKind,
+      firstMessage.envelope.message_id,
+      Boolean(input.force)
+    );
+    if (
+      !retryingFailedMessage &&
+      !input.force &&
+      dispatchKind === "message" &&
+      session.lastInboxMessageId === firstMessage.envelope.message_id
+    ) {
       return {
         status: "skipped",
         result: {

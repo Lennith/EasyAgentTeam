@@ -302,6 +302,41 @@ test("project dispatch selection honors onlyIdle gate", async () => {
   assert.equal(result.result.outcome, "session_busy");
 });
 
+test("project dispatch selection retries same undelivered message after prior failure", async () => {
+  const firstMessage = createMessage("msg-retry", "task_retry");
+  const newerMessage = createMessage("msg-newer", "task_retry", "follow-up");
+  newerMessage.envelope.timestamp = "2026-03-28T10:05:00.000Z";
+  const task = createTask({ taskId: "task_retry", ownerRole: "dev", state: "IN_PROGRESS" });
+  const { repositories } = createRepositories({
+    messages: [firstMessage, newerMessage],
+    tasks: [task],
+    runnableTasks: []
+  });
+  const adapter = new ProjectDispatchSelectionAdapter(repositories);
+
+  const result = await adapter.select(
+    {
+      project: createProject(),
+      paths: createPaths(),
+      session: createSession({
+        status: "idle",
+        currentTaskId: "task_retry",
+        lastInboxMessageId: "msg-retry",
+        lastFailureAt: "2026-03-28T10:01:00.000Z",
+        lastFailureKind: "error"
+      })
+    },
+    { mode: "loop" }
+  );
+
+  assert.equal(result.status, "selected");
+  if (result.status !== "selected") {
+    return;
+  }
+  assert.equal(result.selection.dispatchKind, "message");
+  assert.equal(result.selection.messageId, "msg-retry");
+});
+
 test("project dispatch selection synthesizes fresh task assignment with subtree from reminder source", async () => {
   const parent = createTask({
     taskId: "task_parent",

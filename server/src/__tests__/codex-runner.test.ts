@@ -7,6 +7,7 @@ import { CodexModelRunner } from "../services/codex-runner.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
 import { buildProjectCodexRuntimeHome } from "../services/codex-runtime-home.js";
 import { addSession, getSession } from "../data/repository/project/session-repository.js";
+import { listEvents } from "../data/repository/project/event-repository.js";
 
 function buildProjectAndPaths(tempRoot: string): { project: ProjectRecord; paths: ProjectPaths } {
   const project: ProjectRecord = {
@@ -154,7 +155,7 @@ test("runner injects active task context env vars", async () => {
   assert.equal(modelEnv.CODEX_HOME, codexHome);
 });
 
-test("codex runner log activity refreshes session heartbeat", async () => {
+test("codex runner meaningful json item refreshes session heartbeat", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-codex-runner-heartbeat-"));
   const { project, paths } = buildProjectAndPaths(tempRoot);
   await addSession(paths, project.projectId, {
@@ -172,9 +173,86 @@ test("codex runner log activity refreshes session heartbeat", async () => {
     cliTool: "codex"
   });
 
-  await (runner as any).appendLog("system", "heartbeat-probe");
+  await (runner as any).appendLog(
+    "stdout",
+    JSON.stringify({
+      type: "thread.started",
+      thread_id: "thread-heartbeat-1"
+    })
+  );
 
   const after = await getSession(paths, project.projectId, "sess-heartbeat");
   assert.ok(after);
   assert.notEqual(after?.lastActiveAt, before?.lastActiveAt);
+});
+
+test("codex runner forces heartbeat refresh for terminal tool activity even inside throttle window", async () => {
+  class ObservedRunner extends CodexModelRunner {
+    readonly heartbeats: string[] = [];
+
+    protected override async writeHeartbeat(lastActiveAt: string): Promise<void> {
+      this.heartbeats.push(lastActiveAt);
+    }
+  }
+
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-codex-runner-force-heartbeat-"));
+  const { project, paths } = buildProjectAndPaths(tempRoot);
+  const runner = new ObservedRunner(project, paths, {
+    sessionId: "sess-force-heartbeat",
+    prompt: "ping",
+    cliTool: "codex"
+  });
+
+  await (runner as any).appendLog("stdout", JSON.stringify({ type: "turn.started" }));
+  await (runner as any).appendLog(
+    "stdout",
+    JSON.stringify({
+      type: "item.completed",
+      item: {
+        id: "item-1",
+        type: "mcp_tool_call",
+        tool: "task_report_done",
+        status: "completed"
+      }
+    })
+  );
+
+  assert.equal(runner.heartbeats.length, 2);
+});
+
+test("codex runner emits event when heartbeat persistence fails", async () => {
+  class FailingRunner extends CodexModelRunner {
+    protected override async writeHeartbeat(_lastActiveAt: string): Promise<void> {
+      throw new Error("touch failed");
+    }
+  }
+
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-codex-runner-heartbeat-failure-"));
+  const { project, paths } = buildProjectAndPaths(tempRoot);
+  await addSession(paths, project.projectId, {
+    sessionId: "sess-heartbeat-failure",
+    role: "lead",
+    status: "running",
+    provider: "codex"
+  });
+
+  const runner = new FailingRunner(project, paths, {
+    sessionId: "sess-heartbeat-failure",
+    prompt: "ping",
+    cliTool: "codex"
+  });
+
+  await (runner as any).appendLog(
+    "stdout",
+    JSON.stringify({
+      type: "thread.started",
+      thread_id: "thread-heartbeat-failure"
+    })
+  );
+
+  const events = await listEvents(paths);
+  const failureEvent = events.find((item) => item.eventType === "SESSION_HEARTBEAT_TOUCH_FAILED");
+  assert.ok(failureEvent);
+  assert.equal(failureEvent?.sessionId, "sess-heartbeat-failure");
+  assert.equal((failureEvent?.payload as Record<string, unknown>).reason, "thread_started");
 });
