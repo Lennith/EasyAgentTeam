@@ -141,7 +141,7 @@ async function triggerWorkflowRoleReminder(input: {
     role: input.role,
     taskId: primaryTaskId ?? undefined,
     force: false,
-    onlyIdle: false,
+    onlyIdle: true,
     maxDispatches: 1
   });
   const redispatchOutcome = redispatchResult.results[0]?.outcome ?? "no_message";

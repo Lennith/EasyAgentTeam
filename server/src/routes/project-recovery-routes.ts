@@ -2,114 +2,21 @@ import type express from "express";
 import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
 import {
   buildRecoveryActionRejection,
-  buildRecoveryConfirmationRequired,
-  type RecoveryRetryDispatchResult
+  buildRecoveryConfirmationRequired
 } from "../services/runtime-recovery-action-policy.js";
 import { RecoveryCommandError, isRecoveryCommandError } from "../services/runtime-recovery-command-error.js";
 import { buildRecoveryPolicyContext } from "../services/runtime-recovery-policy-context.js";
+import { retryProjectDispatchSession } from "../services/runtime-retry-dispatch-service.js";
 import { buildProjectRuntimeRecovery } from "../services/runtime-recovery-service.js";
 import { getProjectRuntimeContext, getProjectSessionById } from "../services/project-runtime-api-service.js";
-import type { SessionRecord } from "../domain/models.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import { readStringField, sanitizeSessionForApi, sendApiError } from "./shared/http.js";
-import { readRecoveryActor, readRecoveryConfirm, sendRecoveryRejection } from "./shared/recovery.js";
-
-function resolveRecoveryAuditSource(actor: "dashboard" | "api"): "dashboard" | "system" {
-  return actor === "dashboard" ? "dashboard" : "system";
-}
-
-function buildRetryDispatchNotAllowed(
-  sessionId: string,
-  policyInput: ReturnType<typeof buildRecoveryPolicyContext>["input"],
-  policy: ReturnType<typeof buildRecoveryPolicyContext>["policy"],
-  reason: string
-) {
-  return {
-    ...buildRecoveryActionRejection(
-      sessionId,
-      "retry_dispatch",
-      policyInput,
-      policy,
-      "SESSION_RETRY_DISPATCH_NOT_ALLOWED"
-    ),
-    message: `retry dispatch is not allowed for session '${sessionId}'`,
-    next_action: "Wait until the session is idle and the recovery context is still valid, then retry dispatch again.",
-    disabled_reason: reason || policy.disabled_reason,
-    risk: policy.risk
-  } as const;
-}
-
-async function executeProjectRetryDispatch(
-  context: AppRuntimeContext,
-  projectId: string,
-  roleSessionMap: Record<string, string> | undefined,
-  session: SessionRecord,
-  reason: string,
-  actor: "dashboard" | "api"
-): Promise<RecoveryRetryDispatchResult<Omit<SessionRecord, "providerSessionId">>> {
-  const dispatchScope = session.currentTaskId ? "task" : "role";
-  const result = await context.orchestrator.dispatchProject(projectId, {
-    mode: "manual",
-    sessionId: session.sessionId,
-    taskId: session.currentTaskId,
-    force: Boolean(session.currentTaskId),
-    onlyIdle: false,
-    maxDispatches: 1
-  });
-  const accepted = result.results.some((item) => item.outcome === "dispatched");
-  if (!accepted) {
-    const contextResult = buildRecoveryPolicyContext({
-      scope_kind: "project",
-      session,
-      role_session_map: roleSessionMap
-    });
-    const first = result.results[0];
-    throw new RecoveryCommandError(
-      409,
-      buildRetryDispatchNotAllowed(
-        session.sessionId,
-        contextResult.input,
-        contextResult.policy,
-        first?.reason ?? "Retry dispatch was not accepted by the orchestrator."
-      )
-    );
-  }
-
-  const repositories = getProjectRepositoryBundle(context.dataRoot);
-  const scope = await repositories.resolveScope(projectId);
-  await repositories.events.appendEvent(scope.paths, {
-    projectId,
-    eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
-    source: resolveRecoveryAuditSource(actor),
-    sessionId: session.sessionId,
-    taskId: session.currentTaskId,
-    payload: {
-      reason,
-      actor,
-      session_id: session.sessionId,
-      current_task_id: session.currentTaskId ?? null,
-      dispatch_scope: dispatchScope,
-      accepted: true
-    }
-  });
-  await context.orchestrator.resetRoleReminderOnManualAction(
-    projectId,
-    session.role,
-    "session_retry_dispatch_requested"
-  );
-  const updated = await repositories.sessions.getSession(scope.paths, projectId, session.sessionId);
-  if (!updated) {
-    throw new Error(`session '${session.sessionId}' not found after retry dispatch`);
-  }
-  return {
-    action: "retry_dispatch",
-    session: sanitizeSessionForApi(updated),
-    current_task_id: updated.currentTaskId ?? null,
-    dispatch_scope: dispatchScope,
-    accepted: true,
-    warnings: []
-  };
-}
+import {
+  readRecoveryActor,
+  readRecoveryConfirm,
+  readRetryDispatchGuards,
+  sendRecoveryRejection
+} from "./shared/recovery.js";
 
 export function registerProjectRecoveryRoutes(app: express.Application, context: AppRuntimeContext): void {
   const { dataRoot, orchestrator } = context;
@@ -236,43 +143,76 @@ export function registerProjectRecoveryRoutes(app: express.Application, context:
         sendApiError(res, 404, "SESSION_NOT_FOUND", `session '${token}' not found`);
         return;
       }
-      const contextResult = buildRecoveryPolicyContext({
-        scope_kind: "project",
-        session,
-        role_session_map: project.roleSessionMap
-      });
-      if (!contextResult.policy.can_retry_dispatch) {
-        sendRecoveryRejection(
-          res,
-          409,
-          buildRetryDispatchNotAllowed(
-            token,
-            contextResult.input,
-            contextResult.policy,
-            contextResult.policy.disabled_reason ?? "Retry dispatch is not allowed for this session."
-          )
-        );
-        return;
-      }
-      if (contextResult.policy.requires_confirmation && !readRecoveryConfirm(body)) {
-        sendRecoveryRejection(
-          res,
-          409,
-          buildRecoveryConfirmationRequired(token, "retry_dispatch", contextResult.input, contextResult.policy)
-        );
-        return;
-      }
       const retryReason = readStringField(body, ["reason"]) ?? "session_retry_dispatch_requested_by_api";
       const actor = readRecoveryActor(body);
-      const payload = await executeProjectRetryDispatch(
-        context,
-        project.projectId,
-        project.roleSessionMap,
-        session,
-        retryReason,
-        actor
+      const payload = await retryProjectDispatchSession(
+        {
+          scope_kind: "project",
+          scope_id: project.projectId,
+          session_id: session.sessionId,
+          actor,
+          reason: retryReason,
+          confirm: readRecoveryConfirm(body),
+          ...readRetryDispatchGuards(body)
+        },
+        {
+          loadScope: async (projectId) => await getProjectRepositoryBundle(context.dataRoot).resolveScope(projectId),
+          runInUnitOfWork: async (scope, operation) =>
+            await getProjectRepositoryBundle(context.dataRoot).runInUnitOfWork(scope, operation),
+          getScopeContext: (scope) => ({
+            scope_id: scope.project.projectId,
+            role_session_map: scope.project.roleSessionMap
+          }),
+          getSession: async (scope, sessionId) =>
+            await getProjectRepositoryBundle(context.dataRoot).sessions.getSession(
+              scope.paths,
+              scope.project.projectId,
+              sessionId
+            ),
+          touchSession: async (scope, sessionId, patch) =>
+            await getProjectRepositoryBundle(context.dataRoot).sessions.touchSession(
+              scope.paths,
+              scope.project.projectId,
+              sessionId,
+              patch
+            ),
+          appendEvent: async (scope, eventType, currentSession, payload) =>
+            await getProjectRepositoryBundle(context.dataRoot).events.appendEvent(scope.paths, {
+              projectId: scope.project.projectId,
+              eventType,
+              source: actor === "dashboard" ? "dashboard" : "system",
+              sessionId: currentSession.sessionId,
+              taskId: currentSession.currentTaskId ?? undefined,
+              payload
+            }),
+          dispatch: async (scope, currentSession) => {
+            const result = await context.orchestrator.dispatchProject(scope.project.projectId, {
+              mode: "manual",
+              sessionId: currentSession.sessionId,
+              taskId: currentSession.currentTaskId,
+              force: false,
+              onlyIdle: true,
+              maxDispatches: 1
+            });
+            const first = result.results[0];
+            return {
+              accepted: result.results.some((item) => item.outcome === "dispatched"),
+              dispatch_scope: currentSession.currentTaskId ? "task" : "role",
+              reason: first?.reason
+            };
+          },
+          resetReminder: async (scope, role) =>
+            await context.orchestrator.resetRoleReminderOnManualAction(
+              scope.project.projectId,
+              role,
+              "session_retry_dispatch_requested"
+            )
+        }
       );
-      res.status(200).json(payload);
+      res.status(200).json({
+        ...payload,
+        session: sanitizeSessionForApi(payload.session)
+      });
     } catch (error) {
       if (isRecoveryCommandError(error)) {
         sendRecoveryRejection(res, error.status, error.payload);

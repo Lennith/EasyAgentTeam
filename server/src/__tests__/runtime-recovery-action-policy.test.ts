@@ -92,6 +92,8 @@ test("idle session with recovery context can retry dispatch", () => {
     current_task_id: "task_retry",
     cooldown_until: null,
     last_failure_kind: "error",
+    last_failure_event_id: "evt-retry",
+    last_failure_task_id: "task_retry",
     provider_session_id: "provider-retry",
     role_session_mapping: "authoritative",
     process_state: "not_running"
@@ -99,7 +101,7 @@ test("idle session with recovery context can retry dispatch", () => {
 
   assert.equal(policy.can_retry_dispatch, true);
   assert.equal(policy.can_repair_to_idle, false);
-  assert.equal(policy.disabled_reason, "Session is already idle and does not need manual repair.");
+  assert.equal(policy.disabled_reason, "Session is already idle and ready for guarded retry dispatch.");
   assert.equal(
     policy.risk,
     "Current task 'task_retry' is still attached to this session; review its context before repairing."

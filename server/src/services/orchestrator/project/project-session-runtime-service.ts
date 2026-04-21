@@ -58,6 +58,10 @@ function resolveRecoveryAuditSource(actor: "dashboard" | "api"): "dashboard" | "
 export class ProjectSessionRuntimeService {
   constructor(private readonly context: ProjectSessionRuntimeContext) {}
 
+  private clearInFlightDispatchSession(projectId: string, sessionId: string): void {
+    this.context.clearInFlightDispatchSession(projectId, sessionId);
+  }
+
   async terminateSessionProcess(
     projectId: string,
     sessionId: string,
@@ -98,9 +102,14 @@ export class ProjectSessionRuntimeService {
         cooldownUntil: null,
         lastFailureAt: null,
         lastFailureKind: null,
+        lastFailureEventId: null,
+        lastFailureDispatchId: null,
+        lastFailureMessageId: null,
+        lastFailureTaskId: null,
         errorStreak: null,
         timeoutStreak: null
       });
+      this.clearInFlightDispatchSession(project.projectId, updated.sessionId);
       await this.context.repositories.events.appendEvent(paths, {
         projectId: project.projectId,
         eventType: "SESSION_STATUS_REPAIRED",
@@ -184,8 +193,15 @@ export class ProjectSessionRuntimeService {
         currentTaskId: null,
         lastInboxMessageId: null,
         agentPid: null,
-        cooldownUntil: null
+        cooldownUntil: null,
+        lastFailureAt: null,
+        lastFailureKind: null,
+        lastFailureEventId: null,
+        lastFailureDispatchId: null,
+        lastFailureMessageId: null,
+        lastFailureTaskId: null
       });
+      this.clearInFlightDispatchSession(project.projectId, dismissed.sessionId);
       let mappingCleared = false;
       if (project.roleSessionMap?.[session.role] === session.sessionId) {
         await this.context.repositories.projectRuntime.clearRoleSessionMapping(project.projectId, session.role);
@@ -226,6 +242,8 @@ export class ProjectSessionRuntimeService {
         dataRoot: this.context.dataRoot,
         repositories: this.context.repositories,
         sessionRunningTimeoutMs: this.context.sessionRunningTimeoutMs,
+        clearInFlightDispatchSession: (targetProjectId, sessionId) =>
+          this.clearInFlightDispatchSession(targetProjectId, sessionId),
         terminateSessionProcess: async (targetProject, targetPaths, targetSession, reason) =>
           this.terminateSessionProcessInternal(targetProject, targetPaths, targetSession, reason)
       },

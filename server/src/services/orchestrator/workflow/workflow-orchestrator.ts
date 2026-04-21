@@ -213,6 +213,7 @@ export class WorkflowOrchestratorService {
     runId: string,
     input: {
       role?: string;
+      sessionId?: string;
       taskId?: string;
       force?: boolean;
       onlyIdle?: boolean;

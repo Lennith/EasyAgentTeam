@@ -22,6 +22,7 @@ export interface WorkflowDispatchLoopState {
   runtime: WorkflowRunRuntimeState;
   sessions: WorkflowSessionRecord[];
   role?: string;
+  sessionFilter?: string;
   taskFilter?: string;
   force: boolean;
   onlyIdle: boolean;
@@ -32,6 +33,7 @@ export interface WorkflowDispatchLoopState {
 
 export interface WorkflowDispatchLoopInput {
   role?: string;
+  sessionId?: string;
   taskId?: string;
   force?: boolean;
   onlyIdle?: boolean;
@@ -89,6 +91,7 @@ export async function createWorkflowDispatchLoopState(
       runtime: await context.ensureRuntime(run),
       sessions: await context.repositories.sessions.listSessions(runId),
       role: input.role?.trim(),
+      sessionFilter: input.sessionId?.trim(),
       taskFilter: input.taskId?.trim(),
       force: Boolean(input.force),
       onlyIdle: Boolean(input.onlyIdle),
@@ -174,7 +177,14 @@ export async function runWorkflowDispatchLoop(
             currentTaskId: selection.taskId,
             lastDispatchedAt: new Date().toISOString(),
             lastDispatchId: dispatchId,
-            lastDispatchedMessageId: messageId ?? null
+            lastDispatchedMessageId: messageId ?? null,
+            lastFailureAt: null,
+            lastFailureKind: null,
+            lastFailureEventId: null,
+            lastFailureDispatchId: null,
+            lastFailureMessageId: null,
+            lastFailureTaskId: null,
+            cooldownUntil: null
           })
           .catch(() => {});
 
@@ -207,6 +217,7 @@ export async function runWorkflowDispatchLoop(
           },
           {
             role: loopState.role,
+            sessionId: loopState.sessionFilter,
             taskId: loopState.taskFilter,
             force: loopState.force,
             onlyIdle: loopState.onlyIdle,

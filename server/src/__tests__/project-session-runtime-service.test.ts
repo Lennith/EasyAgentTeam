@@ -34,7 +34,8 @@ test("project session runtime service returns skipped_no_pid when session has no
       dataRoot: fixture.dataRoot,
       providerRegistry: {} as any,
       repositories: fixture.repositories,
-      sessionRunningTimeoutMs: 60_000
+      sessionRunningTimeoutMs: 60_000,
+      clearInFlightDispatchSession: () => {}
     });
 
     const result = await service.terminateSessionProcess(created.project.projectId, "session-dev", "manual_test");
@@ -58,7 +59,8 @@ test("project session runtime service repairs session status and appends repair 
       dataRoot: fixture.dataRoot,
       providerRegistry: {} as any,
       repositories: fixture.repositories,
-      sessionRunningTimeoutMs: 60_000
+      sessionRunningTimeoutMs: 60_000,
+      clearInFlightDispatchSession: () => {}
     });
 
     const repaired = await service.repairSessionStatus(

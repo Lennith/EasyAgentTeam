@@ -85,7 +85,10 @@ export function createWorkflowOrchestratorComposition(
     providerRegistry: input.providerRegistry,
     sessionRunningTimeoutMs: input.options.sessionRunningTimeoutMs,
     sessionHeartbeatThrottle,
-    buildRunSessionKey: transientState.buildRunSessionKey
+    buildRunSessionKey: transientState.buildRunSessionKey,
+    clearInFlightDispatchSession: (runId, sessionId) => {
+      inFlightDispatchSessionKeys.delete(transientState.buildRunSessionKey(runId, sessionId));
+    }
   });
 
   let dispatchService!: WorkflowDispatchService;

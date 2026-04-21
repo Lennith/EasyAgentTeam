@@ -67,7 +67,10 @@ export class OrchestratorService {
       dataRoot: this.options.dataRoot,
       providerRegistry: this.options.providerRegistry,
       repositories: this.repositories,
-      sessionRunningTimeoutMs: this.options.sessionRunningTimeoutMs
+      sessionRunningTimeoutMs: this.options.sessionRunningTimeoutMs,
+      clearInFlightDispatchSession: (projectId, sessionId) => {
+        this.inFlightDispatchSessionKeys.delete(buildOrchestratorContextSessionKey(projectId, sessionId));
+      }
     });
     this.reminderService = new ProjectReminderService({
       dataRoot: this.options.dataRoot,

@@ -11,6 +11,10 @@ export interface ResolveRecoveryActionsInput {
   current_task_id?: string | null;
   cooldown_until?: string | null;
   last_failure_kind?: RecoveryFailureKind | null;
+  last_failure_event_id?: string | null;
+  last_failure_dispatch_id?: string | null;
+  last_failure_message_id?: string | null;
+  last_failure_task_id?: string | null;
   provider_session_id?: string | null;
   role_session_mapping?: RecoveryMappingState;
   process_state?: RecoveryProcessState;
@@ -109,6 +113,15 @@ function mergeRiskMessages(...messages: Array<string | null | undefined>): strin
   return normalized.join(" ");
 }
 
+function hasRecoveryFailureContext(input: ResolveRecoveryActionsInput): boolean {
+  return Boolean(
+    input.last_failure_event_id ||
+    input.last_failure_dispatch_id ||
+    input.last_failure_message_id ||
+    input.last_failure_task_id
+  );
+}
+
 export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): RecoveryActionPolicy {
   const currentTaskRisk = buildCurrentTaskRisk(input.current_task_id ?? null);
   const coolingDown = isCooldownActive(input.cooldown_until ?? null);
@@ -205,8 +218,10 @@ export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): Reco
     can_dismiss: true,
     can_repair_to_idle: false,
     can_repair_to_blocked: false,
-    can_retry_dispatch: Boolean(input.current_task_id || input.last_failure_kind || input.provider_session_id),
-    disabled_reason: "Session is already idle and does not need manual repair.",
+    can_retry_dispatch: hasRecoveryFailureContext(input),
+    disabled_reason: hasRecoveryFailureContext(input)
+      ? "Session is already idle and ready for guarded retry dispatch."
+      : "Session is already idle but has no active failure context for retry dispatch.",
     risk: currentTaskRisk ?? (hasProviderBinding ? "Provider binding is still present on this idle session." : null),
     requires_confirmation: false
   };

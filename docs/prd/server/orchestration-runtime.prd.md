@@ -1,8 +1,8 @@
-# 编排运行时 PRD（最后更新：2026-04-20）
+# 编排运行时 PRD（最后更新：2026-04-21）
 
 ## 状态
 
-- 文档状态：`实装`
+- 文档状态：`验证中`
 
 ## 目标
 
@@ -21,9 +21,14 @@
 - session 的活跃、阻塞、终态由编排生命周期统一收口
 - project / workflow 都提供 scope 内 recovery 视图所需的会话恢复读模型，围绕 session、当前任务、最近失败、cooldown 与最近恢复审计片段聚合恢复信息
 - Recovery Center 的可操作性由后端统一 action policy 决定，不允许前端仅凭 session.status 自行推导 `dismiss` / `repair`
-- project / workflow 都支持手动 dismiss、repair 与 retry-dispatch，并且对齐到同一套恢复语义：dismiss 终止当前运行并清空当前任务，repair 只允许恢复到受 policy 允许的 `idle` 或 `blocked`，retry-dispatch 只允许在 `idle`、非 cooldown、具备恢复上下文且本地进程状态已确认不再运行的 session 上触发
+- project / workflow 都支持手动 dismiss、repair 与 retry-dispatch，并且对齐到同一套恢复语义：dismiss 终止当前运行并清空当前任务，repair 只允许恢复到受 policy 允许的 `idle` 或 `blocked`，retry-dispatch 只允许在 `idle`、非 cooldown、具备 failure context、authoritative role mapping 仍匹配且本地进程状态已确认不再运行的 session 上触发
 - 所有 `requires_confirmation=true` 的 recovery command 都必须显式携带确认字段；缺少确认时返回稳定错误，而不是隐式执行高风险操作
 - dismiss / repair / retry-dispatch 的 command contract 由后端统一定义；route 只做请求解析与调用，不再各自拼装恢复规则
+- retry-dispatch command 采用 optimistic guard：route 可传入 `expected_status`、`expected_role_mapping`、`expected_current_task_id`、`expected_last_failure_at` 与 failure context 字段，command service 必须重新读取最新 session 并在同一命令内完成 guard 校验、审计写入与 dispatch 调用
+- retry-dispatch 默认强制 `onlyIdle=true` 且不暴露公开 `force` 开关；只有后端内部显式高风险恢复路径才允许覆盖该默认值
+- reminder 触发后的自动 redispatch 也必须遵守 `onlyIdle=true`；reminder 只负责补发提醒与驱动 idle session 重新进入正常 dispatch，不允许绕开 idle gate 抢占运行中或未完成收口的 session
+- session 恢复上下文除了 `last_failure_at / last_failure_kind` 外，还必须沉淀 `last_failure_event_id`、`last_failure_dispatch_id`、`last_failure_message_id`、`last_failure_task_id`，供 recovery read model 展示与 retry-dispatch guard 回填
+- retry-dispatch 审计事件语义分为 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED`；读模型兼容历史 `REQUESTED`，但新实现必须区分请求、接受与拒绝
 - dismiss 采用“外部停止结果审计 -> 本地 dismiss 落盘”两阶段审计；外部停止未确认时不允许继续写本地 dismiss 状态
 - dismiss / repair 的对外响应会返回统一 command contract，包含前后状态、外部取消结果、本地终止结果、映射清理结果与 warnings
 - recovery read model 与 recovery command enforcement 共享同一套 policy context builder，确保 Recovery Center 展示与实际命令约束一致；当 session 非 `running` 但仍保留 `agentPid` 时，policy 会把进程状态视为 `unknown`，只允许先执行 dismiss，不允许 repair 或 retry-dispatch
@@ -32,7 +37,8 @@
 - provider 暂态错误不会把 session 直接落成 `dismissed`；编排会把 session 置回 `idle` 并写入 cooldown，等待下一轮 reminder / tick 重试
 - project provider audit 仍只认最终 active `roleSessionMap` 中的 authoritative session；历史 dismissed session 不参与 provider audit 结论
 - `project + codex` 运行时必须把有效 JSON item、尾段终态工具调用与 turn 收尾视作真实活跃信号，heartbeat 写入失败必须留下内部审计事件，不能静默吞掉
-- project timeout scanner 在真正执行 heartbeat timeout kill 前必须重判当前 running session：只要 heartbeat 已刷新，或当前 task 已被同一 session 最近成功上报为 `DONE / BLOCKED_DEP`，就跳过本次 timeout kill，避免刚完成上报的 session 被误 dismiss
+- project timeout scanner 在真正执行 heartbeat timeout kill 前必须重判当前 running session：只要 heartbeat 已刷新，或当前 task 已被同一 session 最近成功上报为 `DONE / BLOCKED_DEP / CANCELED`，就跳过本次 timeout kill，避免刚完成上报的 session 被误 dismiss
+- project / workflow 的 timeout soft-close、dismiss 与 repair 在把 dispatch 收口到非运行态后，必须同步释放对应 session 的内存态 in-flight dispatch gate；一旦 dispatch 已被事件流判定 closed，就不允许残留 gate 继续把后续 reminder redispatch 或手动 retry 错误挡成 `session_busy`
 - project discuss 消息在路由到目标角色前必须做 task 绑定归一：如果回复消息误绑到发送方已完成任务，但目标角色存在依赖该任务的非终态焦点任务，则消息必须重绑到目标角色的那个焦点任务，确保后续 redispatch 能按 active focus task 选中该 discuss reply
 - 工程分解阶段在首次收敛前必须先产出至少一个非 manager 执行子任务；只有分解结果已经落成可执行任务树时，父阶段才能报告完成
 - 工程分解阶段生成的子任务只允许覆盖当前阶段可立即推进的执行工作，不允许把依赖未来 phase 的 QA / release 工作提前挂到当前阶段子树里

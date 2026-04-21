@@ -67,6 +67,7 @@ test("project reminder service triggers reminder, appends inbox/event, and redis
     );
     assert.equal(dispatchCalls.length, 1);
     assert.equal(dispatchCalls[0]?.taskId, "task_exec");
+    assert.equal(dispatchCalls[0]?.onlyIdle, true);
   } finally {
     fixture.cleanup();
   }

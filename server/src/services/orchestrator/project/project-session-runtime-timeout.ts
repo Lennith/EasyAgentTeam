@@ -14,6 +14,7 @@ export interface ProjectSessionTimeoutDependencies {
   dataRoot: string;
   repositories: ProjectRepositoryBundle;
   sessionRunningTimeoutMs: number;
+  clearInFlightDispatchSession(projectId: string, sessionId: string): void;
   terminateSessionProcess(
     project: ProjectRecord,
     paths: ProjectPaths,
@@ -22,7 +23,7 @@ export interface ProjectSessionTimeoutDependencies {
   ): Promise<unknown>;
 }
 
-const TERMINAL_PROTECTION_TASK_STATES = new Set(["DONE", "BLOCKED_DEP"]);
+const TERMINAL_PROTECTION_TASK_STATES = new Set(["DONE", "BLOCKED_DEP", "CANCELED"]);
 const TERMINAL_REPORT_TOOL_NAMES = new Set(["task_report_done", "task_report_block"]);
 const MAX_TERMINAL_REPORT_PROTECTION_MS = 15_000;
 
@@ -320,5 +321,6 @@ export async function markProjectTimedOutSessions(
         escalated: timeoutResult.escalated
       }
     });
+    dependencies.clearInFlightDispatchSession(project.projectId, activeSession.sessionId);
   }
 }

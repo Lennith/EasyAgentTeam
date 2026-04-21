@@ -28,6 +28,7 @@ interface WorkflowSessionRuntimeContext extends WorkflowSessionAuthorityContext 
   sessionRunningTimeoutMs: number;
   sessionHeartbeatThrottle: Map<string, number>;
   buildRunSessionKey(runId: string, sessionId: string): string;
+  clearInFlightDispatchSession(runId: string, sessionId: string): void;
 }
 
 function resolveRecoveryAuditSource(actor: "dashboard" | "api"): "dashboard" | "system" {
@@ -36,6 +37,10 @@ function resolveRecoveryAuditSource(actor: "dashboard" | "api"): "dashboard" | "
 
 export class WorkflowSessionRuntimeService {
   constructor(private readonly context: WorkflowSessionRuntimeContext) {}
+
+  private clearInFlightDispatchSession(runId: string, sessionId: string): void {
+    this.context.clearInFlightDispatchSession(runId, sessionId);
+  }
 
   private buildWorkflowProviderCancelResult(cancelled: boolean): RecoveryProviderCancelResult {
     return {
@@ -150,8 +155,15 @@ export class WorkflowSessionRuntimeService {
         status: "dismissed",
         currentTaskId: null,
         agentPid: null,
-        cooldownUntil: null
+        cooldownUntil: null,
+        lastFailureAt: null,
+        lastFailureKind: null,
+        lastFailureEventId: null,
+        lastFailureDispatchId: null,
+        lastFailureMessageId: null,
+        lastFailureTaskId: null
       });
+      this.clearInFlightDispatchSession(run.runId, dismissed.sessionId);
       let mappingCleared = false;
       if (run.roleSessionMap?.[session.role] === session.sessionId) {
         const nextMap = { ...(run.roleSessionMap ?? {}) };
@@ -210,9 +222,14 @@ export class WorkflowSessionRuntimeService {
         cooldownUntil: null,
         lastFailureAt: null,
         lastFailureKind: null,
+        lastFailureEventId: null,
+        lastFailureDispatchId: null,
+        lastFailureMessageId: null,
+        lastFailureTaskId: null,
         errorStreak: null,
         timeoutStreak: null
       });
+      this.clearInFlightDispatchSession(run.runId, repaired.sessionId);
       await this.context.repositories.events.appendEvent(run.runId, {
         eventType: "SESSION_STATUS_REPAIRED",
         source: resolveRecoveryAuditSource(actor),
@@ -250,6 +267,8 @@ export class WorkflowSessionRuntimeService {
         repositories: this.context.repositories,
         providerRegistry: this.context.providerRegistry,
         sessionRunningTimeoutMs: this.context.sessionRunningTimeoutMs,
+        clearInFlightDispatchSession: (targetRunId, sessionId) =>
+          this.clearInFlightDispatchSession(targetRunId, sessionId),
         resolveAuthoritativeSession: (runId, role, candidateSessions, runRecord, reason) =>
           this.resolveAuthoritativeSession(runId, role, candidateSessions, runRecord, reason)
       },

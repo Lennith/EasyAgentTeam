@@ -98,17 +98,29 @@ function resolveDispatchKind(messageId: string | undefined): "task" | "message" 
   return messageId ? "message" : "task";
 }
 
+function buildClearedFailureContextPatch() {
+  return {
+    lastFailureAt: null,
+    lastFailureKind: null,
+    lastFailureEventId: null,
+    lastFailureDispatchId: null,
+    lastFailureMessageId: null,
+    lastFailureTaskId: null
+  } as const;
+}
+
 async function applyRunnerFailureTransition(
   input: RunnerLifecycleBaseInput,
   existing: SessionRecord,
   transition: RunnerFailureTransitionResult
 ): Promise<SessionRecord | null> {
+  const failedTaskId =
+    transition.session_patch.currentTaskId === undefined
+      ? (input.taskId ?? existing.currentTaskId ?? null)
+      : transition.session_patch.currentTaskId;
   const updated = await touchSession(input.paths, input.project.projectId, existing.sessionId, {
     status: transition.session_patch.status,
-    currentTaskId:
-      transition.session_patch.currentTaskId === undefined
-        ? (input.taskId ?? existing.currentTaskId ?? null)
-        : transition.session_patch.currentTaskId,
+    currentTaskId: failedTaskId,
     lastInboxMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
     lastDispatchedAt: transition.session_patch.lastFailureAt,
     providerSessionId: input.providerSessionId === undefined ? existing.providerSessionId : input.providerSessionId,
@@ -117,13 +129,16 @@ async function applyRunnerFailureTransition(
     timeoutStreak: transition.session_patch.timeoutStreak,
     lastFailureAt: transition.session_patch.lastFailureAt,
     lastFailureKind: transition.session_patch.lastFailureKind,
+    lastFailureDispatchId: input.dispatchId ?? existing.lastDispatchId ?? null,
+    lastFailureMessageId: input.messageId ?? existing.lastInboxMessageId ?? null,
+    lastFailureTaskId: failedTaskId,
     lastRunId: input.runId ?? existing.lastRunId,
     lastDispatchId: input.dispatchId ?? existing.lastDispatchId,
     cooldownUntil: transition.session_patch.cooldownUntil,
     agentPid: null
   });
 
-  await appendEvent(input.paths, {
+  const failureEvent = await appendEvent(input.paths, {
     projectId: input.project.projectId,
     eventType: transition.event_type,
     source: "manager",
@@ -131,7 +146,9 @@ async function applyRunnerFailureTransition(
     taskId: updated.currentTaskId,
     payload: transition.event_payload
   });
-  return updated;
+  return await touchSession(input.paths, input.project.projectId, updated.sessionId, {
+    lastFailureEventId: failureEvent.eventId
+  });
 }
 
 function pickWinner(sessions: SessionRecord[], mappedSessionId?: string): SessionRecord {
@@ -250,7 +267,8 @@ export async function markRunnerStarted(input: RunnerLifecycleBaseInput): Promis
     provider: input.provider ?? existing.provider ?? "minimax",
     lastRunId: input.runId ?? existing.lastRunId,
     lastDispatchId: input.dispatchId ?? existing.lastDispatchId,
-    cooldownUntil: null
+    cooldownUntil: null,
+    ...buildClearedFailureContextPatch()
   });
 
   await resolveActiveSessionForRole({
@@ -279,8 +297,7 @@ export async function markRunnerSuccess(input: RunnerLifecycleBaseInput): Promis
     provider: input.provider ?? existing.provider ?? "minimax",
     timeoutStreak: 0,
     errorStreak: 0,
-    lastFailureAt: null,
-    lastFailureKind: null,
+    ...buildClearedFailureContextPatch(),
     lastRunId: input.runId ?? existing.lastRunId,
     lastDispatchId: input.dispatchId ?? existing.lastDispatchId,
     cooldownUntil: null

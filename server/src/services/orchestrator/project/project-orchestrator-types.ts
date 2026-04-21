@@ -87,6 +87,7 @@ export interface ProjectSessionRuntimeContext {
   providerRegistry: ProviderRegistry;
   repositories: ProjectRepositoryBundle;
   sessionRunningTimeoutMs: number;
+  clearInFlightDispatchSession(projectId: string, sessionId: string): void;
 }
 
 export interface ProjectReminderContext {

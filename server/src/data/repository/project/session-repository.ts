@@ -121,6 +121,10 @@ export async function addSession(
     errorStreak?: number;
     lastFailureAt?: string;
     lastFailureKind?: "timeout" | "error";
+    lastFailureEventId?: string;
+    lastFailureDispatchId?: string;
+    lastFailureMessageId?: string;
+    lastFailureTaskId?: string;
     lastRunId?: string;
     lastDispatchId?: string;
     cooldownUntil?: string;
@@ -154,6 +158,10 @@ export async function addSession(
         errorStreak: input.errorStreak ?? existing.errorStreak,
         lastFailureAt: input.lastFailureAt ?? existing.lastFailureAt,
         lastFailureKind: input.lastFailureKind ?? existing.lastFailureKind,
+        lastFailureEventId: input.lastFailureEventId ?? existing.lastFailureEventId,
+        lastFailureDispatchId: input.lastFailureDispatchId ?? existing.lastFailureDispatchId,
+        lastFailureMessageId: input.lastFailureMessageId ?? existing.lastFailureMessageId,
+        lastFailureTaskId: input.lastFailureTaskId ?? existing.lastFailureTaskId,
         lastRunId: input.lastRunId ?? existing.lastRunId,
         lastDispatchId: input.lastDispatchId ?? existing.lastDispatchId,
         cooldownUntil: input.cooldownUntil ?? existing.cooldownUntil,
@@ -184,6 +192,10 @@ export async function addSession(
       errorStreak: input.errorStreak,
       lastFailureAt: input.lastFailureAt,
       lastFailureKind: input.lastFailureKind,
+      lastFailureEventId: input.lastFailureEventId,
+      lastFailureDispatchId: input.lastFailureDispatchId,
+      lastFailureMessageId: input.lastFailureMessageId,
+      lastFailureTaskId: input.lastFailureTaskId,
       lastRunId: input.lastRunId,
       lastDispatchId: input.lastDispatchId,
       cooldownUntil: input.cooldownUntil
@@ -225,6 +237,10 @@ export async function touchSession(
     errorStreak?: number | null;
     lastFailureAt?: string | null;
     lastFailureKind?: "timeout" | "error" | null;
+    lastFailureEventId?: string | null;
+    lastFailureDispatchId?: string | null;
+    lastFailureMessageId?: string | null;
+    lastFailureTaskId?: string | null;
     lastRunId?: string | null;
     lastDispatchId?: string | null;
     cooldownUntil?: string | null;
@@ -286,6 +302,22 @@ export async function touchSession(
         patch.lastFailureKind === null
           ? undefined
           : patch.lastFailureKind ?? existing.lastFailureKind,
+      lastFailureEventId:
+        patch.lastFailureEventId === null
+          ? undefined
+          : patch.lastFailureEventId ?? existing.lastFailureEventId,
+      lastFailureDispatchId:
+        patch.lastFailureDispatchId === null
+          ? undefined
+          : patch.lastFailureDispatchId ?? existing.lastFailureDispatchId,
+      lastFailureMessageId:
+        patch.lastFailureMessageId === null
+          ? undefined
+          : patch.lastFailureMessageId ?? existing.lastFailureMessageId,
+      lastFailureTaskId:
+        patch.lastFailureTaskId === null
+          ? undefined
+          : patch.lastFailureTaskId ?? existing.lastFailureTaskId,
       lastRunId:
         patch.lastRunId === null
           ? undefined

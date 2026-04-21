@@ -124,11 +124,14 @@ export async function handleMissingWorkflowMiniMaxConfiguration(
     errorStreak: transition.session_patch.errorStreak,
     lastFailureAt: transition.session_patch.lastFailureAt,
     lastFailureKind: transition.session_patch.lastFailureKind,
+    lastFailureDispatchId: context.dispatchId,
+    lastFailureMessageId: context.messageId ?? null,
+    lastFailureTaskId: transition.session_patch.currentTaskId ?? context.taskId,
     cooldownUntil: transition.session_patch.cooldownUntil,
     agentPid: null,
     lastRunId: context.runId
   });
-  await dependencies.repositories.events.appendEvent(context.runId, {
+  const failureEvent = await dependencies.repositories.events.appendEvent(context.runId, {
     eventType: transition.event_type,
     source: "system",
     sessionId: context.sessionId,
@@ -137,6 +140,9 @@ export async function handleMissingWorkflowMiniMaxConfiguration(
       request_id: context.requestId,
       ...transition.event_payload
     }
+  });
+  await dependencies.repositories.sessions.touchSession(context.runId, context.sessionId, {
+    lastFailureEventId: failureEvent.eventId
   });
 }
 
@@ -210,6 +216,10 @@ export async function handleWorkflowDispatchLaunchResult(
     errorStreak: 0,
     lastFailureAt: null,
     lastFailureKind: null,
+    lastFailureEventId: null,
+    lastFailureDispatchId: null,
+    lastFailureMessageId: null,
+    lastFailureTaskId: null,
     cooldownUntil: null,
     lastRunId: context.runId
   });
@@ -324,12 +334,15 @@ export async function handleWorkflowDispatchLaunchError(
       errorStreak: transition.session_patch.errorStreak,
       lastFailureAt: transition.session_patch.lastFailureAt,
       lastFailureKind: transition.session_patch.lastFailureKind,
+      lastFailureDispatchId: context.dispatchId,
+      lastFailureMessageId: context.messageId ?? null,
+      lastFailureTaskId: transition.session_patch.currentTaskId ?? context.taskId,
       cooldownUntil: transition.session_patch.cooldownUntil,
       agentPid: null,
       lastRunId: context.runId
     })
     .catch(() => {});
-  await dependencies.repositories.events
+  const failureEvent = await dependencies.repositories.events
     .appendEvent(context.runId, {
       eventType: transition.event_type,
       source: "system",
@@ -341,4 +354,11 @@ export async function handleWorkflowDispatchLaunchError(
       }
     })
     .catch(() => {});
+  if (failureEvent) {
+    await dependencies.repositories.sessions
+      .touchSession(context.runId, context.sessionId, {
+        lastFailureEventId: failureEvent.eventId
+      })
+      .catch(() => {});
+  }
 }

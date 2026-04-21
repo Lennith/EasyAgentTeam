@@ -104,6 +104,7 @@ test("workflow dispatch launch support appends failed event and dismisses sessio
           listEvents: async () => [],
           appendEvent: async (_runId: string, event: Record<string, unknown>) => {
             appended.push(event);
+            return { eventId: "event-fatal" };
           }
         },
         sessions: {
@@ -149,9 +150,15 @@ test("workflow dispatch launch support appends failed event and dismisses sessio
       errorStreak: 4,
       lastFailureAt: touched[0]?.lastFailureAt,
       lastFailureKind: "error",
+      lastFailureDispatchId: "dispatch-1",
+      lastFailureMessageId: null,
+      lastFailureTaskId: "task-1",
       cooldownUntil: null,
       agentPid: null,
       lastRunId: "run-1"
+    },
+    {
+      lastFailureEventId: "event-fatal"
     }
   ]);
   assert.equal(typeof (touched[0]?.lastFailureAt as string | undefined), "string");

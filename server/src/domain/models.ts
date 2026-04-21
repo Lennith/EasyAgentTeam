@@ -133,6 +133,10 @@ export interface SessionRecord {
   errorStreak?: number;
   lastFailureAt?: string;
   lastFailureKind?: "timeout" | "error";
+  lastFailureEventId?: string;
+  lastFailureDispatchId?: string;
+  lastFailureMessageId?: string;
+  lastFailureTaskId?: string;
   lastRunId?: string;
   lastDispatchId?: string;
   cooldownUntil?: string;
@@ -848,6 +852,10 @@ export interface WorkflowSessionRecord {
   errorStreak?: number;
   lastFailureAt?: string;
   lastFailureKind?: "timeout" | "error";
+  lastFailureEventId?: string;
+  lastFailureDispatchId?: string;
+  lastFailureMessageId?: string;
+  lastFailureTaskId?: string;
   cooldownUntil?: string;
   lastRunId?: string;
   agentPid?: number;

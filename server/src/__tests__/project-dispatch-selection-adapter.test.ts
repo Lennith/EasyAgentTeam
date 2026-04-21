@@ -107,6 +107,10 @@ function createSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
     errorStreak: overrides.errorStreak,
     lastFailureAt: overrides.lastFailureAt,
     lastFailureKind: overrides.lastFailureKind,
+    lastFailureEventId: overrides.lastFailureEventId,
+    lastFailureDispatchId: overrides.lastFailureDispatchId,
+    lastFailureMessageId: overrides.lastFailureMessageId,
+    lastFailureTaskId: overrides.lastFailureTaskId,
     lastRunId: overrides.lastRunId,
     lastDispatchId: overrides.lastDispatchId,
     cooldownUntil: overrides.cooldownUntil
@@ -323,7 +327,10 @@ test("project dispatch selection retries same undelivered message after prior fa
         currentTaskId: "task_retry",
         lastInboxMessageId: "msg-retry",
         lastFailureAt: "2026-03-28T10:01:00.000Z",
-        lastFailureKind: "error"
+        lastFailureKind: "error",
+        lastFailureEventId: "evt-retry",
+        lastFailureMessageId: "msg-retry",
+        lastFailureTaskId: "task_retry"
       })
     },
     { mode: "loop" }

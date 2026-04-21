@@ -33,7 +33,9 @@ const RECOVERY_AUDIT_EVENT_TYPES = new Set([
   "SESSION_DISMISS_EXTERNAL_RESULT",
   "SESSION_STATUS_REPAIRED",
   "SESSION_STATUS_DISMISSED",
-  "SESSION_RETRY_DISPATCH_REQUESTED"
+  "SESSION_RETRY_DISPATCH_REQUESTED",
+  "SESSION_RETRY_DISPATCH_ACCEPTED",
+  "SESSION_RETRY_DISPATCH_REJECTED"
 ]);
 
 const RECENT_FAILURE_WINDOW_MS = 30 * 60 * 1000;
@@ -42,6 +44,10 @@ const RECOVERY_EVENT_SUMMARY_LIMIT = 4;
 interface RecoveryFailureRecord {
   last_failure_at: string | null;
   last_failure_kind: RecoveryFailureKind | null;
+  last_failure_event_id: string | null;
+  last_failure_dispatch_id: string | null;
+  last_failure_message_id: string | null;
+  last_failure_task_id: string | null;
   retryable: boolean | null;
   code: string | null;
   message: string | null;
@@ -55,6 +61,10 @@ interface RecoverySignalSource {
   cooldownUntil?: string;
   lastFailureAt?: string;
   lastFailureKind?: RecoveryFailureKind;
+  lastFailureEventId?: string;
+  lastFailureDispatchId?: string;
+  lastFailureMessageId?: string;
+  lastFailureTaskId?: string;
   errorStreak?: number;
   timeoutStreak?: number;
 }
@@ -74,9 +84,14 @@ export interface RuntimeRecoveryItem {
   current_task_id: string | null;
   current_task_title: string | null;
   current_task_state: string | null;
+  role_session_mapping: "authoritative" | "stale" | "none";
   cooldown_until: string | null;
   last_failure_at: string | null;
   last_failure_kind: RecoveryFailureKind | null;
+  last_failure_event_id: string | null;
+  last_failure_dispatch_id: string | null;
+  last_failure_message_id: string | null;
+  last_failure_task_id: string | null;
   error_streak: number;
   timeout_streak: number;
   retryable: boolean | null;
@@ -174,8 +189,15 @@ function summarizeRecoveryEventPayload(eventType: string, payload: Record<string
   }
   if (eventType === "SESSION_RETRY_DISPATCH_REQUESTED") {
     const dispatchScope = readString(payload.dispatch_scope) ?? "role";
-    const accepted = payload.accepted === true ? "accepted" : "rejected";
-    return `retry ${accepted} (${dispatchScope})`;
+    return `retry requested (${dispatchScope})`;
+  }
+  if (eventType === "SESSION_RETRY_DISPATCH_ACCEPTED") {
+    const dispatchScope = readString(payload.dispatch_scope) ?? "role";
+    return `retry accepted (${dispatchScope})`;
+  }
+  if (eventType === "SESSION_RETRY_DISPATCH_REJECTED") {
+    const dispatchScope = readString(payload.dispatch_scope) ?? "role";
+    return `retry rejected (${dispatchScope})`;
   }
   if (eventType === "SESSION_DISMISS_EXTERNAL_RESULT") {
     const providerCancel = asRecord(payload.provider_cancel);
@@ -232,6 +254,10 @@ function buildFailureRecord<TEvent extends { eventType: string; createdAt: strin
   return {
     last_failure_at: session.lastFailureAt ?? latest?.createdAt ?? null,
     last_failure_kind: session.lastFailureKind ?? fallbackKind,
+    last_failure_event_id: session.lastFailureEventId ?? null,
+    last_failure_dispatch_id: session.lastFailureDispatchId ?? null,
+    last_failure_message_id: session.lastFailureMessageId ?? null,
+    last_failure_task_id: session.lastFailureTaskId ?? null,
     retryable: typeof payload.retryable === "boolean" ? payload.retryable : null,
     code: readString(payload.code),
     message: readString(payload.error ?? payload.message),
@@ -288,13 +314,14 @@ function buildProjectRecoveryItem(
 ): RuntimeRecoveryItem {
   const currentTask = session.currentTaskId ? (tasksById.get(session.currentTaskId) ?? null) : null;
   const failure = buildFailureRecord(session, latestFailureBySession.get(session.sessionId));
-  const { policy } = buildRecoveryPolicyContext({
+  const contextResult = buildRecoveryPolicyContext({
     scope_kind: "project",
     session,
     role_session_map: project.roleSessionMap,
     last_failure_kind: failure.last_failure_kind,
     provider_session_id: session.providerSessionId ?? null
   });
+  const { policy } = contextResult;
   return {
     role: session.role,
     session_id: session.sessionId,
@@ -304,9 +331,14 @@ function buildProjectRecoveryItem(
     current_task_id: session.currentTaskId ?? null,
     current_task_title: currentTask?.title ?? null,
     current_task_state: currentTask?.state ?? null,
+    role_session_mapping: contextResult.input.role_session_mapping ?? "none",
     cooldown_until: session.cooldownUntil ?? null,
     last_failure_at: failure.last_failure_at,
     last_failure_kind: failure.last_failure_kind,
+    last_failure_event_id: failure.last_failure_event_id,
+    last_failure_dispatch_id: failure.last_failure_dispatch_id,
+    last_failure_message_id: failure.last_failure_message_id,
+    last_failure_task_id: failure.last_failure_task_id,
     error_streak: session.errorStreak ?? 0,
     timeout_streak: session.timeoutStreak ?? 0,
     retryable: failure.retryable,
@@ -338,13 +370,14 @@ function buildWorkflowRecoveryItem(
     : null;
   const runtimeTask = session.currentTaskId ? (runtimeTasksById.get(session.currentTaskId) ?? null) : null;
   const failure = buildFailureRecord(session, latestFailureBySession.get(session.sessionId));
-  const { policy } = buildRecoveryPolicyContext({
+  const contextResult = buildRecoveryPolicyContext({
     scope_kind: "workflow",
     session,
     role_session_map: run.roleSessionMap,
     last_failure_kind: failure.last_failure_kind,
     provider_session_id: session.providerSessionId ?? null
   });
+  const { policy } = contextResult;
   return {
     role: session.role,
     session_id: session.sessionId,
@@ -354,9 +387,14 @@ function buildWorkflowRecoveryItem(
     current_task_id: session.currentTaskId ?? null,
     current_task_title: taskTemplate?.resolvedTitle ?? taskTemplate?.title ?? null,
     current_task_state: runtimeTask?.state ?? null,
+    role_session_mapping: contextResult.input.role_session_mapping ?? "none",
     cooldown_until: session.cooldownUntil ?? null,
     last_failure_at: failure.last_failure_at,
     last_failure_kind: failure.last_failure_kind,
+    last_failure_event_id: failure.last_failure_event_id,
+    last_failure_dispatch_id: failure.last_failure_dispatch_id,
+    last_failure_message_id: failure.last_failure_message_id,
+    last_failure_task_id: failure.last_failure_task_id,
     error_streak: session.errorStreak ?? 0,
     timeout_streak: session.timeoutStreak ?? 0,
     retryable: failure.retryable,

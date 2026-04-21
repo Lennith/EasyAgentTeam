@@ -25,6 +25,7 @@ export interface WorkflowDispatchSelectionScope {
 
 export interface WorkflowDispatchSelectionInput {
   role?: string;
+  sessionId?: string;
   taskId?: string;
   force: boolean;
   onlyIdle: boolean;
@@ -80,6 +81,7 @@ export class WorkflowDispatchSelectionAdapter implements OrchestratorDispatchSel
     input: WorkflowDispatchSelectionInput
   ): Promise<WorkflowDispatchSelectionResult> {
     const roleFilter = input.role?.trim();
+    const sessionFilter = input.sessionId?.trim();
     const taskFilter = input.taskId?.trim();
     const runtimeTaskById = new Map(scope.runtime.tasks.map((task) => [task.taskId, task]));
     const roleSet = collectOrchestratorRoleSet({
@@ -99,6 +101,21 @@ export class WorkflowDispatchSelectionAdapter implements OrchestratorDispatchSel
         "dispatch"
       );
       if (!session) {
+        continue;
+      }
+      if (sessionFilter && session.sessionId !== sessionFilter) {
+        if (roleFilter === roleCandidate) {
+          return {
+            status: "skipped",
+            result: {
+              role: roleCandidate,
+              sessionId: session.sessionId,
+              taskId: taskFilter ?? null,
+              outcome: "invalid_target",
+              reason: "authoritative session changed"
+            }
+          };
+        }
         continue;
       }
       const sessionKey = this.context.buildRunSessionKey(scope.run.runId, session.sessionId);

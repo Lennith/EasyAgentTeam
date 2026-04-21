@@ -41,6 +41,10 @@ test("buildRecoveryPolicyInput uses shared context defaults", () => {
     current_task_id: "task-dev",
     cooldown_until: "2099-01-01T00:00:00.000Z",
     last_failure_kind: "error",
+    last_failure_event_id: null,
+    last_failure_dispatch_id: null,
+    last_failure_message_id: null,
+    last_failure_task_id: null,
     provider_session_id: "provider-dev",
     role_session_mapping: "authoritative",
     process_state: "unknown"

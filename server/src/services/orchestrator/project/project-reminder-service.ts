@@ -210,7 +210,7 @@ export class ProjectReminderService {
           sessionId: idleSession.sessionId,
           taskId: primaryTaskId,
           force: false,
-          onlyIdle: false,
+          onlyIdle: true,
           maxDispatches: 1
         });
         const redispatchOutcome = redispatchResult.results[0]?.outcome ?? "no_message";

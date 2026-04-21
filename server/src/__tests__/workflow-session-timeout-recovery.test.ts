@@ -10,6 +10,7 @@ import {
   patchWorkflowRun
 } from "../data/repository/workflow/run-repository.js";
 import { listWorkflowSessions, upsertWorkflowSession } from "../data/repository/workflow/runtime-repository.js";
+import { buildOrchestratorContextSessionKey } from "../services/orchestrator-core.js";
 import { createWorkflowOrchestratorService } from "../services/orchestrator/index.js";
 import { createProviderRegistry } from "../services/provider-runtime.js";
 
@@ -73,7 +74,15 @@ test("workflow timeout uses soft recovery (idle) before escalation", async () =>
         runRecord: NonNullable<typeof run>,
         sessions: Awaited<ReturnType<typeof listWorkflowSessions>>
       ) => Promise<void>;
+      dispatchService: {
+        context: {
+          inFlightDispatchSessionKeys: { add(key: string): void; size: number };
+        };
+      };
     };
+    orchestrator.dispatchService.context.inFlightDispatchSessionKeys.add(
+      buildOrchestratorContextSessionKey("wf_timeout_run", "wf_timeout_s_lead")
+    );
     await orchestrator.markTimedOutSessions(run, sessionsBefore);
 
     const sessionsAfter = await listWorkflowSessions(tempRoot, "wf_timeout_run");
@@ -82,6 +91,7 @@ test("workflow timeout uses soft recovery (idle) before escalation", async () =>
     assert.equal(session.status, "idle");
     assert.equal(session.timeoutStreak, 1);
     assert.equal(session.lastFailureKind, "timeout");
+    assert.equal(orchestrator.dispatchService.context.inFlightDispatchSessionKeys.size, 0);
 
     const timeoutDumpFiles = (await readdir(sessionDir)).filter((name) => name.startsWith("timeout_error_"));
     assert.equal(timeoutDumpFiles.length, 1);

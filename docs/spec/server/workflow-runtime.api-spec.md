@@ -68,6 +68,10 @@
   - `cooldown_until`
   - `last_failure_at`
   - `last_failure_kind`
+  - `last_failure_event_id`
+  - `last_failure_dispatch_id`
+  - `last_failure_message_id`
+  - `last_failure_task_id`
   - `next_action`
   - `raw_status`
   - `can_dismiss`
@@ -84,9 +88,12 @@
   - `repair` 返回 `action / session / previous_status / next_status / warnings`
 - workflow `retry-dispatch` 返回 `action / session / current_task_id / dispatch_scope / accepted / warnings`
 - `repair` 与 `retry-dispatch` 在 `requires_confirmation=true` 时必须显式提交 `confirm: true`
+- workflow `retry-dispatch` 请求体允许携带 optimistic guard：`expected_status`、`expected_role_mapping`、`expected_current_task_id`、`expected_last_failure_at`、`expected_last_failure_event_id`、`expected_last_failure_dispatch_id`、`expected_last_failure_message_id`、`expected_last_failure_task_id`
+- workflow `retry-dispatch` 的普通重试路径默认按 `onlyIdle=true`、`force=false` 执行；公开 API 不暴露 `force`
 - workflow recovery command rejection 统一返回：
   - `SESSION_RECOVERY_CONFIRMATION_REQUIRED`
   - `SESSION_RETRY_DISPATCH_NOT_ALLOWED`
   - `SESSION_DISMISS_EXTERNAL_STOP_UNCONFIRMED`
+- workflow retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分；读模型兼容历史 `REQUESTED`
 - workflow dismiss 先写 `SESSION_DISMISS_EXTERNAL_RESULT`，仅当 provider cancel 已确认或无需停止时才继续写 `SESSION_STATUS_DISMISSED`
 - workflow recovery actionability 由后端 policy 决定，`running` session 默认不允许 repair_to_idle

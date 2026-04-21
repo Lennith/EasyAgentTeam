@@ -16,6 +16,10 @@ export interface RecoveryPolicySessionLike {
   currentTaskId?: string | null;
   cooldownUntil?: string | null;
   lastFailureKind?: RecoveryFailureKind | null;
+  lastFailureEventId?: string | null;
+  lastFailureDispatchId?: string | null;
+  lastFailureMessageId?: string | null;
+  lastFailureTaskId?: string | null;
   providerSessionId?: string | null;
   agentPid?: number | null;
 }
@@ -66,6 +70,10 @@ export function buildRecoveryPolicyInput(input: BuildRecoveryPolicyContextInput)
     current_task_id: input.session.currentTaskId ?? null,
     cooldown_until: input.session.cooldownUntil ?? null,
     last_failure_kind: input.last_failure_kind ?? input.session.lastFailureKind ?? null,
+    last_failure_event_id: input.session.lastFailureEventId ?? null,
+    last_failure_dispatch_id: input.session.lastFailureDispatchId ?? null,
+    last_failure_message_id: input.session.lastFailureMessageId ?? null,
+    last_failure_task_id: input.session.lastFailureTaskId ?? null,
     provider_session_id: input.provider_session_id ?? input.session.providerSessionId ?? null,
     role_session_mapping: resolveRecoveryMappingState(
       input.role_session_map,

@@ -282,6 +282,10 @@ export async function upsertWorkflowSession(
     errorStreak?: number;
     lastFailureAt?: string;
     lastFailureKind?: "timeout" | "error";
+    lastFailureEventId?: string;
+    lastFailureDispatchId?: string;
+    lastFailureMessageId?: string;
+    lastFailureTaskId?: string;
     cooldownUntil?: string;
     lastRunId?: string;
   }
@@ -319,6 +323,10 @@ export async function upsertWorkflowSession(
             errorStreak: input.errorStreak ?? state.sessions[idx].errorStreak,
             lastFailureAt: input.lastFailureAt?.trim() || state.sessions[idx].lastFailureAt,
             lastFailureKind: input.lastFailureKind ?? state.sessions[idx].lastFailureKind,
+            lastFailureEventId: input.lastFailureEventId?.trim() || state.sessions[idx].lastFailureEventId,
+            lastFailureDispatchId: input.lastFailureDispatchId?.trim() || state.sessions[idx].lastFailureDispatchId,
+            lastFailureMessageId: input.lastFailureMessageId?.trim() || state.sessions[idx].lastFailureMessageId,
+            lastFailureTaskId: input.lastFailureTaskId?.trim() || state.sessions[idx].lastFailureTaskId,
             cooldownUntil: input.cooldownUntil?.trim() || state.sessions[idx].cooldownUntil,
             lastRunId: input.lastRunId?.trim() || state.sessions[idx].lastRunId,
             updatedAt: now,
@@ -341,6 +349,10 @@ export async function upsertWorkflowSession(
           errorStreak: input.errorStreak,
           lastFailureAt: input.lastFailureAt?.trim() || undefined,
           lastFailureKind: input.lastFailureKind,
+          lastFailureEventId: input.lastFailureEventId?.trim() || undefined,
+          lastFailureDispatchId: input.lastFailureDispatchId?.trim() || undefined,
+          lastFailureMessageId: input.lastFailureMessageId?.trim() || undefined,
+          lastFailureTaskId: input.lastFailureTaskId?.trim() || undefined,
           cooldownUntil: input.cooldownUntil?.trim() || undefined,
           lastRunId: input.lastRunId?.trim() || undefined,
           createdAt: now,
@@ -374,6 +386,10 @@ export async function touchWorkflowSession(
     errorStreak?: number | null;
     lastFailureAt?: string | null;
     lastFailureKind?: "timeout" | "error" | null;
+    lastFailureEventId?: string | null;
+    lastFailureDispatchId?: string | null;
+    lastFailureMessageId?: string | null;
+    lastFailureTaskId?: string | null;
     cooldownUntil?: string | null;
     lastRunId?: string | null;
     agentPid?: number | null;
@@ -426,6 +442,22 @@ export async function touchWorkflowSession(
           lastFailureAt:
             patch.lastFailureAt === null ? undefined : patch.lastFailureAt?.trim() || existing.lastFailureAt,
           lastFailureKind: patch.lastFailureKind === null ? undefined : patch.lastFailureKind ?? existing.lastFailureKind,
+          lastFailureEventId:
+            patch.lastFailureEventId === null
+              ? undefined
+              : patch.lastFailureEventId?.trim() || existing.lastFailureEventId,
+          lastFailureDispatchId:
+            patch.lastFailureDispatchId === null
+              ? undefined
+              : patch.lastFailureDispatchId?.trim() || existing.lastFailureDispatchId,
+          lastFailureMessageId:
+            patch.lastFailureMessageId === null
+              ? undefined
+              : patch.lastFailureMessageId?.trim() || existing.lastFailureMessageId,
+          lastFailureTaskId:
+            patch.lastFailureTaskId === null
+              ? undefined
+              : patch.lastFailureTaskId?.trim() || existing.lastFailureTaskId,
           cooldownUntil:
             patch.cooldownUntil === null ? undefined : patch.cooldownUntil?.trim() || existing.cooldownUntil,
           lastRunId: patch.lastRunId === null ? undefined : patch.lastRunId?.trim() || existing.lastRunId,

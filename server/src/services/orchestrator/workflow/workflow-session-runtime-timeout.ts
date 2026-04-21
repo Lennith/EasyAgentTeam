@@ -17,6 +17,7 @@ export interface WorkflowSessionTimeoutDependencies {
   repositories: WorkflowRepositoryBundle;
   providerRegistry: ProviderRegistry;
   sessionRunningTimeoutMs: number;
+  clearInFlightDispatchSession(runId: string, sessionId: string): void;
   resolveAuthoritativeSession(
     runId: string,
     role: string,
@@ -106,6 +107,12 @@ export async function markWorkflowTimedOutSessions(
           timeoutStreak: transition.session_patch.timeoutStreak,
           lastFailureAt: transition.session_patch.lastFailureAt,
           lastFailureKind: transition.session_patch.lastFailureKind,
+          lastFailureDispatchId: dispatchId,
+          lastFailureMessageId:
+            typeof dispatchPayload?.messageId === "string" && dispatchPayload.messageId.trim().length > 0
+              ? dispatchPayload.messageId
+              : null,
+          lastFailureTaskId: transition.session_patch.currentTaskId ?? currentTaskId,
           cooldownUntil: transition.session_patch.cooldownUntil,
           agentPid: null,
           lastRunId: run.runId
@@ -152,7 +159,7 @@ export async function markWorkflowTimedOutSessions(
           dispatch_id: dispatchId
         }
       });
-      await dependencies.repositories.events.appendEvent(run.runId, {
+      const failureEvent = await dependencies.repositories.events.appendEvent(run.runId, {
         eventType: transition.event_type,
         source: "system",
         sessionId: session.sessionId,
@@ -163,6 +170,12 @@ export async function markWorkflowTimedOutSessions(
           timeout_message_count: timeoutDump?.messageCount ?? null
         }
       });
+      await dependencies.repositories.sessions
+        .touchSession(run.runId, session.sessionId, {
+          lastFailureEventId: failureEvent.eventId
+        })
+        .catch(() => {});
     });
+    dependencies.clearInFlightDispatchSession(run.runId, session.sessionId);
   }
 }

@@ -33,6 +33,10 @@ async function buildWorkflowRecoveryTestApp(
     dispatchAccepted?: boolean;
   } = {}
 ) {
+  const dispatchCalls: Array<{
+    runId: string;
+    options: Record<string, unknown>;
+  }> = [];
   const repositories = getWorkflowRepositoryBundle(dataRoot);
   const providerRegistry = {
     cancelSession: () => options.cancelConfirmed ?? false,
@@ -44,7 +48,8 @@ async function buildWorkflowRecoveryTestApp(
     providerRegistry: providerRegistry as never,
     sessionRunningTimeoutMs: 60_000,
     sessionHeartbeatThrottle: new Map<string, number>(),
-    buildRunSessionKey: (runId: string, sessionId: string) => `${runId}:${sessionId}`
+    buildRunSessionKey: (runId: string, sessionId: string) => `${runId}:${sessionId}`,
+    clearInFlightDispatchSession: () => {}
   });
 
   const app = express();
@@ -75,25 +80,28 @@ async function buildWorkflowRecoveryTestApp(
           lastRoleState: "INACTIVE"
         });
       },
-      dispatchRun: async () => ({
-        limitReached: false,
-        results: [
-          {
-            outcome: options.dispatchAccepted === false ? "skipped" : "dispatched",
-            reason: options.dispatchAccepted === false ? "Dispatch was not accepted for this session." : undefined
-          }
-        ]
-      })
+      dispatchRun: async (runId: string, dispatchOptions: Record<string, unknown>) => {
+        dispatchCalls.push({ runId, options: dispatchOptions });
+        return {
+          limitReached: false,
+          results: [
+            {
+              outcome: options.dispatchAccepted === false ? "skipped" : "dispatched",
+              reason: options.dispatchAccepted === false ? "Dispatch was not accepted for this session." : undefined
+            }
+          ]
+        };
+      }
     } as never
   });
   registerApiErrorMiddleware(app);
-  return { app, repositories };
+  return { app, repositories, dispatchCalls };
 }
 
 async function seedWorkflowRecoveryFixture(
   dataRoot: string,
   runId: string,
-  status: "running" | "dismissed" = "running"
+  status: "running" | "dismissed" | "idle" = "running"
 ) {
   const workspaceRoot = path.join(dataRoot, "workspace");
   await mkdir(workspaceRoot, { recursive: true });
@@ -141,10 +149,7 @@ async function seedWorkflowRecoveryFixture(
     lastFailureKind: "error",
     cooldownUntil: status === "running" ? "2099-01-01T00:00:00.000Z" : undefined
   });
-  await touchWorkflowSession(dataRoot, runId, "session-lead", {
-    currentTaskId: "task_a"
-  });
-  await appendWorkflowRunEvent(dataRoot, runId, {
+  const failureEvent = await appendWorkflowRunEvent(dataRoot, runId, {
     eventType: "RUNNER_TRANSIENT_ERROR_SOFT",
     source: "system",
     sessionId: "session-lead",
@@ -156,6 +161,11 @@ async function seedWorkflowRecoveryFixture(
       next_action: "Wait for cooldown and retry the same task/message dispatch.",
       raw_status: 529
     }
+  });
+  await touchWorkflowSession(dataRoot, runId, "session-lead", {
+    currentTaskId: "task_a",
+    lastFailureEventId: failureEvent.eventId,
+    lastFailureTaskId: "task_a"
   });
   await updateWorkflowRoleReminderState(dataRoot, runId, "lead", {
     reminderCount: 3,
@@ -253,7 +263,8 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recovery-confirmed-"));
   const dataRoot = path.join(tempRoot, "data");
   await seedWorkflowRecoveryFixture(dataRoot, "wf_recovery_confirmed");
-  const { app, repositories } = await buildWorkflowRecoveryTestApp(dataRoot, {
+  await seedWorkflowRecoveryFixture(dataRoot, "wf_retry_dispatch", "idle");
+  const { app, repositories, dispatchCalls } = await buildWorkflowRecoveryTestApp(dataRoot, {
     cancelConfirmed: true,
     dispatchAccepted: true
   });
@@ -326,12 +337,41 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
     assert.equal(repairPayload.next_status, "idle");
     assert.equal(repairPayload.session.status, "idle");
 
+    const recoveryRes = await fetch(`${baseUrl}/api/workflow-runs/wf_retry_dispatch/runtime-recovery`);
+    assert.equal(recoveryRes.status, 200);
+    const recoveryPayload = (await recoveryRes.json()) as {
+      items: Array<{
+        session_id: string;
+        role_session_mapping: string;
+        current_task_id: string | null;
+        last_failure_at: string | null;
+        last_failure_event_id: string | null;
+        last_failure_dispatch_id: string | null;
+        last_failure_message_id: string | null;
+        last_failure_task_id: string | null;
+        can_retry_dispatch: boolean;
+      }>;
+    };
+    const retryItem = recoveryPayload.items.find((item) => item.session_id === "session-lead");
+    assert.equal(retryItem?.can_retry_dispatch, true);
+
     const retryRes = await fetch(
-      `${baseUrl}/api/workflow-runs/wf_recovery_confirmed/sessions/${encodeURIComponent("session-lead")}/retry-dispatch`,
+      `${baseUrl}/api/workflow-runs/wf_retry_dispatch/sessions/${encodeURIComponent("session-lead")}/retry-dispatch`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "manual_retry", actor: "dashboard" })
+        body: JSON.stringify({
+          reason: "manual_retry",
+          actor: "dashboard",
+          expected_status: "idle",
+          expected_role_mapping: retryItem?.role_session_mapping,
+          expected_current_task_id: retryItem?.current_task_id,
+          expected_last_failure_at: retryItem?.last_failure_at,
+          expected_last_failure_event_id: retryItem?.last_failure_event_id,
+          expected_last_failure_dispatch_id: retryItem?.last_failure_dispatch_id,
+          expected_last_failure_message_id: retryItem?.last_failure_message_id,
+          expected_last_failure_task_id: retryItem?.last_failure_task_id
+        })
       }
     );
     assert.equal(retryRes.status, 200);
@@ -342,18 +382,35 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
       accepted: boolean;
     };
     assert.equal(retryPayload.action, "retry_dispatch");
-    assert.equal(retryPayload.current_task_id, null);
-    assert.equal(retryPayload.dispatch_scope, "role");
+    assert.equal(retryPayload.current_task_id, "task_a");
+    assert.equal(retryPayload.dispatch_scope, "task");
     assert.equal(retryPayload.accepted, true);
+    assert.deepEqual(dispatchCalls, [
+      {
+        runId: "wf_retry_dispatch",
+        options: {
+          role: "lead",
+          sessionId: "session-lead",
+          taskId: "task_a",
+          force: false,
+          onlyIdle: true,
+          maxDispatches: 1,
+          source: "manual"
+        }
+      }
+    ]);
 
-    const reminderAfterRetry = await getWorkflowRoleReminderState(dataRoot, "wf_recovery_confirmed", "lead");
+    const reminderAfterRetry = await getWorkflowRoleReminderState(dataRoot, "wf_retry_dispatch", "lead");
     assert.equal(reminderAfterRetry?.reminderCount, 0);
     assert.equal(reminderAfterRetry?.lastRoleState, "INACTIVE");
 
-    const events = await repositories.events.listEvents("wf_recovery_confirmed");
-    const retryEvent = events.find((event) => event.eventType === "SESSION_RETRY_DISPATCH_REQUESTED");
-    assert.equal(Boolean(retryEvent), true);
-    assert.equal(retryEvent?.payload?.dispatch_scope, "role");
+    const events = await repositories.events.listEvents("wf_retry_dispatch");
+    const retryRequested = events.find((event) => event.eventType === "SESSION_RETRY_DISPATCH_REQUESTED");
+    const retryAccepted = events.find((event) => event.eventType === "SESSION_RETRY_DISPATCH_ACCEPTED");
+    assert.equal(Boolean(retryRequested), true);
+    assert.equal(Boolean(retryAccepted), true);
+    assert.equal(retryRequested?.payload?.dispatch_scope, "task");
+    assert.equal(retryAccepted?.payload?.dispatch_scope, "task");
   } finally {
     await server.close();
   }

@@ -102,6 +102,7 @@ test("workflow reminder service triggers reminder, appends inbox/event, and redi
     true
   );
   assert.equal(dispatchCalls[0]?.taskId, "task-a");
+  assert.equal(dispatchCalls[0]?.onlyIdle, true);
 });
 
 test("workflow reminder service does not auto-create or resolve sessions for roles with no existing session", async () => {

@@ -9,6 +9,7 @@ import { createProjectRepositoryBundle } from "../data/repository/project/reposi
 import { createProject, ensureProjectRuntime } from "../data/repository/project/runtime-repository.js";
 import { addSession, touchSession } from "../data/repository/project/session-repository.js";
 import { createTask, ensureUserRootTask, getTask } from "../data/repository/project/taskboard-repository.js";
+import { buildOrchestratorContextSessionKey } from "../services/orchestrator-core.js";
 import { OrchestratorService } from "../services/orchestrator/index.js";
 import { markProjectTimedOutSessions } from "../services/orchestrator/project/project-session-runtime-timeout.js";
 import { createProviderRegistry } from "../services/provider-runtime.js";
@@ -80,6 +81,9 @@ test("running session timeout appends dispatch/run closure events", async () => 
       maxConcurrentDispatches: 1,
       sessionRunningTimeoutMs: 1_000
     });
+    (orchestrator as any).inFlightDispatchSessionKeys.add(
+      buildOrchestratorContextSessionKey(project.projectId, "sess-timeout")
+    );
 
     function isTimeoutRunFinishedEvent(item: { eventType: string; sessionId?: string; payload: unknown }) {
       if (item.eventType !== "CODEX_RUN_FINISHED" && item.eventType !== "MINIMAX_RUN_FINISHED") {
@@ -174,6 +178,7 @@ test("running session timeout appends dispatch/run closure events", async () => 
       assert.equal((runFinished.payload as Record<string, unknown>).timedOut, true);
       assert.equal((runFinished.payload as Record<string, unknown>).status, "timeout");
     }
+    assert.equal((orchestrator as any).inFlightDispatchSessionKeys.size, 0);
 
     const terminationAttempted = events.find(
       (item) => item.eventType === "SESSION_PROCESS_TERMINATION_ATTEMPTED" && item.sessionId === "sess-timeout"
@@ -376,6 +381,7 @@ test("project timeout skips kill when recent terminal report completed in traili
       dataRoot,
       repositories,
       sessionRunningTimeoutMs: 1_000,
+      clearInFlightDispatchSession: () => {},
       terminateSessionProcess: async (_project, _paths, session) => {
         terminated.push(session.sessionId);
       }
@@ -396,4 +402,95 @@ test("project timeout skips kill when recent terminal report completed in traili
   assert.equal(timeout, undefined);
   assert.equal(session?.status, "running");
   assert.equal(task?.state, "DONE");
+});
+
+test("project timeout skips kill when recent canceled report completed in trailing window", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-session-timeout-canceled-protection-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspacePath = path.join(tempRoot, "workspace");
+  const repositories = createProjectRepositoryBundle(dataRoot);
+  const terminated: string[] = [];
+
+  const created = await createProject(dataRoot, {
+    projectId: "sessiontimeoutcanceled",
+    name: "Session Timeout Canceled Protection",
+    workspacePath
+  });
+  const project = created.project;
+  const paths = await ensureProjectRuntime(dataRoot, project.projectId);
+  const userRoot = await ensureUserRootTask(paths, project.projectId, {
+    taskId: "user-root-canceled",
+    title: "User Root"
+  });
+  await createTask(paths, project.projectId, {
+    taskId: "task-canceled-protected",
+    parentTaskId: userRoot.taskId,
+    rootTaskId: userRoot.taskId,
+    title: "Protected canceled task",
+    ownerRole: "lead",
+    ownerSession: "sess-canceled-protected",
+    state: "CANCELED"
+  });
+
+  await addSession(paths, project.projectId, {
+    sessionId: "sess-canceled-protected",
+    role: "lead",
+    status: "running",
+    provider: "codex",
+    currentTaskId: "task-canceled-protected"
+  });
+
+  await appendEvent(paths, {
+    projectId: project.projectId,
+    eventType: "TASK_REPORT_APPLIED",
+    source: "manager",
+    sessionId: "sess-canceled-protected",
+    taskId: "task-canceled-protected",
+    payload: {
+      fromAgent: "lead",
+      appliedTaskIds: ["task-canceled-protected"],
+      updatedTaskIds: ["task-canceled-protected"],
+      rejectedCount: 0
+    }
+  });
+  const staleAt = new Date(Date.now() - 60_000).toISOString();
+  const sessionsState = JSON.parse(await readFile(paths.sessionsFile, "utf8")) as {
+    updatedAt: string;
+    sessions: Array<Record<string, unknown>>;
+  };
+  const sessionEntry = sessionsState.sessions.find((item) => item.sessionId === "sess-canceled-protected");
+  assert.ok(sessionEntry);
+  sessionEntry.createdAt = staleAt;
+  sessionEntry.updatedAt = staleAt;
+  sessionEntry.lastActiveAt = staleAt;
+  sessionEntry.currentTaskId = "task-canceled-protected";
+  sessionsState.updatedAt = staleAt;
+  await writeFile(paths.sessionsFile, `${JSON.stringify(sessionsState, null, 2)}\n`, "utf8");
+
+  await markProjectTimedOutSessions(
+    {
+      dataRoot,
+      repositories,
+      sessionRunningTimeoutMs: 1_000,
+      clearInFlightDispatchSession: () => {},
+      terminateSessionProcess: async (_project, _paths, session) => {
+        terminated.push(session.sessionId);
+      }
+    },
+    project,
+    paths
+  );
+
+  const events = await listEvents(paths);
+  const skipped = events.find((item) => item.eventType === "SESSION_HEARTBEAT_TIMEOUT_SKIPPED");
+  const timeout = events.find((item) => item.eventType === "SESSION_HEARTBEAT_TIMEOUT");
+  const session = await repositories.sessions.getSession(paths, project.projectId, "sess-canceled-protected");
+  const task = await getTask(paths, project.projectId, "task-canceled-protected");
+
+  assert.deepEqual(terminated, []);
+  assert.ok(skipped);
+  assert.equal((skipped?.payload as Record<string, unknown>).reason, "recent_terminal_report");
+  assert.equal(timeout, undefined);
+  assert.equal(session?.status, "running");
+  assert.equal(task?.state, "CANCELED");
 });

@@ -25,7 +25,7 @@ test("workflow dispatch launch adapter blocks session when minimax is not config
           getSession: async () => null
         },
         events: {
-          appendEvent: async () => {}
+          appendEvent: async () => ({ eventId: "event-missing-config" })
         }
       } as any,
       touchSessionHeartbeat: async () => {},
@@ -133,9 +133,19 @@ test("workflow dispatch launch adapter blocks session when minimax is not config
         errorStreak: 3,
         lastFailureAt: touchedSessions[0]?.patch.lastFailureAt,
         lastFailureKind: "error",
+        lastFailureDispatchId: "dispatch-1",
+        lastFailureMessageId: null,
+        lastFailureTaskId: "task-1",
         cooldownUntil: null,
         agentPid: null,
         lastRunId: "run-1"
+      }
+    },
+    {
+      runId: "run-1",
+      sessionId: "session-1",
+      patch: {
+        lastFailureEventId: "event-missing-config"
       }
     }
   ]);
@@ -171,6 +181,7 @@ test("workflow dispatch launch adapter blocks session on provider config error",
         events: {
           appendEvent: async (_runId: string, event: Record<string, unknown>) => {
             appendedEvents.push(event);
+            return { eventId: "event-config-error" };
           },
           listEvents: async () => []
         }
@@ -235,8 +246,15 @@ test("workflow dispatch launch adapter blocks session on provider config error",
     emitted.some((item) => item.kind === "failed"),
     true
   );
-  assert.equal(touchedSessions.length, 1);
+  assert.equal(touchedSessions.length, 2);
   assert.equal(touchedSessions[0]?.patch.status, "blocked");
+  assert.deepEqual(touchedSessions[1], {
+    runId: "run-blocked",
+    sessionId: "session-blocked",
+    patch: {
+      lastFailureEventId: "event-config-error"
+    }
+  });
   const blockedEvent = appendedEvents.find((event) => event.eventType === "RUNNER_CONFIG_ERROR_BLOCKED");
   assert.ok(blockedEvent);
   assert.deepEqual(blockedEvent?.payload, {
@@ -288,6 +306,7 @@ test("workflow dispatch launch adapter keeps transient provider errors retryable
           events: {
             appendEvent: async (_runId: string, event: Record<string, unknown>) => {
               appendedEvents.push(event);
+              return { eventId: "event-transient-error" };
             },
             listEvents: async () => []
           }
@@ -345,10 +364,17 @@ test("workflow dispatch launch adapter keeps transient provider errors retryable
     });
 
     assert.equal(emitted.length, 1);
-    assert.equal(touchedSessions.length, 1);
+    assert.equal(touchedSessions.length, 2);
     assert.equal(touchedSessions[0]?.patch.status, "idle");
     assert.equal(touchedSessions[0]?.patch.currentTaskId, "task-transient");
     assert.equal(typeof touchedSessions[0]?.patch.cooldownUntil, "string");
+    assert.deepEqual(touchedSessions[1], {
+      runId: "run-transient",
+      sessionId: "session-transient",
+      patch: {
+        lastFailureEventId: "event-transient-error"
+      }
+    });
     const transientEvent = appendedEvents.find((event) => event.eventType === "RUNNER_TRANSIENT_ERROR_SOFT");
     assert.ok(transientEvent);
     assert.deepEqual(transientEvent?.payload, {
@@ -435,6 +461,7 @@ test("workflow dispatch launch adapter records codex provider observations", asy
         events: {
           appendEvent: async (_runId: string, event: Record<string, unknown>) => {
             appendedEvents.push(event);
+            return { eventId: "event-observation" };
           },
           listEvents: async () => []
         }

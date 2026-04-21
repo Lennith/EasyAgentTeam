@@ -65,7 +65,9 @@ function shouldRetryPreviouslyFailedMessageDispatch(
     return false;
   }
   return (
-    session.status === "idle" && typeof session.lastFailureAt === "string" && session.lastFailureAt.trim().length > 0
+    session.status === "idle" &&
+    session.lastFailureMessageId === messageId &&
+    Boolean(session.lastFailureEventId || session.lastFailureDispatchId)
   );
 }
 
