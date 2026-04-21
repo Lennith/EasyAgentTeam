@@ -13,6 +13,7 @@ interface WorkflowDispatchStartedDetails {
   requestId: string;
   dispatchKind: "task" | "message";
   messageId?: string | null;
+  recovery_attempt_id?: string;
   requestedSkillIds?: string[];
   tokenLimit?: number;
   maxOutputTokens?: number;
@@ -76,6 +77,7 @@ export class WorkflowDispatchEventAdapter implements OrchestratorDispatchLifecyc
         },
         extra: {
           runId: scope.runId,
+          ...(details.recovery_attempt_id ? { recovery_attempt_id: details.recovery_attempt_id } : {}),
           ...(details.requestedSkillIds ? { requestedSkillIds: details.requestedSkillIds } : {}),
           ...(typeof details.tokenLimit === "number" ? { tokenLimit: details.tokenLimit } : {}),
           ...(typeof details.maxOutputTokens === "number" ? { maxOutputTokens: details.maxOutputTokens } : {})
@@ -90,6 +92,7 @@ export class WorkflowDispatchEventAdapter implements OrchestratorDispatchLifecyc
         },
         extra: {
           runId: scope.runId,
+          ...(details.recovery_attempt_id ? { recovery_attempt_id: details.recovery_attempt_id } : {}),
           ...(details.requestedSkillIds ? { requestedSkillIds: details.requestedSkillIds } : {}),
           ...(Object.prototype.hasOwnProperty.call(details, "finishReason")
             ? { finishReason: details.finishReason ?? null }
@@ -121,6 +124,7 @@ export class WorkflowDispatchEventAdapter implements OrchestratorDispatchLifecyc
         },
         extra: {
           runId: scope.runId,
+          ...(details.recovery_attempt_id ? { recovery_attempt_id: details.recovery_attempt_id } : {}),
           ...(details.requestedSkillIds ? { requestedSkillIds: details.requestedSkillIds } : {}),
           error: details.error
         }

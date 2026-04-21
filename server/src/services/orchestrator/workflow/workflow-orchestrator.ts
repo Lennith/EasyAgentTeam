@@ -219,6 +219,7 @@ export class WorkflowOrchestratorService {
       onlyIdle?: boolean;
       maxDispatches?: number;
       source?: "manual" | "loop";
+      recovery_attempt_id?: string;
     } = {}
   ): Promise<WorkflowDispatchResult> {
     return this.dispatchService.dispatchRun(runId, input);

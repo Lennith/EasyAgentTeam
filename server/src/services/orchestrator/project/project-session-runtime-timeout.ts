@@ -1,8 +1,7 @@
 import type { ProjectRepositoryBundle } from "../../../data/repository/project/repository-bundle.js";
-import type { ProjectPaths, ProjectRecord, SessionRecord, TaskRecord } from "../../../domain/models.js";
+import type { ProjectPaths, ProjectRecord, SessionRecord } from "../../../domain/models.js";
 import { markRunnerTimeout } from "../../session-lifecycle-authority.js";
 import { findLatestOpenDispatch, readPayloadString } from "../shared/dispatch-engine.js";
-import { parseIsoMs } from "../shared/session-manager.js";
 import { hasOrchestratorSessionHeartbeatTimedOut } from "../shared/session-manager.js";
 import {
   findLatestDispatchStarted,
@@ -10,6 +9,7 @@ import {
   findLatestOpenRun,
   hasDispatchClosedEvent
 } from "./project-session-runtime-termination.js";
+import { resolveProjectSessionTimeoutEvidence } from "./project-session-timeout-evidence.js";
 export interface ProjectSessionTimeoutDependencies {
   dataRoot: string;
   repositories: ProjectRepositoryBundle;
@@ -23,62 +23,10 @@ export interface ProjectSessionTimeoutDependencies {
   ): Promise<unknown>;
 }
 
-const TERMINAL_PROTECTION_TASK_STATES = new Set(["DONE", "BLOCKED_DEP", "CANCELED"]);
-const TERMINAL_REPORT_TOOL_NAMES = new Set(["task_report_done", "task_report_block"]);
-const MAX_TERMINAL_REPORT_PROTECTION_MS = 15_000;
-
 function resolveSyntheticRunFinishedEventType(
   provider: string | null | undefined
 ): "CODEX_RUN_FINISHED" | "MINIMAX_RUN_FINISHED" {
   return provider === "codex" ? "CODEX_RUN_FINISHED" : "MINIMAX_RUN_FINISHED";
-}
-
-function resolveTerminalProtectionWindowMs(timeoutMs: number): number {
-  return Math.max(250, Math.min(MAX_TERMINAL_REPORT_PROTECTION_MS, Math.floor(timeoutMs / 2)));
-}
-
-function findTaskById(tasks: TaskRecord[], taskId: string | undefined): TaskRecord | undefined {
-  if (!taskId) {
-    return undefined;
-  }
-  return tasks.find((task) => task.taskId === taskId);
-}
-
-function resolveRecentTerminalReportEvidence(input: {
-  sessionId: string;
-  taskId: string | undefined;
-  taskState: string | undefined;
-  sessionEvents: Array<{ eventType: string; sessionId?: string; taskId?: string; createdAt: string; payload: unknown }>;
-  protectionWindowMs: number;
-  nowMs: number;
-}): { reason: "recent_terminal_report"; eventType: string; eventAt: string } | null {
-  if (!input.taskId || !input.taskState || !TERMINAL_PROTECTION_TASK_STATES.has(input.taskState)) {
-    return null;
-  }
-
-  const recentEvents = [...input.sessionEvents]
-    .filter((event) => event.sessionId === input.sessionId && event.taskId === input.taskId)
-    .sort((a, b) => parseIsoMs(b.createdAt) - parseIsoMs(a.createdAt));
-
-  for (const event of recentEvents) {
-    const ageMs = input.nowMs - parseIsoMs(event.createdAt);
-    if (ageMs < 0 || ageMs > input.protectionWindowMs) {
-      continue;
-    }
-    if (event.eventType === "TASK_REPORT_APPLIED") {
-      return { reason: "recent_terminal_report", eventType: event.eventType, eventAt: event.createdAt };
-    }
-    if (event.eventType !== "TEAM_TOOL_SUCCEEDED") {
-      continue;
-    }
-    const payload = event.payload as Record<string, unknown>;
-    const toolName = typeof payload.tool === "string" ? payload.tool : "";
-    if (TERMINAL_REPORT_TOOL_NAMES.has(toolName)) {
-      return { reason: "recent_terminal_report", eventType: event.eventType, eventAt: event.createdAt };
-    }
-  }
-
-  return null;
 }
 
 async function revalidateTimedOutProjectSession(input: {
@@ -117,39 +65,42 @@ async function revalidateTimedOutProjectSession(input: {
   ) {
     return { skip: true, session: latestSession, reason: "heartbeat_refreshed" };
   }
-
-  const protectionWindowMs = resolveTerminalProtectionWindowMs(input.dependencies.sessionRunningTimeoutMs);
   const sessionEvents = (await input.dependencies.repositories.events.listEvents(input.paths)).filter(
     (item) => item.sessionId === latestSession.sessionId
   );
-  const currentTask = findTaskById(
-    await input.dependencies.repositories.taskboard.listTasks(input.paths, input.project.projectId),
-    latestSession.currentTaskId
-  );
-  const recentTerminalEvidence = resolveRecentTerminalReportEvidence({
-    sessionId: latestSession.sessionId,
-    taskId: latestSession.currentTaskId,
-    taskState: currentTask?.state,
-    sessionEvents,
-    protectionWindowMs,
-    nowMs: input.nowMs
+  const tasks = await input.dependencies.repositories.taskboard.listTasks(input.paths, input.project.projectId);
+  const currentTask = latestSession.currentTaskId
+    ? (tasks.find((task) => task.taskId === latestSession.currentTaskId) ?? null)
+    : null;
+  const evidence = resolveProjectSessionTimeoutEvidence({
+    session: latestSession,
+    nowMs: input.nowMs,
+    timeoutMs: input.dependencies.sessionRunningTimeoutMs,
+    events: sessionEvents,
+    task: currentTask
   });
-  if (!recentTerminalEvidence) {
+  if (evidence.should_close) {
     return { skip: false, session: latestSession };
   }
 
-  const refreshedSession = await input.dependencies.repositories.sessions.touchSession(
-    input.paths,
-    input.project.projectId,
-    latestSession.sessionId,
-    { lastActiveAt: recentTerminalEvidence.eventAt }
-  );
+  const evidenceEvent = evidence.evidence_event_id
+    ? (sessionEvents.find((event) => event.eventId === evidence.evidence_event_id) ?? null)
+    : null;
+  const refreshedSession =
+    evidence.protected_by_recent_terminal_report && evidenceEvent
+      ? await input.dependencies.repositories.sessions.touchSession(
+          input.paths,
+          input.project.projectId,
+          latestSession.sessionId,
+          { lastActiveAt: evidenceEvent.createdAt }
+        )
+      : latestSession;
   return {
     skip: true,
     session: refreshedSession,
-    reason: recentTerminalEvidence.reason,
-    matchedEventType: recentTerminalEvidence.eventType,
-    matchedEventAt: recentTerminalEvidence.eventAt
+    reason: evidence.decision_reason === "fresh_heartbeat" ? "heartbeat_refreshed" : "recent_terminal_report",
+    matchedEventType: evidenceEvent?.eventType,
+    matchedEventAt: evidenceEvent?.createdAt
   };
 }
 
@@ -250,6 +201,7 @@ export async function markProjectTimedOutSessions(
 
     if (dispatchToClose && !hasClosed) {
       const payload = dispatchToClose.event.payload as Record<string, unknown>;
+      const recoveryAttemptId = typeof payload.recovery_attempt_id === "string" ? payload.recovery_attempt_id : null;
       await dependencies.repositories.events.appendEvent(paths, {
         projectId: project.projectId,
         eventType: timeoutResult.escalated ? "ORCHESTRATOR_DISPATCH_FAILED" : "ORCHESTRATOR_DISPATCH_FINISHED",
@@ -263,6 +215,7 @@ export async function markProjectTimedOutSessions(
           messageId: payload.messageId ?? null,
           requestId: payload.requestId ?? null,
           runId: openRun?.runId ?? openRunId ?? null,
+          ...(recoveryAttemptId ? { recovery_attempt_id: recoveryAttemptId } : {}),
           exitCode: null,
           timedOut: true,
           ...(timeoutResult.escalated ? { error: "session heartbeat timeout escalated" } : {})

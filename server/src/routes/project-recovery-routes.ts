@@ -185,14 +185,15 @@ export function registerProjectRecoveryRoutes(app: express.Application, context:
               taskId: currentSession.currentTaskId ?? undefined,
               payload
             }),
-          dispatch: async (scope, currentSession) => {
+          dispatch: async (scope, currentSession, dispatchOptions) => {
             const result = await context.orchestrator.dispatchProject(scope.project.projectId, {
               mode: "manual",
               sessionId: currentSession.sessionId,
               taskId: currentSession.currentTaskId,
               force: false,
               onlyIdle: true,
-              maxDispatches: 1
+              maxDispatches: 1,
+              recovery_attempt_id: dispatchOptions.recovery_attempt_id
             });
             const first = result.results[0];
             return {

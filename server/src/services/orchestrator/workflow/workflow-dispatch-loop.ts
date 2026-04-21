@@ -28,6 +28,7 @@ export interface WorkflowDispatchLoopState {
   onlyIdle: boolean;
   requestId: string;
   source: "manual" | "loop";
+  recovery_attempt_id?: string;
   remaining: number;
 }
 
@@ -39,6 +40,7 @@ export interface WorkflowDispatchLoopInput {
   onlyIdle?: boolean;
   maxDispatches?: number;
   source?: "manual" | "loop";
+  recovery_attempt_id?: string;
 }
 
 export interface WorkflowDispatchLoopContext {
@@ -97,6 +99,7 @@ export async function createWorkflowDispatchLoopState(
       onlyIdle: Boolean(input.onlyIdle),
       requestId,
       source: input.source ?? "manual",
+      recovery_attempt_id: input.recovery_attempt_id?.trim() || undefined,
       remaining: Math.max(0, Math.floor(run.autoDispatchRemaining ?? 5))
     },
     maxDispatches
@@ -256,7 +259,8 @@ export async function runWorkflowDispatchLoop(
           message: selection.message,
           requestId: loopState.requestId,
           messageId: prepared.messageId,
-          dispatchId: prepared.dispatchId
+          dispatchId: prepared.dispatchId,
+          recovery_attempt_id: loopState.recovery_attempt_id
         }),
         onError: async (error: unknown) => {
           dependencies.handleLaunchError(error);

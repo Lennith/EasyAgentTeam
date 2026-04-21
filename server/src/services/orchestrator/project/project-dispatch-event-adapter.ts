@@ -17,6 +17,7 @@ interface ProjectDispatchStartedDetails {
   dispatchKind: DispatchKind;
   mode: DispatchMode;
   messageIds: string[];
+  recovery_attempt_id?: string;
 }
 
 interface ProjectDispatchFinishedDetails extends ProjectDispatchStartedDetails {
@@ -78,7 +79,8 @@ export class ProjectDispatchEventAdapter implements OrchestratorDispatchLifecycl
         },
         extra: {
           mode: details.mode,
-          messageIds: details.messageIds
+          messageIds: details.messageIds,
+          ...(details.recovery_attempt_id ? { recovery_attempt_id: details.recovery_attempt_id } : {})
         }
       }),
       buildFinishedPayload: (_scope, details) => ({
@@ -90,6 +92,7 @@ export class ProjectDispatchEventAdapter implements OrchestratorDispatchLifecycl
         extra: {
           mode: details.mode,
           messageIds: details.messageIds,
+          ...(details.recovery_attempt_id ? { recovery_attempt_id: details.recovery_attempt_id } : {}),
           runId: details.runId,
           exitCode: details.exitCode,
           timedOut: details.timedOut,
@@ -106,6 +109,7 @@ export class ProjectDispatchEventAdapter implements OrchestratorDispatchLifecycl
         extra: {
           mode: details.mode,
           messageIds: details.messageIds,
+          ...(details.recovery_attempt_id ? { recovery_attempt_id: details.recovery_attempt_id } : {}),
           ...(details.runId ? { runId: details.runId } : {}),
           ...(Object.prototype.hasOwnProperty.call(details, "exitCode") ? { exitCode: details.exitCode ?? null } : {}),
           ...(Object.prototype.hasOwnProperty.call(details, "timedOut") ? { timedOut: details.timedOut ?? false } : {}),

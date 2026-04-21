@@ -47,6 +47,7 @@ export interface WorkflowDispatchLaunchInput {
   requestId: string;
   messageId?: string;
   dispatchId: string;
+  recovery_attempt_id?: string;
 }
 
 export interface WorkflowDispatchLaunchAdapterContext {

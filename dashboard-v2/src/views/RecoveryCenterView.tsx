@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { RuntimeRecoveryResponse } from "@/types";
+import type { RuntimeRecoveryItem, RuntimeRecoveryResponse } from "@/types";
 
 interface RecoveryCenterViewProps {
   title: string;
@@ -9,7 +9,7 @@ interface RecoveryCenterViewProps {
   onReload: () => void;
   onDismiss: (sessionId: string, confirm?: boolean) => Promise<void>;
   onRepair: (sessionId: string, target: "idle" | "blocked", confirm?: boolean) => Promise<void>;
-  onRetry: (sessionId: string, confirm?: boolean) => Promise<void>;
+  onRetry: (item: RuntimeRecoveryItem, confirm?: boolean) => Promise<void>;
 }
 
 function formatDateTime(value: string | null): string {
@@ -296,7 +296,7 @@ export function RecoveryCenterView({
                       if (selected.requires_confirmation && !confirmed) {
                         return;
                       }
-                      void runAction(() => onRetry(selected.session_id, confirmed), `retry:${selected.session_id}`);
+                      void runAction(() => onRetry(selected, confirmed), `retry:${selected.session_id}`);
                     }}
                   >
                     Retry Dispatch

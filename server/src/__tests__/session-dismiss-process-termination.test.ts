@@ -270,6 +270,24 @@ test("project retry-dispatch is allowed only for idle sessions with active recov
     const retryItem = recoveryPayload.items.find((item) => item.session_id === "sess-retry");
     assert.equal(retryItem?.can_retry_dispatch, true);
 
+    const bareRetryRes = await fetch(
+      `${baseUrl}/api/projects/project_retry_scope/sessions/${encodeURIComponent("sess-retry")}/retry-dispatch`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "manual_retry", actor: "dashboard" })
+      }
+    );
+    assert.equal(bareRetryRes.status, 409);
+    const bareRetryPayload = (await bareRetryRes.json()) as {
+      error_code: string;
+      next_action: string | null;
+      disabled_reason: string | null;
+    };
+    assert.equal(bareRetryPayload.error_code, "SESSION_RETRY_GUARD_REQUIRED");
+    assert.match(bareRetryPayload.next_action ?? "", /Refresh Recovery Center/i);
+    assert.match(bareRetryPayload.disabled_reason ?? "", /expected_status/i);
+
     const retryRes = await fetch(
       `${baseUrl}/api/projects/project_retry_scope/sessions/${encodeURIComponent("sess-retry")}/retry-dispatch`,
       {
@@ -300,19 +318,16 @@ test("project retry-dispatch is allowed only for idle sessions with active recov
     assert.equal(retryPayload.current_task_id, "task_retry");
     assert.equal(retryPayload.dispatch_scope, "task");
     assert.equal(retryPayload.accepted, true);
-    assert.deepEqual(dispatchCalls, [
-      {
-        projectId: "project_retry_scope",
-        options: {
-          mode: "manual",
-          sessionId: "sess-retry",
-          taskId: "task_retry",
-          force: false,
-          onlyIdle: true,
-          maxDispatches: 1
-        }
-      }
-    ]);
+    assert.equal(dispatchCalls.length, 1);
+    assert.equal(dispatchCalls[0]?.projectId, "project_retry_scope");
+    assert.equal(dispatchCalls[0]?.options.mode, "manual");
+    assert.equal(dispatchCalls[0]?.options.sessionId, "sess-retry");
+    assert.equal(dispatchCalls[0]?.options.taskId, "task_retry");
+    assert.equal(dispatchCalls[0]?.options.force, false);
+    assert.equal(dispatchCalls[0]?.options.onlyIdle, true);
+    assert.equal(dispatchCalls[0]?.options.maxDispatches, 1);
+    assert.equal(typeof dispatchCalls[0]?.options.recovery_attempt_id, "string");
+    assert.equal((dispatchCalls[0]?.options.recovery_attempt_id as string).length > 0, true);
 
     const reminderState = await repositories.projectRuntime.getRoleReminderState(
       created.paths,
@@ -328,6 +343,9 @@ test("project retry-dispatch is allowed only for idle sessions with active recov
     assert.equal(Boolean(retryAccepted), true);
     assert.equal(retryRequested?.payload?.dispatch_scope, "task");
     assert.equal(retryAccepted?.payload?.dispatch_scope, "task");
+    assert.equal(typeof retryRequested?.payload?.recovery_attempt_id, "string");
+    assert.equal(retryRequested?.payload?.recovery_attempt_id, retryAccepted?.payload?.recovery_attempt_id);
+    assert.equal(retryRequested?.payload?.recovery_attempt_id, dispatchCalls[0]?.options.recovery_attempt_id);
 
     await repositories.sessions.touchSession(created.paths, created.project.projectId, "sess-retry", {
       cooldownUntil: "2099-01-01T00:00:00.000Z"
@@ -337,7 +355,18 @@ test("project retry-dispatch is allowed only for idle sessions with active recov
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "retry_during_cooldown", actor: "dashboard" })
+        body: JSON.stringify({
+          reason: "retry_during_cooldown",
+          actor: "dashboard",
+          expected_status: "idle",
+          expected_role_mapping: retryItem?.role_session_mapping,
+          expected_current_task_id: retryItem?.current_task_id,
+          expected_last_failure_at: retryItem?.last_failure_at,
+          expected_last_failure_event_id: retryItem?.last_failure_event_id,
+          expected_last_failure_dispatch_id: retryItem?.last_failure_dispatch_id,
+          expected_last_failure_message_id: retryItem?.last_failure_message_id,
+          expected_last_failure_task_id: retryItem?.last_failure_task_id
+        })
       }
     );
     assert.equal(deniedRetryRes.status, 409);

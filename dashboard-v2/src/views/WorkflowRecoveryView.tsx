@@ -42,9 +42,7 @@ export function WorkflowRecoveryView({ runId }: WorkflowRecoveryViewProps) {
       onRepair={(sessionId, target, confirm) =>
         workflowApi.repairSession(runId, sessionId, target, confirm).then(() => undefined)
       }
-      onRetry={(sessionId, confirm) =>
-        workflowApi.retryDispatchSession(runId, sessionId, confirm).then(() => undefined)
-      }
+      onRetry={(item, confirm) => workflowApi.retryDispatchSession(runId, item, confirm).then(() => undefined)}
     />
   );
 }

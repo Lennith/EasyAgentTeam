@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectDispatchEventAdapter } from "../services/orchestrator/project/project-dispatch-event-adapter.js";
 
-test("project dispatch event adapter preserves started and failed event contract", async () => {
+test("project dispatch event adapter preserves recovery attempt metadata when provided", async () => {
   const appended: Array<{ paths: unknown; event: unknown }> = [];
   const adapter = new ProjectDispatchEventAdapter({
     events: {
@@ -27,7 +27,30 @@ test("project dispatch event adapter preserves started and failed event contract
       requestId: "req-1",
       dispatchKind: "task",
       mode: "manual",
-      messageIds: ["msg-1"]
+      messageIds: ["msg-1"],
+      recovery_attempt_id: "attempt-1"
+    }
+  );
+
+  await adapter.appendFinished(
+    {
+      project,
+      paths,
+      sessionId: "session-1",
+      taskId: "task-1"
+    },
+    {
+      dispatchId: "dispatch-1",
+      requestId: "req-1",
+      dispatchKind: "task",
+      mode: "manual",
+      messageIds: ["msg-1"],
+      recovery_attempt_id: "attempt-1",
+      runId: "run-1",
+      exitCode: 0,
+      timedOut: false,
+      startedAt: "2026-04-21T10:00:00.000Z",
+      finishedAt: "2026-04-21T10:00:05.000Z"
     }
   );
 
@@ -62,7 +85,31 @@ test("project dispatch event adapter preserves started and failed event contract
           dispatchId: "dispatch-1",
           dispatchKind: "task",
           mode: "manual",
-          messageIds: ["msg-1"]
+          messageIds: ["msg-1"],
+          recovery_attempt_id: "attempt-1"
+        }
+      }
+    },
+    {
+      paths,
+      event: {
+        projectId: "project-1",
+        eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
+        source: "manager",
+        sessionId: "session-1",
+        taskId: "task-1",
+        payload: {
+          requestId: "req-1",
+          dispatchId: "dispatch-1",
+          dispatchKind: "task",
+          mode: "manual",
+          messageIds: ["msg-1"],
+          recovery_attempt_id: "attempt-1",
+          runId: "run-1",
+          exitCode: 0,
+          timedOut: false,
+          startedAt: "2026-04-21T10:00:00.000Z",
+          finishedAt: "2026-04-21T10:00:05.000Z"
         }
       }
     },

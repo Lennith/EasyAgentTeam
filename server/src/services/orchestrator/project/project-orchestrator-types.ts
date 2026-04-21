@@ -49,6 +49,7 @@ export interface DispatchProjectInput {
   force?: boolean;
   onlyIdle?: boolean;
   maxDispatches?: number;
+  recovery_attempt_id?: string;
   mode: DispatchMode;
 }
 

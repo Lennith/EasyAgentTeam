@@ -108,6 +108,23 @@ test("idle session with recovery context can retry dispatch", () => {
   );
 });
 
+test("idle session with only provider binding cannot retry dispatch", () => {
+  const policy = resolveRecoveryActions({
+    scope_kind: "project",
+    session_status: "idle",
+    current_task_id: null,
+    cooldown_until: null,
+    last_failure_kind: "error",
+    provider_session_id: "provider-only",
+    role_session_mapping: "authoritative",
+    process_state: "not_running"
+  });
+
+  assert.equal(policy.can_retry_dispatch, false);
+  assert.equal(policy.disabled_reason, "Session is already idle but has no active failure context for retry dispatch.");
+  assert.equal(policy.risk, "Provider binding is still present on this idle session.");
+});
+
 test("idle session with stale role mapping cannot retry dispatch", () => {
   const policy = resolveRecoveryActions({
     scope_kind: "workflow",

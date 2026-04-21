@@ -72,9 +72,14 @@ export interface RuntimeRecoveryItem {
   current_task_id: string | null;
   current_task_title: string | null;
   current_task_state: string | null;
+  role_session_mapping: "authoritative" | "stale" | "none";
   cooldown_until: string | null;
   last_failure_at: string | null;
   last_failure_kind: "timeout" | "error" | null;
+  last_failure_event_id: string | null;
+  last_failure_dispatch_id: string | null;
+  last_failure_message_id: string | null;
+  last_failure_task_id: string | null;
   error_streak: number;
   timeout_streak: number;
   retryable: boolean | null;

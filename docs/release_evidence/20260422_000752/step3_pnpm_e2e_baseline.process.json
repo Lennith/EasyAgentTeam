@@ -1,0 +1,7 @@
+﻿{
+  "pid": 11108,
+  "started_at": "2026-04-22 00:26:58 +08:00",
+  "command": "pnpm e2e:baseline",
+  "stdout_log": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260422_000752\\step3_pnpm_e2e_baseline.stdout.log",
+  "stderr_log": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260422_000752\\step3_pnpm_e2e_baseline.stderr.log"
+}

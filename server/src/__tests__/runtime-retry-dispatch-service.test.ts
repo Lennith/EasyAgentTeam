@@ -48,7 +48,7 @@ function buildOperations(
   } = {}
 ) {
   const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-  const dispatches: Array<{ scopeId: string; sessionId: string }> = [];
+  const dispatches: Array<{ scopeId: string; sessionId: string; recovery_attempt_id: string }> = [];
   let reminderResets = 0;
   let session = { ...initialSession };
   const scope = {
@@ -89,8 +89,16 @@ function buildOperations(
         events.push({ type: eventType, payload });
         return { eventId: `event-${events.length}` };
       },
-      dispatch: async (_scope: typeof scope, activeSession: SessionRecord) => {
-        dispatches.push({ scopeId: scope.projectId, sessionId: activeSession.sessionId });
+      dispatch: async (
+        _scope: typeof scope,
+        activeSession: SessionRecord,
+        dispatchOptions: { recovery_attempt_id: string }
+      ) => {
+        dispatches.push({
+          scopeId: scope.projectId,
+          sessionId: activeSession.sessionId,
+          recovery_attempt_id: dispatchOptions.recovery_attempt_id
+        });
         return {
           accepted: options.dispatchAccepted !== false,
           dispatch_scope: activeSession.currentTaskId ? "task" : "role",
@@ -102,6 +110,17 @@ function buildOperations(
       }
     }
   };
+}
+
+function assertSharedRecoveryAttemptId(events: Array<{ type: string; payload: Record<string, unknown> }>) {
+  const recoveryAttemptIds = events.map((event) => event.payload.recovery_attempt_id);
+  assert.equal(recoveryAttemptIds.length > 0, true);
+  assert.equal(typeof recoveryAttemptIds[0], "string");
+  assert.equal((recoveryAttemptIds[0] as string).length > 0, true);
+  for (const recoveryAttemptId of recoveryAttemptIds) {
+    assert.equal(recoveryAttemptId, recoveryAttemptIds[0]);
+  }
+  return recoveryAttemptIds[0] as string;
 }
 
 test("retryProjectDispatchSession accepts guarded retry, clears failure context, and writes requested/accepted audit events", async () => {
@@ -132,6 +151,8 @@ test("retryProjectDispatchSession accepts guarded retry, clears failure context,
     ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_ACCEPTED"]
   );
   assert.equal(fixture.dispatches.length, 1);
+  const recoveryAttemptId = assertSharedRecoveryAttemptId(fixture.events);
+  assert.equal(fixture.dispatches[0]?.recovery_attempt_id, recoveryAttemptId);
   assert.equal(fixture.session.lastFailureAt, null);
   assert.equal(fixture.session.lastFailureKind, null);
   assert.equal(fixture.session.lastFailureEventId, null);
@@ -178,6 +199,7 @@ test("retryProjectDispatchSession rejects optimistic-guard mismatches and record
     fixture.events.map((event) => event.type),
     ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_REJECTED"]
   );
+  assertSharedRecoveryAttemptId(fixture.events);
   assert.equal(fixture.dispatches.length, 0);
   assert.equal(fixture.reminderResets, 0);
 });
@@ -223,6 +245,164 @@ test("retryProjectDispatchSession records rejection when orchestrator refuses th
     fixture.events.map((event) => event.type),
     ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_REJECTED"]
   );
+  const recoveryAttemptId = assertSharedRecoveryAttemptId(fixture.events);
   assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.dispatches[0]?.recovery_attempt_id, recoveryAttemptId);
   assert.equal(fixture.reminderResets, 0);
+});
+
+test("retryProjectDispatchSession rejects missing expected_status guard", async () => {
+  const fixture = buildOperations(createSession());
+
+  await assert.rejects(
+    retryProjectDispatchSession(
+      {
+        scope_kind: "project",
+        scope_id: "project-alpha",
+        session_id: "session-dev",
+        actor: "dashboard",
+        reason: "manual_retry",
+        confirm: false,
+        expected_role_mapping: "authoritative",
+        expected_current_task_id: "task-a",
+        expected_last_failure_event_id: "evt-failure"
+      },
+      fixture.operations
+    ),
+    (error: unknown) => {
+      assert.equal(typeof error, "object");
+      const candidate = error as {
+        status?: number;
+        payload?: { code?: string; disabled_reason?: string | null };
+      };
+      assert.equal(candidate.status, 409);
+      assert.equal(candidate.payload?.code, "SESSION_RETRY_GUARD_REQUIRED");
+      assert.match(candidate.payload?.disabled_reason ?? "", /expected_status/i);
+      return true;
+    }
+  );
+
+  assert.deepEqual(
+    fixture.events.map((event) => event.type),
+    ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_REJECTED"]
+  );
+  assertSharedRecoveryAttemptId(fixture.events);
+  assert.equal(fixture.dispatches.length, 0);
+});
+
+test("retryProjectDispatchSession rejects missing expected_role_mapping guard", async () => {
+  const fixture = buildOperations(createSession());
+
+  await assert.rejects(
+    retryProjectDispatchSession(
+      {
+        scope_kind: "project",
+        scope_id: "project-alpha",
+        session_id: "session-dev",
+        actor: "dashboard",
+        reason: "manual_retry",
+        confirm: false,
+        expected_status: "idle",
+        expected_current_task_id: "task-a",
+        expected_last_failure_event_id: "evt-failure"
+      },
+      fixture.operations
+    ),
+    (error: unknown) => {
+      assert.equal(typeof error, "object");
+      const candidate = error as {
+        status?: number;
+        payload?: { code?: string; disabled_reason?: string | null };
+      };
+      assert.equal(candidate.status, 409);
+      assert.equal(candidate.payload?.code, "SESSION_RETRY_GUARD_REQUIRED");
+      assert.match(candidate.payload?.disabled_reason ?? "", /expected_role_mapping/i);
+      return true;
+    }
+  );
+
+  assert.deepEqual(
+    fixture.events.map((event) => event.type),
+    ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_REJECTED"]
+  );
+  assertSharedRecoveryAttemptId(fixture.events);
+  assert.equal(fixture.dispatches.length, 0);
+});
+
+test("retryProjectDispatchSession rejects missing failure-context guard", async () => {
+  const fixture = buildOperations(createSession());
+
+  await assert.rejects(
+    retryProjectDispatchSession(
+      {
+        scope_kind: "project",
+        scope_id: "project-alpha",
+        session_id: "session-dev",
+        actor: "dashboard",
+        reason: "manual_retry",
+        confirm: false,
+        expected_status: "idle",
+        expected_role_mapping: "authoritative",
+        expected_current_task_id: "task-a"
+      },
+      fixture.operations
+    ),
+    (error: unknown) => {
+      assert.equal(typeof error, "object");
+      const candidate = error as {
+        status?: number;
+        payload?: { code?: string; disabled_reason?: string | null };
+      };
+      assert.equal(candidate.status, 409);
+      assert.equal(candidate.payload?.code, "SESSION_RETRY_GUARD_REQUIRED");
+      assert.match(candidate.payload?.disabled_reason ?? "", /expected_last_failure_event_id/i);
+      return true;
+    }
+  );
+
+  assert.deepEqual(
+    fixture.events.map((event) => event.type),
+    ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_REJECTED"]
+  );
+  assertSharedRecoveryAttemptId(fixture.events);
+  assert.equal(fixture.dispatches.length, 0);
+});
+
+test("retryProjectDispatchSession rejects missing current-task guard when session still has currentTaskId", async () => {
+  const fixture = buildOperations(createSession());
+
+  await assert.rejects(
+    retryProjectDispatchSession(
+      {
+        scope_kind: "project",
+        scope_id: "project-alpha",
+        session_id: "session-dev",
+        actor: "dashboard",
+        reason: "manual_retry",
+        confirm: false,
+        expected_status: "idle",
+        expected_role_mapping: "authoritative",
+        expected_last_failure_event_id: "evt-failure"
+      },
+      fixture.operations
+    ),
+    (error: unknown) => {
+      assert.equal(typeof error, "object");
+      const candidate = error as {
+        status?: number;
+        payload?: { code?: string; disabled_reason?: string | null };
+      };
+      assert.equal(candidate.status, 409);
+      assert.equal(candidate.payload?.code, "SESSION_RETRY_GUARD_REQUIRED");
+      assert.match(candidate.payload?.disabled_reason ?? "", /expected_current_task_id/i);
+      return true;
+    }
+  );
+
+  assert.deepEqual(
+    fixture.events.map((event) => event.type),
+    ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_REJECTED"]
+  );
+  assertSharedRecoveryAttemptId(fixture.events);
+  assert.equal(fixture.dispatches.length, 0);
 });

@@ -330,9 +330,15 @@ function mapRuntimeRecoveryItem(raw: Record<string, unknown>): RuntimeRecoveryIt
     current_task_id: (raw.current_task_id as string | null | undefined) ?? null,
     current_task_title: (raw.current_task_title as string | null | undefined) ?? null,
     current_task_state: (raw.current_task_state as string | null | undefined) ?? null,
+    role_session_mapping:
+      (raw.role_session_mapping as RuntimeRecoveryItem["role_session_mapping"] | undefined) ?? "none",
     cooldown_until: (raw.cooldown_until as string | null | undefined) ?? null,
     last_failure_at: (raw.last_failure_at as string | null | undefined) ?? null,
     last_failure_kind: (raw.last_failure_kind as RuntimeRecoveryItem["last_failure_kind"] | undefined) ?? null,
+    last_failure_event_id: (raw.last_failure_event_id as string | null | undefined) ?? null,
+    last_failure_dispatch_id: (raw.last_failure_dispatch_id as string | null | undefined) ?? null,
+    last_failure_message_id: (raw.last_failure_message_id as string | null | undefined) ?? null,
+    last_failure_task_id: (raw.last_failure_task_id as string | null | undefined) ?? null,
     error_streak: Number(raw.error_streak ?? 0),
     timeout_streak: Number(raw.timeout_streak ?? 0),
     retryable: typeof raw.retryable === "boolean" ? raw.retryable : null,
@@ -380,6 +386,26 @@ function mapRuntimeRecoveryResponse(raw: Record<string, unknown>): RuntimeRecove
     items: Array.isArray(raw.items)
       ? raw.items.map((item) => mapRuntimeRecoveryItem(item as Record<string, unknown>))
       : []
+  };
+}
+
+function buildRetryDispatchGuardBody(
+  item: RuntimeRecoveryItem,
+  reason: string,
+  confirm?: boolean
+): Record<string, unknown> {
+  return {
+    reason,
+    actor: "dashboard",
+    expected_status: "idle",
+    expected_role_mapping: item.role_session_mapping,
+    ...(item.current_task_id ? { expected_current_task_id: item.current_task_id } : {}),
+    ...(item.last_failure_at ? { expected_last_failure_at: item.last_failure_at } : {}),
+    ...(item.last_failure_event_id ? { expected_last_failure_event_id: item.last_failure_event_id } : {}),
+    ...(item.last_failure_dispatch_id ? { expected_last_failure_dispatch_id: item.last_failure_dispatch_id } : {}),
+    ...(item.last_failure_message_id ? { expected_last_failure_message_id: item.last_failure_message_id } : {}),
+    ...(item.last_failure_task_id ? { expected_last_failure_task_id: item.last_failure_task_id } : {}),
+    ...(confirm ? { confirm: true } : {})
   };
 }
 
@@ -625,16 +651,12 @@ export const projectApi = {
       }
     ),
 
-  retryDispatchSession: (projectId: string, sessionId: string, confirm?: boolean) =>
+  retryDispatchSession: (projectId: string, item: RuntimeRecoveryItem, confirm?: boolean) =>
     fetchJSON<Record<string, unknown>>(
-      `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/retry-dispatch`,
+      `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(item.session_id)}/retry-dispatch`,
       {
         method: "POST",
-        body: JSON.stringify({
-          reason: "dashboard_manual_retry_dispatch",
-          actor: "dashboard",
-          ...(confirm ? { confirm: true } : {})
-        })
+        body: JSON.stringify(buildRetryDispatchGuardBody(item, "dashboard_manual_retry_dispatch", confirm))
       }
     ),
 
@@ -1138,16 +1160,12 @@ export const workflowApi = {
       session: mapWorkflowSessionFields(payload.session)
     })),
 
-  retryDispatchSession: (runId: string, sessionId: string, confirm?: boolean) =>
+  retryDispatchSession: (runId: string, item: RuntimeRecoveryItem, confirm?: boolean) =>
     fetchJSON<Record<string, unknown>>(
-      `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/retry-dispatch`,
+      `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(item.session_id)}/retry-dispatch`,
       {
         method: "POST",
-        body: JSON.stringify({
-          reason: "dashboard_manual_retry_dispatch",
-          actor: "dashboard",
-          ...(confirm ? { confirm: true } : {})
-        })
+        body: JSON.stringify(buildRetryDispatchGuardBody(item, "dashboard_manual_retry_dispatch", confirm))
       }
     ),
 

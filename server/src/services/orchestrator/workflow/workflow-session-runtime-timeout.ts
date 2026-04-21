@@ -11,6 +11,7 @@ import {
   buildOrchestratorMinimaxSessionDir,
   resolveOrchestratorProviderSessionId
 } from "../shared/orchestrator-runtime-helpers.js";
+import { resolveWorkflowSessionTimeoutEvidence } from "./workflow-session-timeout-evidence.js";
 
 export interface WorkflowSessionTimeoutDependencies {
   dataRoot: string;
@@ -27,6 +28,60 @@ export interface WorkflowSessionTimeoutDependencies {
   ): Promise<WorkflowSessionRecord | null>;
 }
 
+async function revalidateTimedOutWorkflowSession(input: {
+  dependencies: WorkflowSessionTimeoutDependencies;
+  run: WorkflowRunRecord;
+  session: WorkflowSessionRecord;
+  nowMs: number;
+}): Promise<
+  | { skip: false; session: WorkflowSessionRecord }
+  | {
+      skip: true;
+      session: WorkflowSessionRecord;
+      reason: "fresh_heartbeat" | "recent_terminal_report";
+      matchedEventType?: string;
+      matchedEventAt?: string;
+    }
+> {
+  const latestSession =
+    (await input.dependencies.repositories.sessions.getSession(input.run.runId, input.session.sessionId)) ??
+    input.session;
+  const events = (await input.dependencies.repositories.events.listEvents(input.run.runId)).filter(
+    (item) => item.sessionId === latestSession.sessionId
+  );
+  const runtime = await input.dependencies.repositories.workflowRuns.readRuntime(input.run.runId);
+  const currentTask = latestSession.currentTaskId
+    ? (runtime.tasks.find((task) => task.taskId === latestSession.currentTaskId) ?? null)
+    : null;
+  const evidence = resolveWorkflowSessionTimeoutEvidence({
+    session: latestSession,
+    nowMs: input.nowMs,
+    timeoutMs: input.dependencies.sessionRunningTimeoutMs,
+    events,
+    task: currentTask
+  });
+  if (evidence.should_close) {
+    return { skip: false, session: latestSession };
+  }
+
+  const evidenceEvent = evidence.evidence_event_id
+    ? (events.find((event) => event.eventId === evidence.evidence_event_id) ?? null)
+    : null;
+  const refreshedSession =
+    evidence.protected_by_recent_terminal_report && evidenceEvent
+      ? await input.dependencies.repositories.sessions.touchSession(input.run.runId, latestSession.sessionId, {
+          lastActiveAt: evidenceEvent.createdAt
+        })
+      : latestSession;
+  return {
+    skip: true,
+    session: refreshedSession,
+    reason: evidence.decision_reason === "fresh_heartbeat" ? "fresh_heartbeat" : "recent_terminal_report",
+    matchedEventType: evidenceEvent?.eventType,
+    matchedEventAt: evidenceEvent?.createdAt
+  };
+}
+
 export async function markWorkflowTimedOutSessions(
   dependencies: WorkflowSessionTimeoutDependencies,
   run: WorkflowRunRecord,
@@ -36,7 +91,6 @@ export async function markWorkflowTimedOutSessions(
   const threshold = getTimeoutEscalationThreshold();
   const cooldownMs = getTimeoutCooldownMs();
   const settings = await getRuntimeSettings(dependencies.dataRoot);
-  const events = await dependencies.repositories.events.listEvents(run.runId);
   const roleCandidates = Array.from(
     new Set(sessions.filter((session) => session.status !== "dismissed").map((session) => session.role))
   ).sort((a, b) => a.localeCompare(b));
@@ -50,19 +104,50 @@ export async function markWorkflowTimedOutSessions(
       !hasOrchestratorSessionHeartbeatTimedOut({
         lastActiveAt: session.lastActiveAt,
         updatedAt: session.updatedAt,
+        createdAt: session.createdAt,
         timeoutMs: dependencies.sessionRunningTimeoutMs,
         nowMs
       })
     ) {
       continue;
     }
-    const providerId = session.provider ?? resolveSessionProviderId(run, session.role, "minimax");
-    const cancelSessionId = resolveOrchestratorProviderSessionId(session.sessionId, session.providerSessionId);
+    const revalidated = await revalidateTimedOutWorkflowSession({
+      dependencies,
+      run,
+      session,
+      nowMs
+    });
+    if (revalidated.skip) {
+      await dependencies.repositories.events.appendEvent(run.runId, {
+        eventType: "SESSION_HEARTBEAT_TIMEOUT_SKIPPED",
+        source: "system",
+        sessionId: revalidated.session.sessionId,
+        taskId: revalidated.session.currentTaskId ?? session.currentTaskId ?? undefined,
+        payload: {
+          previous_status: "running",
+          timeout_ms: dependencies.sessionRunningTimeoutMs,
+          last_active_at: session.lastActiveAt,
+          revalidated_last_active_at: revalidated.session.lastActiveAt,
+          reason: revalidated.reason,
+          matched_event_type: revalidated.matchedEventType ?? null,
+          matched_event_at: revalidated.matchedEventAt ?? null
+        }
+      });
+      continue;
+    }
+    const activeSession = revalidated.session;
+    const providerId = activeSession.provider ?? resolveSessionProviderId(run, activeSession.role, "minimax");
+    const cancelSessionId = resolveOrchestratorProviderSessionId(
+      activeSession.sessionId,
+      activeSession.providerSessionId
+    );
     const cancelRequested = dependencies.providerRegistry.cancelSession(providerId, cancelSessionId);
-    const sessionEvents = events.filter((event) => event.sessionId === session.sessionId);
+    const sessionEvents = (await dependencies.repositories.events.listEvents(run.runId)).filter(
+      (event) => event.sessionId === activeSession.sessionId
+    );
     const openDispatch = findLatestOpenDispatch(sessionEvents);
-    const currentTaskId = session.currentTaskId ?? openDispatch?.event.taskId ?? null;
-    const dispatchId = openDispatch?.dispatchId ?? session.lastDispatchId ?? null;
+    const currentTaskId = activeSession.currentTaskId ?? openDispatch?.event.taskId ?? null;
+    const dispatchId = openDispatch?.dispatchId ?? activeSession.lastDispatchId ?? null;
     const dispatchPayload = (openDispatch?.event.payload as Record<string, unknown> | undefined) ?? undefined;
     const transition = resolveRunnerFailureTransition({
       kind: "timeout",
@@ -75,11 +160,11 @@ export async function markWorkflowTimedOutSessions(
           : null,
       current_task_id: currentTaskId,
       preserve_current_task_id: true,
-      existing_timeout_streak: session.timeoutStreak ?? 0,
+      existing_timeout_streak: activeSession.timeoutStreak ?? 0,
       timeout_threshold: threshold,
       timeout_cooldown_ms: cooldownMs
     });
-    const timeoutStreak = transition.session_patch.timeoutStreak ?? (session.timeoutStreak ?? 0) + 1;
+    const timeoutStreak = transition.session_patch.timeoutStreak ?? (activeSession.timeoutStreak ?? 0) + 1;
     const escalated = transition.escalated;
     const cooldownUntil = transition.cooldown_until;
     const timeoutDump =
@@ -87,10 +172,10 @@ export async function markWorkflowTimedOutSessions(
         ? await dumpSessionMessagesOnSoftTimeout({
             workspacePath: run.workspacePath,
             sessionDir: settings.minimaxSessionDir || buildOrchestratorMinimaxSessionDir(run.workspacePath),
-            sessionId: session.sessionId,
-            providerSessionId: session.providerSessionId,
+            sessionId: activeSession.sessionId,
+            providerSessionId: activeSession.providerSessionId,
             runId: run.runId,
-            role: session.role,
+            role: activeSession.role,
             provider: providerId,
             dispatchId,
             taskId: currentTaskId ?? null,
@@ -100,7 +185,7 @@ export async function markWorkflowTimedOutSessions(
 
     await dependencies.repositories.runInUnitOfWork({ run }, async () => {
       await dependencies.repositories.sessions
-        .touchSession(run.runId, session.sessionId, {
+        .touchSession(run.runId, activeSession.sessionId, {
           status: transition.session_patch.status,
           currentTaskId: transition.session_patch.currentTaskId ?? currentTaskId,
           lastDispatchId: dispatchId,
@@ -120,10 +205,11 @@ export async function markWorkflowTimedOutSessions(
         .catch(() => {});
       if (openDispatch) {
         const payload = openDispatch.event.payload as Record<string, unknown>;
+        const recoveryAttemptId = typeof payload.recovery_attempt_id === "string" ? payload.recovery_attempt_id : null;
         await dependencies.repositories.events.appendEvent(run.runId, {
           eventType: escalated ? "ORCHESTRATOR_DISPATCH_FAILED" : "ORCHESTRATOR_DISPATCH_FINISHED",
           source: "system",
-          sessionId: session.sessionId,
+          sessionId: activeSession.sessionId,
           taskId: currentTaskId ?? undefined,
           payload: {
             dispatchId: openDispatch.dispatchId,
@@ -132,6 +218,7 @@ export async function markWorkflowTimedOutSessions(
             messageId: payload.messageId ?? null,
             requestId: payload.requestId ?? null,
             runId: run.runId,
+            ...(recoveryAttemptId ? { recovery_attempt_id: recoveryAttemptId } : {}),
             exitCode: null,
             timedOut: true,
             synthetic: true,
@@ -143,12 +230,12 @@ export async function markWorkflowTimedOutSessions(
       await dependencies.repositories.events.appendEvent(run.runId, {
         eventType: "SESSION_HEARTBEAT_TIMEOUT",
         source: "system",
-        sessionId: session.sessionId,
+        sessionId: activeSession.sessionId,
         taskId: currentTaskId ?? undefined,
         payload: {
           previous_status: "running",
           timeout_ms: dependencies.sessionRunningTimeoutMs,
-          last_active_at: session.lastActiveAt,
+          last_active_at: activeSession.lastActiveAt,
           provider: providerId,
           provider_session_id: cancelSessionId,
           cancel_requested: cancelRequested,
@@ -162,7 +249,7 @@ export async function markWorkflowTimedOutSessions(
       const failureEvent = await dependencies.repositories.events.appendEvent(run.runId, {
         eventType: transition.event_type,
         source: "system",
-        sessionId: session.sessionId,
+        sessionId: activeSession.sessionId,
         taskId: currentTaskId ?? undefined,
         payload: {
           ...transition.event_payload,
@@ -171,7 +258,7 @@ export async function markWorkflowTimedOutSessions(
         }
       });
       await dependencies.repositories.sessions
-        .touchSession(run.runId, session.sessionId, {
+        .touchSession(run.runId, activeSession.sessionId, {
           lastFailureEventId: failureEvent.eventId
         })
         .catch(() => {});

@@ -42,9 +42,7 @@ export function ProjectRecoveryView({ projectId }: ProjectRecoveryViewProps) {
       onRepair={(sessionId, target, confirm) =>
         projectApi.repairSession(projectId, sessionId, target, confirm).then(() => undefined)
       }
-      onRetry={(sessionId, confirm) =>
-        projectApi.retryDispatchSession(projectId, sessionId, confirm).then(() => undefined)
-      }
+      onRetry={(item, confirm) => projectApi.retryDispatchSession(projectId, item, confirm).then(() => undefined)}
     />
   );
 }

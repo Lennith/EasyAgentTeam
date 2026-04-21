@@ -141,7 +141,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `next_status`
   - `warnings`
 - `repair` 与 `retry-dispatch` 在 `requires_confirmation=true` 时必须显式提交 `confirm: true`
-- `retry-dispatch` 请求体允许携带 optimistic guard：
+- `retry-dispatch` 请求体必须携带 optimistic guard：
   - `expected_status`
   - `expected_role_mapping`
   - `expected_current_task_id`
@@ -150,6 +150,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `expected_last_failure_dispatch_id`
   - `expected_last_failure_message_id`
   - `expected_last_failure_task_id`
+- mandatory guard 约束固定为：`expected_status='idle'`、`expected_role_mapping='authoritative'`，并且至少提供 `expected_last_failure_event_id` 或 `expected_last_failure_dispatch_id`；如果 fresh session 仍有 `currentTaskId`，则 `expected_current_task_id` 也为必填
 - `retry-dispatch` 的普通重试路径默认按 `onlyIdle=true`、`force=false` 执行；公开 API 不暴露 `force` 参数
 - `dismiss` 额外返回：
   - `provider_cancel`
@@ -164,8 +165,11 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `warnings`
 - recovery command 拒绝错误统一使用：
   - `SESSION_RECOVERY_CONFIRMATION_REQUIRED`
+  - `SESSION_RETRY_GUARD_REQUIRED`
   - `SESSION_RETRY_DISPATCH_NOT_ALLOWED`
   - `SESSION_DISMISS_EXTERNAL_STOP_UNCONFIRMED`
 - retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分；读模型兼容历史 `REQUESTED`
+- `SESSION_RETRY_GUARD_REQUIRED` 与 `SESSION_RETRY_DISPATCH_NOT_ALLOWED` 都返回 `409`；前者用于 guard 缺失，后者用于 guard mismatch、policy 不允许或 orchestrator 拒绝
+- retry-dispatch 内部会生成 `recovery_attempt_id` 并串到 retry 审计事件与对应的 dispatch started / finished / failed 事件；该字段只用于内部审计，不新增公开请求或响应字段
 - `dismiss` 现在先写 `SESSION_DISMISS_EXTERNAL_RESULT`，只有外部停止已确认后才写 `SESSION_STATUS_DISMISSED`
 - project recovery actionability 由后端 policy 决定，前端不得再按 `status` 自行推导 repair/dismiss 能力

@@ -84,6 +84,7 @@ export function createWorkflowDispatchLaunchExecutionAdapter(
         dispatchId: input.dispatchId,
         dispatchKind: input.dispatchKind,
         messageId: input.messageId ?? null,
+        recovery_attempt_id: input.recovery_attempt_id?.trim() || undefined,
         requestedSkillIds: prepared.requestedSkillIds,
         tokenLimit: prepared.tokenLimit,
         maxOutputTokens: prepared.maxOutputTokens,

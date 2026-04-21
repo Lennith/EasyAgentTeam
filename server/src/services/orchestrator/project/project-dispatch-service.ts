@@ -37,7 +37,8 @@ export class ProjectDispatchService {
       taskId: input.taskId,
       force: input.force,
       onlyIdle: input.onlyIdle,
-      maxDispatches: input.maxDispatches
+      maxDispatches: input.maxDispatches,
+      recovery_attempt_id: input.recovery_attempt_id
     };
 
     const forceValidationResult = await validateProjectForceDispatchTask(

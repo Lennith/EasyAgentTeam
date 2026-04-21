@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SessionRecord, WorkflowSessionRecord } from "../domain/models.js";
 import {
   buildRecoveryActionRejection,
@@ -42,6 +43,10 @@ interface RetryDispatchExecutionResult {
   reason?: string;
 }
 
+interface RetryDispatchExecutionOptions {
+  recovery_attempt_id: string;
+}
+
 interface RetryDispatchScope<TSession extends RetryDispatchSession> {
   scope_id: string;
   role_session_map?: Record<string, string>;
@@ -74,7 +79,11 @@ interface RetryDispatchServiceOperations<TScope, TSession extends RetryDispatchS
     session: TSession,
     payload: Record<string, unknown>
   ): Promise<{ eventId?: string } | void>;
-  dispatch(scope: TScope, session: TSession): Promise<RetryDispatchExecutionResult>;
+  dispatch(
+    scope: TScope,
+    session: TSession,
+    options: RetryDispatchExecutionOptions
+  ): Promise<RetryDispatchExecutionResult>;
   resetReminder(scope: TScope, role: string): Promise<void>;
 }
 
@@ -105,6 +114,62 @@ function normalizeNullable(value: string | null | undefined): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildRetryDispatchGuardRequired(sessionId: string, disabledReason: string, details: Record<string, unknown>) {
+  return {
+    code: "SESSION_RETRY_GUARD_REQUIRED",
+    message: `retry dispatch requires optimistic guard fields for session '${sessionId}'`,
+    next_action:
+      "Refresh Recovery Center and retry with expected_status, expected_role_mapping, and failure context guard.",
+    disabled_reason: disabledReason,
+    risk: null,
+    details
+  } as const;
+}
+
+function resolveGuardRequirementFailure(
+  input: RetryDispatchCommandInput,
+  session: RetryDispatchSession
+): { disabled_reason: string; details: Record<string, unknown> } | null {
+  const issues: string[] = [];
+  const required_fields = ["expected_status", "expected_role_mapping"] as string[];
+
+  if (input.expected_status !== "idle") {
+    issues.push("expected_status must be provided as 'idle'");
+  }
+  if (input.expected_role_mapping !== "authoritative") {
+    issues.push("expected_role_mapping must be provided as 'authoritative'");
+  }
+
+  const expectedFailureEventId = normalizeNullable(input.expected_last_failure_event_id);
+  const expectedFailureDispatchId = normalizeNullable(input.expected_last_failure_dispatch_id);
+  if (!expectedFailureEventId && !expectedFailureDispatchId) {
+    required_fields.push("expected_last_failure_event_id|expected_last_failure_dispatch_id");
+    issues.push("one of expected_last_failure_event_id or expected_last_failure_dispatch_id is required");
+  }
+
+  if (session.currentTaskId) {
+    required_fields.push("expected_current_task_id");
+    if (!normalizeNullable(input.expected_current_task_id)) {
+      issues.push("expected_current_task_id is required while the session still has currentTaskId");
+    }
+  }
+
+  if (issues.length === 0) {
+    return null;
+  }
+
+  return {
+    disabled_reason: issues.join("; "),
+    details: {
+      action: "retry_dispatch",
+      session_id: session.sessionId,
+      required_fields,
+      current_task_id: session.currentTaskId ?? null,
+      current_task_guard_required: Boolean(session.currentTaskId)
+    }
+  };
 }
 
 function resolveGuardMismatch(
@@ -154,11 +219,13 @@ function buildAuditPayload(
   input: RetryDispatchCommandInput,
   session: RetryDispatchSession,
   dispatchScope: "task" | "role",
+  recoveryAttemptId: string,
   extra: Record<string, unknown> = {}
 ): Record<string, unknown> {
   return {
     actor: input.actor,
     reason: input.reason,
+    recovery_attempt_id: recoveryAttemptId,
     session_id: session.sessionId,
     current_task_id: session.currentTaskId ?? null,
     dispatch_scope: dispatchScope,
@@ -194,20 +261,42 @@ async function executeRetryDispatchCommand<TScope, TSession extends RetryDispatc
       provider_session_id: session.providerSessionId ?? null
     });
     const dispatchScope = session.currentTaskId ? "task" : "role";
+    const recoveryAttemptId = randomUUID();
 
     await operations.appendEvent(
       scope,
       "SESSION_RETRY_DISPATCH_REQUESTED",
       session,
-      buildAuditPayload(input, session, dispatchScope)
+      buildAuditPayload(input, session, dispatchScope, recoveryAttemptId)
     );
+
+    const guardRequirementFailure = resolveGuardRequirementFailure(input, session);
+    if (guardRequirementFailure) {
+      await operations.appendEvent(
+        scope,
+        "SESSION_RETRY_DISPATCH_REJECTED",
+        session,
+        buildAuditPayload(input, session, dispatchScope, recoveryAttemptId, {
+          rejection_code: "SESSION_RETRY_GUARD_REQUIRED",
+          rejection_reason: guardRequirementFailure.disabled_reason
+        })
+      );
+      throw new RecoveryCommandError(
+        409,
+        buildRetryDispatchGuardRequired(
+          session.sessionId,
+          guardRequirementFailure.disabled_reason,
+          guardRequirementFailure.details
+        )
+      );
+    }
 
     if (!contextResult.policy.can_retry_dispatch) {
       await operations.appendEvent(
         scope,
         "SESSION_RETRY_DISPATCH_REJECTED",
         session,
-        buildAuditPayload(input, session, dispatchScope, {
+        buildAuditPayload(input, session, dispatchScope, recoveryAttemptId, {
           rejection_code: "SESSION_RETRY_DISPATCH_NOT_ALLOWED",
           rejection_reason: contextResult.policy.disabled_reason ?? "Retry dispatch is not allowed for this session."
         })
@@ -228,7 +317,7 @@ async function executeRetryDispatchCommand<TScope, TSession extends RetryDispatc
         scope,
         "SESSION_RETRY_DISPATCH_REJECTED",
         session,
-        buildAuditPayload(input, session, dispatchScope, {
+        buildAuditPayload(input, session, dispatchScope, recoveryAttemptId, {
           rejection_code: "SESSION_RECOVERY_CONFIRMATION_REQUIRED",
           rejection_reason: "confirmation_required"
         })
@@ -250,7 +339,7 @@ async function executeRetryDispatchCommand<TScope, TSession extends RetryDispatc
         scope,
         "SESSION_RETRY_DISPATCH_REJECTED",
         session,
-        buildAuditPayload(input, session, dispatchScope, {
+        buildAuditPayload(input, session, dispatchScope, recoveryAttemptId, {
           rejection_code: "SESSION_RETRY_DISPATCH_NOT_ALLOWED",
           rejection_reason: mismatchReason
         })
@@ -261,14 +350,16 @@ async function executeRetryDispatchCommand<TScope, TSession extends RetryDispatc
       );
     }
 
-    const dispatchResult = await operations.dispatch(scope, session);
+    const dispatchResult = await operations.dispatch(scope, session, {
+      recovery_attempt_id: recoveryAttemptId
+    });
     if (!dispatchResult.accepted) {
       const rejectionReason = dispatchResult.reason ?? "Retry dispatch was not accepted by the orchestrator.";
       await operations.appendEvent(
         scope,
         "SESSION_RETRY_DISPATCH_REJECTED",
         session,
-        buildAuditPayload(input, session, dispatchResult.dispatch_scope, {
+        buildAuditPayload(input, session, dispatchResult.dispatch_scope, recoveryAttemptId, {
           rejection_code: "SESSION_RETRY_DISPATCH_NOT_ALLOWED",
           rejection_reason: rejectionReason
         })
@@ -292,7 +383,7 @@ async function executeRetryDispatchCommand<TScope, TSession extends RetryDispatc
       scope,
       "SESSION_RETRY_DISPATCH_ACCEPTED",
       cleared,
-      buildAuditPayload(input, cleared, dispatchResult.dispatch_scope, {
+      buildAuditPayload(input, cleared, dispatchResult.dispatch_scope, recoveryAttemptId, {
         accepted: true
       })
     );

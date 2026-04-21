@@ -184,7 +184,7 @@ export function registerWorkflowRecoveryRoutes(app: express.Application, context
               taskId: currentSession.currentTaskId ?? undefined,
               payload
             }),
-          dispatch: async (resolvedScope, currentSession) => {
+          dispatch: async (resolvedScope, currentSession, dispatchOptions) => {
             const result = await context.workflowOrchestrator.dispatchRun(resolvedScope.run.runId, {
               role: currentSession.role,
               sessionId: currentSession.sessionId,
@@ -192,7 +192,8 @@ export function registerWorkflowRecoveryRoutes(app: express.Application, context
               force: false,
               onlyIdle: true,
               maxDispatches: 1,
-              source: "manual"
+              source: "manual",
+              recovery_attempt_id: dispatchOptions.recovery_attempt_id
             });
             const first = result.results[0];
             return {

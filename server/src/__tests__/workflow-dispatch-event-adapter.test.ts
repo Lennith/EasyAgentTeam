@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { WorkflowDispatchEventAdapter } from "../services/orchestrator/workflow/workflow-dispatch-event-adapter.js";
 
-test("workflow dispatch event adapter preserves finished and failed event contract", async () => {
+test("workflow dispatch event adapter preserves recovery attempt metadata when provided", async () => {
   const appended: Array<{ runId: string; event: unknown }> = [];
   const adapter = new WorkflowDispatchEventAdapter({
     events: {
@@ -11,6 +11,22 @@ test("workflow dispatch event adapter preserves finished and failed event contra
       }
     }
   } as any);
+
+  await adapter.appendStarted(
+    {
+      runId: "run-1",
+      sessionId: "session-1",
+      taskId: "task-1"
+    },
+    {
+      requestId: "req-1",
+      dispatchId: "dispatch-0",
+      dispatchKind: "task",
+      messageId: null,
+      recovery_attempt_id: "attempt-1",
+      requestedSkillIds: ["skill-0"]
+    }
+  );
 
   await adapter.appendFinished(
     {
@@ -23,6 +39,7 @@ test("workflow dispatch event adapter preserves finished and failed event contra
       dispatchId: "dispatch-1",
       dispatchKind: "task",
       messageId: null,
+      recovery_attempt_id: "attempt-1",
       requestedSkillIds: ["skill-1"],
       finishReason: "stop",
       usage: { outputTokens: 12 },
@@ -54,6 +71,24 @@ test("workflow dispatch event adapter preserves finished and failed event contra
     {
       runId: "run-1",
       event: {
+        eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+        source: "system",
+        sessionId: "session-1",
+        taskId: "task-1",
+        payload: {
+          requestId: "req-1",
+          dispatchId: "dispatch-0",
+          dispatchKind: "task",
+          messageId: null,
+          runId: "run-1",
+          recovery_attempt_id: "attempt-1",
+          requestedSkillIds: ["skill-0"]
+        }
+      }
+    },
+    {
+      runId: "run-1",
+      event: {
         eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
         source: "system",
         sessionId: "session-1",
@@ -64,6 +99,7 @@ test("workflow dispatch event adapter preserves finished and failed event contra
           dispatchKind: "task",
           messageId: null,
           runId: "run-1",
+          recovery_attempt_id: "attempt-1",
           requestedSkillIds: ["skill-1"],
           finishReason: "stop",
           usage: { outputTokens: 12 },

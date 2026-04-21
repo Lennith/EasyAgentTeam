@@ -355,6 +355,24 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
     const retryItem = recoveryPayload.items.find((item) => item.session_id === "session-lead");
     assert.equal(retryItem?.can_retry_dispatch, true);
 
+    const bareRetryRes = await fetch(
+      `${baseUrl}/api/workflow-runs/wf_retry_dispatch/sessions/${encodeURIComponent("session-lead")}/retry-dispatch`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "manual_retry", actor: "dashboard" })
+      }
+    );
+    assert.equal(bareRetryRes.status, 409);
+    const bareRetryPayload = (await bareRetryRes.json()) as {
+      error_code: string;
+      next_action: string | null;
+      disabled_reason: string | null;
+    };
+    assert.equal(bareRetryPayload.error_code, "SESSION_RETRY_GUARD_REQUIRED");
+    assert.match(bareRetryPayload.next_action ?? "", /Refresh Recovery Center/i);
+    assert.match(bareRetryPayload.disabled_reason ?? "", /expected_status/i);
+
     const retryRes = await fetch(
       `${baseUrl}/api/workflow-runs/wf_retry_dispatch/sessions/${encodeURIComponent("session-lead")}/retry-dispatch`,
       {
@@ -363,14 +381,14 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
         body: JSON.stringify({
           reason: "manual_retry",
           actor: "dashboard",
-          expected_status: "idle",
-          expected_role_mapping: retryItem?.role_session_mapping,
-          expected_current_task_id: retryItem?.current_task_id,
-          expected_last_failure_at: retryItem?.last_failure_at,
-          expected_last_failure_event_id: retryItem?.last_failure_event_id,
-          expected_last_failure_dispatch_id: retryItem?.last_failure_dispatch_id,
-          expected_last_failure_message_id: retryItem?.last_failure_message_id,
-          expected_last_failure_task_id: retryItem?.last_failure_task_id
+          expectedStatus: "idle",
+          expectedRoleMapping: retryItem?.role_session_mapping,
+          expectedCurrentTaskId: retryItem?.current_task_id,
+          expectedLastFailureAt: retryItem?.last_failure_at,
+          expectedLastFailureEventId: retryItem?.last_failure_event_id,
+          expectedLastFailureDispatchId: retryItem?.last_failure_dispatch_id,
+          expectedLastFailureMessageId: retryItem?.last_failure_message_id,
+          expectedLastFailureTaskId: retryItem?.last_failure_task_id
         })
       }
     );
@@ -385,20 +403,17 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
     assert.equal(retryPayload.current_task_id, "task_a");
     assert.equal(retryPayload.dispatch_scope, "task");
     assert.equal(retryPayload.accepted, true);
-    assert.deepEqual(dispatchCalls, [
-      {
-        runId: "wf_retry_dispatch",
-        options: {
-          role: "lead",
-          sessionId: "session-lead",
-          taskId: "task_a",
-          force: false,
-          onlyIdle: true,
-          maxDispatches: 1,
-          source: "manual"
-        }
-      }
-    ]);
+    assert.equal(dispatchCalls.length, 1);
+    assert.equal(dispatchCalls[0]?.runId, "wf_retry_dispatch");
+    assert.equal(dispatchCalls[0]?.options.role, "lead");
+    assert.equal(dispatchCalls[0]?.options.sessionId, "session-lead");
+    assert.equal(dispatchCalls[0]?.options.taskId, "task_a");
+    assert.equal(dispatchCalls[0]?.options.force, false);
+    assert.equal(dispatchCalls[0]?.options.onlyIdle, true);
+    assert.equal(dispatchCalls[0]?.options.maxDispatches, 1);
+    assert.equal(dispatchCalls[0]?.options.source, "manual");
+    assert.equal(typeof dispatchCalls[0]?.options.recovery_attempt_id, "string");
+    assert.equal((dispatchCalls[0]?.options.recovery_attempt_id as string).length > 0, true);
 
     const reminderAfterRetry = await getWorkflowRoleReminderState(dataRoot, "wf_retry_dispatch", "lead");
     assert.equal(reminderAfterRetry?.reminderCount, 0);
@@ -411,6 +426,9 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
     assert.equal(Boolean(retryAccepted), true);
     assert.equal(retryRequested?.payload?.dispatch_scope, "task");
     assert.equal(retryAccepted?.payload?.dispatch_scope, "task");
+    assert.equal(typeof retryRequested?.payload?.recovery_attempt_id, "string");
+    assert.equal(retryRequested?.payload?.recovery_attempt_id, retryAccepted?.payload?.recovery_attempt_id);
+    assert.equal(retryRequested?.payload?.recovery_attempt_id, dispatchCalls[0]?.options.recovery_attempt_id);
   } finally {
     await server.close();
   }

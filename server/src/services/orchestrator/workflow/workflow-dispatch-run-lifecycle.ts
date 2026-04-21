@@ -27,6 +27,7 @@ export interface WorkflowDispatchLifecycleContext {
   dispatchId: string;
   dispatchKind: "task" | "message";
   messageId?: string | null;
+  recovery_attempt_id?: string;
   requestedSkillIds: string[];
   tokenLimit: number;
   maxOutputTokens: number;
@@ -87,6 +88,7 @@ export function buildWorkflowDispatchStartedDetails(
     dispatchId: context.dispatchId,
     dispatchKind: context.dispatchKind,
     messageId: context.messageId ?? null,
+    ...(context.recovery_attempt_id ? { recovery_attempt_id: context.recovery_attempt_id } : {}),
     requestedSkillIds: context.requestedSkillIds,
     tokenLimit: context.tokenLimit,
     maxOutputTokens: context.maxOutputTokens
@@ -115,6 +117,7 @@ export async function handleMissingWorkflowMiniMaxConfiguration(
     dispatchId: context.dispatchId,
     dispatchKind: context.dispatchKind,
     messageId: context.messageId ?? null,
+    ...(context.recovery_attempt_id ? { recovery_attempt_id: context.recovery_attempt_id } : {}),
     requestedSkillIds: context.requestedSkillIds,
     error: "minimax_not_configured"
   });
@@ -189,6 +192,7 @@ export async function handleWorkflowDispatchLaunchResult(
         dispatchId: context.dispatchId,
         dispatchKind: context.dispatchKind,
         messageId: context.messageId ?? null,
+        ...(context.recovery_attempt_id ? { recovery_attempt_id: context.recovery_attempt_id } : {}),
         requestedSkillIds: context.requestedSkillIds,
         exitCode: null,
         timedOut: true,
@@ -228,6 +232,7 @@ export async function handleWorkflowDispatchLaunchResult(
     dispatchId: context.dispatchId,
     dispatchKind: context.dispatchKind,
     messageId: context.messageId ?? null,
+    ...(context.recovery_attempt_id ? { recovery_attempt_id: context.recovery_attempt_id } : {}),
     requestedSkillIds: context.requestedSkillIds,
     finishReason: dispatchRunResult.finishReason ?? null,
     usage: dispatchRunResult.usage ?? null,
@@ -260,6 +265,7 @@ export async function handleWorkflowDispatchLaunchError(
         dispatchId: context.dispatchId,
         dispatchKind: context.dispatchKind,
         messageId: context.messageId ?? null,
+        ...(context.recovery_attempt_id ? { recovery_attempt_id: context.recovery_attempt_id } : {}),
         requestedSkillIds: context.requestedSkillIds,
         error: failureMessage
       });

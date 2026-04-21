@@ -116,13 +116,15 @@ export function buildProjectDispatchStartedDetails(input: {
   requestId: string;
   mode: DispatchProjectInput["mode"];
   messageIds: string[];
+  recovery_attempt_id?: string;
 }): ProjectDispatchStartedDetails {
   return {
     dispatchId: input.dispatchId,
     dispatchKind: input.dispatchKind,
     requestId: input.requestId,
     mode: input.mode,
-    messageIds: input.messageIds
+    messageIds: input.messageIds,
+    ...(input.recovery_attempt_id?.trim() ? { recovery_attempt_id: input.recovery_attempt_id.trim() } : {})
   };
 }
 
@@ -210,7 +212,8 @@ export function buildProjectDispatchStartedScopeDetails(context: ProjectDispatch
     dispatchKind: context.input.dispatchKind,
     requestId: context.input.firstMessage.envelope.correlation.request_id,
     mode: context.input.input.mode,
-    messageIds: context.input.selectedMessageIds
+    messageIds: context.input.selectedMessageIds,
+    recovery_attempt_id: context.input.input.recovery_attempt_id
   });
 }
 

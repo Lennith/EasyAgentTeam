@@ -393,6 +393,7 @@ export async function touchWorkflowSession(
     cooldownUntil?: string | null;
     lastRunId?: string | null;
     agentPid?: number | null;
+    lastActiveAt?: string | null;
   } = {}
 ): Promise<WorkflowSessionRecord> {
   const runId = assertRunId(runIdRaw);
@@ -463,7 +464,7 @@ export async function touchWorkflowSession(
           lastRunId: patch.lastRunId === null ? undefined : patch.lastRunId?.trim() || existing.lastRunId,
           agentPid: patch.agentPid === null ? undefined : patch.agentPid ?? existing.agentPid,
           updatedAt: now,
-          lastActiveAt: now
+          lastActiveAt: patch.lastActiveAt === null ? existing.lastActiveAt : patch.lastActiveAt?.trim() || now
         };
         state.sessions[idx] = updated;
         state.updatedAt = now;
