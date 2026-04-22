@@ -2,7 +2,7 @@
 
 ## 状态
 
-- 文档状态：`实装`
+- 文档状态：`验证中`
 
 ## 目标
 
@@ -21,16 +21,18 @@
 - session 的活跃、阻塞、终态由编排生命周期统一收口
 - project / workflow 都提供 scope 内 recovery 视图所需的会话恢复读模型，围绕 session、当前任务、最近失败、cooldown 与最近恢复审计片段聚合恢复信息
 - Recovery Center 的可操作性由后端统一 action policy 决定，不允许前端仅凭 session.status 自行推导 `dismiss` / `repair`
-- project / workflow 都支持手动 dismiss、repair 与 retry-dispatch，并且对齐到同一套恢复语义：dismiss 终止当前运行并清空当前任务，repair 只允许恢复到受 policy 允许的 `idle` 或 `blocked`，retry-dispatch 只允许在 `idle`、非 cooldown、具备 failure context、authoritative role mapping 仍匹配且本地进程状态已确认不再运行的 session 上触发
+- project / workflow 都支持手动 dismiss、repair 与 retry-dispatch，并且对齐到同一套恢复语义：dismiss 终止当前运行并清空当前任务，repair 只允许恢复到受 policy 允许的 `idle` 或 `blocked`，retry-dispatch 只允许在 `idle`、非 cooldown、具备 authoritative failure anchor、authoritative role mapping 仍匹配且本地进程状态已确认不再运行的 session 上触发
 - 所有 `requires_confirmation=true` 的 recovery command 都必须显式携带确认字段；缺少确认时返回稳定错误，而不是隐式执行高风险操作
 - dismiss / repair / retry-dispatch 的 command contract 由后端统一定义；route 只做请求解析与调用，不再各自拼装恢复规则
 - retry-dispatch command 采用 mandatory optimistic guard：公开 route 继续兼容 snake_case / camelCase 字段别名，但 command service 必须要求 `expected_status='idle'`、`expected_role_mapping='authoritative'`，并且至少携带 `expected_last_failure_event_id` 或 `expected_last_failure_dispatch_id`；fresh session 仍有 `currentTaskId` 时还必须携带 `expected_current_task_id`
 - 缺失 mandatory retry guard 时必须返回稳定 `409 + SESSION_RETRY_GUARD_REQUIRED`，并给出刷新 Recovery Center 后按最新快照重试的 `next_action`；guard mismatch、policy 不允许与 orchestrator 拒绝继续统一返回 `409 + SESSION_RETRY_DISPATCH_NOT_ALLOWED`
 - retry-dispatch 默认强制 `onlyIdle=true` 且不暴露公开 `force` 开关；只有后端内部显式高风险恢复路径才允许覆盖该默认值
 - reminder 触发后的自动 redispatch 也必须遵守 `onlyIdle=true`；reminder 只负责补发提醒与驱动 idle session 重新进入正常 dispatch，不允许绕开 idle gate 抢占运行中或未完成收口的 session
-- session 恢复上下文除了 `last_failure_at / last_failure_kind` 外，还必须沉淀 `last_failure_event_id`、`last_failure_dispatch_id`、`last_failure_message_id`、`last_failure_task_id`，供 recovery read model 展示与 retry-dispatch guard 回填
+- session 恢复上下文除了 `last_failure_at / last_failure_kind` 外，还必须沉淀 `last_failure_event_id`、`last_failure_dispatch_id`、`last_failure_message_id`、`last_failure_task_id`，供 recovery read model 展示与 retry-dispatch guard 回填；其中 `last_failure_event_id` 或 `last_failure_dispatch_id` 才能单独作为 authoritative retry anchor，`message_id / task_id` 仅作为增强上下文，不单独放开 retry
 - retry-dispatch 审计事件语义分为 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED`；读模型兼容历史 `REQUESTED`，但新实现必须区分请求、接受与拒绝，并在同一 retry command 生成统一的 `recovery_attempt_id`
-- `recovery_attempt_id` 第一阶段只用于内部审计链路传播，不写入 session 主模型，不新增公开 API 字段；它必须贯穿 retry-dispatch 的 requested / accepted / rejected 审计事件，以及接受后对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`
+- `recovery_attempt_id` 继续不写入 session 主模型，但 recovery read model 必须把它产品化为 `runtime-recovery.items[].recovery_attempts[]`：按 `recovery_attempt_id` 归并 retry-dispatch 的 requested / accepted / rejected 审计事件，以及对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`
+- `runtime-recovery.items[].recovery_attempts[]` 保留 full history，不做最近 N 次截断，并稳定返回 attempt `status`、`integrity`、`missing_markers`、时间戳、dispatch scope、current task 与按时间正序排列的 `events[]`
+- `runtime-recovery.items[].latest_events[]` 继续保留为兼容字段，但 Recovery Center 主展示迁移到 `recovery_attempts[]`；旧历史中没有 `recovery_attempt_id` 的事件不做 synthetic backfill，只保留在兼容 summary 视图中
 - dismiss 采用“外部停止结果审计 -> 本地 dismiss 落盘”两阶段审计；外部停止未确认时不允许继续写本地 dismiss 状态
 - dismiss / repair 的对外响应会返回统一 command contract，包含前后状态、外部取消结果、本地终止结果、映射清理结果与 warnings
 - recovery read model 与 recovery command enforcement 共享同一套 policy context builder，确保 Recovery Center 展示与实际命令约束一致；当 session 非 `running` 但仍保留 `agentPid` 时，policy 会把进程状态视为 `unknown`，只允许先执行 dismiss，不允许 repair 或 retry-dispatch

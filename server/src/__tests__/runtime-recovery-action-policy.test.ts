@@ -121,8 +121,51 @@ test("idle session with only provider binding cannot retry dispatch", () => {
   });
 
   assert.equal(policy.can_retry_dispatch, false);
-  assert.equal(policy.disabled_reason, "Session is already idle but has no active failure context for retry dispatch.");
+  assert.equal(
+    policy.disabled_reason,
+    "Session is already idle but has no authoritative failure anchor for retry dispatch."
+  );
   assert.equal(policy.risk, "Provider binding is still present on this idle session.");
+});
+
+test("idle session with message-only failure context cannot retry dispatch", () => {
+  const policy = resolveRecoveryActions({
+    scope_kind: "project",
+    session_status: "idle",
+    current_task_id: "task_msg_only",
+    cooldown_until: null,
+    last_failure_kind: "error",
+    last_failure_message_id: "msg-1",
+    provider_session_id: "provider-msg-only",
+    role_session_mapping: "authoritative",
+    process_state: "not_running"
+  });
+
+  assert.equal(policy.can_retry_dispatch, false);
+  assert.equal(
+    policy.disabled_reason,
+    "Session is already idle but has no authoritative failure anchor for retry dispatch."
+  );
+});
+
+test("idle session with task-only failure context cannot retry dispatch", () => {
+  const policy = resolveRecoveryActions({
+    scope_kind: "workflow",
+    session_status: "idle",
+    current_task_id: "task_task_only",
+    cooldown_until: null,
+    last_failure_kind: "error",
+    last_failure_task_id: "task_task_only",
+    provider_session_id: "provider-task-only",
+    role_session_mapping: "authoritative",
+    process_state: "not_running"
+  });
+
+  assert.equal(policy.can_retry_dispatch, false);
+  assert.equal(
+    policy.disabled_reason,
+    "Session is already idle but has no authoritative failure anchor for retry dispatch."
+  );
 });
 
 test("idle session with stale role mapping cannot retry dispatch", () => {

@@ -115,12 +115,7 @@ function mergeRiskMessages(...messages: Array<string | null | undefined>): strin
 }
 
 function hasRecoveryFailureContext(input: ResolveRecoveryActionsInput): boolean {
-  return Boolean(
-    input.last_failure_event_id ||
-    input.last_failure_dispatch_id ||
-    input.last_failure_message_id ||
-    input.last_failure_task_id
-  );
+  return Boolean(input.last_failure_event_id || input.last_failure_dispatch_id);
 }
 
 export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): RecoveryActionPolicy {
@@ -222,7 +217,7 @@ export function resolveRecoveryActions(input: ResolveRecoveryActionsInput): Reco
     can_retry_dispatch: hasRecoveryFailureContext(input),
     disabled_reason: hasRecoveryFailureContext(input)
       ? "Session is already idle and ready for guarded retry dispatch."
-      : "Session is already idle but has no active failure context for retry dispatch.",
+      : "Session is already idle but has no authoritative failure anchor for retry dispatch.",
     risk: currentTaskRisk ?? (hasProviderBinding ? "Provider binding is still present on this idle session." : null),
     requires_confirmation: false
   };

@@ -22,6 +22,10 @@ function formatConfirmationMessage(title: string, risk: string | null): string {
   return [title, risk].filter(Boolean).join("\n\n");
 }
 
+function formatMissingMarkers(markers: string[]): string {
+  return markers.length === 0 ? "-" : markers.join(", ");
+}
+
 export function RecoveryCenterView({
   title,
   loading,
@@ -206,21 +210,55 @@ export function RecoveryCenterView({
                   <div>{selected.risk ?? "-"}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Latest Recovery Events</div>
-                  {selected.latest_events.length === 0 ? (
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Recovery Attempts</div>
+                  {selected.recovery_attempts.length === 0 ? (
                     <div>-</div>
                   ) : (
                     <div style={{ display: "grid", gap: "8px" }}>
-                      {selected.latest_events.map((event) => (
-                        <div
-                          key={`${event.event_type}:${event.created_at}`}
-                          className="card"
-                          style={{ padding: "10px" }}
-                        >
-                          <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                            {event.event_type} · {formatDateTime(event.created_at)}
+                      {selected.recovery_attempts.map((attempt) => (
+                        <div key={attempt.recovery_attempt_id} className="card" style={{ padding: "10px" }}>
+                          <div style={{ display: "grid", gap: "6px" }}>
+                            {[
+                              ["Attempt", attempt.recovery_attempt_id],
+                              ["Status", attempt.status],
+                              ["Integrity", attempt.integrity],
+                              ["Missing Markers", formatMissingMarkers(attempt.missing_markers)],
+                              ["Requested At", formatDateTime(attempt.requested_at)],
+                              ["Last Event At", formatDateTime(attempt.last_event_at)],
+                              ["Ended At", formatDateTime(attempt.ended_at)],
+                              ["Dispatch Scope", attempt.dispatch_scope ?? "-"],
+                              ["Current Task", attempt.current_task_id ?? "-"]
+                            ].map(([label, value]) => (
+                              <div key={`${attempt.recovery_attempt_id}:${String(label)}`}>
+                                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{label}</div>
+                                <div>{String(value)}</div>
+                              </div>
+                            ))}
                           </div>
-                          <div>{event.payload_summary}</div>
+                          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
+                            Attempt Events
+                          </div>
+                          {attempt.events.length === 0 ? (
+                            <div>-</div>
+                          ) : (
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              {attempt.events.map((event) => (
+                                <div
+                                  key={`${attempt.recovery_attempt_id}:${event.event_type}:${event.created_at}`}
+                                  style={{
+                                    border: "1px solid var(--border-color)",
+                                    borderRadius: "8px",
+                                    padding: "8px"
+                                  }}
+                                >
+                                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                                    {event.event_type} · {formatDateTime(event.created_at)}
+                                  </div>
+                                  <div>{event.payload_summary}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

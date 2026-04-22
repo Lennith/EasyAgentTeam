@@ -264,6 +264,27 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
   const dataRoot = path.join(tempRoot, "data");
   await seedWorkflowRecoveryFixture(dataRoot, "wf_recovery_confirmed");
   await seedWorkflowRecoveryFixture(dataRoot, "wf_retry_dispatch", "idle");
+  await patchWorkflowRun(dataRoot, "wf_retry_dispatch", {
+    roleSessionMap: {
+      lead: "session-lead",
+      qa: "session-task-only"
+    }
+  });
+  await upsertWorkflowSession(dataRoot, "wf_retry_dispatch", {
+    sessionId: "session-task-only",
+    role: "qa",
+    status: "idle",
+    provider: "minimax",
+    providerSessionId: "provider-session-qa",
+    errorStreak: 1,
+    timeoutStreak: 0,
+    lastFailureAt: "2026-04-19T10:05:00.000Z",
+    lastFailureKind: "error",
+    lastFailureTaskId: "task_a"
+  });
+  await touchWorkflowSession(dataRoot, "wf_retry_dispatch", "session-task-only", {
+    currentTaskId: "task_a"
+  });
   const { app, repositories, dispatchCalls } = await buildWorkflowRecoveryTestApp(dataRoot, {
     cancelConfirmed: true,
     dispatchAccepted: true
@@ -350,10 +371,14 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
         last_failure_message_id: string | null;
         last_failure_task_id: string | null;
         can_retry_dispatch: boolean;
+        recovery_attempts: Array<unknown>;
       }>;
     };
     const retryItem = recoveryPayload.items.find((item) => item.session_id === "session-lead");
+    const taskOnlyItem = recoveryPayload.items.find((item) => item.session_id === "session-task-only");
     assert.equal(retryItem?.can_retry_dispatch, true);
+    assert.equal(Array.isArray(retryItem?.recovery_attempts), true);
+    assert.equal(taskOnlyItem?.can_retry_dispatch, false);
 
     const bareRetryRes = await fetch(
       `${baseUrl}/api/workflow-runs/wf_retry_dispatch/sessions/${encodeURIComponent("session-lead")}/retry-dispatch`,

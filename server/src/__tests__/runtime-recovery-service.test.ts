@@ -18,6 +18,10 @@ import { buildProjectRuntimeRecovery, buildWorkflowRuntimeRecovery } from "../se
 
 const LEGACY_DONE_STATE = ["MAY", "BE", "DONE"].join("_");
 
+async function waitForNextTick(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 2));
+}
+
 test("project runtime recovery aggregates latest runner failure and current task context", async () => {
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-"));
   const repositories = getProjectRepositoryBundle(dataRoot);
@@ -107,6 +111,180 @@ test("project runtime recovery aggregates latest runner failure and current task
   assert.equal(item.latest_events.length > 0, true);
   assert.equal(item.latest_events[0]?.event_type, "RUNNER_TRANSIENT_ERROR_SOFT");
   assert.match(item.latest_events[0]?.payload_summary ?? "", /PROVIDER_UPSTREAM_TRANSIENT_ERROR/);
+  assert.deepEqual(item.recovery_attempts, []);
+});
+
+test("project runtime recovery groups full recovery attempt history and marks incomplete chains", async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-attempts-"));
+  const repositories = getProjectRepositoryBundle(dataRoot);
+  const nowIso = new Date().toISOString();
+  const created = await repositories.projectRuntime.createProject({
+    projectId: "project_recovery_attempts",
+    name: "Project Recovery Attempts",
+    workspacePath: path.join(dataRoot, "workspace"),
+    autoDispatchEnabled: true,
+    autoDispatchRemaining: 3,
+    holdEnabled: false,
+    reminderMode: "backoff"
+  });
+
+  await repositories.taskboard.createTask(created.paths, created.project.projectId, {
+    taskId: "project-root",
+    taskKind: "PROJECT_ROOT",
+    title: "Project Root",
+    ownerRole: "manager"
+  });
+  await repositories.taskboard.createTask(created.paths, created.project.projectId, {
+    taskId: "task_dev_exec",
+    taskKind: "EXECUTION",
+    parentTaskId: "project-root",
+    rootTaskId: "project-root",
+    title: "Implement recovery center",
+    ownerRole: "dev",
+    state: "READY"
+  });
+  await repositories.sessions.addSession(created.paths, created.project.projectId, {
+    sessionId: "session-dev",
+    role: "dev",
+    status: "idle",
+    currentTaskId: "task_dev_exec",
+    provider: "minimax",
+    providerSessionId: "provider-session-dev",
+    errorStreak: 1,
+    lastFailureAt: nowIso,
+    lastFailureKind: "error"
+  });
+
+  const events = [
+    {
+      eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+      payload: {
+        recovery_attempt_id: "attempt-finished",
+        dispatch_scope: "task",
+        current_task_id: "task_dev_exec"
+      }
+    },
+    {
+      eventType: "SESSION_RETRY_DISPATCH_ACCEPTED",
+      payload: {
+        recovery_attempt_id: "attempt-finished",
+        dispatch_scope: "task",
+        current_task_id: "task_dev_exec"
+      }
+    },
+    {
+      eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+      payload: {
+        recovery_attempt_id: "attempt-finished",
+        dispatchKind: "task"
+      }
+    },
+    {
+      eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
+      payload: {
+        recovery_attempt_id: "attempt-finished",
+        dispatchKind: "task"
+      }
+    },
+    {
+      eventType: "SESSION_RETRY_DISPATCH_ACCEPTED",
+      payload: {
+        dispatch_scope: "task",
+        current_task_id: "task_dev_exec"
+      }
+    },
+    {
+      eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+      payload: {
+        recovery_attempt_id: "attempt-terminal-gap",
+        dispatch_scope: "task",
+        current_task_id: "task_dev_exec"
+      }
+    },
+    {
+      eventType: "SESSION_RETRY_DISPATCH_ACCEPTED",
+      payload: {
+        recovery_attempt_id: "attempt-terminal-gap",
+        dispatch_scope: "task",
+        current_task_id: "task_dev_exec"
+      }
+    },
+    {
+      eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+      payload: {
+        recovery_attempt_id: "attempt-terminal-gap",
+        dispatchKind: "task"
+      }
+    },
+    {
+      eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+      payload: {
+        recovery_attempt_id: "attempt-requested-only",
+        dispatch_scope: "task",
+        current_task_id: "task_dev_exec"
+      }
+    }
+  ] as const;
+
+  const appendedEvents = [];
+  for (const event of events) {
+    appendedEvents.push(
+      await appendEvent(created.paths, {
+        projectId: created.project.projectId,
+        eventType: event.eventType,
+        source: "system",
+        sessionId: "session-dev",
+        taskId: "task_dev_exec",
+        payload: event.payload
+      })
+    );
+    await waitForNextTick();
+  }
+
+  const requestedOnlyEvent = appendedEvents[appendedEvents.length - 1];
+  const terminalGapStartedEvent = appendedEvents[7];
+  const finishedTerminalEvent = appendedEvents[3];
+  const requestedOnlyRequestedEvent = appendedEvents[8];
+
+  const payload = await buildProjectRuntimeRecovery(dataRoot, created.project.projectId);
+  const item = payload.items[0];
+  assert.equal(item.recovery_attempts.length, 3);
+
+  const [requestedOnly, terminalGap, finished] = item.recovery_attempts;
+  assert.equal(requestedOnly?.recovery_attempt_id, "attempt-requested-only");
+  assert.equal(requestedOnly?.status, "requested");
+  assert.equal(requestedOnly?.integrity, "incomplete");
+  assert.deepEqual(requestedOnly?.missing_markers, ["accepted_or_rejected"]);
+  assert.equal(requestedOnly?.requested_at, requestedOnlyRequestedEvent?.createdAt ?? null);
+  assert.equal(requestedOnly?.last_event_at, requestedOnlyEvent?.createdAt);
+  assert.equal(requestedOnly?.events.map((event) => event.event_type).join(","), "SESSION_RETRY_DISPATCH_REQUESTED");
+
+  assert.equal(terminalGap?.recovery_attempt_id, "attempt-terminal-gap");
+  assert.equal(terminalGap?.status, "running");
+  assert.equal(terminalGap?.integrity, "incomplete");
+  assert.deepEqual(terminalGap?.missing_markers, ["dispatch_terminal"]);
+  assert.equal(terminalGap?.dispatch_scope, "task");
+  assert.equal(terminalGap?.current_task_id, "task_dev_exec");
+  assert.equal(terminalGap?.last_event_at, terminalGapStartedEvent?.createdAt);
+  assert.deepEqual(
+    terminalGap?.events.map((event) => event.event_type),
+    ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_ACCEPTED", "ORCHESTRATOR_DISPATCH_STARTED"]
+  );
+
+  assert.equal(finished?.recovery_attempt_id, "attempt-finished");
+  assert.equal(finished?.status, "finished");
+  assert.equal(finished?.integrity, "complete");
+  assert.deepEqual(finished?.missing_markers, []);
+  assert.equal(finished?.ended_at, finishedTerminalEvent?.createdAt);
+  assert.deepEqual(
+    finished?.events.map((event) => event.event_type),
+    [
+      "SESSION_RETRY_DISPATCH_REQUESTED",
+      "SESSION_RETRY_DISPATCH_ACCEPTED",
+      "ORCHESTRATOR_DISPATCH_STARTED",
+      "ORCHESTRATOR_DISPATCH_FINISHED"
+    ]
+  );
 });
 
 test("workflow runtime recovery aggregates session status, task snapshot, and latest failure", async () => {
@@ -198,6 +376,7 @@ test("workflow runtime recovery aggregates session status, task snapshot, and la
     item.risk,
     "Current task 'task_a' is still attached to this session; review its context before repairing."
   );
+  assert.deepEqual(item.recovery_attempts, []);
 });
 
 test("dismissed recovery item carries confirmation requirement and latest recovery audit summary", async () => {
@@ -267,6 +446,94 @@ test("dismissed recovery item carries confirmation requirement and latest recove
   assert.match(item.risk ?? "", /Manual recovery/);
   assert.equal(item.latest_events[0]?.event_type, "SESSION_STATUS_DISMISSED");
   assert.match(item.latest_events[0]?.payload_summary ?? "", /manual dismiss/i);
+  assert.deepEqual(item.recovery_attempts, []);
+});
+
+test("workflow runtime recovery marks latest inflight attempt complete while session is still running", async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recovery-attempts-"));
+  await createWorkflowTemplate(dataRoot, {
+    templateId: "workflow_recovery_attempts_tpl",
+    name: "Workflow Recovery Attempts Template",
+    tasks: [{ taskId: "task_a", title: "Task A", ownerRole: "lead" }]
+  });
+  await createWorkflowRun(dataRoot, {
+    runId: "workflow_recovery_attempts_run",
+    templateId: "workflow_recovery_attempts_tpl",
+    name: "Workflow Recovery Attempts Run",
+    workspacePath: path.join(dataRoot, "workspace"),
+    tasks: [{ taskId: "task_a", title: "Task A", resolvedTitle: "Task A", ownerRole: "lead" }]
+  });
+  await writeWorkflowRunTaskRuntimeState(dataRoot, "workflow_recovery_attempts_run", {
+    initializedAt: "2026-04-22T09:59:00.000Z",
+    updatedAt: "2026-04-22T10:00:00.000Z",
+    transitionSeq: 1,
+    tasks: [
+      {
+        taskId: "task_a",
+        state: "IN_PROGRESS",
+        blockedBy: [],
+        blockedReasons: [],
+        lastTransitionAt: "2026-04-22T10:00:00.000Z",
+        transitionCount: 1,
+        transitions: [{ seq: 1, at: "2026-04-22T10:00:00.000Z", fromState: null, toState: "IN_PROGRESS" }]
+      }
+    ]
+  });
+  await upsertWorkflowSession(dataRoot, "workflow_recovery_attempts_run", {
+    sessionId: "session-lead",
+    role: "lead",
+    status: "running",
+    provider: "minimax",
+    providerSessionId: "provider-session-lead",
+    errorStreak: 1,
+    lastFailureAt: new Date().toISOString(),
+    lastFailureKind: "error",
+    lastFailureEventId: "evt-anchor"
+  });
+  await touchWorkflowSession(dataRoot, "workflow_recovery_attempts_run", "session-lead", {
+    currentTaskId: "task_a"
+  });
+  await appendWorkflowRunEvent(dataRoot, "workflow_recovery_attempts_run", {
+    eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+    source: "dashboard",
+    sessionId: "session-lead",
+    taskId: "task_a",
+    payload: {
+      recovery_attempt_id: "attempt-running",
+      dispatch_scope: "task",
+      current_task_id: "task_a"
+    }
+  });
+  await waitForNextTick();
+  await appendWorkflowRunEvent(dataRoot, "workflow_recovery_attempts_run", {
+    eventType: "SESSION_RETRY_DISPATCH_ACCEPTED",
+    source: "dashboard",
+    sessionId: "session-lead",
+    taskId: "task_a",
+    payload: {
+      recovery_attempt_id: "attempt-running",
+      dispatch_scope: "task",
+      current_task_id: "task_a"
+    }
+  });
+  await waitForNextTick();
+  await appendWorkflowRunEvent(dataRoot, "workflow_recovery_attempts_run", {
+    eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+    source: "system",
+    sessionId: "session-lead",
+    taskId: "task_a",
+    payload: {
+      recovery_attempt_id: "attempt-running",
+      dispatchKind: "task"
+    }
+  });
+
+  const payload = await buildWorkflowRuntimeRecovery(dataRoot, "workflow_recovery_attempts_run");
+  const item = payload.items[0];
+  assert.equal(item.recovery_attempts.length, 1);
+  assert.equal(item.recovery_attempts[0]?.status, "running");
+  assert.equal(item.recovery_attempts[0]?.integrity, "complete");
+  assert.deepEqual(item.recovery_attempts[0]?.missing_markers, []);
 });
 
 test("project taskboard migration rewrites legacy ambiguous done state to DONE on read", async () => {

@@ -242,7 +242,18 @@ test("project retry-dispatch is allowed only for idle sessions with active recov
     lastFailureEventId: "evt-retry",
     lastFailureTaskId: "task_retry"
   });
+  await repositories.sessions.addSession(created.paths, created.project.projectId, {
+    sessionId: "sess-msg-only",
+    role: "qa_impl",
+    status: "idle",
+    currentTaskId: "task_retry",
+    errorStreak: 1,
+    lastFailureAt: "2026-04-20T10:05:00.000Z",
+    lastFailureKind: "error",
+    lastFailureMessageId: "msg-only"
+  });
   await repositories.projectRuntime.setRoleSessionMapping(created.project.projectId, "dev_impl", "sess-retry");
+  await repositories.projectRuntime.setRoleSessionMapping(created.project.projectId, "qa_impl", "sess-msg-only");
   await repositories.projectRuntime.updateRoleReminderState(created.paths, created.project.projectId, "dev_impl", {
     reminderCount: 3,
     lastRoleState: "IDLE"
@@ -265,10 +276,14 @@ test("project retry-dispatch is allowed only for idle sessions with active recov
         last_failure_message_id: string | null;
         last_failure_task_id: string | null;
         can_retry_dispatch: boolean;
+        recovery_attempts: Array<unknown>;
       }>;
     };
     const retryItem = recoveryPayload.items.find((item) => item.session_id === "sess-retry");
+    const messageOnlyItem = recoveryPayload.items.find((item) => item.session_id === "sess-msg-only");
     assert.equal(retryItem?.can_retry_dispatch, true);
+    assert.equal(Array.isArray(retryItem?.recovery_attempts), true);
+    assert.equal(messageOnlyItem?.can_retry_dispatch, false);
 
     const bareRetryRes = await fetch(
       `${baseUrl}/api/projects/project_retry_scope/sessions/${encodeURIComponent("sess-retry")}/retry-dispatch`,

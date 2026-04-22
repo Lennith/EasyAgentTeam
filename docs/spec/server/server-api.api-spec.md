@@ -1,7 +1,9 @@
-# 后端系统与 Project API 规范（最后更新：2026-04-19）
+# 后端系统与 Project API 规范（最后更新：2026-04-22）
 
 本页只覆盖系统、catalog、project 相关公开 API。  
 workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
+
+文档状态：`验证中`
 
 ## 系统入口
 
@@ -134,6 +136,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `risk`
   - `requires_confirmation`
   - `latest_events`
+  - `recovery_attempts`
 - `dismiss` / `repair` 的 command contract 统一返回：
   - `action`
   - `session`
@@ -151,6 +154,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `expected_last_failure_message_id`
   - `expected_last_failure_task_id`
 - mandatory guard 约束固定为：`expected_status='idle'`、`expected_role_mapping='authoritative'`，并且至少提供 `expected_last_failure_event_id` 或 `expected_last_failure_dispatch_id`；如果 fresh session 仍有 `currentTaskId`，则 `expected_current_task_id` 也为必填
+- action policy 与 command guard 必须完全一致：只有 `last_failure_event_id` 或 `last_failure_dispatch_id` 才能单独放开 `can_retry_dispatch`；`last_failure_message_id` 与 `last_failure_task_id` 仅作为展示与增强 guard，不单独放开 retry
 - `retry-dispatch` 的普通重试路径默认按 `onlyIdle=true`、`force=false` 执行；公开 API 不暴露 `force` 参数
 - `dismiss` 额外返回：
   - `provider_cancel`
@@ -171,5 +175,23 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分；读模型兼容历史 `REQUESTED`
 - `SESSION_RETRY_GUARD_REQUIRED` 与 `SESSION_RETRY_DISPATCH_NOT_ALLOWED` 都返回 `409`；前者用于 guard 缺失，后者用于 guard mismatch、policy 不允许或 orchestrator 拒绝
 - retry-dispatch 内部会生成 `recovery_attempt_id` 并串到 retry 审计事件与对应的 dispatch started / finished / failed 事件；该字段只用于内部审计，不新增公开请求或响应字段
+- `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的完整恢复历史；它保留 full history，不做 synthetic backfill，并至少返回：
+  - `recovery_attempt_id`
+  - `status`
+  - `integrity`
+  - `missing_markers`
+  - `requested_at`
+  - `last_event_at`
+  - `ended_at`
+  - `dispatch_scope`
+  - `current_task_id`
+  - `events`
+- `recovery_attempts[].events[]` 至少返回：
+  - `event_type`
+  - `created_at`
+  - `payload_summary`
+- `recovery_attempts[].status` 按优先级推导：`rejected > failed > finished > running > accepted > requested`
+- `recovery_attempts[].integrity` 只允许 `complete | incomplete`
+- `recovery_attempts[].missing_markers` 只使用稳定标记名：`requested`、`accepted_or_rejected`、`dispatch_started`、`dispatch_terminal`
 - `dismiss` 现在先写 `SESSION_DISMISS_EXTERNAL_RESULT`，只有外部停止已确认后才写 `SESSION_STATUS_DISMISSED`
 - project recovery actionability 由后端 policy 决定，前端不得再按 `status` 自行推导 repair/dismiss 能力

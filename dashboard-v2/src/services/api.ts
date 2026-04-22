@@ -360,6 +360,40 @@ function mapRuntimeRecoveryItem(raw: Record<string, unknown>): RuntimeRecoveryIt
           created_at: String((event as Record<string, unknown>).created_at ?? ""),
           payload_summary: String((event as Record<string, unknown>).payload_summary ?? "")
         }))
+      : [],
+    recovery_attempts: Array.isArray(raw.recovery_attempts)
+      ? raw.recovery_attempts.map((attempt) => {
+          const item = attempt as Record<string, unknown>;
+          return {
+            recovery_attempt_id: String(item.recovery_attempt_id ?? ""),
+            status:
+              (item.status as RuntimeRecoveryItem["recovery_attempts"][number]["status"] | undefined) ?? "requested",
+            integrity:
+              (item.integrity as RuntimeRecoveryItem["recovery_attempts"][number]["integrity"] | undefined) ??
+              "incomplete",
+            missing_markers: Array.isArray(item.missing_markers)
+              ? item.missing_markers
+                  .filter((marker): marker is string => typeof marker === "string")
+                  .map(
+                    (marker) => marker as RuntimeRecoveryItem["recovery_attempts"][number]["missing_markers"][number]
+                  )
+              : [],
+            requested_at: (item.requested_at as string | null | undefined) ?? null,
+            last_event_at: String(item.last_event_at ?? ""),
+            ended_at: (item.ended_at as string | null | undefined) ?? null,
+            dispatch_scope:
+              (item.dispatch_scope as RuntimeRecoveryItem["recovery_attempts"][number]["dispatch_scope"] | undefined) ??
+              null,
+            current_task_id: (item.current_task_id as string | null | undefined) ?? null,
+            events: Array.isArray(item.events)
+              ? item.events.map((event) => ({
+                  event_type: String((event as Record<string, unknown>).event_type ?? ""),
+                  created_at: String((event as Record<string, unknown>).created_at ?? ""),
+                  payload_summary: String((event as Record<string, unknown>).payload_summary ?? "")
+                }))
+              : []
+          };
+        })
       : []
   };
 }

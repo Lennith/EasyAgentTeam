@@ -37,6 +37,19 @@ const RECOVERY_AUDIT_EVENT_TYPES = new Set([
   "SESSION_RETRY_DISPATCH_ACCEPTED",
   "SESSION_RETRY_DISPATCH_REJECTED"
 ]);
+const RECOVERY_ATTEMPT_EVENT_TYPES = new Set([
+  "SESSION_RETRY_DISPATCH_REQUESTED",
+  "SESSION_RETRY_DISPATCH_ACCEPTED",
+  "SESSION_RETRY_DISPATCH_REJECTED",
+  "ORCHESTRATOR_DISPATCH_STARTED",
+  "ORCHESTRATOR_DISPATCH_FINISHED",
+  "ORCHESTRATOR_DISPATCH_FAILED"
+]);
+const RECOVERY_ATTEMPT_TERMINAL_EVENT_TYPES = new Set([
+  "SESSION_RETRY_DISPATCH_REJECTED",
+  "ORCHESTRATOR_DISPATCH_FINISHED",
+  "ORCHESTRATOR_DISPATCH_FAILED"
+]);
 
 const RECENT_FAILURE_WINDOW_MS = 30 * 60 * 1000;
 const RECOVERY_EVENT_SUMMARY_LIMIT = 4;
@@ -75,6 +88,27 @@ export interface RuntimeRecoveryEventSummary {
   payload_summary: string;
 }
 
+export type RuntimeRecoveryAttemptStatus = "requested" | "accepted" | "running" | "finished" | "failed" | "rejected";
+export type RuntimeRecoveryAttemptIntegrity = "complete" | "incomplete";
+export type RuntimeRecoveryAttemptMissingMarker =
+  | "requested"
+  | "accepted_or_rejected"
+  | "dispatch_started"
+  | "dispatch_terminal";
+
+export interface RuntimeRecoveryAttempt {
+  recovery_attempt_id: string;
+  status: RuntimeRecoveryAttemptStatus;
+  integrity: RuntimeRecoveryAttemptIntegrity;
+  missing_markers: RuntimeRecoveryAttemptMissingMarker[];
+  requested_at: string | null;
+  last_event_at: string;
+  ended_at: string | null;
+  dispatch_scope: "task" | "role" | null;
+  current_task_id: string | null;
+  events: RuntimeRecoveryEventSummary[];
+}
+
 export interface RuntimeRecoveryItem {
   role: string;
   session_id: string;
@@ -108,6 +142,7 @@ export interface RuntimeRecoveryItem {
   risk: string | null;
   requires_confirmation: boolean;
   latest_events: RuntimeRecoveryEventSummary[];
+  recovery_attempts: RuntimeRecoveryAttempt[];
 }
 
 export interface RuntimeRecoverySummary {
@@ -144,6 +179,18 @@ function readRawStatus(value: unknown): number | string | null {
   return readString(value);
 }
 
+function compareEventsAsc<TEvent extends { createdAt: string; eventId: string }>(left: TEvent, right: TEvent): number {
+  const timeDiff = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+  if (timeDiff !== 0) {
+    return timeDiff;
+  }
+  return left.eventId.localeCompare(right.eventId);
+}
+
+function compareEventsDesc<TEvent extends { createdAt: string; eventId: string }>(left: TEvent, right: TEvent): number {
+  return compareEventsAsc(right, left);
+}
+
 function isCoolingDown(cooldownUntil: string | null, nowMs: number): boolean {
   if (!cooldownUntil) {
     return false;
@@ -161,7 +208,13 @@ function isFailureRecent(lastFailureAt: string | null, nowMs: number): boolean {
 }
 
 function indexLatestFailureEvents<
-  TEvent extends { eventType: string; createdAt: string; sessionId?: string; payload: Record<string, unknown> }
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    sessionId?: string;
+    payload: Record<string, unknown>;
+  }
 >(events: readonly TEvent[]): Map<string, TEvent> {
   const latestBySession = new Map<string, TEvent>();
   for (const event of events) {
@@ -176,7 +229,32 @@ function indexLatestFailureEvents<
   return latestBySession;
 }
 
-function summarizeRecoveryEventPayload(eventType: string, payload: Record<string, unknown>): string {
+function readDispatchKind(payload: Record<string, unknown>): string | null {
+  return readString(payload.dispatchKind ?? payload.dispatch_kind ?? asRecord(payload.options).dispatchKind);
+}
+
+function readRecoveryAttemptId(payload: Record<string, unknown>): string | null {
+  return readString(payload.recovery_attempt_id ?? asRecord(payload.extra).recovery_attempt_id);
+}
+
+function normalizeDispatchScope(value: string | null, taskId: string | null): "task" | "role" | null {
+  if (value === "task") {
+    return "task";
+  }
+  if (value === "role" || value === "message") {
+    return "role";
+  }
+  if (taskId) {
+    return "task";
+  }
+  return null;
+}
+
+function summarizeRecoveryEventPayload(
+  eventType: string,
+  payload: Record<string, unknown>,
+  taskId: string | null = null
+): string {
   if (RUNNER_FAILURE_EVENT_TYPES.has(eventType)) {
     const code = readString(payload.code);
     const message = readString(payload.error ?? payload.message);
@@ -199,6 +277,19 @@ function summarizeRecoveryEventPayload(eventType: string, payload: Record<string
     const dispatchScope = readString(payload.dispatch_scope) ?? "role";
     return `retry rejected (${dispatchScope})`;
   }
+  if (eventType === "ORCHESTRATOR_DISPATCH_STARTED") {
+    const dispatchScope = normalizeDispatchScope(readDispatchKind(payload), taskId) ?? "role";
+    return `dispatch started (${dispatchScope})`;
+  }
+  if (eventType === "ORCHESTRATOR_DISPATCH_FINISHED") {
+    const dispatchScope = normalizeDispatchScope(readDispatchKind(payload), taskId) ?? "role";
+    return `dispatch finished (${dispatchScope})`;
+  }
+  if (eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
+    const dispatchScope = normalizeDispatchScope(readDispatchKind(payload), taskId) ?? "role";
+    const error = readString(payload.error);
+    return [`dispatch failed (${dispatchScope})`, error].filter(Boolean).join(": ");
+  }
   if (eventType === "SESSION_DISMISS_EXTERNAL_RESULT") {
     const providerCancel = asRecord(payload.provider_cancel);
     const processTermination = asRecord(payload.process_termination);
@@ -214,12 +305,19 @@ function summarizeRecoveryEventPayload(eventType: string, payload: Record<string
 }
 
 function indexRecoveryAuditEvents<
-  TEvent extends { eventType: string; createdAt: string; sessionId?: string; payload: Record<string, unknown> }
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    sessionId?: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
 >(events: readonly TEvent[]): Map<string, RuntimeRecoveryEventSummary[]> {
   const bySession = new Map<string, RuntimeRecoveryEventSummary[]>();
   const sorted = [...events]
     .filter((event) => event.sessionId && RECOVERY_AUDIT_EVENT_TYPES.has(event.eventType))
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+    .sort(compareEventsDesc);
   for (const event of sorted) {
     const sessionId = event.sessionId!;
     const existing = bySession.get(sessionId) ?? [];
@@ -229,11 +327,226 @@ function indexRecoveryAuditEvents<
     existing.push({
       event_type: event.eventType,
       created_at: event.createdAt,
-      payload_summary: summarizeRecoveryEventPayload(event.eventType, asRecord(event.payload))
+      payload_summary: summarizeRecoveryEventPayload(event.eventType, asRecord(event.payload), event.taskId ?? null)
     });
     bySession.set(sessionId, existing);
   }
   return bySession;
+}
+
+function buildRecoveryAttemptEventSummary<
+  TEvent extends {
+    eventType: string;
+    createdAt: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(event: TEvent): RuntimeRecoveryEventSummary {
+  return {
+    event_type: event.eventType,
+    created_at: event.createdAt,
+    payload_summary: summarizeRecoveryEventPayload(event.eventType, asRecord(event.payload), event.taskId ?? null)
+  };
+}
+
+function resolveAttemptDispatchScope<
+  TEvent extends {
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(events: readonly TEvent[]): "task" | "role" | null {
+  for (const event of events) {
+    const payload = asRecord(event.payload);
+    const direct = normalizeDispatchScope(readString(payload.dispatch_scope), event.taskId ?? null);
+    if (direct) {
+      return direct;
+    }
+    const derived = normalizeDispatchScope(readDispatchKind(payload), event.taskId ?? null);
+    if (derived) {
+      return derived;
+    }
+  }
+  return null;
+}
+
+function resolveAttemptCurrentTaskId<
+  TEvent extends {
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(events: readonly TEvent[]): string | null {
+  for (const event of events) {
+    const payload = asRecord(event.payload);
+    const fromPayload = readString(payload.current_task_id ?? payload.currentTaskId ?? payload.task_id);
+    if (fromPayload) {
+      return fromPayload;
+    }
+    if (event.taskId) {
+      return event.taskId;
+    }
+  }
+  return null;
+}
+
+function buildRecoveryAttemptStatus<
+  TEvent extends {
+    eventType: string;
+  }
+>(events: readonly TEvent[]): RuntimeRecoveryAttemptStatus {
+  const eventTypes = new Set(events.map((event) => event.eventType));
+  if (eventTypes.has("SESSION_RETRY_DISPATCH_REJECTED")) {
+    return "rejected";
+  }
+  if (eventTypes.has("ORCHESTRATOR_DISPATCH_FAILED")) {
+    return "failed";
+  }
+  if (eventTypes.has("ORCHESTRATOR_DISPATCH_FINISHED")) {
+    return "finished";
+  }
+  if (eventTypes.has("ORCHESTRATOR_DISPATCH_STARTED")) {
+    return "running";
+  }
+  if (eventTypes.has("SESSION_RETRY_DISPATCH_ACCEPTED")) {
+    return "accepted";
+  }
+  return "requested";
+}
+
+function buildRecoveryAttemptMissingMarkers<
+  TEvent extends {
+    eventType: string;
+  }
+>(
+  events: readonly TEvent[],
+  sessionStatus: RecoveryStatus,
+  isLatestAttempt: boolean
+): RuntimeRecoveryAttemptMissingMarker[] {
+  const eventTypes = new Set(events.map((event) => event.eventType));
+  const hasRequested = eventTypes.has("SESSION_RETRY_DISPATCH_REQUESTED");
+  const hasAccepted = eventTypes.has("SESSION_RETRY_DISPATCH_ACCEPTED");
+  const hasRejected = eventTypes.has("SESSION_RETRY_DISPATCH_REJECTED");
+  const hasDecision = hasAccepted || hasRejected;
+  const hasDispatchStarted = eventTypes.has("ORCHESTRATOR_DISPATCH_STARTED");
+  const hasDispatchTerminal =
+    eventTypes.has("ORCHESTRATOR_DISPATCH_FINISHED") || eventTypes.has("ORCHESTRATOR_DISPATCH_FAILED");
+  const isInflight =
+    hasAccepted &&
+    hasDispatchStarted &&
+    !hasDispatchTerminal &&
+    !hasRejected &&
+    isLatestAttempt &&
+    sessionStatus === "running";
+  const missing = new Set<RuntimeRecoveryAttemptMissingMarker>();
+
+  if (!hasRequested) {
+    missing.add("requested");
+  }
+  if (!hasDecision) {
+    missing.add("accepted_or_rejected");
+  }
+  if (!hasRejected && (hasAccepted || hasDispatchStarted || hasDispatchTerminal) && !hasDispatchStarted) {
+    missing.add("dispatch_started");
+  }
+  if (!hasRejected && hasDispatchStarted && !hasDispatchTerminal && !isInflight) {
+    missing.add("dispatch_terminal");
+  }
+
+  return [...missing];
+}
+
+function buildRecoveryAttempt<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(
+  recoveryAttemptId: string,
+  rawEvents: readonly TEvent[],
+  sessionStatus: RecoveryStatus,
+  isLatestAttempt: boolean
+): RuntimeRecoveryAttempt {
+  const events = [...rawEvents].sort(compareEventsAsc);
+  const status = buildRecoveryAttemptStatus(events);
+  const missingMarkers = buildRecoveryAttemptMissingMarkers(events, sessionStatus, isLatestAttempt);
+  const requestedAt = events.find((event) => event.eventType === "SESSION_RETRY_DISPATCH_REQUESTED")?.createdAt ?? null;
+  const endedAt =
+    status === "rejected" || status === "failed" || status === "finished"
+      ? ([...events].reverse().find((event) => RECOVERY_ATTEMPT_TERMINAL_EVENT_TYPES.has(event.eventType))?.createdAt ??
+        null)
+      : null;
+  const lastEventAt = events[events.length - 1]!.createdAt;
+
+  return {
+    recovery_attempt_id: recoveryAttemptId,
+    status,
+    integrity: missingMarkers.length === 0 ? "complete" : "incomplete",
+    missing_markers: missingMarkers,
+    requested_at: requestedAt,
+    last_event_at: lastEventAt,
+    ended_at: endedAt,
+    dispatch_scope: resolveAttemptDispatchScope(events),
+    current_task_id: resolveAttemptCurrentTaskId(events),
+    events: events.map((event) => buildRecoveryAttemptEventSummary(event))
+  };
+}
+
+function indexRecoveryAttempts<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    sessionId?: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(
+  events: readonly TEvent[],
+  sessionStatuses: ReadonlyMap<string, RecoveryStatus>
+): Map<string, RuntimeRecoveryAttempt[]> {
+  const attemptsBySession = new Map<string, Map<string, TEvent[]>>();
+
+  for (const event of events) {
+    if (!event.sessionId || !RECOVERY_ATTEMPT_EVENT_TYPES.has(event.eventType)) {
+      continue;
+    }
+    const payload = asRecord(event.payload);
+    const recoveryAttemptId = readRecoveryAttemptId(payload);
+    if (!recoveryAttemptId) {
+      continue;
+    }
+    const sessionAttempts = attemptsBySession.get(event.sessionId) ?? new Map<string, TEvent[]>();
+    const attemptEvents = sessionAttempts.get(recoveryAttemptId) ?? [];
+    attemptEvents.push(event);
+    sessionAttempts.set(recoveryAttemptId, attemptEvents);
+    attemptsBySession.set(event.sessionId, sessionAttempts);
+  }
+
+  const result = new Map<string, RuntimeRecoveryAttempt[]>();
+  for (const [sessionId, attempts] of attemptsBySession.entries()) {
+    const sortedAttempts = [...attempts.entries()]
+      .map(([recoveryAttemptId, attemptEvents]) => ({
+        recoveryAttemptId,
+        attemptEvents: [...attemptEvents].sort(compareEventsAsc)
+      }))
+      .sort((left, right) => {
+        const leftLast = left.attemptEvents[left.attemptEvents.length - 1]!;
+        const rightLast = right.attemptEvents[right.attemptEvents.length - 1]!;
+        return compareEventsDesc(leftLast, rightLast);
+      })
+      .map((attempt, index) =>
+        buildRecoveryAttempt(
+          attempt.recoveryAttemptId,
+          attempt.attemptEvents,
+          sessionStatuses.get(sessionId) ?? "idle",
+          index === 0
+        )
+      );
+    result.set(sessionId, sortedAttempts);
+  }
+  return result;
 }
 
 function buildFailureRecord<TEvent extends { eventType: string; createdAt: string; payload: Record<string, unknown> }>(
@@ -310,7 +623,8 @@ function buildProjectRecoveryItem(
   project: ProjectRecord,
   tasksById: Map<string, TaskRecord>,
   latestFailureBySession: Map<string, EventRecord>,
-  latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>
+  latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>,
+  attemptsBySession: Map<string, RuntimeRecoveryAttempt[]>
 ): RuntimeRecoveryItem {
   const currentTask = session.currentTaskId ? (tasksById.get(session.currentTaskId) ?? null) : null;
   const failure = buildFailureRecord(session, latestFailureBySession.get(session.sessionId));
@@ -354,7 +668,8 @@ function buildProjectRecoveryItem(
     disabled_reason: policy.disabled_reason,
     risk: policy.risk,
     requires_confirmation: policy.requires_confirmation,
-    latest_events: latestAuditBySession.get(session.sessionId) ?? []
+    latest_events: latestAuditBySession.get(session.sessionId) ?? [],
+    recovery_attempts: attemptsBySession.get(session.sessionId) ?? []
   };
 }
 
@@ -363,7 +678,8 @@ function buildWorkflowRecoveryItem(
   run: WorkflowRunRecord,
   runtimeTasksById: Map<string, WorkflowTaskRuntimeRecord>,
   latestFailureBySession: Map<string, WorkflowRunEventRecord>,
-  latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>
+  latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>,
+  attemptsBySession: Map<string, RuntimeRecoveryAttempt[]>
 ): RuntimeRecoveryItem {
   const taskTemplate = session.currentTaskId
     ? (run.tasks.find((task) => task.taskId === session.currentTaskId) ?? null)
@@ -410,7 +726,8 @@ function buildWorkflowRecoveryItem(
     disabled_reason: policy.disabled_reason,
     risk: policy.risk,
     requires_confirmation: policy.requires_confirmation,
-    latest_events: latestAuditBySession.get(session.sessionId) ?? []
+    latest_events: latestAuditBySession.get(session.sessionId) ?? [],
+    recovery_attempts: attemptsBySession.get(session.sessionId) ?? []
   };
 }
 
@@ -426,12 +743,21 @@ export async function buildProjectRuntimeRecovery(
     listProjectRuntimeEvents(dataRoot, projectId)
   ]);
   const tasksById = new Map(tasks.map((task) => [task.taskId, task]));
+  const sessionStatuses = new Map(sessions.map((session) => [session.sessionId, session.status] as const));
   const latestFailureBySession = indexLatestFailureEvents(events);
   const latestAuditBySession = indexRecoveryAuditEvents(events);
+  const attemptsBySession = indexRecoveryAttempts(events, sessionStatuses);
   const nowMs = Date.now();
   const items = sessions
     .map((session) =>
-      buildProjectRecoveryItem(session, scope.project, tasksById, latestFailureBySession, latestAuditBySession)
+      buildProjectRecoveryItem(
+        session,
+        scope.project,
+        tasksById,
+        latestFailureBySession,
+        latestAuditBySession,
+        attemptsBySession
+      )
     )
     .filter((item) => isRecoveryCandidate(item, nowMs))
     .sort((left, right) => left.role.localeCompare(right.role) || left.session_id.localeCompare(right.session_id));
@@ -453,12 +779,21 @@ export async function buildWorkflowRuntimeRecovery(dataRoot: string, runId: stri
     readWorkflowRunTaskRuntimeState(dataRoot, scope.run.runId)
   ]);
   const runtimeTasksById = new Map(runtime.tasks.map((task) => [task.taskId, task]));
+  const sessionStatuses = new Map(sessions.map((session) => [session.sessionId, session.status] as const));
   const latestFailureBySession = indexLatestFailureEvents(events);
   const latestAuditBySession = indexRecoveryAuditEvents(events);
+  const attemptsBySession = indexRecoveryAttempts(events, sessionStatuses);
   const nowMs = Date.now();
   const items = sessions
     .map((session) =>
-      buildWorkflowRecoveryItem(session, scope.run, runtimeTasksById, latestFailureBySession, latestAuditBySession)
+      buildWorkflowRecoveryItem(
+        session,
+        scope.run,
+        runtimeTasksById,
+        latestFailureBySession,
+        latestAuditBySession,
+        attemptsBySession
+      )
     )
     .filter((item) => isRecoveryCandidate(item, nowMs))
     .sort((left, right) => left.role.localeCompare(right.role) || left.session_id.localeCompare(right.session_id));

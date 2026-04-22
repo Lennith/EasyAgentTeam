@@ -2,6 +2,8 @@
 
 本页只覆盖 workflow runtime 公开 API、恢复接口与错误契约。
 
+文档状态：`验证中`
+
 ## Workflow Runtime 入口
 
 - `POST /api/workflow-runs`
@@ -72,6 +74,7 @@
   - `risk`
   - `requires_confirmation`
   - `latest_events`
+  - `recovery_attempts`
 
 ## Workflow Recovery Commands
 
@@ -93,6 +96,7 @@
   - `expected_last_failure_message_id`
   - `expected_last_failure_task_id`
 - mandatory guard 约束固定为：`expected_status='idle'`、`expected_role_mapping='authoritative'`，并且至少提供 `expected_last_failure_event_id` 或 `expected_last_failure_dispatch_id`；如果 fresh session 仍有 `currentTaskId`，则 `expected_current_task_id` 也为必填
+- workflow action policy 与 command guard 必须完全一致：只有 `last_failure_event_id` 或 `last_failure_dispatch_id` 才能单独放开 `can_retry_dispatch`；`last_failure_message_id` 与 `last_failure_task_id` 仅作为展示与增强 guard，不单独放开 retry
 - route 继续兼容 snake_case / camelCase guard key，但 dashboard 不允许发送裸 retry
 - workflow `retry-dispatch` 的普通重试路径默认按 `onlyIdle=true`、`force=false` 执行；公开 API 不暴露 `force`
 - workflow recovery command rejection 统一返回：
@@ -103,6 +107,24 @@
 - `SESSION_RETRY_GUARD_REQUIRED` 与 `SESSION_RETRY_DISPATCH_NOT_ALLOWED` 都返回 `409`；前者用于 guard 缺失，后者用于 guard mismatch、policy 不允许或 orchestrator 拒绝
 - workflow retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分；读模型兼容历史 `REQUESTED`
 - workflow retry-dispatch 内部会生成 `recovery_attempt_id` 并串到 retry 审计事件与对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`；该字段只用于内部审计，不新增公开请求或响应字段
+- workflow `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的完整恢复历史；它保留 full history，不做 synthetic backfill，并至少返回：
+  - `recovery_attempt_id`
+  - `status`
+  - `integrity`
+  - `missing_markers`
+  - `requested_at`
+  - `last_event_at`
+  - `ended_at`
+  - `dispatch_scope`
+  - `current_task_id`
+  - `events`
+- `recovery_attempts[].events[]` 至少返回：
+  - `event_type`
+  - `created_at`
+  - `payload_summary`
+- `recovery_attempts[].status` 按优先级推导：`rejected > failed > finished > running > accepted > requested`
+- `recovery_attempts[].integrity` 只允许 `complete | incomplete`
+- `recovery_attempts[].missing_markers` 只使用稳定标记名：`requested`、`accepted_or_rejected`、`dispatch_started`、`dispatch_terminal`
 - workflow dismiss 先写 `SESSION_DISMISS_EXTERNAL_RESULT`，仅当 provider cancel 已确认或无需停止时才继续写 `SESSION_STATUS_DISMISSED`
 - workflow recovery actionability 由后端 policy 决定；`running` session 默认不允许 `repair_to_idle`
 
