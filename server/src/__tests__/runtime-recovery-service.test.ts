@@ -22,6 +22,25 @@ async function waitForNextTick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 2));
 }
 
+async function rewriteProjectEventFile(
+  eventsFile: string,
+  transform: (
+    events: Array<{
+      eventId: string;
+      eventType: string;
+      createdAt: string;
+    }>
+  ) => Array<Record<string, unknown>>
+): Promise<void> {
+  const raw = await readFile(eventsFile, "utf8");
+  const events = raw
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { eventId: string; eventType: string; createdAt: string });
+  const rewritten = transform(events);
+  await writeFile(eventsFile, `${rewritten.map((event) => JSON.stringify(event)).join("\n")}\n`);
+}
+
 test("project runtime recovery aggregates latest runner failure and current task context", async () => {
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-"));
   const repositories = getProjectRepositoryBundle(dataRoot);
@@ -278,6 +297,106 @@ test("project runtime recovery groups full recovery attempt history and marks in
   assert.equal(finished?.ended_at, finishedTerminalEvent?.createdAt);
   assert.deepEqual(
     finished?.events.map((event) => event.event_type),
+    [
+      "SESSION_RETRY_DISPATCH_REQUESTED",
+      "SESSION_RETRY_DISPATCH_ACCEPTED",
+      "ORCHESTRATOR_DISPATCH_STARTED",
+      "ORCHESTRATOR_DISPATCH_FINISHED"
+    ]
+  );
+});
+
+test("project runtime recovery keeps recovery attempt lifecycle order when timestamps collide", async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-collided-order-"));
+  const repositories = getProjectRepositoryBundle(dataRoot);
+  const nowIso = new Date().toISOString();
+  const created = await repositories.projectRuntime.createProject({
+    projectId: "project_recovery_collided_order",
+    name: "Project Recovery Collided Order",
+    workspacePath: path.join(dataRoot, "workspace"),
+    autoDispatchEnabled: true,
+    autoDispatchRemaining: 1,
+    holdEnabled: false,
+    reminderMode: "backoff"
+  });
+
+  await repositories.taskboard.createTask(created.paths, created.project.projectId, {
+    taskId: "project-root",
+    taskKind: "PROJECT_ROOT",
+    title: "Project Root",
+    ownerRole: "manager"
+  });
+  await repositories.taskboard.createTask(created.paths, created.project.projectId, {
+    taskId: "task_dev_exec",
+    taskKind: "EXECUTION",
+    parentTaskId: "project-root",
+    rootTaskId: "project-root",
+    title: "Investigate collided timestamps",
+    ownerRole: "dev",
+    state: "READY"
+  });
+  await repositories.sessions.addSession(created.paths, created.project.projectId, {
+    sessionId: "session-dev",
+    role: "dev",
+    status: "idle",
+    currentTaskId: "task_dev_exec",
+    provider: "minimax",
+    providerSessionId: "provider-session-dev",
+    errorStreak: 1,
+    lastFailureAt: nowIso,
+    lastFailureKind: "error"
+  });
+
+  for (const event of [
+    {
+      eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+      payload: { recovery_attempt_id: "attempt-collided", dispatch_scope: "task", current_task_id: "task_dev_exec" }
+    },
+    {
+      eventType: "SESSION_RETRY_DISPATCH_ACCEPTED",
+      payload: { recovery_attempt_id: "attempt-collided", dispatch_scope: "task", current_task_id: "task_dev_exec" }
+    },
+    {
+      eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+      payload: { recovery_attempt_id: "attempt-collided", dispatchKind: "task" }
+    },
+    {
+      eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
+      payload: { recovery_attempt_id: "attempt-collided", dispatchKind: "task" }
+    }
+  ]) {
+    await appendEvent(created.paths, {
+      projectId: created.project.projectId,
+      eventType: event.eventType,
+      source: "system",
+      sessionId: "session-dev",
+      taskId: "task_dev_exec",
+      payload: event.payload
+    });
+  }
+
+  await rewriteProjectEventFile(created.paths.eventsFile, (events) => {
+    const createdAt = "2026-04-22T08:00:00.000Z";
+    const forcedIds: Record<string, string> = {
+      SESSION_RETRY_DISPATCH_REQUESTED: "zz-requested",
+      SESSION_RETRY_DISPATCH_ACCEPTED: "yy-accepted",
+      ORCHESTRATOR_DISPATCH_STARTED: "xx-started",
+      ORCHESTRATOR_DISPATCH_FINISHED: "ww-finished"
+    };
+    return events.map((event) => ({
+      ...event,
+      createdAt,
+      eventId: forcedIds[event.eventType] ?? event.eventId
+    }));
+  });
+
+  const payload = await buildProjectRuntimeRecovery(dataRoot, created.project.projectId);
+  const attempt = payload.items[0]?.recovery_attempts[0];
+  assert.equal(attempt?.recovery_attempt_id, "attempt-collided");
+  assert.equal(attempt?.status, "finished");
+  assert.equal(attempt?.integrity, "complete");
+  assert.deepEqual(
+    attempt?.events.map((event) => event.event_type),
     [
       "SESSION_RETRY_DISPATCH_REQUESTED",
       "SESSION_RETRY_DISPATCH_ACCEPTED",

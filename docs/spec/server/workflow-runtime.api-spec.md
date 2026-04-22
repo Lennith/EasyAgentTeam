@@ -122,6 +122,7 @@
   - `event_type`
   - `created_at`
   - `payload_summary`
+- `recovery_attempts[].events[]` 默认按 `created_at` 升序返回；如果多个 recovery/dispatch 事件落在同一毫秒，后端必须按生命周期顺序稳定排序：`SESSION_RETRY_DISPATCH_REQUESTED -> SESSION_RETRY_DISPATCH_ACCEPTED/REJECTED -> ORCHESTRATOR_DISPATCH_STARTED -> ORCHESTRATOR_DISPATCH_FINISHED/FAILED`
 - `recovery_attempts[].status` 按优先级推导：`rejected > failed > finished > running > accepted > requested`
 - `recovery_attempts[].integrity` 只允许 `complete | incomplete`
 - `recovery_attempts[].missing_markers` 只使用稳定标记名：`requested`、`accepted_or_rejected`、`dispatch_started`、`dispatch_terminal`

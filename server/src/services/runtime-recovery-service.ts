@@ -50,6 +50,23 @@ const RECOVERY_ATTEMPT_TERMINAL_EVENT_TYPES = new Set([
   "ORCHESTRATOR_DISPATCH_FINISHED",
   "ORCHESTRATOR_DISPATCH_FAILED"
 ]);
+const EVENT_TYPE_ORDER = new Map<string, number>([
+  ["RUNNER_CONFIG_ERROR_BLOCKED", 10],
+  ["RUNNER_TRANSIENT_ERROR_SOFT", 11],
+  ["RUNNER_RUNTIME_ERROR_SOFT", 12],
+  ["RUNNER_FATAL_ERROR_DISMISSED", 13],
+  ["RUNNER_TIMEOUT_SOFT", 14],
+  ["RUNNER_TIMEOUT_ESCALATED", 15],
+  ["SESSION_DISMISS_EXTERNAL_RESULT", 20],
+  ["SESSION_STATUS_REPAIRED", 21],
+  ["SESSION_STATUS_DISMISSED", 22],
+  ["SESSION_RETRY_DISPATCH_REQUESTED", 30],
+  ["SESSION_RETRY_DISPATCH_ACCEPTED", 31],
+  ["SESSION_RETRY_DISPATCH_REJECTED", 32],
+  ["ORCHESTRATOR_DISPATCH_STARTED", 33],
+  ["ORCHESTRATOR_DISPATCH_FINISHED", 34],
+  ["ORCHESTRATOR_DISPATCH_FAILED", 35]
+]);
 
 const RECENT_FAILURE_WINDOW_MS = 30 * 60 * 1000;
 const RECOVERY_EVENT_SUMMARY_LIMIT = 4;
@@ -179,10 +196,21 @@ function readRawStatus(value: unknown): number | string | null {
   return readString(value);
 }
 
-function compareEventsAsc<TEvent extends { createdAt: string; eventId: string }>(left: TEvent, right: TEvent): number {
+function resolveEventTypeOrder(eventType: string | undefined): number {
+  return EVENT_TYPE_ORDER.get(eventType ?? "") ?? Number.MAX_SAFE_INTEGER;
+}
+
+function compareEventsAsc<TEvent extends { createdAt: string; eventId: string; eventType?: string }>(
+  left: TEvent,
+  right: TEvent
+): number {
   const timeDiff = Date.parse(left.createdAt) - Date.parse(right.createdAt);
   if (timeDiff !== 0) {
     return timeDiff;
+  }
+  const typeDiff = resolveEventTypeOrder(left.eventType) - resolveEventTypeOrder(right.eventType);
+  if (typeDiff !== 0) {
+    return typeDiff;
   }
   return left.eventId.localeCompare(right.eventId);
 }
@@ -222,7 +250,7 @@ function indexLatestFailureEvents<
       continue;
     }
     const existing = latestBySession.get(event.sessionId);
-    if (!existing || Date.parse(event.createdAt) > Date.parse(existing.createdAt)) {
+    if (!existing || compareEventsDesc(event, existing) < 0) {
       latestBySession.set(event.sessionId, event);
     }
   }

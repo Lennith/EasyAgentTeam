@@ -31,7 +31,7 @@
 - session 恢复上下文除了 `last_failure_at / last_failure_kind` 外，还必须沉淀 `last_failure_event_id`、`last_failure_dispatch_id`、`last_failure_message_id`、`last_failure_task_id`，供 recovery read model 展示与 retry-dispatch guard 回填；其中 `last_failure_event_id` 或 `last_failure_dispatch_id` 才能单独作为 authoritative retry anchor，`message_id / task_id` 仅作为增强上下文，不单独放开 retry
 - retry-dispatch 审计事件语义分为 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED`；读模型兼容历史 `REQUESTED`，但新实现必须区分请求、接受与拒绝，并在同一 retry command 生成统一的 `recovery_attempt_id`
 - `recovery_attempt_id` 继续不写入 session 主模型，但 recovery read model 必须把它产品化为 `runtime-recovery.items[].recovery_attempts[]`：按 `recovery_attempt_id` 归并 retry-dispatch 的 requested / accepted / rejected 审计事件，以及对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`
-- `runtime-recovery.items[].recovery_attempts[]` 保留 full history，不做最近 N 次截断，并稳定返回 attempt `status`、`integrity`、`missing_markers`、时间戳、dispatch scope、current task 与按时间正序排列的 `events[]`
+- `runtime-recovery.items[].recovery_attempts[]` 保留 full history，不做最近 N 次截断，并稳定返回 attempt `status`、`integrity`、`missing_markers`、时间戳、dispatch scope、current task 与按时间正序排列的 `events[]`；当多个审计事件落在同一毫秒时，排序必须优先遵循恢复生命周期顺序（requested -> accepted/rejected -> dispatch started -> dispatch finished/failed），不能退化为按随机 `eventId` 排序
 - `runtime-recovery.items[].latest_events[]` 继续保留为兼容字段，但 Recovery Center 主展示迁移到 `recovery_attempts[]`；旧历史中没有 `recovery_attempt_id` 的事件不做 synthetic backfill，只保留在兼容 summary 视图中
 - dismiss 采用“外部停止结果审计 -> 本地 dismiss 落盘”两阶段审计；外部停止未确认时不允许继续写本地 dismiss 状态
 - dismiss / repair 的对外响应会返回统一 command contract，包含前后状态、外部取消结果、本地终止结果、映射清理结果与 warnings
