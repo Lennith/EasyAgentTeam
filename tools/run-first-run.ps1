@@ -51,6 +51,23 @@ function Wait-BackendHealthy {
   return $false
 }
 
+function Stop-ProcessTree {
+  param([int]$ProcessId)
+
+  if ($ProcessId -le 0) {
+    return
+  }
+
+  try {
+    & taskkill.exe /PID $ProcessId /T /F *> $null
+  } catch {
+    try {
+      Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    } catch {
+    }
+  }
+}
+
 if (-not (Test-Path -LiteralPath $standardE2EScript)) {
   throw "Missing script: $standardE2EScript"
 }
@@ -76,7 +93,7 @@ try {
 
     if (-not (Wait-BackendHealthy -HealthUrl $healthUrl -TimeoutSeconds 60)) {
       if ($serverProcess -and -not $serverProcess.HasExited) {
-        Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
+        Stop-ProcessTree -ProcessId $serverProcess.Id
       }
       $stdoutTail = if (Test-Path -LiteralPath $serverStdout) { (Get-Content -LiteralPath $serverStdout -Tail 30 | Out-String) } else { "" }
       $stderrTail = if (Test-Path -LiteralPath $serverStderr) { (Get-Content -LiteralPath $serverStderr -Tail 30 | Out-String) } else { "" }
@@ -110,7 +127,7 @@ $args = @(
   Write-Host "3) dashboard Projects task-tree and timeline reflect the same terminal state"
 } finally {
   if ($startedServerByScript -and $serverProcess -and -not $serverProcess.HasExited) {
-    Write-Host "Stopping bootstrap backend process pid=$($serverProcess.Id)"
-    Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
+    Write-Host "Stopping bootstrap backend process tree pid=$($serverProcess.Id)"
+    Stop-ProcessTree -ProcessId $serverProcess.Id
   }
 }
