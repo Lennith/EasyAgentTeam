@@ -77,7 +77,8 @@ export function createWorkflowOrchestratorComposition(
 
   const runtimeSupportService = new WorkflowRuntimeSupportService({
     repositories,
-    activeRunIds
+    activeRunIds,
+    runExclusiveRuntimeMutation: (runId, operation) => transientState.runExclusiveRuntimeMutation(runId, operation)
   });
   const sessionRuntimeService = new WorkflowSessionRuntimeService({
     dataRoot: input.dataRoot,
@@ -110,6 +111,7 @@ export function createWorkflowOrchestratorComposition(
     maxConcurrentDispatches: input.options.maxConcurrentDispatches,
     inFlightDispatchSessionKeys,
     buildRunSessionKey: transientState.buildRunSessionKey,
+    runWorkflowTransaction: (runId, operation) => runtimeSupportService.runWorkflowTransaction(runId, operation),
     resolveAuthoritativeSession: (runId, role, sessions, runRecord, reason) =>
       sessionRuntimeService.resolveAuthoritativeSession(runId, role, sessions, runRecord, reason),
     touchSessionHeartbeat: (runId, sessionId) => sessionRuntimeService.touchSessionHeartbeat(runId, sessionId),

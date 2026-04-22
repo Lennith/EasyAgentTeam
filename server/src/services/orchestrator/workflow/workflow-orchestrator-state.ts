@@ -1,6 +1,44 @@
 import { buildOrchestratorContextSessionKey } from "../../orchestrator-core.js";
 import { OrchestratorSingleFlightGate } from "../shared/kernel/single-flight.js";
 
+class WorkflowRunMutationMutex {
+  private readonly tails = new Map<string, Promise<void>>();
+
+  async runExclusive<T>(runId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.tails.get(runId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.tails.set(runId, current);
+    await previous.catch(() => {});
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.tails.get(runId) === current) {
+        this.tails.delete(runId);
+      }
+    }
+  }
+
+  clear(runId: string): void {
+    this.tails.delete(runId);
+  }
+
+  clearAll(): void {
+    this.tails.clear();
+  }
+
+  prune(activeRunIds: Set<string>): void {
+    for (const runId of Array.from(this.tails.keys())) {
+      if (!activeRunIds.has(runId)) {
+        this.tails.delete(runId);
+      }
+    }
+  }
+}
+
 function extractRunIdFromScopedKey(key: string): string {
   const separator = key.indexOf("::");
   if (separator <= 0) {
@@ -40,6 +78,7 @@ export interface WorkflowOrchestratorTransientState {
   runHoldState: Map<string, boolean>;
   runAutoFinishStableTicks: Map<string, number>;
   sessionHeartbeatThrottle: Map<string, number>;
+  runExclusiveRuntimeMutation<T>(runId: string, operation: () => Promise<T>): Promise<T>;
   buildRunSessionKey(runId: string, sessionId: string): string;
   clearRunScopedState(runId: string): void;
   clearAllTransientState(): void;
@@ -52,6 +91,7 @@ export function createWorkflowOrchestratorTransientState(): WorkflowOrchestrator
   const runHoldState = new Map<string, boolean>();
   const runAutoFinishStableTicks = new Map<string, number>();
   const sessionHeartbeatThrottle = new Map<string, number>();
+  const runMutationMutex = new WorkflowRunMutationMutex();
 
   return {
     activeRunIds,
@@ -59,10 +99,13 @@ export function createWorkflowOrchestratorTransientState(): WorkflowOrchestrator
     runHoldState,
     runAutoFinishStableTicks,
     sessionHeartbeatThrottle,
+    runExclusiveRuntimeMutation: async <T>(runId: string, operation: () => Promise<T>) =>
+      await runMutationMutex.runExclusive(runId, operation),
     buildRunSessionKey: (runId: string, sessionId: string) => buildOrchestratorContextSessionKey(runId, sessionId),
     clearRunScopedState: (runId: string) => {
       runHoldState.delete(runId);
       runAutoFinishStableTicks.delete(runId);
+      runMutationMutex.clear(runId);
       removeScopedEntriesByRunId(Array.from(sessionHeartbeatThrottle.keys()), runId, (key) =>
         sessionHeartbeatThrottle.delete(key)
       );
@@ -75,11 +118,13 @@ export function createWorkflowOrchestratorTransientState(): WorkflowOrchestrator
       runHoldState.clear();
       runAutoFinishStableTicks.clear();
       sessionHeartbeatThrottle.clear();
+      runMutationMutex.clearAll();
       inFlightDispatchSessionKeys.clear();
     },
     pruneInactiveRunScopedState: (nextActiveRunIds: Set<string>) => {
       pruneRunStateMap(runHoldState, nextActiveRunIds);
       pruneRunStateMap(runAutoFinishStableTicks, nextActiveRunIds);
+      runMutationMutex.prune(nextActiveRunIds);
       pruneRunScopedEntries(Array.from(sessionHeartbeatThrottle.keys()), nextActiveRunIds, (key) =>
         sessionHeartbeatThrottle.delete(key)
       );

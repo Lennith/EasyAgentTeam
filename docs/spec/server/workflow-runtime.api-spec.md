@@ -2,7 +2,7 @@
 
 本页只覆盖 workflow runtime 公开 API、恢复接口与错误契约。
 
-文档状态：`验证中`
+文档状态：`实装`
 
 ## Workflow Runtime 入口
 
@@ -134,3 +134,4 @@
 - workflow runtime failure、provider error 与 SSE 对外字段统一使用 snake_case，包括 `next_action`、`raw_status`、`cooldown_until`
 - timeout close 前必须通过 workflow timeout evidence 纯函数判断 `should_close`，并基于 fresh heartbeat / recent terminal report 做 skip 保护
 - timeout runtime service 只负责加载数据、执行 close / cancel、关闭 dispatch / run、释放 in-flight gate 与写审计，不在 scanner 内继续堆条件分支
+- workflow task runtime 的 mutation 采用 run-scoped 串行语义：`TASK_REPORT`、runtime convergence、dispatch afterLoop 与 completion finalize 必须通过同一条 workflow transaction 入口执行，避免并发 stale snapshot 在较晚提交时覆盖已落盘的新任务状态

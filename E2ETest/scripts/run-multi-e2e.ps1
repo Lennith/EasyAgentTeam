@@ -26,6 +26,7 @@
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
+$backendBootstrap = Join-Path $repoRoot "tools\e2e-backend-bootstrap.ps1"
 
 if (-not $ChainScenarioPath) {
   $ChainScenarioPath = Join-Path $repoRoot "E2ETest\scenarios\a-self-decompose-chain.json"
@@ -81,85 +82,95 @@ if ($selected.Count -eq 0) {
 if (($selected -notcontains "workflow") -or (-not ($selected -contains "chain" -or $selected -contains "discuss"))) {
   throw "run-multi-e2e requires workflow plus at least one project baseline (chain or discuss)"
 }
-
-Write-Host "== Multi E2E Start =="
-Write-Host ("cases={0}" -f ($selected -join ","))
-Write-Host ("base_url={0}" -f $BaseUrl)
-Write-Host ("provider_mode={0}" -f $(if ([string]::IsNullOrWhiteSpace($ProviderId)) { "mixed" } else { "forced:$ProviderId" }))
-Write-Host ("setup_only={0}" -f $SetupOnly.IsPresent)
-Write-Host "strict_observe=True"
-
-$caseArtifacts = @{}
-$caseExitCodes = @{}
-$failed = @()
-
-foreach ($caseId in $selected) {
-  $cfg = $caseMap[$caseId]
-  $scriptPath = [string]$cfg.script
-  $scenarioPath = [string]$cfg.scenario
-  $workspace = [string]$cfg.workspace
-  $dataRoot = if ($cfg.ContainsKey("dataRoot")) { [string]$cfg.dataRoot } else { "" }
-
-  $args = @("-ExecutionPolicy", "Bypass", "-File", $scriptPath, "-BaseUrl", $BaseUrl, "-WorkspaceRoot", $workspace)
-  if ($caseId -eq "template-agent") {
-    $maxSeconds = [Math]::Max(60, ($MaxMinutes * 60))
-    $args += @("-MaxSeconds", "$maxSeconds")
-    if (-not [string]::IsNullOrWhiteSpace($dataRoot)) {
-      $args += @("-DataRoot", $dataRoot)
-    }
-    if ($SetupOnly) {
-      $args += "-SetupOnly"
-    }
-  } else {
-    $args += @(
-      "-ScenarioPath", $scenarioPath,
-      "-AutoDispatchBudget", "$AutoDispatchBudget",
-      "-MaxMinutes", "$MaxMinutes",
-      "-PollSeconds", "$PollSeconds",
-      "-AutoTopupStep", "$AutoTopupStep",
-      "-MaxTopups", "$MaxTopups",
-      "-MaxTotalBudget", "$MaxTotalBudget"
-    )
-    if (-not [string]::IsNullOrWhiteSpace($ProviderId)) {
-      $args += @("-ProviderId", $ProviderId)
-    }
-    if ($SetupOnly) {
-      $args += "-SetupOnly"
-    }
-    if ($caseId -eq "chain") {
-      $args += "-StrictObserve"
-    }
-    if ($caseId -eq "workflow") {
-      if (-not [string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) {
-        $args += @("-MiniMaxApiKeyOverride", $MiniMaxApiKeyOverride)
-      }
-      if (-not [string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) {
-        $args += @("-MiniMaxApiBaseOverride", $MiniMaxApiBaseOverride)
-      }
-      if ($ClearMiniMaxSettings) {
-        $args += "-ClearMiniMaxSettings"
-      }
-    }
-  }
-
-  Write-Host ("[launch] case={0} script={1} workspace={2}" -f $caseId, $scriptPath, $workspace)
-  $output = @(& powershell @args 2>&1)
-  $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
-  foreach ($line in $output) {
-    $text = [string]$line
-    Write-Host ("[{0}] {1}" -f $caseId, $text)
-    if ($text -like "artifacts=*") {
-      $caseArtifacts[$caseId] = ($text -replace "^artifacts=", "").Trim()
-    }
-  }
-  $caseExitCodes[$caseId] = $exitCode
-  if ($exitCode -ne 0) {
-    $failed += $caseId
-    Write-Host ("[failed] case={0} exitCode={1}" -f $caseId, $exitCode)
-  } else {
-    Write-Host ("[done] case={0}" -f $caseId)
-  }
+if (-not (Test-Path -LiteralPath $backendBootstrap)) {
+  throw "Missing helper: $backendBootstrap"
 }
+
+. $backendBootstrap
+
+$backendHandle = $null
+
+try {
+  $backendHandle = Ensure-E2EBackend -BaseUrl $BaseUrl -RepoRoot $repoRoot -BootstrapLabel "multi-e2e" -TimeoutSeconds 60
+
+  Write-Host "== Multi E2E Start =="
+  Write-Host ("cases={0}" -f ($selected -join ","))
+  Write-Host ("base_url={0}" -f $BaseUrl)
+  Write-Host ("provider_mode={0}" -f $(if ([string]::IsNullOrWhiteSpace($ProviderId)) { "mixed" } else { "forced:$ProviderId" }))
+  Write-Host ("setup_only={0}" -f $SetupOnly.IsPresent)
+  Write-Host "strict_observe=True"
+
+  $caseArtifacts = @{}
+  $caseExitCodes = @{}
+  $failed = @()
+
+  foreach ($caseId in $selected) {
+    $cfg = $caseMap[$caseId]
+    $scriptPath = [string]$cfg.script
+    $scenarioPath = [string]$cfg.scenario
+    $workspace = [string]$cfg.workspace
+    $dataRoot = if ($cfg.ContainsKey("dataRoot")) { [string]$cfg.dataRoot } else { "" }
+
+    $args = @("-ExecutionPolicy", "Bypass", "-File", $scriptPath, "-BaseUrl", $BaseUrl, "-WorkspaceRoot", $workspace)
+    if ($caseId -eq "template-agent") {
+      $maxSeconds = [Math]::Max(60, ($MaxMinutes * 60))
+      $args += @("-MaxSeconds", "$maxSeconds")
+      if (-not [string]::IsNullOrWhiteSpace($dataRoot)) {
+        $args += @("-DataRoot", $dataRoot)
+      }
+      if ($SetupOnly) {
+        $args += "-SetupOnly"
+      }
+    } else {
+      $args += @(
+        "-ScenarioPath", $scenarioPath,
+        "-AutoDispatchBudget", "$AutoDispatchBudget",
+        "-MaxMinutes", "$MaxMinutes",
+        "-PollSeconds", "$PollSeconds",
+        "-AutoTopupStep", "$AutoTopupStep",
+        "-MaxTopups", "$MaxTopups",
+        "-MaxTotalBudget", "$MaxTotalBudget"
+      )
+      if (-not [string]::IsNullOrWhiteSpace($ProviderId)) {
+        $args += @("-ProviderId", $ProviderId)
+      }
+      if ($SetupOnly) {
+        $args += "-SetupOnly"
+      }
+      if ($caseId -eq "chain") {
+        $args += "-StrictObserve"
+      }
+      if ($caseId -eq "workflow") {
+        if (-not [string]::IsNullOrWhiteSpace($MiniMaxApiKeyOverride)) {
+          $args += @("-MiniMaxApiKeyOverride", $MiniMaxApiKeyOverride)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) {
+          $args += @("-MiniMaxApiBaseOverride", $MiniMaxApiBaseOverride)
+        }
+        if ($ClearMiniMaxSettings) {
+          $args += "-ClearMiniMaxSettings"
+        }
+      }
+    }
+
+    Write-Host ("[launch] case={0} script={1} workspace={2}" -f $caseId, $scriptPath, $workspace)
+    $output = @(& powershell @args 2>&1)
+    $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+    foreach ($line in $output) {
+      $text = [string]$line
+      Write-Host ("[{0}] {1}" -f $caseId, $text)
+      if ($text -like "artifacts=*") {
+        $caseArtifacts[$caseId] = ($text -replace "^artifacts=", "").Trim()
+      }
+    }
+    $caseExitCodes[$caseId] = $exitCode
+    if ($exitCode -ne 0) {
+      $failed += $caseId
+      Write-Host ("[failed] case={0} exitCode={1}" -f $caseId, $exitCode)
+    } else {
+      Write-Host ("[done] case={0}" -f $caseId)
+    }
+  }
 
 function Build-PlaceholderMetrics {
   param(
@@ -243,51 +254,51 @@ $totalsMixedProviderCases = 0
 $totalsProviderSessionAuditPass = 0
 $totalsProviderActivityPass = 0
 $providerAuditFailures = @()
-foreach ($caseId in $selected) {
-  $metricsObj = $null
-  $artifactDir = if ($caseArtifacts.Contains($caseId)) { [string]$caseArtifacts[$caseId] } else { "" }
-  $metricsPath = if (-not [string]::IsNullOrWhiteSpace($artifactDir)) { Join-Path $artifactDir "stability_metrics.json" } else { "" }
-  if (-not [string]::IsNullOrWhiteSpace($metricsPath) -and (Test-Path -LiteralPath $metricsPath)) {
-    try {
-      $metricsObj = Get-Content -LiteralPath $metricsPath -Raw | ConvertFrom-Json
-      $metricsObj | Add-Member -NotePropertyName metrics_missing -NotePropertyValue $false -Force
-      $metricsObj | Add-Member -NotePropertyName artifacts_dir -NotePropertyValue $artifactDir -Force
-    } catch {
+  foreach ($caseId in $selected) {
+    $metricsObj = $null
+    $artifactDir = if ($caseArtifacts.Contains($caseId)) { [string]$caseArtifacts[$caseId] } else { "" }
+    $metricsPath = if (-not [string]::IsNullOrWhiteSpace($artifactDir)) { Join-Path $artifactDir "stability_metrics.json" } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($metricsPath) -and (Test-Path -LiteralPath $metricsPath)) {
+      try {
+        $metricsObj = Get-Content -LiteralPath $metricsPath -Raw | ConvertFrom-Json
+        $metricsObj | Add-Member -NotePropertyName metrics_missing -NotePropertyValue $false -Force
+        $metricsObj | Add-Member -NotePropertyName artifacts_dir -NotePropertyValue $artifactDir -Force
+      } catch {
+        $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.Contains($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
+        $metricsObj.artifacts_dir = $artifactDir
+      }
+    } else {
       $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.Contains($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
       $metricsObj.artifacts_dir = $artifactDir
     }
-  } else {
-    $metricsObj = Build-PlaceholderMetrics -CaseId $caseId -ExitCode $(if ($caseExitCodes.Contains($caseId)) { [int]$caseExitCodes[$caseId] } else { 2 })
-    $metricsObj.artifacts_dir = $artifactDir
-  }
 
-  $providerAudit = Build-ProviderAuditSummary -CaseId $caseId -ArtifactDir $artifactDir
-  $metricsObj | Add-Member -NotePropertyName providers_resolved -NotePropertyValue @($providerAudit.providers_resolved) -Force
-  $metricsObj | Add-Member -NotePropertyName mixed_provider_pass -NotePropertyValue $providerAudit.mixed_provider_pass -Force
-  $metricsObj | Add-Member -NotePropertyName provider_session_audit_pass -NotePropertyValue $providerAudit.provider_session_audit_pass -Force
-  $metricsObj | Add-Member -NotePropertyName provider_activity_pass -NotePropertyValue $providerAudit.provider_activity_pass -Force
-  $metricsObj | Add-Member -NotePropertyName provider_matrix_missing -NotePropertyValue $providerAudit.provider_matrix_missing -Force
-  $metricsObj | Add-Member -NotePropertyName provider_session_audit_missing -NotePropertyValue $providerAudit.provider_session_audit_missing -Force
-  $metricsObj | Add-Member -NotePropertyName provider_activity_missing -NotePropertyValue $providerAudit.provider_activity_missing -Force
+    $providerAudit = Build-ProviderAuditSummary -CaseId $caseId -ArtifactDir $artifactDir
+    $metricsObj | Add-Member -NotePropertyName providers_resolved -NotePropertyValue @($providerAudit.providers_resolved) -Force
+    $metricsObj | Add-Member -NotePropertyName mixed_provider_pass -NotePropertyValue $providerAudit.mixed_provider_pass -Force
+    $metricsObj | Add-Member -NotePropertyName provider_session_audit_pass -NotePropertyValue $providerAudit.provider_session_audit_pass -Force
+    $metricsObj | Add-Member -NotePropertyName provider_activity_pass -NotePropertyValue $providerAudit.provider_activity_pass -Force
+    $metricsObj | Add-Member -NotePropertyName provider_matrix_missing -NotePropertyValue $providerAudit.provider_matrix_missing -Force
+    $metricsObj | Add-Member -NotePropertyName provider_session_audit_missing -NotePropertyValue $providerAudit.provider_session_audit_missing -Force
+    $metricsObj | Add-Member -NotePropertyName provider_activity_missing -NotePropertyValue $providerAudit.provider_activity_missing -Force
 
-  $totalsToolFail += [int]$metricsObj.toolcall_failed_count
-  $totalsTimeoutRecovered += [int]$metricsObj.timeout_recovered_count
-  if ($providerAudit.applicable) {
-    if ($providerAudit.mixed_provider_pass) {
-      $totalsMixedProviderCases += 1
+    $totalsToolFail += [int]$metricsObj.toolcall_failed_count
+    $totalsTimeoutRecovered += [int]$metricsObj.timeout_recovered_count
+    if ($providerAudit.applicable) {
+      if ($providerAudit.mixed_provider_pass) {
+        $totalsMixedProviderCases += 1
+      }
+      if ($providerAudit.provider_session_audit_pass) {
+        $totalsProviderSessionAuditPass += 1
+      }
+      if ($providerAudit.provider_activity_pass) {
+        $totalsProviderActivityPass += 1
+      }
+      if ((-not $providerAudit.mixed_provider_pass) -or (-not $providerAudit.provider_session_audit_pass) -or (-not $providerAudit.provider_activity_pass)) {
+        $providerAuditFailures += $caseId
+      }
     }
-    if ($providerAudit.provider_session_audit_pass) {
-      $totalsProviderSessionAuditPass += 1
-    }
-    if ($providerAudit.provider_activity_pass) {
-      $totalsProviderActivityPass += 1
-    }
-    if ((-not $providerAudit.mixed_provider_pass) -or (-not $providerAudit.provider_session_audit_pass) -or (-not $providerAudit.provider_activity_pass)) {
-      $providerAuditFailures += $caseId
-    }
+    $aggregateItems += $metricsObj
   }
-  $aggregateItems += $metricsObj
-}
 
 $multiStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $multiOutDir = Join-Path $repoRoot "docs\e2e\multi\$multiStamp"
@@ -341,3 +352,6 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "== Multi E2E Passed =="
+} finally {
+  Stop-E2EBackend -Handle $backendHandle
+}

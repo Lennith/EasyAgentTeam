@@ -55,3 +55,61 @@ Baseline evidence:
 ### Final Decision
 
 - `PASS`
+
+## 2026-04-22 14:10 CST
+
+- Target branch: `main`
+- Tested code snapshot root commit: `b40e12a4e25141bd03c6a5c57d0c82fbfc256936`
+- Release version note: the final release commit only adds release report and evidence docs after the gate completed; runtime code delta after gate is none.
+
+### Step 1. Full Unit Test Regression
+
+- Command: `pnpm test`
+- Result: `PASS`
+
+Evidence:
+
+- `docs/release_evidence/20260422_125106/release_gate_summary.md`
+
+### Step 2. README Command Check And 5-Minute Baseline
+
+- `pnpm i`: `PASS`
+- `pnpm dev`: `PASS`
+- `pnpm build`: `PASS`
+- `pnpm test`: `PASS`
+- `pnpm e2e:first-run`: `PASS`
+
+Command evidence:
+
+- `docs/release_evidence/20260422_125106/release_gate_summary.md`
+- `e2e:first-run` summary: `D:/AgentWorkSpace/TestTeam/TestRound20/docs/e2e/20260422_125736/run_summary.md`
+
+### Step 3. Full E2E Baseline
+
+- Command: `pnpm e2e:baseline`
+- Result: `PASS`
+
+Baseline evidence:
+
+- `docs/release_evidence/20260422_125106/release_gate_summary.md`
+- `docs/release_evidence/20260422_125106/step3_pnpm_e2e_baseline.exitcode.txt`
+- `docs/release_evidence/20260422_125106/step3_pnpm_e2e_baseline.finished_at.txt`
+- `D:/AgentWorkSpace/TestTeam/TestRound20/docs/e2e/20260422_130736/run_summary.md`
+- `D:/AgentWorkSpace/TestTeam/TestTeamDiscuss/docs/e2e/20260422_132117/run_summary.md`
+- `D:/AgentWorkSpace/TestTeam/TestWorkflowSpace-isolated-20260422132119/docs/e2e/20260422_140745-workflow-observer/run_summary.md`
+
+### Step 4. Manual Agent Result Check
+
+- Result: `PASS`
+- Checked evidence:
+  - `chain` final reason is `closed_loop`, `pass_runtime=True`, `pass_analysis=True`, `provider_session_audit_pass=True`, and `provider_activity_pass=True` in `D:/AgentWorkSpace/TestTeam/TestRound20/docs/e2e/20260422_130736/run_summary.md`
+  - `discuss` final reason is `closed_loop`, `pass_runtime=True`, `pass_analysis=True`, `provider_session_audit_pass=True`, and `provider_activity_pass=True` in `D:/AgentWorkSpace/TestTeam/TestTeamDiscuss/docs/e2e/20260422_132117/run_summary.md`
+  - `workflow` final reason is `workflow_runtime_ok`, `runtime_pass=True`, `official_telemetry_pass=True`, `subtask_stats_overall_pass=True`, `provider_session_audit_pass=True`, and `provider_activity_pass=True` in `D:/AgentWorkSpace/TestTeam/TestWorkflowSpace-isolated-20260422132119/docs/e2e/20260422_140745-workflow-observer/run_summary.md`
+
+### Blocker Check
+
+- No unresolved blocking issue found in unit tests, README command checks, `e2e:first-run`, full E2E baseline, or Step 4 manual Agent result check.
+
+### Final Decision
+
+- `PASS`

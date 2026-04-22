@@ -48,6 +48,7 @@ export interface WorkflowDispatchLoopContext {
   maxConcurrentDispatches: number;
   inFlightDispatchSessionKeys: OrchestratorSingleFlightGate;
   buildRunSessionKey(runId: string, sessionId: string): string;
+  runWorkflowTransaction<T>(runId: string, operation: () => Promise<T>): Promise<T>;
   ensureRuntime(run: WorkflowRunRecord): Promise<WorkflowRunRuntimeState>;
   readConvergedRuntime(run: WorkflowRunRecord): Promise<WorkflowRunRuntimeState>;
 }
@@ -284,7 +285,7 @@ export async function runWorkflowDispatchLoop(
           )
           .map((item) => item.taskId as string);
 
-        await dependencies.context.repositories.runInUnitOfWork({ run: loopState.run }, async () => {
+        await dependencies.context.runWorkflowTransaction(loopState.runId, async () => {
           const freshRun = await dependencies.loadRunOrThrow(loopState.runId);
           const latestRuntime = await dependencies.context.readConvergedRuntime(freshRun);
           const latestByTask = new Map(latestRuntime.tasks.map((item) => [item.taskId, item]));

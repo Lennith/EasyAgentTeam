@@ -2,7 +2,7 @@
 
 ## 状态
 
-- 文档状态：`验证中`
+- 文档状态：`实装`
 
 ## 目标
 
@@ -28,6 +28,7 @@
 - 缺失 mandatory retry guard 时必须返回稳定 `409 + SESSION_RETRY_GUARD_REQUIRED`，并给出刷新 Recovery Center 后按最新快照重试的 `next_action`；guard mismatch、policy 不允许与 orchestrator 拒绝继续统一返回 `409 + SESSION_RETRY_DISPATCH_NOT_ALLOWED`
 - retry-dispatch 默认强制 `onlyIdle=true` 且不暴露公开 `force` 开关；只有后端内部显式高风险恢复路径才允许覆盖该默认值
 - reminder 触发后的自动 redispatch 也必须遵守 `onlyIdle=true`；reminder 只负责补发提醒与驱动 idle session 重新进入正常 dispatch，不允许绕开 idle gate 抢占运行中或未完成收口的 session
+- workflow task runtime 的 read-modify-write 变更必须按 `run_id` 串行执行；`TASK_REPORT`、runtime convergence、dispatch afterLoop 和 completion finalize 不能并发读取同一旧快照后再互相覆盖，避免较晚提交的 stale runtime 把更新后的任务状态回滚
 - session 恢复上下文除了 `last_failure_at / last_failure_kind` 外，还必须沉淀 `last_failure_event_id`、`last_failure_dispatch_id`、`last_failure_message_id`、`last_failure_task_id`，供 recovery read model 展示与 retry-dispatch guard 回填；其中 `last_failure_event_id` 或 `last_failure_dispatch_id` 才能单独作为 authoritative retry anchor，`message_id / task_id` 仅作为增强上下文，不单独放开 retry
 - retry-dispatch 审计事件语义分为 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED`；读模型兼容历史 `REQUESTED`，但新实现必须区分请求、接受与拒绝，并在同一 retry command 生成统一的 `recovery_attempt_id`
 - `recovery_attempt_id` 继续不写入 session 主模型，但 recovery read model 必须把它产品化为 `runtime-recovery.items[].recovery_attempts[]`：按 `recovery_attempt_id` 归并 retry-dispatch 的 requested / accepted / rejected 审计事件，以及对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`

@@ -8,13 +8,17 @@ import { buildWorkflowRuntimeSnapshot } from "./workflow-runtime-view.js";
 interface WorkflowRuntimeSupportServiceContext {
   repositories: WorkflowRepositoryBundle;
   activeRunIds: Set<string>;
+  runExclusiveRuntimeMutation<T>(runId: string, operation: () => Promise<T>): Promise<T>;
 }
 
 export class WorkflowRuntimeSupportService {
   constructor(private readonly context: WorkflowRuntimeSupportServiceContext) {}
 
   async runWorkflowTransaction<T>(runId: string, operation: () => Promise<T>): Promise<T> {
-    return this.context.repositories.runWithResolvedScope(runId, async () => operation());
+    return await this.context.runExclusiveRuntimeMutation(
+      runId,
+      async () => await this.context.repositories.runWithResolvedScope(runId, async () => operation())
+    );
   }
 
   async loadRunOrThrow(runId: string): Promise<WorkflowRunRecord> {

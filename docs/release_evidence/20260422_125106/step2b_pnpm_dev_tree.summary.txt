@@ -1,0 +1,12 @@
+mode=pnpm-dev-smoke-tree
+server_ready=True
+web_ready=True
+timed_out=False
+process_exited=False
+exit_code=running
+server_tcp=True
+vite_pid=76548
+web_port=54174
+web_status=200
+stdout=docs\release_evidence\20260422_125106\step2b_pnpm_dev_tree.stdout.log
+stderr=docs\release_evidence\20260422_125106\step2b_pnpm_dev_tree.stderr.log
