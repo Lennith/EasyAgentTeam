@@ -7,7 +7,10 @@ import {
 import { RecoveryCommandError, isRecoveryCommandError } from "../services/runtime-recovery-command-error.js";
 import { buildRecoveryPolicyContext } from "../services/runtime-recovery-policy-context.js";
 import { retryWorkflowDispatchSession } from "../services/runtime-retry-dispatch-service.js";
-import { buildWorkflowRuntimeRecovery } from "../services/runtime-recovery-service.js";
+import {
+  buildWorkflowRuntimeRecovery,
+  buildWorkflowSessionRecoveryAttempts
+} from "../services/runtime-recovery-service.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import { readStringField, sanitizeSessionForApi, sendApiError } from "./shared/http.js";
 import {
@@ -19,11 +22,14 @@ import {
 } from "./shared/recovery.js";
 
 export function registerWorkflowRecoveryRoutes(app: express.Application, context: AppRuntimeContext): void {
+  const { dataRoot } = context;
   const repositories = getWorkflowRepositoryBundle(context.dataRoot);
 
   app.get("/api/workflow-runs/:run_id/runtime-recovery", async (req, res, next) => {
     try {
-      const attemptLimit = readRecoveryAttemptLimit(req.query.attempt_limit ?? req.query.attemptLimit);
+      const attemptLimit = readRecoveryAttemptLimit(req.query.attempt_limit ?? req.query.attemptLimit, {
+        allow_all: false
+      });
       if (attemptLimit.error) {
         sendApiError(res, 400, attemptLimit.error.code, attemptLimit.error.message, attemptLimit.error.next_action);
         return;
@@ -31,6 +37,26 @@ export function registerWorkflowRecoveryRoutes(app: express.Application, context
       const payload = await buildWorkflowRuntimeRecovery(context.dataRoot, req.params.run_id, {
         attempt_limit: attemptLimit.attempt_limit
       });
+      res.status(200).json(payload);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workflow-runs/:run_id/sessions/:session_id/recovery-attempts", async (req, res, next) => {
+    try {
+      const attemptLimit = readRecoveryAttemptLimit(req.query.attempt_limit ?? req.query.attemptLimit);
+      if (attemptLimit.error) {
+        sendApiError(res, 400, attemptLimit.error.code, attemptLimit.error.message, attemptLimit.error.next_action);
+        return;
+      }
+      const payload = await buildWorkflowSessionRecoveryAttempts(dataRoot, req.params.run_id, req.params.session_id, {
+        attempt_limit: attemptLimit.attempt_limit ?? "all"
+      });
+      if (!payload) {
+        sendApiError(res, 404, "SESSION_NOT_FOUND", `session '${req.params.session_id}' not found`);
+        return;
+      }
       res.status(200).json(payload);
     } catch (error) {
       next(error);

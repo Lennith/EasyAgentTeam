@@ -46,12 +46,25 @@ function readSingleQueryString(value: unknown): string | undefined {
   return undefined;
 }
 
-export function readRecoveryAttemptLimit(value: unknown): RecoveryAttemptLimitReadResult {
+export function readRecoveryAttemptLimit(
+  value: unknown,
+  options: { allow_all?: boolean } = {}
+): RecoveryAttemptLimitReadResult {
   const raw = readSingleQueryString(value);
   if (!raw) {
     return {};
   }
   if (raw === "all") {
+    if (options.allow_all === false) {
+      return {
+        error: {
+          code: "INVALID_RECOVERY_ATTEMPT_LIMIT",
+          message: "attempt_limit=all is only supported by the session recovery-attempts detail endpoint",
+          next_action:
+            "Use a positive attempt_limit for runtime-recovery, or call /sessions/:session_id/recovery-attempts?attempt_limit=all."
+        }
+      };
+    }
     return { attempt_limit: "all" };
   }
   if (/^[1-9]\d*$/.test(raw)) {
@@ -64,7 +77,10 @@ export function readRecoveryAttemptLimit(value: unknown): RecoveryAttemptLimitRe
     error: {
       code: "INVALID_RECOVERY_ATTEMPT_LIMIT",
       message: `attempt_limit must be a positive integer up to ${MAX_RECOVERY_ATTEMPT_LIMIT} or 'all'`,
-      next_action: "Use attempt_limit=5 for dashboard views or attempt_limit=all for full recovery history."
+      next_action:
+        options.allow_all === false
+          ? "Use attempt_limit=5 for dashboard views or call the session recovery-attempts endpoint for full history."
+          : "Use attempt_limit=5 for dashboard views or attempt_limit=all for full recovery history."
     }
   };
 }

@@ -1,0 +1,25 @@
+﻿
+> auto-develop-framework@0.1.0 build C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> pnpm --filter @autodev/agent-library build && pnpm --filter @autodev/server build && pnpm --filter dashboard-v2 build
+
+
+> @autodev/agent-library@0.1.0 build C:\Users\spiri\Documents\GitHub\EasyAgentTeam\agent_library
+> tsc -p tsconfig.json
+
+
+> @autodev/server@0.1.0 build C:\Users\spiri\Documents\GitHub\EasyAgentTeam\server
+> tsc -p tsconfig.json
+
+
+> dashboard-v2@1.0.0 build C:\Users\spiri\Documents\GitHub\EasyAgentTeam\dashboard-v2
+> tsc && vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 1292 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                 [39m[1m[2m  0.48 kB[22m[1m[22m[2m │ gzip:   0.32 kB[22m
+[2mdist/[22m[35massets/index-DXi1iqWP.css  [39m[1m[2m  7.70 kB[22m[1m[22m[2m │ gzip:   2.00 kB[22m
+[2mdist/[22m[36massets/index-CfI3H_2K.js   [39m[1m[2m445.98 kB[22m[1m[22m[2m │ gzip: 111.44 kB[22m
+[32m✓ built in 1.55s[39m

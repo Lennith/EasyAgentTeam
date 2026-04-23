@@ -1,0 +1,29 @@
+﻿Scope: all 4 workspace projects
+node.exe : (node:95004) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors th
+at have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+At C:\Users\spiri\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:95004) [D...ulnerabilities.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+devDependencies:
++ @eslint/js 9.39.3
++ concurrently 9.2.1
++ eslint 9.39.3
++ eslint-config-prettier 9.1.2
++ eslint-plugin-react-hooks 5.2.0
++ globals 15.15.0
++ husky 9.1.7
++ lint-staged 15.5.2
++ prettier 3.8.1
++ tsx 4.21.0
++ typescript-eslint 8.56.1
+
+. prepare$ husky
+. prepare: Done
+Done in 752ms

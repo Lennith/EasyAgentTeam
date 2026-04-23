@@ -43,6 +43,7 @@ export function WorkflowRecoveryView({ runId }: WorkflowRecoveryViewProps) {
         workflowApi.repairSession(runId, sessionId, target, confirm).then(() => undefined)
       }
       onRetry={(item, confirm) => workflowApi.retryDispatchSession(runId, item, confirm).then(() => undefined)}
+      onLoadRecoveryAttempts={(sessionId) => workflowApi.getSessionRecoveryAttempts(runId, sessionId, "all")}
     />
   );
 }

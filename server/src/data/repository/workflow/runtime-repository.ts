@@ -18,8 +18,14 @@ import {
   writeJsonFile,
   writeJsonlLines
 } from "../../internal/persistence/store/store-runtime.js";
+import { runStorageTransaction } from "../../internal/persistence/file-utils.js";
 import { traceWorkflowPerfSpan } from "../../../services/workflow-perf-trace.js";
 import { isLegacyAmbiguousDoneState } from "../shared/legacy-task-state.js";
+import {
+  appendRecoveryEventToIndex,
+  readRecoveryEventIndex,
+  type RecoveryEventIndexState
+} from "../../../services/runtime-recovery-event-index.js";
 
 interface WorkflowRunRuntimePaths {
   runRootDir: string;
@@ -143,6 +149,20 @@ export async function ensureWorkflowRunRuntime(
       return paths;
     }
   );
+}
+
+export function getWorkflowRecoveryEventIndexFile(dataRoot: string, runIdRaw: string): string {
+  return path.join(getWorkflowRunRuntimePaths(dataRoot, runIdRaw).runRootDir, "recovery-event-index.json");
+}
+
+export function buildWorkflowRecoveryEventIndexScope(dataRoot: string, runIdRaw: string) {
+  const paths = getWorkflowRunRuntimePaths(dataRoot, runIdRaw);
+  return {
+    scope_kind: "workflow" as const,
+    scope_id: assertRunId(runIdRaw),
+    index_file: path.join(paths.runRootDir, "recovery-event-index.json"),
+    events_file: paths.eventsFile
+  };
 }
 
 function migrateLegacyWorkflowRuntimeState(runtime: WorkflowRunRuntimeState): {
@@ -499,8 +519,21 @@ export async function appendWorkflowRunEvent(
     taskId: input.taskId,
     payload: input.payload
   };
-  await appendJsonlLine(paths.eventsFile, event);
+  const indexScope = buildWorkflowRecoveryEventIndexScope(dataRoot, runId);
+  await runStorageTransaction([paths.eventsFile, indexScope.index_file], async () => {
+    await appendJsonlLine(paths.eventsFile, event);
+    await appendRecoveryEventToIndex(indexScope, event);
+  });
   return event;
+}
+
+export async function getWorkflowRecoveryEventIndex(
+  dataRoot: string,
+  runIdRaw: string
+): Promise<RecoveryEventIndexState> {
+  const runId = assertRunId(runIdRaw);
+  await ensureWorkflowRunRuntime(dataRoot, runId);
+  return readRecoveryEventIndex(buildWorkflowRecoveryEventIndexScope(dataRoot, runId));
 }
 
 export async function listWorkflowRunEvents(

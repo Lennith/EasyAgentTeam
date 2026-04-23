@@ -137,6 +137,17 @@ export interface RuntimeRecoveryResponse {
   items: RuntimeRecoveryItem[];
 }
 
+export interface RuntimeRecoveryAttemptsResponse {
+  scope_kind: "project" | "workflow";
+  scope_id: string;
+  session_id: string;
+  generated_at: string;
+  attempt_limit: number | "all";
+  total_attempts: number;
+  truncated: boolean;
+  recovery_attempts: RuntimeRecoveryAttempt[];
+}
+
 export type TaskState = "PLANNED" | "READY" | "DISPATCHED" | "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
 
 export type TaskKind = "PROJECT_ROOT" | "USER_ROOT" | "EXECUTION";

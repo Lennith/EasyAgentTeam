@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { RuntimeRecoveryItem, RuntimeRecoveryResponse } from "@/types";
+import type { RuntimeRecoveryAttemptsResponse, RuntimeRecoveryItem, RuntimeRecoveryResponse } from "@/types";
 
 interface RecoveryCenterViewProps {
   title: string;
@@ -10,6 +10,7 @@ interface RecoveryCenterViewProps {
   onDismiss: (sessionId: string, confirm?: boolean) => Promise<void>;
   onRepair: (sessionId: string, target: "idle" | "blocked", confirm?: boolean) => Promise<void>;
   onRetry: (item: RuntimeRecoveryItem, confirm?: boolean) => Promise<void>;
+  onLoadRecoveryAttempts?: (sessionId: string) => Promise<RuntimeRecoveryAttemptsResponse>;
 }
 
 function formatDateTime(value: string | null): string {
@@ -34,11 +35,17 @@ export function RecoveryCenterView({
   onReload,
   onDismiss,
   onRepair,
-  onRetry
+  onRetry,
+  onLoadRecoveryAttempts
 }: RecoveryCenterViewProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [attemptDetailsBySession, setAttemptDetailsBySession] = useState<
+    Record<string, RuntimeRecoveryAttemptsResponse>
+  >({});
+  const [attemptDetailLoading, setAttemptDetailLoading] = useState<string | null>(null);
+  const [attemptDetailError, setAttemptDetailError] = useState<string | null>(null);
 
   const items = response?.items ?? [];
   const summary = response?.summary;
@@ -46,6 +53,8 @@ export function RecoveryCenterView({
     () => items.find((item) => item.session_id === selectedSessionId) ?? items[0] ?? null,
     [items, selectedSessionId]
   );
+  const selectedAttemptDetails = selected ? attemptDetailsBySession[selected.session_id] : undefined;
+  const displayedAttempts = selectedAttemptDetails?.recovery_attempts ?? selected?.recovery_attempts ?? [];
 
   async function runAction(action: () => Promise<void>, key: string) {
     try {
@@ -67,6 +76,25 @@ export function RecoveryCenterView({
     return window.confirm(formatConfirmationMessage(baseMessage, risk));
   }
 
+  async function loadFullAttemptHistory(sessionId: string) {
+    if (!onLoadRecoveryAttempts) {
+      return;
+    }
+    try {
+      setAttemptDetailLoading(sessionId);
+      setAttemptDetailError(null);
+      const payload = await onLoadRecoveryAttempts(sessionId);
+      setAttemptDetailsBySession((current) => ({
+        ...current,
+        [sessionId]: payload
+      }));
+    } catch (err) {
+      setAttemptDetailError(err instanceof Error ? err.message : "Failed to load recovery attempt history");
+    } finally {
+      setAttemptDetailLoading(null);
+    }
+  }
+
   return (
     <section>
       <div className="page-header">
@@ -78,6 +106,7 @@ export function RecoveryCenterView({
 
       {error && <div className="error-message">{error}</div>}
       {actionError && <div className="error-message">{actionError}</div>}
+      {attemptDetailError && <div className="error-message">{attemptDetailError}</div>}
 
       {summary && (
         <div
@@ -211,11 +240,26 @@ export function RecoveryCenterView({
                 </div>
                 <div>
                   <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Recovery Attempts</div>
-                  {selected.recovery_attempts.length === 0 ? (
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "8px" }}>
+                    {selectedAttemptDetails
+                      ? `Full history loaded (${selectedAttemptDetails.total_attempts} attempts).`
+                      : "Showing bounded list history."}
+                  </div>
+                  {onLoadRecoveryAttempts && !selectedAttemptDetails && (
+                    <button
+                      className="btn btn-secondary"
+                      disabled={attemptDetailLoading === selected.session_id}
+                      onClick={() => void loadFullAttemptHistory(selected.session_id)}
+                      style={{ marginBottom: "8px" }}
+                    >
+                      {attemptDetailLoading === selected.session_id ? "Loading..." : "Load Full Attempt History"}
+                    </button>
+                  )}
+                  {displayedAttempts.length === 0 ? (
                     <div>-</div>
                   ) : (
                     <div style={{ display: "grid", gap: "8px" }}>
-                      {selected.recovery_attempts.map((attempt) => (
+                      {displayedAttempts.map((attempt) => (
                         <div key={attempt.recovery_attempt_id} className="card" style={{ padding: "10px" }}>
                           <div style={{ display: "grid", gap: "6px" }}>
                             {[

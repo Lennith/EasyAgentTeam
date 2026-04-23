@@ -24,12 +24,26 @@
 - `POST /api/workflow-runs/:run_id/sessions/:session_id/repair`
 - `POST /api/workflow-runs/:run_id/sessions/:session_id/retry-dispatch`
 - `GET /api/workflow-runs/:run_id/runtime-recovery`
+- `GET /api/workflow-runs/:run_id/sessions/:session_id/recovery-attempts`
 
 ## Workflow Recovery Read Model
 
 - `GET /api/workflow-runs/:run_id/runtime-recovery`
 - 可选查询参数：
-  - `attempt_limit`：正整数时按 session 返回最近 N 条 `recovery_attempts`；`all` 时返回 full history；缺省为后端默认有限条数
+  - `attempt_limit`：仅接受正整数，按 session 返回最近 N 条 `recovery_attempts`；缺省为后端默认有限条数；`all` 不再由该列表接口接受
+- 读路径约束：后端必须优先读取 sidecar recovery event index；仅在 sidecar 缺失、损坏或 schema 不兼容时允许从 append-only `events.jsonl` 重建后继续响应
+- `GET /api/workflow-runs/:run_id/sessions/:session_id/recovery-attempts`
+- 可选查询参数：
+  - `attempt_limit`：正整数时返回最近 N 条 attempts；`all` 时返回该 session 的 full history；缺省为 `all`
+- 返回固定 shape：
+  - `scope_kind`
+  - `scope_id`
+  - `session_id`
+  - `generated_at`
+  - `attempt_limit`
+  - `total_attempts`
+  - `truncated`
+  - `recovery_attempts`
 - 返回固定 shape：
   - `scope_kind`
   - `scope_id`
@@ -109,7 +123,7 @@
 - `SESSION_RETRY_GUARD_REQUIRED` 与 `SESSION_RETRY_DISPATCH_NOT_ALLOWED` 都返回 `409`；前者用于 guard 缺失，后者用于 guard mismatch、policy 不允许或 orchestrator 拒绝
 - workflow retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分；读模型兼容历史 `REQUESTED`
 - workflow retry-dispatch 内部会生成 `recovery_attempt_id` 并串到 retry 审计事件与对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`；该字段只用于内部审计，不新增公开请求或响应字段
-- workflow `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的恢复历史；默认按 session 返回最近有限条，`attempt_limit=all` 返回 full history，不做 synthetic backfill，并至少返回：
+- workflow `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的恢复历史；默认按 session 返回最近有限条，不做 synthetic backfill；full history 改由 `GET /api/workflow-runs/:run_id/sessions/:session_id/recovery-attempts?attempt_limit=all` 返回，并至少返回：
   - `recovery_attempt_id`
   - `status`
   - `integrity`
@@ -139,4 +153,4 @@
 - workflow task runtime 的 mutation 采用 run-scoped 串行语义：`TASK_REPORT`、runtime convergence、dispatch afterLoop 与 completion finalize 必须通过同一条 workflow transaction 入口执行，避免并发 stale snapshot 在较晚提交时覆盖已落盘的新任务状态
 - workflow runtime 当前只声明单 backend / 单进程 process-local lock 语义；不声明支持多个 backend 进程共享同一个 `dataRoot`
 - `clearRunScopedState()` 会提升 run scoped mutation generation；已开始执行的 mutation 不被强杀，等待旧 tail 的 pending mutation 必须拒绝执行
-- workflow dispatch pre-dispatch session touch 失败必须写结构化运行时日志，不允许静默吞掉
+- workflow dispatch pre-dispatch session touch 失败必须先写 `WORKFLOW_PRE_DISPATCH_SESSION_TOUCH_FAILED` 审计事件；无论审计追加是否成功，都必须中止本次 dispatch，不能继续修改内存 session、移除 inbox 消息或启动 provider

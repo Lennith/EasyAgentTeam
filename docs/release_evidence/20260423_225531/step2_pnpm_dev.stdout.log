@@ -1,0 +1,29 @@
+
+> auto-develop-framework@0.1.0 dev C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> concurrently -k -n server,web -c cyan,magenta "pnpm run dev:server" "pnpm run dev:web"
+
+[server] 
+[server] > auto-develop-framework@0.1.0 dev:server C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+[server] > pnpm --filter @autodev/server dev
+[server] 
+[web] 
+[web] > auto-develop-framework@0.1.0 dev:web C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+[web] > pnpm --filter dashboard-v2 dev
+[web] 
+[server] 
+[server] > @autodev/server@0.1.0 dev C:\Users\spiri\Documents\GitHub\EasyAgentTeam\server
+[server] > node scripts/dev-entry.mjs
+[server] 
+[server] (node:38484) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+[server] (Use `node --trace-deprecation ...` to show where the warning was created)
+[web] 
+[web] > dashboard-v2@1.0.0 dev C:\Users\spiri\Documents\GitHub\EasyAgentTeam\dashboard-v2
+[web] > vite
+[web] 
+[web] 
+[web]   [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m273[22m[2m[0m ms[22m
+[web] 
+[web]   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m54174[22m/[39m
+[web] [2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[server] [2026-04-23 22:56:23] [INFO] [server] listening on http://127.0.0.1:43123
+[server] [2026-04-23 22:56:23] [INFO] [server] data root: C:\Users\spiri\Documents\GitHub\EasyAgentTeam\data

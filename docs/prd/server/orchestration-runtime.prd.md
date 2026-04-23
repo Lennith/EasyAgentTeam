@@ -32,7 +32,8 @@
 - session 恢复上下文除了 `last_failure_at / last_failure_kind` 外，还必须沉淀 `last_failure_event_id`、`last_failure_dispatch_id`、`last_failure_message_id`、`last_failure_task_id`，供 recovery read model 展示与 retry-dispatch guard 回填；其中 `last_failure_event_id` 或 `last_failure_dispatch_id` 才能单独作为 authoritative retry anchor，`message_id / task_id` 仅作为增强上下文，不单独放开 retry
 - retry-dispatch 审计事件语义分为 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED`；读模型兼容历史 `REQUESTED`，但新实现必须区分请求、接受与拒绝，并在同一 retry command 生成统一的 `recovery_attempt_id`
 - `recovery_attempt_id` 继续不写入 session 主模型，但 recovery read model 必须把它产品化为 `runtime-recovery.items[].recovery_attempts[]`：按 `recovery_attempt_id` 归并 retry-dispatch 的 requested / accepted / rejected 审计事件，以及对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`
-- `runtime-recovery.items[].recovery_attempts[]` 默认返回最近有限条 attempt，避免 Recovery Center 长历史无界渲染；调用方可通过 `attempt_limit=all` 请求 full history。每条 attempt 稳定返回 `status`、`integrity`、`missing_markers`、时间戳、dispatch scope、current task 与按时间正序排列的 `events[]`；当多个审计事件落在同一毫秒时，排序必须优先遵循恢复生命周期顺序（requested -> accepted/rejected -> dispatch started -> dispatch finished/failed），不能退化为按随机 `eventId` 排序
+- project / workflow recovery read model 必须优先读取与 runtime event log 同步维护的 sidecar recovery event index，而不是每次全量扫描 `events.jsonl`；sidecar 缺失、损坏或 schema 不兼容时允许从 append-only event log 重建一次后继续读取
+- `runtime-recovery.items[].recovery_attempts[]` 默认返回最近有限条 attempt，避免 Recovery Center 长历史无界渲染；main `runtime-recovery` 只接受正整数 `attempt_limit`，session 级 full history 改由 `GET /api/projects/:id/sessions/:session_id/recovery-attempts` 与 `GET /api/workflow-runs/:run_id/sessions/:session_id/recovery-attempts` 提供。每条 attempt 稳定返回 `status`、`integrity`、`missing_markers`、时间戳、dispatch scope、current task 与按时间正序排列的 `events[]`；当多个审计事件落在同一毫秒时，排序必须优先遵循恢复生命周期顺序（requested -> accepted/rejected -> dispatch started -> dispatch finished/failed），不能退化为按随机 `eventId` 排序
 - `runtime-recovery.items[].latest_events[]` 继续保留为兼容字段，但 Recovery Center 主展示迁移到 `recovery_attempts[]`；旧历史中没有 `recovery_attempt_id` 的事件不做 synthetic backfill，只保留在兼容 summary 视图中
 - dismiss 采用“外部停止结果审计 -> 本地 dismiss 落盘”两阶段审计；外部停止未确认时不允许继续写本地 dismiss 状态
 - dismiss / repair 的对外响应会返回统一 command contract，包含前后状态、外部取消结果、本地终止结果、映射清理结果与 warnings
@@ -42,7 +43,7 @@
 - provider 暂态错误不会把 session 直接落成 `dismissed`；编排会把 session 置回 `idle` 并写入 cooldown，等待下一轮 reminder / tick 重试
 - project provider audit 仍只认最终 active `roleSessionMap` 中的 authoritative session；历史 dismissed session 不参与 provider audit 结论
 - `project + codex` 运行时必须把有效 JSON item、尾段终态工具调用与 turn 收尾视作真实活跃信号，heartbeat 写入失败必须留下内部审计事件，不能静默吞掉
-- workflow pre-dispatch session touch 失败不能静默吞掉，至少必须留下结构化运行时日志，避免 dispatch 已继续但 session 状态未及时落盘时无法回溯
+- workflow pre-dispatch session touch 失败不能静默吞掉，必须先写 `WORKFLOW_PRE_DISPATCH_SESSION_TOUCH_FAILED` 审计事件；无论审计追加是否成功，都必须中止本次 dispatch，不能继续修改内存 session、移除 inbox 消息、扣减 budget 或启动 provider
 - workflow run scoped transient clear 会提升 mutation generation：已在执行中的 mutation 不被强杀，但仍在等待旧 tail 的 pending mutation 必须拒绝执行，防止 clear 之后的旧写覆盖新一代 run 状态
 - project / workflow timeout scanner 在真正执行 heartbeat timeout kill 前必须通过独立 evidence 纯函数重判当前 running session：只要 heartbeat 已刷新，或当前 task 已被同一 session 最近成功上报为 `DONE / BLOCKED_DEP / CANCELED`，就跳过本次 timeout kill，避免刚完成上报的 session 被误 dismiss
 - timeout scanner 自身只负责加载数据、执行 close / terminate、关闭 dispatch / run、释放 in-flight gate 与写审计；是否应当关闭由 `project-session-timeout-evidence` / `workflow-session-timeout-evidence` 纯函数模块决策，并返回 `should_close`、protection 标记、`evidence_event_id` 与稳定 `decision_reason`
@@ -57,6 +58,8 @@
 - workflow 编排控制：`/api/workflow-runs/:run_id/orchestrator/*`
 - project recovery：`/api/projects/:id/runtime-recovery`
 - workflow recovery：`/api/workflow-runs/:run_id/runtime-recovery`
+- project recovery attempts detail：`/api/projects/:id/sessions/:session_id/recovery-attempts`
+- workflow recovery attempts detail：`/api/workflow-runs/:run_id/sessions/:session_id/recovery-attempts`
 - project dismiss / repair：`/api/projects/:id/sessions/:session_id/dismiss|repair`
 - workflow dismiss / repair：`/api/workflow-runs/:run_id/sessions/:session_id/dismiss|repair`
 - project retry-dispatch：`/api/projects/:id/sessions/:session_id/retry-dispatch`

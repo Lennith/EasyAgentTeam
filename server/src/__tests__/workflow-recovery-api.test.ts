@@ -380,6 +380,32 @@ test("workflow repair requires confirmation after dismiss and retry-dispatch wri
     assert.equal(Array.isArray(retryItem?.recovery_attempts), true);
     assert.equal(taskOnlyItem?.can_retry_dispatch, false);
 
+    const invalidAllRes = await fetch(
+      `${baseUrl}/api/workflow-runs/wf_retry_dispatch/runtime-recovery?attempt_limit=all`
+    );
+    assert.equal(invalidAllRes.status, 400);
+    const invalidAllPayload = (await invalidAllRes.json()) as {
+      error_code: string;
+      next_action: string | null;
+    };
+    assert.equal(invalidAllPayload.error_code, "INVALID_RECOVERY_ATTEMPT_LIMIT");
+    assert.match(invalidAllPayload.next_action ?? "", /recovery-attempts/i);
+
+    const detailRes = await fetch(
+      `${baseUrl}/api/workflow-runs/wf_retry_dispatch/sessions/${encodeURIComponent("session-lead")}/recovery-attempts?attempt_limit=all`
+    );
+    assert.equal(detailRes.status, 200);
+    const detailPayload = (await detailRes.json()) as {
+      session_id: string;
+      attempt_limit: string;
+      total_attempts: number;
+      recovery_attempts: Array<{ recovery_attempt_id: string }>;
+    };
+    assert.equal(detailPayload.session_id, "session-lead");
+    assert.equal(detailPayload.attempt_limit, "all");
+    assert.equal(detailPayload.total_attempts, 0);
+    assert.deepEqual(detailPayload.recovery_attempts, []);
+
     const bareRetryRes = await fetch(
       `${baseUrl}/api/workflow-runs/wf_retry_dispatch/sessions/${encodeURIComponent("session-lead")}/retry-dispatch`,
       {

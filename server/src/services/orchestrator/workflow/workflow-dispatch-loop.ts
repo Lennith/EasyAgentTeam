@@ -57,6 +57,18 @@ export interface WorkflowDispatchRuntimeErrorFactory {
   (message: string, code: string, status?: number, nextAction?: string, details?: Record<string, unknown>): Error;
 }
 
+export class WorkflowPreDispatchSessionTouchError extends Error {
+  readonly code = "WORKFLOW_PRE_DISPATCH_SESSION_TOUCH_FAILED";
+
+  constructor(
+    message: string,
+    public readonly cause: unknown
+  ) {
+    super(message);
+    this.name = "WorkflowPreDispatchSessionTouchError";
+  }
+}
+
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -223,6 +235,10 @@ export async function runWorkflowDispatchLoop(
                   audit_error: formatErrorMessage(auditError)
                 });
               });
+            throw new WorkflowPreDispatchSessionTouchError(
+              `pre-dispatch session touch failed for session '${selection.session.sessionId}'`,
+              error
+            );
           });
 
         selection.session.status = "running";

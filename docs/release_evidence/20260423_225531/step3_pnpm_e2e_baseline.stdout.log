@@ -1,0 +1,275 @@
+
+> auto-develop-framework@0.1.0 e2e:baseline C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-multi-e2e.ps1
+
+Backend is not healthy at http://127.0.0.1:43123/healthz. Starting local backend via pnpm run dev:server ...
+Backend is healthy. pid=97012
+== Multi E2E Start ==
+cases=chain,discuss,workflow
+base_url=http://127.0.0.1:43123
+provider_mode=mixed
+setup_only=False
+strict_observe=True
+[launch] case=chain script=C:\Users\spiri\Documents\GitHub\EasyAgentTeam\E2ETest\scripts\run-standard-e2e.ps1 workspace=D:\AgentWorkSpace\TestTeam\TestRound20
+[chain] == Preflight ==
+[chain] == Reset target project if exists ==
+[chain] == Reset workspace (full clean) before run ==
+[chain] == Upsert agents ==
+[chain] == Create project (auto-dispatch disabled initially) ==
+[chain] == Patch routing model config ==
+[chain] == Patch task-assign routing ==
+[chain] == Create role sessions ==
+[chain] == Seed dependency chain with reminder probe ==
+[chain] == Pre-gate validation before releasing reminder gate ==
+[chain] == Wait for reminder probe trigger and redispatch ==
+[chain] manager session suppressed: session=session-manager-d7706b9ca496 status=idle reason=reminder_probe_wait
+[chain] == Release reminder gate and enable auto dispatch ==
+[chain] == Kick role A and enable baseline loop ==
+[chain] == Monitor run ==
+[chain] remaining=29 exec=6 open_exec=3 running=0 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=3 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=2 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=2 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=1 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=0 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=0 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=0 running=1 manager_running=0
+[chain] remaining=29 exec=6 open_exec=0 running=1 manager_running=0
+[chain] remaining=28 exec=6 open_exec=0 running=0 manager_running=0
+[chain] == Export logs and analyze ==
+[chain] Exported core logs to: D:\AgentWorkSpace\TestTeam\TestRound20\docs\e2e\20260423_230441
+[chain] == Done ==
+[chain] artifacts=D:\AgentWorkSpace\TestTeam\TestRound20\docs\e2e\20260423_230441
+[chain] final_reason=closed_loop
+[chain] runtime_pass=True
+[chain] analysis_pass=True
+[done] case=chain
+[launch] case=discuss script=C:\Users\spiri\Documents\GitHub\EasyAgentTeam\E2ETest\scripts\run-discuss-e2e.ps1 workspace=D:\AgentWorkSpace\TestTeam\TestTeamDiscuss
+[discuss] == Preflight ==
+[discuss] == Reset target project if exists ==
+[discuss] == Reset workspace (full clean) before run ==
+[discuss] == Upsert agents ==
+[discuss] == Create project (auto-dispatch disabled initially) ==
+[discuss] == Patch routing model config ==
+[discuss] == Patch task-assign routing ==
+[discuss] == Seed discuss framework task tree ==
+[discuss] == Create role sessions ==
+[discuss] == Negative check: dependency cannot include parent task ==
+[discuss] == Pre-dispatch dependency validation ==
+[discuss] == Kick TeamLeader and enable auto dispatch ==
+[discuss] == Monitor run ==
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=30 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=0 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=27 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=0 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=3 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=0 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=0 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=0 manager_running=0
+[discuss] dispatch nudge attempted after idle streak=3 targets=e2e_discuss_lead:ok
+[discuss] remaining=26 exec=6 open_exec=1 running=0 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=2 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=1 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=0 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=0 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=0 running=1 manager_running=0
+[discuss] remaining=26 exec=6 open_exec=0 running=0 manager_running=0
+[discuss] == Export logs and analyze ==
+[discuss] Exported core logs to: D:\AgentWorkSpace\TestTeam\TestTeamDiscuss\docs\e2e\20260423_232201
+[discuss] Analysis written to: D:\AgentWorkSpace\TestTeam\TestTeamDiscuss\docs\e2e\20260423_232201\analysis.md
+[discuss] == Done ==
+[discuss] artifacts=D:\AgentWorkSpace\TestTeam\TestTeamDiscuss\docs\e2e\20260423_232201
+[discuss] final_reason=closed_loop
+[discuss] runtime_pass=True
+[discuss] analysis_pass=True
+[done] case=discuss
+[launch] case=workflow script=C:\Users\spiri\Documents\GitHub\EasyAgentTeam\E2ETest\scripts\run-workflow-e2e.ps1 workspace=D:\AgentWorkSpace\TestTeam\TestWorkflowSpace
+[workflow] == Preflight ==
+[workflow] == Cleanup by prefix ==
+[workflow] == Reset workspace ==
+[workflow] == Import fixture skill and bind skill list ==
+[workflow] == Register workflow agents ==
+[workflow] == Upsert workflow template ==
+[workflow] == Create run with auto_start but auto dispatch paused ==
+[workflow] == Register workflow sessions ==
+[workflow] == Wait for workflow reminder probe ==
+[workflow] == Release reminder gate ==
+[workflow] == Kickoff message and enable auto dispatch ==
+[workflow] == Observe run ==
+[workflow] workflow dispatch nudge attempted after idle streak=6 success=True
+[workflow] == Done ==
+[workflow] artifacts=D:\AgentWorkSpace\TestTeam\TestWorkflowSpace\docs\e2e\20260424_000453-workflow-observer
+[workflow] final_reason=workflow_runtime_ok
+[workflow] runtime_pass=True
+[workflow] review_required=True
+[workflow] total_elapsed_ms=2569996
+[done] case=workflow
+multi_stability_metrics_dir=C:\Users\spiri\Documents\GitHub\EasyAgentTeam\docs\e2e\multi\20260424_000454
+== Multi E2E Passed ==
+Stopping bootstrap backend process tree pid=97012

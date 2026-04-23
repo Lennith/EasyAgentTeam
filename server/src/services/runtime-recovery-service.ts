@@ -1,15 +1,12 @@
 import type {
-  EventRecord,
   ProjectRecord,
   SessionRecord,
   TaskRecord,
-  WorkflowRunEventRecord,
   WorkflowRunRecord,
   WorkflowSessionRecord,
   WorkflowTaskRuntimeRecord
 } from "../domain/models.js";
 import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
-import { listProjectRuntimeEvents } from "./project-runtime-api-service.js";
 import { getWorkflowRepositoryBundle } from "../data/repository/workflow/repository-bundle.js";
 import { readWorkflowRunTaskRuntimeState } from "../data/repository/workflow/runtime-repository.js";
 import {
@@ -19,18 +16,19 @@ import {
 } from "./runtime-recovery-action-policy.js";
 import { buildRecoveryPolicyContext } from "./runtime-recovery-policy-context.js";
 import {
-  RECOVERY_AUDIT_EVENT_TYPES,
-  RUNNER_FAILURE_EVENT_TYPES,
   type RecoveryAttemptLimit,
   type RuntimeRecoveryAttempt,
-  type RuntimeRecoveryEventSummary,
-  compareRecoveryEventsDesc,
-  indexRecoveryAttempts,
-  summarizeRecoveryEventPayload
+  type RuntimeRecoveryEventSummary
 } from "./runtime-recovery-attempts.js";
+import {
+  getLatestAuditEventsFromIndex,
+  getLatestFailureEventsFromIndex,
+  getRecoveryAttemptsFromIndex,
+  getSessionRecoveryAttemptsFromIndex,
+  type RecoveryIndexableEvent
+} from "./runtime-recovery-event-index.js";
 
 const RECENT_FAILURE_WINDOW_MS = 30 * 60 * 1000;
-const RECOVERY_EVENT_SUMMARY_LIMIT = 4;
 
 interface RecoveryFailureRecord {
   last_failure_at: string | null;
@@ -119,6 +117,17 @@ export interface RuntimeRecoveryBuildOptions {
   attempt_limit?: RecoveryAttemptLimit;
 }
 
+export interface RuntimeRecoveryAttemptsResponse {
+  scope_kind: RecoveryScopeKind;
+  scope_id: string;
+  session_id: string;
+  generated_at: string;
+  attempt_limit: RecoveryAttemptLimit;
+  total_attempts: number;
+  truncated: boolean;
+  recovery_attempts: RuntimeRecoveryAttempt[];
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -148,58 +157,6 @@ function isFailureRecent(lastFailureAt: string | null, nowMs: number): boolean {
   }
   const ts = Date.parse(lastFailureAt);
   return Number.isFinite(ts) && nowMs - ts <= RECENT_FAILURE_WINDOW_MS;
-}
-
-function indexLatestFailureEvents<
-  TEvent extends {
-    eventId: string;
-    eventType: string;
-    createdAt: string;
-    sessionId?: string;
-    payload: Record<string, unknown>;
-  }
->(events: readonly TEvent[]): Map<string, TEvent> {
-  const latestBySession = new Map<string, TEvent>();
-  for (const event of events) {
-    if (!event.sessionId || !RUNNER_FAILURE_EVENT_TYPES.has(event.eventType)) {
-      continue;
-    }
-    const existing = latestBySession.get(event.sessionId);
-    if (!existing || compareRecoveryEventsDesc(event, existing) < 0) {
-      latestBySession.set(event.sessionId, event);
-    }
-  }
-  return latestBySession;
-}
-
-function indexRecoveryAuditEvents<
-  TEvent extends {
-    eventId: string;
-    eventType: string;
-    createdAt: string;
-    sessionId?: string;
-    taskId?: string;
-    payload: Record<string, unknown>;
-  }
->(events: readonly TEvent[]): Map<string, RuntimeRecoveryEventSummary[]> {
-  const bySession = new Map<string, RuntimeRecoveryEventSummary[]>();
-  const sorted = [...events]
-    .filter((event) => event.sessionId && RECOVERY_AUDIT_EVENT_TYPES.has(event.eventType))
-    .sort(compareRecoveryEventsDesc);
-  for (const event of sorted) {
-    const sessionId = event.sessionId!;
-    const existing = bySession.get(sessionId) ?? [];
-    if (existing.length >= RECOVERY_EVENT_SUMMARY_LIMIT) {
-      continue;
-    }
-    existing.push({
-      event_type: event.eventType,
-      created_at: event.createdAt,
-      payload_summary: summarizeRecoveryEventPayload(event.eventType, asRecord(event.payload), event.taskId ?? null)
-    });
-    bySession.set(sessionId, existing);
-  }
-  return bySession;
 }
 
 function buildFailureRecord<TEvent extends { eventType: string; createdAt: string; payload: Record<string, unknown> }>(
@@ -275,7 +232,7 @@ function buildProjectRecoveryItem(
   session: SessionRecord,
   project: ProjectRecord,
   tasksById: Map<string, TaskRecord>,
-  latestFailureBySession: Map<string, EventRecord>,
+  latestFailureBySession: Map<string, RecoveryIndexableEvent>,
   latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>,
   attemptsBySession: Map<string, RuntimeRecoveryAttempt[]>
 ): RuntimeRecoveryItem {
@@ -330,7 +287,7 @@ function buildWorkflowRecoveryItem(
   session: WorkflowSessionRecord,
   run: WorkflowRunRecord,
   runtimeTasksById: Map<string, WorkflowTaskRuntimeRecord>,
-  latestFailureBySession: Map<string, WorkflowRunEventRecord>,
+  latestFailureBySession: Map<string, RecoveryIndexableEvent>,
   latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>,
   attemptsBySession: Map<string, RuntimeRecoveryAttempt[]>
 ): RuntimeRecoveryItem {
@@ -391,16 +348,16 @@ export async function buildProjectRuntimeRecovery(
 ): Promise<RuntimeRecoveryResponse> {
   const repositories = getProjectRepositoryBundle(dataRoot);
   const scope = await repositories.resolveScope(projectId);
-  const [sessions, tasks, events] = await Promise.all([
+  const [sessions, tasks, recoveryIndex] = await Promise.all([
     repositories.sessions.listSessions(scope.paths, scope.project.projectId),
     repositories.taskboard.listTasks(scope.paths, scope.project.projectId),
-    listProjectRuntimeEvents(dataRoot, projectId)
+    repositories.events.getRecoveryEventIndex(scope.paths, scope.project.projectId)
   ]);
   const tasksById = new Map(tasks.map((task) => [task.taskId, task]));
   const sessionStatuses = new Map(sessions.map((session) => [session.sessionId, session.status] as const));
-  const latestFailureBySession = indexLatestFailureEvents(events);
-  const latestAuditBySession = indexRecoveryAuditEvents(events);
-  const attemptsBySession = indexRecoveryAttempts(events, sessionStatuses, {
+  const latestFailureBySession = getLatestFailureEventsFromIndex(recoveryIndex);
+  const latestAuditBySession = getLatestAuditEventsFromIndex(recoveryIndex);
+  const attemptsBySession = getRecoveryAttemptsFromIndex(recoveryIndex, sessionStatuses, {
     attempt_limit: options.attempt_limit
   });
   const nowMs = Date.now();
@@ -433,16 +390,16 @@ export async function buildWorkflowRuntimeRecovery(
 ): Promise<RuntimeRecoveryResponse> {
   const repositories = getWorkflowRepositoryBundle(dataRoot);
   const scope = await repositories.resolveScope(runId);
-  const [sessions, events, runtime] = await Promise.all([
+  const [sessions, recoveryIndex, runtime] = await Promise.all([
     repositories.sessions.listSessions(scope.run.runId),
-    repositories.events.listEvents(scope.run.runId),
+    repositories.events.getRecoveryEventIndex(scope.run.runId),
     readWorkflowRunTaskRuntimeState(dataRoot, scope.run.runId)
   ]);
   const runtimeTasksById = new Map(runtime.tasks.map((task) => [task.taskId, task]));
   const sessionStatuses = new Map(sessions.map((session) => [session.sessionId, session.status] as const));
-  const latestFailureBySession = indexLatestFailureEvents(events);
-  const latestAuditBySession = indexRecoveryAuditEvents(events);
-  const attemptsBySession = indexRecoveryAttempts(events, sessionStatuses, {
+  const latestFailureBySession = getLatestFailureEventsFromIndex(recoveryIndex);
+  const latestAuditBySession = getLatestAuditEventsFromIndex(recoveryIndex);
+  const attemptsBySession = getRecoveryAttemptsFromIndex(recoveryIndex, sessionStatuses, {
     attempt_limit: options.attempt_limit
   });
   const nowMs = Date.now();
@@ -465,5 +422,67 @@ export async function buildWorkflowRuntimeRecovery(
     generated_at: new Date(nowMs).toISOString(),
     summary: summarizeItems(items, sessions.length, nowMs),
     items
+  };
+}
+
+export async function buildProjectSessionRecoveryAttempts(
+  dataRoot: string,
+  projectId: string,
+  sessionId: string,
+  options: RuntimeRecoveryBuildOptions = {}
+): Promise<RuntimeRecoveryAttemptsResponse | null> {
+  const repositories = getProjectRepositoryBundle(dataRoot);
+  const scope = await repositories.resolveScope(projectId);
+  const [session, recoveryIndex] = await Promise.all([
+    repositories.sessions.getSession(scope.paths, scope.project.projectId, sessionId),
+    repositories.events.getRecoveryEventIndex(scope.paths, scope.project.projectId)
+  ]);
+  if (!session) {
+    return null;
+  }
+  const attemptLimit = options.attempt_limit ?? "all";
+  const result = getSessionRecoveryAttemptsFromIndex(recoveryIndex, session.sessionId, session.status, {
+    attempt_limit: attemptLimit
+  });
+  return {
+    scope_kind: "project",
+    scope_id: scope.project.projectId,
+    session_id: session.sessionId,
+    generated_at: new Date().toISOString(),
+    attempt_limit: attemptLimit,
+    total_attempts: result.total,
+    truncated: result.truncated,
+    recovery_attempts: result.attempts
+  };
+}
+
+export async function buildWorkflowSessionRecoveryAttempts(
+  dataRoot: string,
+  runId: string,
+  sessionId: string,
+  options: RuntimeRecoveryBuildOptions = {}
+): Promise<RuntimeRecoveryAttemptsResponse | null> {
+  const repositories = getWorkflowRepositoryBundle(dataRoot);
+  const scope = await repositories.resolveScope(runId);
+  const [session, recoveryIndex] = await Promise.all([
+    repositories.sessions.getSession(scope.run.runId, sessionId),
+    repositories.events.getRecoveryEventIndex(scope.run.runId)
+  ]);
+  if (!session) {
+    return null;
+  }
+  const attemptLimit = options.attempt_limit ?? "all";
+  const result = getSessionRecoveryAttemptsFromIndex(recoveryIndex, session.sessionId, session.status, {
+    attempt_limit: attemptLimit
+  });
+  return {
+    scope_kind: "workflow",
+    scope_id: scope.run.runId,
+    session_id: session.sessionId,
+    generated_at: new Date().toISOString(),
+    attempt_limit: attemptLimit,
+    total_attempts: result.total,
+    truncated: result.truncated,
+    recovery_attempts: result.attempts
   };
 }

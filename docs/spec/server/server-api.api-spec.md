@@ -66,6 +66,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - `POST /api/projects/:id/sessions/:session_id/repair`
 - `POST /api/projects/:id/sessions/:session_id/retry-dispatch`
 - `GET /api/projects/:id/runtime-recovery`
+- `GET /api/projects/:id/sessions/:session_id/recovery-attempts`
 - `GET /api/projects/:id/inbox/:role`
 - `POST /api/projects/:id/messages/send`
 - `POST /api/projects/:id/orchestrator/dispatch`
@@ -92,7 +93,20 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 
 - `GET /api/projects/:id/runtime-recovery`
 - 可选查询参数：
-  - `attempt_limit`：正整数时按 session 返回最近 N 条 `recovery_attempts`；`all` 时返回 full history；缺省为后端默认有限条数
+  - `attempt_limit`：仅接受正整数，按 session 返回最近 N 条 `recovery_attempts`；缺省为后端默认有限条数；`all` 不再由该列表接口接受
+- 读路径约束：后端必须优先读取 sidecar recovery event index；仅在 sidecar 缺失、损坏或 schema 不兼容时允许从 append-only `events.jsonl` 重建后继续响应
+- `GET /api/projects/:id/sessions/:session_id/recovery-attempts`
+- 可选查询参数：
+  - `attempt_limit`：正整数时返回最近 N 条 attempts；`all` 时返回该 session 的 full history；缺省为 `all`
+- 返回固定 shape：
+  - `scope_kind`
+  - `scope_id`
+  - `session_id`
+  - `generated_at`
+  - `attempt_limit`
+  - `total_attempts`
+  - `truncated`
+  - `recovery_attempts`
 - 返回固定 shape：
   - `scope_kind`
   - `scope_id`
@@ -177,7 +191,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分；读模型兼容历史 `REQUESTED`
 - `SESSION_RETRY_GUARD_REQUIRED` 与 `SESSION_RETRY_DISPATCH_NOT_ALLOWED` 都返回 `409`；前者用于 guard 缺失，后者用于 guard mismatch、policy 不允许或 orchestrator 拒绝
 - retry-dispatch 内部会生成 `recovery_attempt_id` 并串到 retry 审计事件与对应的 dispatch started / finished / failed 事件；该字段只用于内部审计，不新增公开请求或响应字段
-- `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的恢复历史；默认按 session 返回最近有限条，`attempt_limit=all` 返回 full history，不做 synthetic backfill，并至少返回：
+- `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的恢复历史；默认按 session 返回最近有限条，不做 synthetic backfill；full history 改由 `GET /api/projects/:id/sessions/:session_id/recovery-attempts?attempt_limit=all` 返回，并至少返回：
   - `recovery_attempt_id`
   - `status`
   - `integrity`

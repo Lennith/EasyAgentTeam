@@ -24,7 +24,7 @@ export const RECOVERY_AUDIT_EVENT_TYPES = new Set([
   "SESSION_RETRY_DISPATCH_REJECTED"
 ]);
 
-const RECOVERY_ATTEMPT_EVENT_TYPES = new Set([
+export const RECOVERY_ATTEMPT_EVENT_TYPES = new Set([
   "SESSION_RETRY_DISPATCH_REQUESTED",
   "SESSION_RETRY_DISPATCH_ACCEPTED",
   "SESSION_RETRY_DISPATCH_REJECTED",
@@ -126,7 +126,7 @@ function readDispatchKind(payload: Record<string, unknown>): string | null {
   return readString(payload.dispatchKind ?? payload.dispatch_kind ?? asRecord(payload.options).dispatchKind);
 }
 
-function readRecoveryAttemptId(payload: Record<string, unknown>): string | null {
+export function readRecoveryAttemptId(payload: Record<string, unknown>): string | null {
   return readString(payload.recovery_attempt_id ?? asRecord(payload.extra).recovery_attempt_id);
 }
 
@@ -316,7 +316,7 @@ function buildRecoveryAttemptMissingMarkers<
   return [...missing];
 }
 
-function buildRecoveryAttempt<
+export function buildRecoveryAttempt<
   TEvent extends {
     eventId: string;
     eventType: string;

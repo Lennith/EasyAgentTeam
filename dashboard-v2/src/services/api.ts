@@ -40,6 +40,7 @@ import type {
   WorkflowRunMode,
   WorkflowRunOrchestratorSettings,
   RuntimeRecoveryItem,
+  RuntimeRecoveryAttemptsResponse,
   RuntimeRecoveryResponse,
   RuntimeRecoverySummary,
   WorkflowSessionRecord,
@@ -424,6 +425,20 @@ function mapRuntimeRecoveryResponse(raw: Record<string, unknown>): RuntimeRecove
   };
 }
 
+function mapRuntimeRecoveryAttemptsResponse(raw: Record<string, unknown>): RuntimeRecoveryAttemptsResponse {
+  return {
+    scope_kind: raw.scope_kind as RuntimeRecoveryAttemptsResponse["scope_kind"],
+    scope_id: String(raw.scope_id ?? ""),
+    session_id: String(raw.session_id ?? ""),
+    generated_at: String(raw.generated_at ?? ""),
+    attempt_limit:
+      raw.attempt_limit === "all" ? "all" : Number.isFinite(Number(raw.attempt_limit)) ? Number(raw.attempt_limit) : 0,
+    total_attempts: Number(raw.total_attempts ?? 0),
+    truncated: Boolean(raw.truncated),
+    recovery_attempts: mapRuntimeRecoveryItem({ recovery_attempts: raw.recovery_attempts }).recovery_attempts
+  };
+}
+
 function buildRetryDispatchGuardBody(
   item: RuntimeRecoveryItem,
   reason: string,
@@ -501,6 +516,17 @@ export const projectApi = {
     mapRuntimeRecoveryResponse(
       await fetchJSON<Record<string, unknown>>(
         `${API_BASE}/projects/${encodeURIComponent(projectId)}/runtime-recovery?attempt_limit=${RECOVERY_CENTER_ATTEMPT_LIMIT}`
+      )
+    ),
+
+  getSessionRecoveryAttempts: async (
+    projectId: string,
+    sessionId: string,
+    attemptLimit: number | "all" = "all"
+  ): Promise<RuntimeRecoveryAttemptsResponse> =>
+    mapRuntimeRecoveryAttemptsResponse(
+      await fetchJSON<Record<string, unknown>>(
+        `${API_BASE}/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/recovery-attempts?attempt_limit=${encodeURIComponent(String(attemptLimit))}`
       )
     ),
 
@@ -1130,6 +1156,17 @@ export const workflowApi = {
     mapRuntimeRecoveryResponse(
       await fetchJSON<Record<string, unknown>>(
         `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/runtime-recovery?attempt_limit=${RECOVERY_CENTER_ATTEMPT_LIMIT}`
+      )
+    ),
+
+  getSessionRecoveryAttempts: async (
+    runId: string,
+    sessionId: string,
+    attemptLimit: number | "all" = "all"
+  ): Promise<RuntimeRecoveryAttemptsResponse> =>
+    mapRuntimeRecoveryAttemptsResponse(
+      await fetchJSON<Record<string, unknown>>(
+        `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(sessionId)}/recovery-attempts?attempt_limit=${encodeURIComponent(String(attemptLimit))}`
       )
     ),
 
