@@ -1,4 +1,4 @@
-﻿# Workflow Runtime PRD（最后更新：2026-04-16）
+﻿# Workflow Runtime PRD（最后更新：2026-04-23）
 
 ## 状态
 
@@ -16,6 +16,9 @@ Workflow Runtime 负责模板定义、运行实例、角色会话、任务运行
 - run 级 sessions、messages、timeline、agent chat
 - recurring loop / schedule 配置
 - workflow 运行期 skill 注入与证据校验支撑
+- workflow task runtime 的 run-scoped mutation 当前依赖单 backend / 单进程内存锁串行化，不声明支持多个 backend 进程共享同一个 `dataRoot`
+- `clearRunScopedState()` 会提升 run scoped mutation generation；已经开始执行的 mutation 不被强杀，尚在等待旧 tail 的 pending mutation 会被拒绝，避免旧 generation 写入 clear 之后的新状态
+- workflow dispatch pre-dispatch session touch 失败必须留下结构化日志，不允许静默吞掉
 
 ## 当前公开路径
 

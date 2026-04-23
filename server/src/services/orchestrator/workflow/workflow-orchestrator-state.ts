@@ -1,17 +1,43 @@
 import { buildOrchestratorContextSessionKey } from "../../orchestrator-core.js";
 import { OrchestratorSingleFlightGate } from "../shared/kernel/single-flight.js";
 
+export class WorkflowRunMutationClearedError extends Error {
+  readonly code = "WORKFLOW_RUN_MUTATION_CLEARED";
+
+  constructor(readonly runId: string) {
+    super(`workflow run '${runId}' mutation was cancelled because run scoped state was cleared`);
+    this.name = "WorkflowRunMutationClearedError";
+  }
+}
+
 class WorkflowRunMutationMutex {
   private readonly tails = new Map<string, Promise<void>>();
+  private readonly generations = new Map<string, number>();
+
+  private getGeneration(runId: string): number {
+    return this.generations.get(runId) ?? 0;
+  }
+
+  private advanceGeneration(runId: string): void {
+    this.generations.set(runId, this.getGeneration(runId) + 1);
+  }
 
   async runExclusive<T>(runId: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.tails.get(runId) ?? Promise.resolve();
+    const generation = this.getGeneration(runId);
     let release!: () => void;
     const current = new Promise<void>((resolve) => {
       release = resolve;
     });
     this.tails.set(runId, current);
     await previous.catch(() => {});
+    if (this.getGeneration(runId) !== generation) {
+      release();
+      if (this.tails.get(runId) === current) {
+        this.tails.delete(runId);
+      }
+      throw new WorkflowRunMutationClearedError(runId);
+    }
     try {
       return await operation();
     } finally {
@@ -23,17 +49,21 @@ class WorkflowRunMutationMutex {
   }
 
   clear(runId: string): void {
+    this.advanceGeneration(runId);
     this.tails.delete(runId);
   }
 
   clearAll(): void {
+    for (const runId of new Set([...this.tails.keys(), ...this.generations.keys()])) {
+      this.advanceGeneration(runId);
+    }
     this.tails.clear();
   }
 
   prune(activeRunIds: Set<string>): void {
     for (const runId of Array.from(this.tails.keys())) {
       if (!activeRunIds.has(runId)) {
-        this.tails.delete(runId);
+        this.clear(runId);
       }
     }
   }

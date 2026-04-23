@@ -1,0 +1,9 @@
+﻿{
+  "pid": 90472,
+  "started_at": "2026-04-23T14:10:52.6484903+08:00",
+  "command": "pnpm e2e:baseline",
+  "runner": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260423_140017\\step3_pnpm_e2e_baseline.runner.ps1",
+  "log": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260423_140017\\step3_pnpm_e2e_baseline.log",
+  "exitcode": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260423_140017\\step3_pnpm_e2e_baseline.exitcode.txt",
+  "finished_at": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260423_140017\\step3_pnpm_e2e_baseline.finished_at.txt"
+}

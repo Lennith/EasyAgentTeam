@@ -57,6 +57,10 @@ export interface WorkflowDispatchRuntimeErrorFactory {
   (message: string, code: string, status?: number, nextAction?: string, details?: Record<string, unknown>): Error;
 }
 
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export interface WorkflowDispatchLoopDependencies {
   context: WorkflowDispatchLoopContext;
   launchAdapter: Pick<WorkflowDispatchLaunchAdapter, "launch">;
@@ -175,22 +179,51 @@ export async function runWorkflowDispatchLoop(
           addWorkflowTaskTransition(loopState.runtime, selection.runtimeTask, "DISPATCHED", "dispatched");
         }
 
+        const touchPatch = {
+          status: "running",
+          currentTaskId: selection.taskId,
+          lastDispatchedAt: new Date().toISOString(),
+          lastDispatchId: dispatchId,
+          lastDispatchedMessageId: messageId ?? null,
+          lastFailureAt: null,
+          lastFailureKind: null,
+          lastFailureEventId: null,
+          lastFailureDispatchId: null,
+          lastFailureMessageId: null,
+          lastFailureTaskId: null,
+          cooldownUntil: null
+        } as const;
         await dependencies.context.repositories.sessions
-          .touchSession(loopState.runId, selection.session.sessionId, {
-            status: "running",
-            currentTaskId: selection.taskId,
-            lastDispatchedAt: new Date().toISOString(),
-            lastDispatchId: dispatchId,
-            lastDispatchedMessageId: messageId ?? null,
-            lastFailureAt: null,
-            lastFailureKind: null,
-            lastFailureEventId: null,
-            lastFailureDispatchId: null,
-            lastFailureMessageId: null,
-            lastFailureTaskId: null,
-            cooldownUntil: null
-          })
-          .catch(() => {});
+          .touchSession(loopState.runId, selection.session.sessionId, touchPatch)
+          .catch(async (error: unknown) => {
+            const message = formatErrorMessage(error);
+            const payload = {
+              runId: loopState.runId,
+              requestId: loopState.requestId,
+              dispatchId,
+              dispatchKind: selection.dispatchKind,
+              role: selection.role,
+              sessionId: selection.session.sessionId,
+              taskId: selection.taskId ?? null,
+              messageId: messageId ?? null,
+              error: message,
+              patch_keys: Object.keys(touchPatch)
+            };
+            await dependencies.context.repositories.events
+              .appendEvent(loopState.runId, {
+                eventType: "WORKFLOW_PRE_DISPATCH_SESSION_TOUCH_FAILED",
+                source: "system",
+                sessionId: selection.session.sessionId,
+                taskId: selection.taskId ?? undefined,
+                payload
+              })
+              .catch((auditError: unknown) => {
+                console.warn("[workflow-dispatch] pre-dispatch session touch failed", {
+                  ...payload,
+                  audit_error: formatErrorMessage(auditError)
+                });
+              });
+          });
 
         selection.session.status = "running";
         selection.session.currentTaskId = selection.taskId ?? undefined;

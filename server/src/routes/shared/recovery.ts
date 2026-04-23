@@ -1,7 +1,17 @@
 import type express from "express";
 import type { RecoveryActionRejection } from "../../services/runtime-recovery-action-policy.js";
+import { MAX_RECOVERY_ATTEMPT_LIMIT, type RecoveryAttemptLimit } from "../../services/runtime-recovery-attempts.js";
 import type { RetryDispatchGuardInput } from "../../services/runtime-retry-dispatch-service.js";
 import { sendApiError } from "./http.js";
+
+export interface RecoveryAttemptLimitReadResult {
+  attempt_limit?: RecoveryAttemptLimit;
+  error?: {
+    code: string;
+    message: string;
+    next_action: string;
+  };
+}
 
 export function readRecoveryConfirm(body: Record<string, unknown>): boolean {
   return body.confirm === true;
@@ -24,6 +34,39 @@ function readOptionalString(body: Record<string, unknown>, keys: string[]): stri
     return trimmed.length > 0 ? trimmed : undefined;
   }
   return undefined;
+}
+
+function readSingleQueryString(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    return value[0].trim();
+  }
+  return undefined;
+}
+
+export function readRecoveryAttemptLimit(value: unknown): RecoveryAttemptLimitReadResult {
+  const raw = readSingleQueryString(value);
+  if (!raw) {
+    return {};
+  }
+  if (raw === "all") {
+    return { attempt_limit: "all" };
+  }
+  if (/^[1-9]\d*$/.test(raw)) {
+    const limit = Number.parseInt(raw, 10);
+    if (limit <= MAX_RECOVERY_ATTEMPT_LIMIT) {
+      return { attempt_limit: limit };
+    }
+  }
+  return {
+    error: {
+      code: "INVALID_RECOVERY_ATTEMPT_LIMIT",
+      message: `attempt_limit must be a positive integer up to ${MAX_RECOVERY_ATTEMPT_LIMIT} or 'all'`,
+      next_action: "Use attempt_limit=5 for dashboard views or attempt_limit=all for full recovery history."
+    }
+  };
 }
 
 export function readRetryDispatchGuards(body: Record<string, unknown>): RetryDispatchGuardInput {

@@ -1,0 +1,36 @@
+﻿
+> auto-develop-framework@0.1.0 e2e:first-run C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> node tools/run-powershell-entry.mjs ./tools/run-first-run.ps1
+
+== First-run via official E2E baseline ==
+Step 1/4: Ensure backend is running on http://127.0.0.1:43123
+Step 2/4: Seed baseline project scenario
+Step 3/4: Skip orchestrator checks (setup-only mode)
+Step 4/4: Export setup evidence artifacts
+Backend is not healthy at http://127.0.0.1:43123/healthz. Starting local backend via pnpm run dev:server ...
+Backend is healthy. pid=66080
+== Preflight ==
+== Reset target project if exists ==
+== Reset workspace (full clean) before run ==
+== Upsert agents ==
+== Create project (auto-dispatch disabled initially) ==
+== Patch routing model config ==
+== Patch task-assign routing ==
+== Create role sessions ==
+== Seed dependency chain with reminder probe ==
+== Pre-gate validation before releasing reminder gate ==
+setup-only: skip pre-gate orchestrator dispatch validation
+== Monitor run ==
+== Export logs and analyze ==
+Exported core logs to: D:\\AgentWorkSpace\\TestTeam\\TestRound20\docs\e2e\20260423_141033
+== Done ==
+artifacts=D:\\AgentWorkSpace\\TestTeam\\TestRound20\docs\e2e\20260423_141033
+final_reason=setup_only
+runtime_pass=True
+analysis_pass=True
+
+First-run success criteria:
+1) run_summary.md contains runtime_pass=true and analysis_pass=true
+2) artifacts directory contains task_tree_final.json and events.ndjson
+3) dashboard Projects task-tree and timeline reflect the same terminal state
+Stopping bootstrap backend process tree pid=66080

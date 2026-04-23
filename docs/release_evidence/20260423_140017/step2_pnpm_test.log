@@ -1,0 +1,629 @@
+﻿
+> auto-develop-framework@0.1.0 test C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> pnpm test:smoke && pnpm test:unit
+
+
+> auto-develop-framework@0.1.0 test:smoke C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> node tools/check_schemas.mjs
+
+[check_schemas] all schema files parsed and validated.
+
+> auto-develop-framework@0.1.0 test:unit C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> pnpm --filter @autodev/server test
+
+
+> @autodev/server@0.1.0 test C:\Users\spiri\Documents\GitHub\EasyAgentTeam\server
+> node --import tsx --test --test-concurrency=1 "src/__tests__/**/*.test.ts"
+
+✔ agent chat SSE emits structured provider error payload (1.3507ms)
+✔ agent io timeline core preserves dispatch metadata split between project and workflow (0.6015ms)
+✔ agent io timeline core maps discuss routes and respects limit (0.182ms)
+[2026-04-23 14:05:47] [INFO] [API] POST /api/projects/agentiotimeline/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:05:47] [INFO] [API] POST /api/projects/agentiotimeline/messages/send - completed in 40ms
+✔ agent io timeline includes user message, route, and dispatch events (306.3306ms)
+[2026-04-23 14:05:48] [INFO] [API] POST /api/projects/routepolicy/messages/send - message_type=MANAGER_MESSAGE, from_agent=planner - request received
+[2026-04-23 14:05:49] [ERROR] [API] POST /api/projects/routepolicy/messages/send - error after 16ms: Error: route not allowed by project route table
+[2026-04-23 14:05:49] [INFO] [API] POST /api/projects/routepolicy/messages/send - message_type=MANAGER_MESSAGE, from_agent=PM - request received
+[2026-04-23 14:05:49] [INFO] [API] POST /api/projects/routepolicy/messages/send - completed in 33ms
+✔ route table denies illegal agent-to-agent message (383.762ms)
+✔ project routing-config API updates directional discuss limits (163.2391ms)
+✔ agent registry is empty by default (built-ins are templates only) (3.7221ms)
+✔ agent registry supports create/edit/delete lifecycle (160.4744ms)
+✔ agent-template API supports built-ins and custom template CRUD (118.4367ms)
+[2026-04-23 14:05:50] [MINIMAX] [Response] step=1, finishReason=tool_use, content length=0, thinking=no, toolCalls=5
+[2026-04-23 14:05:50] [MINIMAX] [ToolCalls] [{"id":"t1","name":"read_file"},{"id":"t2","name":"task_report_done"},{"id":"t3","name":"lock_manage"},{"id":"t4","name":"route_targets_get"},{"id":"t5","name":"custom_big_tool"}]
+✔ agent truncates large tool results before appending tool messages (3.5035ms)
+✔ codex spawn spec preserves args through cmd call wrapper on Windows (0.7338ms)
+✔ codex resume command uses exec resume syntax (3.8297ms)
+✔ codex exec command enables json output for project runner parity (1.0119ms)
+✔ codex runner extracts thread id from json event lines (0.5815ms)
+✔ runner windows env keeps system command paths available (0.9793ms)
+✔ runner injects active task context env vars (0.6689ms)
+✔ codex runner meaningful json item refreshes session heartbeat (50.2653ms)
+✔ codex runner forces heartbeat refresh for terminal tool activity even inside throttle window (2.0517ms)
+✔ codex runner emits event when heartbeat persistence fails (242.9671ms)
+✔ project codex runtime home stays under collab runtime data (0.5577ms)
+✔ workflow codex runtime home stays under workflow runtime data (0.1818ms)
+✔ session codex runtime home resolves from teamtool context before workspace fallback (0.1755ms)
+✔ ensureCodexRuntimeHome writes isolated config and copies auth without global MCP servers (6.7616ms)
+✔ codex session args include explicit model and reasoning config for new sessions (0.824ms)
+✔ codex session args preserve resume syntax and normalize unsupported effort values away (0.1316ms)
+✔ codex session runtime normalizes MCP tool_result structuredContent payload (0.1974ms)
+✔ codex session runtime resolves MCP tool names from item.tool (0.0797ms)
+✔ codex TeamTool config args use TOML literal quoting safe for Windows shell transport (1.7236ms)
+✔ codex TeamTool server spec resolves tsx loader with file URL (0.3626ms)
+✔ codex TeamTool MCP result preserves structuredContent for error payloads (0.4516ms)
+✔ ReadFileTool supports offset and limit line slicing (4.2171ms)
+✔ ReadFileTool applies default 200-line limit when limit is omitted (1.1501ms)
+✔ ReadFileTool respects explicit limit and skips default-limit notice (1.0738ms)
+✔ GrepTool searches content and returns file:line:text rows (1.3242ms)
+✔ WriteFileTool writes file content and creates nested directories (1.7011ms)
+✔ EditFileTool replaces target text and reports error when oldStr is missing (1.8187ms)
+✔ GlobTool finds matching files under nested directories (2.5736ms)
+✔ GrepTool respects max_results limit (1.1668ms)
+✔ WebFetchTool returns fetched text and handles HTTP failures (0.3717ms)
+✔ WebSearchTool parses search payload into list output (0.2867ms)
+✔ readJsonlLines keeps valid prefix when last line is half-written (62.9691ms)
+✔ readJsonlLines still throws on malformed non-tail line (63.5306ms)
+✔ readJsonFile retries transient truncated content (31.5169ms)
+[2026-04-23 14:05:54] [INFO] [API] POST /api/projects/lockscopea/locks/acquire - session_id=session-a, lock_key=src/file-a.ts - request received
+[2026-04-23 14:05:54] [INFO] [API] POST /api/projects/lockscopea/locks/acquire - completed in 7ms, result=acquired
+[2026-04-23 14:05:54] [INFO] [API] POST /api/projects/lockscopeb/locks/acquire - session_id=session-b, lock_key=src - request received
+[2026-04-23 14:05:54] [INFO] [API] POST /api/projects/lockscopeb/locks/acquire - completed in 5ms, result=failed
+[2026-04-23 14:05:54] [INFO] [API] GET /api/projects/lockscopeb/locks - request received
+[2026-04-23 14:05:54] [INFO] [API] GET /api/projects/lockscopeb/locks - completed in 5ms
+✔ locks conflict across projects sharing the same workspace (241.8872ms)
+✔ lock acquire conflict then steal after expiry (1270.1598ms)
+✔ lock renew and release require owner domain + id + session (67.2928ms)
+✔ file lock blocks acquiring ancestor dir lock (51.7665ms)
+✔ dir lock blocks acquiring descendant file lock (49.8793ms)
+✔ sibling file locks do not conflict (48.3314ms)
+✔ default target_type behaves as file and does not block child path (62.7898ms)
+✔ route event payload builders keep stable field contract (0.8204ms)
+✔ workflow route event payload builders keep compact field contract stable (0.1358ms)
+✔ route event emitters persist normalized payload contract (93.9872ms)
+[2026-04-23 14:05:57] [INFO] [API] POST /api/projects/messagetest/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:05:57] [INFO] [API] POST /api/projects/messagetest/messages/send - completed in 42ms
+✔ message send resolves latest role session and writes route events (251.7464ms)
+[2026-04-23 14:05:58] [INFO] [API] POST /api/projects/msgdismiss/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:05:58] [INFO] [API] POST /api/projects/msgdismiss/messages/send - completed in 74ms
+[2026-04-23 14:05:58] [INFO] [API] POST /api/projects/msgdismiss/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:05:58] [INFO] [API] POST /api/projects/msgdismiss/messages/send - completed in 32ms
+✔ message send skips dismissed sessions and auto-bootstraps when none usable (356.185ms)
+[2026-04-23 14:05:58] [INFO] [API] POST /api/projects/msgtargetguard/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:05:58] [ERROR] [API] POST /api/projects/msgtargetguard/messages/send - error after 4ms: Error: target session 'dashboard-ui' is reserved for system/dashboard
+[2026-04-23 14:05:58] [INFO] [API] POST /api/projects/msgtargetguard/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:05:58] [ERROR] [API] POST /api/projects/msgtargetguard/messages/send - error after 4ms: Error: target session role mismatch (expected=dev_backend, actual=qa_guard)
+✔ message send rejects reserved or mismatched explicit target session (248.8051ms)
+[2026-04-23 14:05:58] [INFO] [API] POST /api/projects/msgencoding/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:05:58] [ERROR] [API] POST /api/projects/msgencoding/messages/send - error after 3ms: Error: message content appears encoding-corrupted
+✔ message send rejects likely encoding-corrupted content (162.5115ms)
+✔ agent recovers from one max_tokens and completes with usage metadata (3.4943ms)
+✔ agent stops after max_tokens recovery budget is exhausted (1.2359ms)
+✔ TaskCreateAssignTool sends TASK_CREATE payload with defaults from context (86.6284ms)
+✔ TaskReport tools send TaskState outcomes via results[] (119.5231ms)
+✔ Discuss tools send TASK_DISCUSS_* message types (115.1443ms)
+✔ RouteTargetsTool resolves default and explicit from_agent (100.5144ms)
+✔ LockManageTool maps actions to acquire/renew/release/list bridge calls (160.6114ms)
+✔ project teamtool bridge maps dependency-not-ready report error with actionable next_action (279.1025ms)
+✔ project teamtool bridge surfaces TASK_EXISTS with recoverable next_action (158.7883ms)
+✔ project and workflow teamtool bridges share the same lock lifecycle behavior (112.465ms)
+✔ resolveToolCapabilityFamily maps known names to stable capability families (0.4179ms)
+✔ registerToolWithDedupe prefers higher-priority source for same capability family (0.1693ms)
+✔ registerToolWithDedupe skips lower-priority capability conflicts (0.0781ms)
+[2026-04-23 14:06:02] [INFO] [MiniMaxAgent] config.sessionDir: (not set)
+[2026-04-23 14:06:02] [INFO] [MiniMaxAgent] resolved sessionDir: C:\Users\spiri\AppData\Local\Temp\autodev-minimax-registry-UwMhvi\workspace\.minimax\sessions
+[2026-04-23 14:06:02] [INFO] [MiniMaxAgent] workspaceDir: C:\Users\spiri\AppData\Local\Temp\autodev-minimax-registry-UwMhvi\workspace
+✔ MiniMax registry excludes list_directory and includes team tools when context is provided (70.4684ms)
+✔ sanitizeMessagesForToolProtocol converts orphan tool_result into TOOLCALL_FAILED user note (0.6415ms)
+✔ sanitizeMessagesForToolProtocol downgrades orphan tool_call while keeping assistant text (0.1605ms)
+✔ sanitizeMessagesForToolProtocol downgrades multi-tool assistant when only partial results exist (0.1155ms)
+✔ MiniMax 2013 detection and recovery prompt formatting (0.1028ms)
+✔ tool result id-not-found detection and extraction (0.1493ms)
+✔ context window error detection works for 2013 context overflow (0.0764ms)
+✔ trimMessagesForContextWindow trims old context and keeps latest messages (0.4123ms)
+✔ sanitize after trim repairs tool_result orphaned by context trimming (0.1145ms)
+✔ sanitizeMessagesForToolProtocol keeps valid aligned tool sequence unchanged (0.4433ms)
+✔ orchestrator agent catalog builds shared ids and role maps (0.7323ms)
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"project-root-assignment_gate_test","task_kind":"PROJECT_ROOT","title":"Project Root","owner_role":"manager"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - completed in 61ms, result={"success":true,"requestId":"29afce3d-ef16-4953-9d8b-ee5bcda6a29b","actionType":"TASK_CREATE","taskId":"project-root-assignment_gate_test"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"user-root-1","task_kind":"USER_ROOT","parent_task_id":"project-root-assignment_gate_test","title":"User Root","owner_role":"manager"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - completed in 44ms, result={"success":true,"requestId":"b5cb6641-5656-4a12-b10f-a441689a848b","actionType":"TASK_CREATE","taskId":"user-root-1"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"dep-d","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Dependency D","owner_role":"manager"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - completed in 63ms, result={"success":true,"requestId":"d5cc31bc-6adb-4926-a206-9648cfe57b87","actionType":"TASK_CREATE","taskId":"dep-d"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-c","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Task C","owner_role":"dev_0","owner_session":"sess-dev-0","dependencies":["dep-d"]}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - completed in 58ms, result={"success":true,"requestId":"cb0a2dd1-2e47-4131-84c3-9f4b4476a8b0","actionType":"TASK_CREATE","taskId":"task-c"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-b","task_kind":"EXECUTION","parent_task_id":"task-c","root_task_id":"user-root-1","title":"Task B","owner_role":"dev_0","owner_session":"sess-dev-0"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - completed in 55ms, result={"success":true,"requestId":"dd027cc6-0a6b-4504-8a8a-e7ff031a1d5d","actionType":"TASK_CREATE","taskId":"task-b"}
+[2026-04-23 14:06:04] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-a","task_kind":"EXECUTION","parent_task_id":"task-b","root_task_id":"user-root-1","title":"Task A","owner_role":"dev_0","owner_session":"sess-dev-0"}
+[2026-04-23 14:06:05] [INFO] [API] POST /api/projects/assignment_gate_test/task-actions - completed in 55ms, result={"success":true,"requestId":"9f33a844-d305-4ec7-87d3-173650c2a1e7","actionType":"TASK_CREATE","taskId":"task-a"}
+✔ task assignment message is skipped when ancestor dependency gate is closed (635.165ms)
+✔ completion policy counts task dispatch starts by taskId and dispatchKind (0.4173ms)
+✔ completion policy detects successful run finish and validates progress content (0.1353ms)
+✔ dependency gate marks DONE/CANCELED as resolved (0.4123ms)
+✔ dependency gate collects unresolved dependency ids (0.3923ms)
+✔ dependency gate requires ready dependencies except BLOCKED_DEP/CANCELED by default (0.0724ms)
+✔ isRemindableTaskState aligns reminder candidates with actionable dispatch states (0.4035ms)
+✔ sortTasksForDispatch prioritizes deeper tasks before shallower ones (0.484ms)
+✔ sortTasksForDispatch uses priority then createdAt then taskId when depth is equal (0.1127ms)
+✔ selectTaskForDispatch picks deepest TASK_ASSIGNMENT candidate regardless of message order (0.2613ms)
+✔ dispatch lifecycle payload keeps shared fields stable and supports optional message id (0.7637ms)
+✔ dispatch lifecycle helpers detect closed and timed-out dispatches from event stream (0.1662ms)
+✔ dispatch lifecycle loader resolves terminal state from repository callback (0.0955ms)
+✔ dispatch lifecycle state applier skips closed dispatch and applies for open dispatch (0.1246ms)
+✔ dispatch gate returns busy result and always releases the key (0.3633ms)
+✔ dispatch lifecycle resolves stable error message from unknown inputs (0.0977ms)
+[2026-04-23 14:06:06] [INFO] [API] POST /api/projects/dispatchmsg/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:06:06] [INFO] [API] POST /api/projects/dispatchmsg/messages/send - completed in 44ms
+[2026-04-23 14:06:06] [INFO] [API] POST /api/projects/dispatchmsg/messages/send - message_type=MANAGER_MESSAGE, from_agent=manager - request received
+[2026-04-23 14:06:06] [INFO] [API] POST /api/projects/dispatchmsg/messages/send - completed in 36ms
+[2026-04-23 14:06:06] [INFO] [startMiniMaxForProject] sessionId=sess-pm, runId=fca05aac-590c-434b-91f4-85be59511ecf, starting async run
+[2026-04-23 14:06:06] [INFO] [startMiniMaxForProject] sessionId=sess-pm, runId=fca05aac-590c-434b-91f4-85be59511ecf, completed with exitCode=1
+✔ dispatch-message endpoint targets the specified message_id (419.2514ms)
+[2026-04-23 14:06:07] [INFO] [releasePendingMessagesForRole] role=PM, released 1 pending messages back to inbox
+✔ dispatch-message endpoint returns message_not_found for unknown message (209.0923ms)
+✔ orchestrator status exposes max concurrent dispatch setting (4.3687ms)
+✔ project dispatch prompt defines focus-task and dependency-ready reporting contract (3.5176ms)
+✔ dispatch selection candidate prefers task/message selection when messages are present (0.673ms)
+✔ dispatch selection candidate fallback selects the highest-priority runnable task (0.1816ms)
+✔ dispatch selection candidate returns null when fallback is disabled and no message selection exists (0.0865ms)
+✔ buildNormalizedDispatchSelectionResult keeps normalized fields and infers message_id (0.7492ms)
+✔ buildNormalizedDispatchSelectionResult returns null messageId when envelope message_id is absent (0.0952ms)
+✔ dispatch selection support blocks non-idle session when onlyIdle is enabled (0.4803ms)
+✔ dispatch selection support blocks in-flight session when force is disabled (0.0817ms)
+✔ dispatch selection support blocks cooldown session (0.0712ms)
+✔ dispatch selection support blocks blocked session when force is disabled (0.0533ms)
+✔ dispatch selection support allows running session when running gate is disabled (0.0733ms)
+✔ duplicate dispatch guard returns true and triggers callback on open task dispatch (0.1501ms)
+✔ duplicate dispatch guard returns false when task dispatch is already closed (0.0953ms)
+✔ duplicate dispatch skip helper returns built result only when duplicate is found (0.4628ms)
+✔ dispatch template short-circuits on before-loop preflight (0.8799ms)
+✔ dispatch template routes selection through gate and counts only dispatched results (0.3022ms)
+✔ dispatch template emits synthesized no-selection result when nothing is chosen (0.1384ms)
+✔ dispatch template supports fire-and-forget background dispatches (0.2179ms)
+✔ force dispatch returns clear task_not_found for stale task id (169.7918ms)
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_blocked_dep/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"project-root-forcedispatch_blocked_dep","task_kind":"PROJECT_ROOT","title":"Project Root","owner_role":"manager"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_blocked_dep/task-actions - completed in 60ms, result={"success":true,"requestId":"33532a2e-82b4-49ba-8b7e-d2c14d2a327d","actionType":"TASK_CREATE","taskId":"project-root-forcedispatch_blocked_dep"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_blocked_dep/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"user-root-1","task_kind":"USER_ROOT","parent_task_id":"project-root-forcedispatch_blocked_dep","title":"User Root","owner_role":"manager"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_blocked_dep/task-actions - completed in 41ms, result={"success":true,"requestId":"2c2d3540-fb60-47d0-9290-667b9166da4c","actionType":"TASK_CREATE","taskId":"user-root-1"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_blocked_dep/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"dep-task-1","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Dependency Task","owner_role":"dev_0"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_blocked_dep/task-actions - completed in 64ms, result={"success":true,"requestId":"eb01b2f9-f303-4ea4-a330-3c89995068bb","actionType":"TASK_CREATE","taskId":"dep-task-1"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_blocked_dep/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"blocked-by-dep-task","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Blocked Task","owner_role":"dev_0","dependencies":["dep-task-1"]}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_blocked_dep/task-actions - completed in 56ms, result={"success":true,"requestId":"ba0ec5ca-b7c0-4421-9478-99b359d80d82","actionType":"TASK_CREATE","taskId":"blocked-by-dep-task"}
+✔ force dispatch rejects non-force-dispatchable state with explicit reason (364.0275ms)
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_bootstrap/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"project-root-forcedispatch_bootstrap","task_kind":"PROJECT_ROOT","title":"Project Root","owner_role":"manager"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_bootstrap/task-actions - completed in 51ms, result={"success":true,"requestId":"f78f00b6-ac09-4c00-a519-727b576c350a","actionType":"TASK_CREATE","taskId":"project-root-forcedispatch_bootstrap"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_bootstrap/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"user-root-1","task_kind":"USER_ROOT","parent_task_id":"project-root-forcedispatch_bootstrap","title":"User Root","owner_role":"manager"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_bootstrap/task-actions - completed in 36ms, result={"success":true,"requestId":"22bdeea6-771a-4bcc-bb47-0e30f35187b7","actionType":"TASK_CREATE","taskId":"user-root-1"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_bootstrap/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-dev-r1","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Dev Task R1","owner_role":"dev_0","owner_session":"sess-dev0-old"}
+[2026-04-23 14:06:09] [INFO] [API] POST /api/projects/forcedispatch_bootstrap/task-actions - completed in 57ms, result={"success":true,"requestId":"1a87d49c-b6d3-40f3-8c3f-b6608b050e16","actionType":"TASK_CREATE","taskId":"task-dev-r1"}
+[2026-04-23 14:06:10] [INFO] [startMiniMaxForProject] sessionId=session-dev_0-7074913ace95, runId=2c4acd41-81fd-46ae-b7b6-d1ed769c47de, starting async run
+[2026-04-23 14:06:10] [INFO] [startMiniMaxForProject] sessionId=session-dev_0-7074913ace95, runId=2c4acd41-81fd-46ae-b7b6-d1ed769c47de, completed with exitCode=1
+✔ force dispatch auto-bootstraps session when owner has only dismissed session (684.9845ms)
+[2026-04-23 14:06:10] [INFO] [releasePendingMessagesForRole] role=dev_0, released 1 pending messages back to inbox
+✔ dispatch skips duplicate open task dispatch for same task/session (190.2271ms)
+✔ orchestrator identifier helper sanitizes role token and builds scoped session ids (0.6576ms)
+✔ orchestrator identifier helper preserves distinct opaque and timestamped ids (0.1549ms)
+✔ OrchestratorKernel runs contexts in deterministic order (0.7712ms)
+✔ buildOrchestratorContextSessionKey scopes session id by context (0.0797ms)
+✔ OrchestratorSingleFlightGate supports acquire/release and prune (0.1406ms)
+✔ launch template executes started then success handlers (0.8779ms)
+✔ launch template routes execution failure through failure handler (0.208ms)
+✔ launch template forwards timeout classification and lifecycle hooks (0.175ms)
+✔ launch template can build a launch facade from lifecycle callbacks (0.1711ms)
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"project-root-leaf-priority-project","task_kind":"PROJECT_ROOT","title":"Project Root","owner_role":"manager"}
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - completed in 54ms, result={"success":true,"requestId":"18a0a44e-7f25-483f-8fe0-6a2cefbcba4f","actionType":"TASK_CREATE","taskId":"project-root-leaf-priority-project"}
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"user-root-leaf-priority","task_kind":"USER_ROOT","parent_task_id":"project-root-leaf-priority-project","title":"User Root","owner_role":"manager"}
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - completed in 38ms, result={"success":true,"requestId":"9c1ff3e6-2ad6-46da-b2d8-4add0bdd3700","actionType":"TASK_CREATE","taskId":"user-root-leaf-priority"}
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task_phase_parent","task_kind":"EXECUTION","parent_task_id":"user-root-leaf-priority","root_task_id":"user-root-leaf-priority","title":"Phase Parent","owner_role":"dev_0"}
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - completed in 53ms, result={"success":true,"requestId":"73584a45-e27c-4385-bcae-e40a7d741386","actionType":"TASK_CREATE","taskId":"task_phase_parent"}
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task_leaf_shallow","task_kind":"EXECUTION","parent_task_id":"user-root-leaf-priority","root_task_id":"user-root-leaf-priority","title":"Shallow Leaf","owner_role":"dev_0"}
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - completed in 54ms, result={"success":true,"requestId":"d457b360-ecd6-4e87-83fc-bef5a6d63526","actionType":"TASK_CREATE","taskId":"task_leaf_shallow"}
+[2026-04-23 14:06:12] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task_leaf_deep","task_kind":"EXECUTION","parent_task_id":"task_phase_parent","root_task_id":"user-root-leaf-priority","title":"Deep Leaf","owner_role":"dev_0"}
+[2026-04-23 14:06:13] [INFO] [API] POST /api/projects/leaf_priority_project/task-actions - completed in 54ms, result={"success":true,"requestId":"0b71e0cc-4e33-4082-acc2-78965124d0dd","actionType":"TASK_CREATE","taskId":"task_leaf_deep"}
+[2026-04-23 14:07:22] [INFO] [startMiniMaxForProject] sessionId=session-manager-f3a23f605d52, runId=e9de9ddb-bcc0-4be6-a48b-69fe66f2d4a0, starting async run
+[2026-04-23 14:07:22] [INFO] [startMiniMaxForProject] sessionId=session-manager-f3a23f605d52, runId=e9de9ddb-bcc0-4be6-a48b-69fe66f2d4a0, completed with exitCode=1
+[2026-04-23 14:07:22] [INFO] [releasePendingMessagesForRole] role=manager, released 1 pending messages back to inbox
+[2026-04-23 14:08:29] [INFO] [confirmPendingMessagesForRole] role=dev_0, moving 1 pending messages to confirmed
+✔ project dispatch prefers deeper runnable task for the same role (137007.3773ms)
+✔ orchestrator manager message contract builds workflow envelope and chat body (0.8385ms)
+✔ orchestrator routed manager message builder keeps project/workflow routing contract (0.2191ms)
+✔ orchestrator manager message contract builds project envelope (0.0944ms)
+✔ orchestrator chat message body keeps taskId/discuss nullable shape (0.0661ms)
+✔ orchestrator manager message contract builds task-assignment body through shared builder (0.1634ms)
+✔ message route event pair appends received then routed (0.7214ms)
+✔ message route result helper keeps normalized null fields and preserves extras (0.1045ms)
+✔ message routing template runs resolve -> normalize -> inbox -> route -> touch sequence (0.8426ms)
+✔ message routing template propagates persistence errors (0.3328ms)
+✔ message routing helper executes adapter with explicit unit-of-work runner (0.2063ms)
+✔ message routing helper can wrap scope-only unit-of-work runner (0.168ms)
+✔ message routing metadata helper preserves explicit values and fills missing fields (0.114ms)
+✔ project orchestrator options resolve shared env thresholds (0.5044ms)
+✔ workflow orchestrator options keep first-defined env precedence (0.1385ms)
+✔ force dispatch rejects task ownerSession that does not match sessionId (152.5236ms)
+✔ session create resets role reminder state (245.7718ms)
+✔ session dismiss and repair reset role reminder state (439.0493ms)
+✔ buildOrchestratorReminderRoleStatePatch resets reminder state on INACTIVE -> IDLE (1.1119ms)
+✔ buildOrchestratorReminderRoleStatePatch schedules reminder when role becomes idle (0.0958ms)
+✔ buildOrchestratorReminderRoleStatePatch keeps non-idle role state without reminder schedule (0.4534ms)
+✔ buildOrchestratorReminderSchedulePatch and buildOrchestratorReminderTriggeredPatch share schedule baseline (0.1196ms)
+✔ evaluateOrchestratorReminderEligibility keeps trigger and schedule-missing decisions stable (0.1197ms)
+✔ buildOrchestratorReminderOpenTaskSummary keeps ids, titles, and preview stable (0.1346ms)
+✔ buildOrchestratorReminderContent includes preview prefix only when present (0.0846ms)
+✔ buildOrchestratorReminderMessage builds project envelope/body with stable defaults (0.2145ms)
+✔ buildOrchestratorReminderMessage builds workflow envelope/body and defaults parentRequestId (0.1221ms)
+✔ collectOrchestratorRoleSet merges session/task/mapped roles with trim and dedupe (0.731ms)
+✔ collectOrchestratorRoleSet prioritizes explicit role filter (0.0814ms)
+✔ sortOrchestratorRoles returns locale ordered list (5.3043ms)
+✔ orchestrator role prompt skill bundle resolves prompt and imported skill segments (0.8293ms)
+✔ orchestrator role prompt skill bundle supports trim plus fallback prompt (0.13ms)
+✔ runner template appends started and success lifecycle in order (0.8017ms)
+✔ runner template routes timeout classification through timeout lifecycle (0.1679ms)
+✔ runner template supports escalated terminal handling (0.1424ms)
+✔ orchestrator runtime helpers build stable workspace and session paths (0.4766ms)
+✔ orchestrator runtime helpers resolve provider session ids with trimmed fallback (0.0745ms)
+✔ orchestrator runtime helpers keep manager url default and env override stable (0.1267ms)
+✔ session manager resolves latest activity timestamp across candidates (0.4106ms)
+✔ session manager heartbeat timeout uses latest known activity (0.1078ms)
+✔ project create and orchestrator settings API use enabled+remaining model (157.2529ms)
+✔ retired auto_dispatch_limit is rejected on create and routing-config patch (86.3632ms)
+✔ task report event payload helper normalizes updated ids and rejected count (0.7362ms)
+✔ task report action result helper keeps partialApplied derived from rejected list (0.1536ms)
+✔ task action pipeline executes parse -> auth -> gate -> apply -> converge -> emit (0.8668ms)
+✔ task action pipeline stops when dependency gate rejects (0.3455ms)
+✔ task report policy parses stable outcomes and rejects removed states (0.4403ms)
+✔ task report policy exposes reportable states for runtime updates (0.0828ms)
+✔ task report policy builds dependency-not-ready next_action with task and dependency ids (0.0792ms)
+✔ task report policy exposes retired outcome detection and shared outcome labels (0.0632ms)
+✔ task redispatch summary falls back to the previous summary when there are no descendants (0.4846ms)
+✔ task redispatch summary keeps descendant guidance for parent task (0.2116ms)
+✔ shared tick pipeline preserves configured order and stops on directive (0.8137ms)
+✔ adapter-backed tick pipeline skips hold-gated phases but still emits observability (0.2583ms)
+✔ adapter-backed tick pipeline stops when finalize adapter requests termination (0.1459ms)
+✔ adapter-backed tick loop resolves scopes and skips null contexts (0.1756ms)
+✔ hold-state sync emits only when value changes (0.1443ms)
+✔ orchestrator tool session input builder applies provider session and minimax dir fallbacks (0.815ms)
+✔ orchestrator tool session input builder preserves explicit overrides and optional fields (0.1605ms)
+✔ event append is append-only and readable (80.2278ms)
+✔ taskboard updates on task report (135.1257ms)
+✔ deleteProjectById drains active runtime before removing project (109.5855ms)
+✔ deleteProjectById refuses delete while provider runtime stays active (73.9455ms)
+✔ project completion service removes inbox messages for terminal tasks (10.8506ms)
+✔ project dispatch event adapter preserves recovery attempt metadata when provided (1.0312ms)
+✔ project dispatch launch adapter handles sync task dispatch and terminal event emission (2.4662ms)
+✔ project dispatch launch adapter resumes codex only when provider session id is a real thread id (0.4278ms)
+✔ project dispatch launch adapter handles minimax async callbacks and terminal success (0.4998ms)
+✔ project dispatch launch adapter blocks session on provider config error (0.4373ms)
+✔ project dispatch launch adapter keeps message dispatch retryable after async minimax transient failure (0.4976ms)
+✔ project dispatch launch adapter keeps task dispatch retryable after async minimax transient failure (0.361ms)
+✔ project dispatch launch adapter releases message dispatch when minimax async launch throws before run creation (0.2619ms)
+✔ project dispatch launch adapter releases message dispatch if terminal lifecycle fails after successful run (0.2689ms)
+✔ project dispatch launch preparation resolves model config and writes prompt artifact (3.9758ms)
+✔ project dispatch launch support builds provider and runner payloads with stable fields (0.8891ms)
+✔ project dispatch launch support appends terminal failed event with shared details (0.2545ms)
+✔ project dispatch launch support skips terminal append when dispatch is already closed (0.259ms)
+✔ project dispatch policy builds pending session ids and matches owner token (0.6818ms)
+✔ project dispatch policy closes dependency gate until prerequisite is done (0.5081ms)
+✔ project dispatch policy remaps discuss message to correct child task for target role (0.205ms)
+✔ project dispatch policy remaps discuss reply to dependent active task for target role (0.1418ms)
+✔ project dispatch prompt keeps routing snapshot, focus task, and discuss guide contract (0.8593ms)
+✔ project dispatch selection picks explicit message candidate (1.0955ms)
+✔ project dispatch selection allows force task dispatch on force-dispatchable state (1.4295ms)
+✔ project dispatch selection rejects dependency-gated task and appends skip event (0.3094ms)
+✔ project dispatch selection skips duplicate open task dispatch (0.3047ms)
+✔ project dispatch selection honors onlyIdle gate (0.1725ms)
+✔ project dispatch selection retries same undelivered message after prior failure (0.2831ms)
+✔ project dispatch selection synthesizes fresh task assignment with subtree from reminder source (0.7808ms)
+✔ /api/projects skips broken project directories (138.0173ms)
+✔ repo_doc_flow template scaffolds role documentation files (159.2464ms)
+✔ project bootstrap creates per-agent AGENTS.md with direct ToolCall guidance (114.8893ms)
+✔ base prompt API returns TeamTools initialization contract (4.0434ms)
+✔ delete project removes project data and returns not found afterwards (98.2035ms)
+✔ role template injects boundary/report rules for eng_manager and qa roles (116.8758ms)
+✔ project creation persists auto_dispatch_enabled and auto_dispatch_remaining in project config (83.1102ms)
+✔ project bootstrap ignores missing TeamTools template source in direct ToolCall mode (77.0709ms)
+✔ project bootstrap applies workspace role template override (111.2843ms)
+✔ patching agent prompt does not auto-sync existing project role.md (124.4406ms)
+✔ project deliver message uses shared template and bootstraps missing target session (6.363ms)
+✔ project manager message routing uses shared template and appends route events (2.2012ms)
+✔ project task assignment routing uses shared skeleton and emits manager routed event (1.325ms)
+✔ project reminder service triggers reminder, appends inbox/event, and redispatches (12.204ms)
+✔ project reminder service resets reminder state on manual action (1.5975ms)
+✔ project reminder service does not trigger when next reminder is still in the future (1.2065ms)
+✔ project reminder service skips ancestor reminder when descendants are unresolved (1.161ms)
+✔ project repository bundle exposes shared scope methods over one project unit-of-work (11.0239ms)
+✔ project session runtime service terminates a live child process by pid (555.4437ms)
+✔ project session runtime service returns skipped_no_pid when session has no pid or open run (8.4468ms)
+✔ project session runtime service repairs session status and appends repair event (1.473ms)
+✔ project timeout evidence is protected by fresh heartbeat (0.4943ms)
+✔ project timeout evidence is protected by recent terminal report (0.1537ms)
+✔ project timeout evidence closes session without protection (0.0919ms)
+✔ project tick service executes timeout -> reminder -> observability -> budget update order (1.2224ms)
+✔ provider launch error normalizer treats MiniMax 529 as transient runtime error (0.5388ms)
+✔ provider launch error normalizer treats MiniMax timeout as transient runtime error (0.0882ms)
+✔ provider launch error normalizer ignores MiniMax context window style errors (0.0869ms)
+✔ provider launch error serializer round-trips transient errors (0.1326ms)
+✔ agent, team, and project create reject provider/model mismatch (44.7363ms)
+✔ agent and project patch reject provider/model mismatch (127.7255ms)
+✔ provider model compatibility rejects MiniMax model for codex and accepts gpt-5.3-codex (0.7742ms)
+✔ codex launch failure normalizer converts unsupported model output into provider launch error (0.1798ms)
+✔ calculateNextReminderTime: default values produce 1 minute initial wait (1.0923ms)
+✔ calculateNextReminderTime: second reminder uses 2x backoff (0.0722ms)
+✔ calculateNextReminderTime: third reminder uses 4x backoff (0.0572ms)
+✔ calculateNextReminderTime: respects maxWaitMs cap (0.055ms)
+✔ calculateNextReminderTime: custom options override defaults (0.0666ms)
+✔ calculateNextReminderTime: custom backoff multiplier applies correctly (0.0614ms)
+✔ calculateNextReminderTime: custom maxWaitMs caps correctly (0.068ms)
+✔ shouldAutoResetReminderOnRoleTransition: only INACTIVE->IDLE resets (0.0792ms)
+✔ getRoleReminderState: returns null for non-existent role (59.9352ms)
+✔ getRoleReminderState: returns existing reminder state for role (63.1965ms)
+✔ updateRoleReminderState: creates new reminder state for new role (67.2875ms)
+✔ updateRoleReminderState: updates existing reminder state (84.0745ms)
+✔ readRoleRemindersState: returns default state for new project (45.111ms)
+✔ readRoleRemindersState: returns existing state with reminders (83.5063ms)
+✔ role reminder state is normalized (trimmed) (66.6898ms)
+✔ repository file backend keeps json/jsonl semantics with unit-of-work (119.7245ms)
+✔ repository memory backend keeps json/jsonl semantics with unit-of-work (0.476ms)
+[2026-04-23 14:08:49] [INFO] [API] GET /api/projects/routetargetsdir/route-targets?from_agent=planner - request received
+[2026-04-23 14:08:49] [INFO] [API] GET /api/projects/routetargetsdir/route-targets - completed in 1ms
+✔ route-targets API returns directional targets with directional discuss rounds (197.1385ms)
+[2026-04-23 14:08:49] [INFO] [API] GET /api/projects/routetargetsdefault/route-targets?from_agent=agent_b - request received
+[2026-04-23 14:08:49] [INFO] [API] GET /api/projects/routetargetsdefault/route-targets - completed in 1ms
+✔ route-targets API falls back to enabled agents when route table is not configured (146.8918ms)
+✔ runner failure transition resolves transient provider errors to idle cooldown with snake_case payload (1.5089ms)
+✔ runner failure transition escalates timeout with snake_case payload (0.1043ms)
+✔ runner failure transition keeps config errors blocked and structured (0.0939ms)
+✔ runtime platform capabilities provide platform-specific shell and CLI defaults (1.1066ms)
+✔ shell support and coercion stay platform-safe (0.1693ms)
+✔ running session cannot repair to idle or blocked (0.5593ms)
+✔ idle session with cooldown does not expose repair or retry (0.0781ms)
+✔ blocked session can repair to idle and returns current task risk (0.0609ms)
+✔ dismissed session repair requires confirmation and marks manual recovery risk (0.0906ms)
+✔ idle session with recovery context can retry dispatch (0.0795ms)
+✔ idle session with only provider binding cannot retry dispatch (0.0599ms)
+✔ idle session with message-only failure context cannot retry dispatch (0.0545ms)
+✔ idle session with task-only failure context cannot retry dispatch (0.0577ms)
+✔ idle session with stale role mapping cannot retry dispatch (0.1492ms)
+✔ unknown process state blocks repair and retry dispatch until dismiss (0.131ms)
+✔ resolveRecoveryMappingState distinguishes authoritative, stale, and none (0.4388ms)
+✔ resolveRecoveryProcessState derives running and not_running from session status and pid (0.0766ms)
+✔ buildRecoveryPolicyInput uses shared context defaults (0.4184ms)
+✔ buildRecoveryPolicyContext keeps read model and command enforcement aligned (0.235ms)
+✔ buildRecoveryPolicyContext blocks recovery commands when agent pid leaves process state unknown (0.0987ms)
+✔ project runtime recovery aggregates latest runner failure and current task context (127.7886ms)
+✔ project runtime recovery groups full recovery attempt history and marks incomplete chains (288.4759ms)
+✔ project runtime recovery defaults to limited attempts and supports full attempt history (207.9064ms)
+✔ project runtime recovery keeps recovery attempt lifecycle order when timestamps collide (153.0203ms)
+✔ workflow runtime recovery aggregates session status, task snapshot, and latest failure (180.1639ms)
+✔ dismissed recovery item carries confirmation requirement and latest recovery audit summary (159.7653ms)
+✔ workflow runtime recovery marks latest inflight attempt complete while session is still running (226.2769ms)
+✔ project taskboard migration rewrites legacy ambiguous done state to DONE on read (67.7662ms)
+✔ workflow runtime migration rewrites legacy ambiguous done state and transitions to DONE on read (114.8864ms)
+✔ retryProjectDispatchSession accepts guarded retry, clears failure context, and writes requested/accepted audit events (1.516ms)
+✔ retryProjectDispatchSession rejects optimistic-guard mismatches and records requested/rejected audit events (0.3997ms)
+✔ retryProjectDispatchSession records rejection when orchestrator refuses the retry (0.1988ms)
+✔ retryProjectDispatchSession rejects missing expected_status guard (0.264ms)
+✔ retryProjectDispatchSession rejects missing expected_role_mapping guard (0.6702ms)
+✔ retryProjectDispatchSession rejects missing failure-context guard (0.2069ms)
+✔ retryProjectDispatchSession rejects missing current-task guard when session still has currentTaskId (0.1864ms)
+✔ settings API returns and updates codex cli command (93.9411ms)
+✔ settings API supports minimax clear and reset with null semantics (122.2716ms)
+✔ project recovery endpoints require confirmation before dismissed repair (367.3053ms)
+✔ project retry-dispatch is allowed only for idle sessions with active recovery context (277.8002ms)
+✔ resolveActiveSessionForRole dismisses conflicted sessions and updates role map (193.773ms)
+✔ markRunnerTimeout escalates after threshold and dismisses session (178.4081ms)
+✔ markRunnerTransientError emits snake_case event payload and keeps session idle with cooldown (116.179ms)
+✔ sessions API exposes sessionId only (no sessionKey/providerSessionId) (220.9104ms)
+✔ dispatch rejects mismatched role + session_id to prevent misrouting (246.7576ms)
+✔ loadEffectiveMessages returns full history when no summary anchor exists (5.6182ms)
+✔ loadEffectiveMessages starts from latest summary anchor (5.5929ms)
+✔ resolve latest session by role uses lastActiveAt (141.4764ms)
+✔ session pid is cleared when status is not running (106.8745ms)
+✔ running session timeout appends dispatch/run closure events (1592.6249ms)
+✔ running minimax session timeout appends minimax synthetic run closure event (1277.2939ms)
+✔ project timeout skips kill when recent terminal report completed in trailing window (174.8769ms)
+✔ project timeout skips kill when recent canceled report completed in trailing window (160.3096ms)
+✔ shell tool exposes only supported shells for current host platform (0.8609ms)
+[2026-04-23 14:09:02] [PROCESS] [SPAWN] pid=81292, command="echo hello-from-shelltool..."
+[2026-04-23 14:09:02] [PROCESS] [EXIT] pid=81292, command="echo hello-from-shelltool...", reason=null, exitCode=0
+✔ shell tool executes a simple command with the default host shell (31.7026ms)
+[2026-04-23 14:09:02] [INFO] [ShellTool] Logged shell execution: pid=81292, command="echo hello-from-shelltool...", exitCode=0, killed=false, logFile=C:\Users\spiri\AppData\Local\Temp\autodev-shelltool-fkfjfF\.minimax\shell-logs\1776924542107-65eccfa8.jsonl
+✔ importSkills recursively imports skill folders and copies dependencies (90.249ms)
+✔ importSkills supports single SKILL.md source and overwrite update (43.9092ms)
+✔ skill list resolution respects include_all dynamic behavior and dedupe order (62.5973ms)
+✔ skills and skill-lists APIs support import/CRUD and agent references (204.0484ms)
+✔ runStorageTransaction rolls back staged writes when callback throws (37.2719ms)
+✔ deleteDirectoryTransactional removes directory atomically (14.0085ms)
+✔ append rollback does not expand file with zero bytes when current file is already smaller (1.1435ms)
+[2026-04-23 14:09:04] [MINIMAX] [Response] step=1, finishReason=tool_use, content length=0, thinking=no, toolCalls=1
+[2026-04-23 14:09:04] [MINIMAX] [ToolCalls] [{"id":"tool-1","name":"summary_messages"}]
+✔ agent applies pending summary after tool batch without breaking run (4.0474ms)
+✔ summary_messages list returns checkpoints (0.5594ms)
+✔ summary_messages apply validates summary and keep_recent_messages (0.1185ms)
+✔ summary_messages apply validates checkpoint and returns accepted payload (0.6899ms)
+✔ summary_messages respects runtime disable switch (0.0955ms)
+✔ legacy project task endpoints are not exposed (142.0825ms)
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"project-root-taskactions","task_kind":"PROJECT_ROOT","title":"Project Root","owner_role":"manager"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 55ms, result={"success":true,"requestId":"83ee80fc-51bc-482a-8165-7dadcf1f094d","actionType":"TASK_CREATE","taskId":"project-root-taskactions"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"user-root-1","task_kind":"USER_ROOT","parent_task_id":"project-root-taskactions","title":"User Root","owner_role":"manager"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 36ms, result={"success":true,"requestId":"1dfc4153-e493-469c-94a0-4d43df4f83e6","actionType":"TASK_CREATE","taskId":"user-root-1"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-task-1","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Implement feature","owner_role":"dev"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 60ms, result={"success":true,"requestId":"ac882363-f6bb-4995-a94c-f38072bd5594","actionType":"TASK_CREATE","taskId":"exec-task-1"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-dep-base","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Base Dependency","owner_role":"dev"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 56ms, result={"success":true,"requestId":"a1b491d2-fcb0-4fda-b3ea-f1eb6ae95845","actionType":"TASK_CREATE","taskId":"exec-dep-base"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-parent-task","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Parent Task","owner_role":"dev","dependencies":["exec-dep-base"]}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 55ms, result={"success":true,"requestId":"ba9deb5a-0ccf-4beb-8adc-51e190ce3324","actionType":"TASK_CREATE","taskId":"exec-parent-task"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-child-task","task_kind":"EXECUTION","parent_task_id":"exec-parent-task","root_task_id":"user-root-1","title":"Child Task","owner_role":"dev","dependencies":["exec-task-1","exec-dep-base"]}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 54ms, result={"success":true,"requestId":"80b51723-8c96-4297-913d-fbe9c05c9449","actionType":"TASK_CREATE","taskId":"exec-child-task"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-invalid-parent-dep","task_kind":"EXECUTION","parent_task_id":"exec-task-1","root_task_id":"user-root-1","title":"Invalid parent dependency","owner_role":"dev","dependencies":["exec-task-1"]}
+[2026-04-23 14:09:05] [ERROR] [API] POST /api/projects/taskactions/task-actions - error after 28ms: Error: dependencies cannot include parent/ancestor tasks: exec-task-1, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-invalid-parent-dep","task_kind":"EXECUTION","parent_task_id":"exec-task-1","root_task_id":"user-root-1","title":"Invalid parent dependency","owner_role":"dev","dependencies":["exec-task-1"]}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_ASSIGN","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-task-1","owner_role":"dev","dependencies":["user-root-1"]}
+[2026-04-23 14:09:05] [ERROR] [API] POST /api/projects/taskactions/task-actions - error after 35ms: Error: dependencies cannot include parent/ancestor tasks: user-root-1, body={"action_type":"TASK_ASSIGN","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-task-1","owner_role":"dev","dependencies":["user-root-1"]}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_UPDATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-task-1","dependencies":["user-root-1"]}
+[2026-04-23 14:09:05] [ERROR] [API] POST /api/projects/taskactions/task-actions - error after 25ms: Error: dependencies cannot include parent/ancestor tasks: user-root-1, body={"action_type":"TASK_UPDATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-task-1","dependencies":["user-root-1"]}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"implemented parser skeleton","results":[{"task_id":"exec-task-1","outcome":"IN_PROGRESS","summary":"implemented parser skeleton"}]}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 35ms, result={"success":true,"actionType":"TASK_REPORT","partialApplied":false,"appliedTaskIds":["exec-task-1"],"rejectedResults":[],"requestId":"ee191d5a-9fab-45d4-8caa-57f3bca915cb","taskId":"exec-task-1"}
+[2026-04-23 14:09:05] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","task_id":"exec-task-1","report_mode":"DONE","report_content":"done"}
+[2026-04-23 14:09:06] [ERROR] [API] POST /api/projects/taskactions/task-actions - error after 27ms: Error: TASK_REPORT report_mode is retired. Use results[] with outcome in IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED., body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","task_id":"exec-task-1","report_mode":"DONE","report_content":"done"}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"retired outcome","results":[{"task_id":"exec-task-1","outcome":"PARTIAL","summary":"old format"}]}
+[2026-04-23 14:09:06] [ERROR] [API] POST /api/projects/taskactions/task-actions - error after 27ms: Error: retired outcome 'PARTIAL'. Use IN_PROGRESS|BLOCKED_DEP|DONE|CANCELED., body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"retired outcome","results":[{"task_id":"exec-task-1","outcome":"PARTIAL","summary":"old format"}]}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"done","results":[{"task_id":"exec-task-1","outcome":"DONE","summary":"implemented"}]}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 33ms, result={"success":true,"actionType":"TASK_REPORT","partialApplied":false,"appliedTaskIds":["exec-task-1"],"rejectedResults":[],"requestId":"6b191843-1e50-4f00-9383-f78669cd854f","taskId":"exec-task-1"}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"done again","results":[{"task_id":"exec-task-1","outcome":"DONE","summary":"no new update"}]}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 32ms, result={"success":true,"actionType":"TASK_REPORT","partialApplied":false,"appliedTaskIds":["exec-task-1"],"rejectedResults":[],"requestId":"7e92ae3d-85bf-4c28-9a87-a0e1c928d64f","taskId":"exec-task-1"}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"attempt rollback from done","results":[{"task_id":"exec-task-1","outcome":"IN_PROGRESS","summary":"attempt rollback from done"}]}
+[2026-04-23 14:09:06] [ERROR] [API] POST /api/projects/taskactions/task-actions - error after 25ms: Error: TASK_REPORT transition is stale for all reported tasks, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"attempt rollback from done","results":[{"task_id":"exec-task-1","outcome":"IN_PROGRESS","summary":"attempt rollback from done"}]}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-task-2","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Second task","owner_role":"dev"}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 57ms, result={"success":true,"requestId":"cc1739d9-6741-4a64-bad1-c466fa04a7ec","actionType":"TASK_CREATE","taskId":"exec-task-2"}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"exec-task-3","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Third task","owner_role":"dev","dependencies":["exec-task-2"]}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 51ms, result={"success":true,"requestId":"30c95b8b-6d32-4f3a-a38d-4a6b33a58d21","actionType":"TASK_CREATE","taskId":"exec-task-3"}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"waiting dependency","results":[{"task_id":"exec-task-2","outcome":"BLOCKED_DEP","summary":"waiting dependency","blockers":["waiting dependency"]}]}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 35ms, result={"success":true,"actionType":"TASK_REPORT","partialApplied":false,"appliedTaskIds":["exec-task-2"],"rejectedResults":[],"requestId":"4952293f-3514-45cf-8919-148049fa5424","taskId":"exec-task-2"}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"mixed report with unresolved dependency first","results":[{"task_id":"exec-task-3","outcome":"DONE","summary":"premature done"},{"task_id":"exec-task-2","outcome":"DONE","summary":"done now"}]}
+[2026-04-23 14:09:06] [ERROR] [API] POST /api/projects/taskactions/task-actions - error after 25ms: Error: task 'exec-task-3' cannot transition to 'DONE' before dependencies are ready: exec-task-2, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"mixed report with unresolved dependency first","results":[{"task_id":"exec-task-3","outcome":"DONE","summary":"premature done"},{"task_id":"exec-task-2","outcome":"DONE","summary":"done now"}]}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - request received, body={"action_type":"TASK_REPORT","from_agent":"dev","from_session_id":"sess-dev","summary":"ordered report resolves dependency in same batch","results":[{"task_id":"exec-task-2","outcome":"DONE","summary":"dependency solved in same batch"},{"task_id":"exec-task-3","outcome":"DONE","summary":"done after dependency solved in same batch"}]}
+[2026-04-23 14:09:06] [INFO] [API] POST /api/projects/taskactions/task-actions - completed in 39ms, result={"success":true,"actionType":"TASK_REPORT","partialApplied":false,"appliedTaskIds":["exec-task-2","exec-task-3"],"rejectedResults":[],"requestId":"de938f8e-46ec-45af-b75d-5654bac14c30","taskId":"exec-task-2"}
+✔ task-actions create task tree and TASK_REPORT enforces progress validation (1050.8281ms)
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"project-root-tasktransitivegate","task_kind":"PROJECT_ROOT","title":"Project Root","owner_role":"manager"}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - completed in 51ms, result={"success":true,"requestId":"1bbc5929-fc1f-4f93-807a-fe54ebc41cb7","actionType":"TASK_CREATE","taskId":"project-root-tasktransitivegate"}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"user-root-1","task_kind":"USER_ROOT","parent_task_id":"project-root-tasktransitivegate","title":"User Root","owner_role":"manager"}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - completed in 37ms, result={"success":true,"requestId":"a5bab32a-d2d8-4bc6-8c3a-ef6d9f1467fa","actionType":"TASK_CREATE","taskId":"user-root-1"}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-a","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Task A","owner_role":"dev"}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - completed in 62ms, result={"success":true,"requestId":"ea7446a4-146e-4cf1-a3fa-4698e37c014c","actionType":"TASK_CREATE","taskId":"task-a"}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-b","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Task B","owner_role":"dev","dependencies":["task-a"]}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - completed in 51ms, result={"success":true,"requestId":"c7dc3eec-fb2a-4fcc-98c1-c98e6f9ca5b0","actionType":"TASK_CREATE","taskId":"task-b"}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-c","task_kind":"EXECUTION","parent_task_id":"user-root-1","root_task_id":"user-root-1","title":"Task C","owner_role":"dev","dependencies":["task-b"]}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - completed in 50ms, result={"success":true,"requestId":"3a687101-440b-43b3-b48b-84cb0c92938d","actionType":"TASK_CREATE","taskId":"task-c"}
+[2026-04-23 14:09:07] [INFO] [API] POST /api/projects/tasktransitivegate/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-d","task_kind":"EXECUTION","parent_task_id":"task-a","root_task_id":"user-root-1","title":"Task D","owner_role":"dev","dependencies":["task-c"]}
+[2026-04-23 14:09:07] [ERROR] [API] POST /api/projects/tasktransitivegate/task-actions - error after 28ms: Error: dependencies cannot transitively reach parent/ancestor tasks: task-c->task-a, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-d","task_kind":"EXECUTION","parent_task_id":"task-a","root_task_id":"user-root-1","title":"Task D","owner_role":"dev","dependencies":["task-c"]}
+✔ task-actions reject transitive ancestor dependency with diagnostic chain details (1305.4529ms)
+[2026-04-23 14:09:08] [INFO] [API] POST /api/projects/durabilitycheck/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-discuss-lead-plan","task_kind":"EXECUTION","parent_task_id":"durabilitycheck-root","root_task_id":"durabilitycheck-root","title":"Lead discuss plan","owner_role":"manager"}
+[2026-04-23 14:09:08] [INFO] [API] POST /api/projects/durabilitycheck/task-actions - completed in 79ms, result={"success":true,"requestId":"e8afaebf-f99b-447a-8bbc-2177ac33d0c2","actionType":"TASK_CREATE","taskId":"task-discuss-lead-plan"}
+[2026-04-23 14:09:08] [INFO] [API] POST /api/projects/durabilitycheck/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-discuss-arch-b","task_kind":"EXECUTION","parent_task_id":"durabilitycheck-root","root_task_id":"durabilitycheck-root","title":"Architecture response","owner_role":"manager","dependencies":["task-discuss-lead-plan"]}
+[2026-04-23 14:09:08] [INFO] [API] POST /api/projects/durabilitycheck/task-actions - completed in 57ms, result={"success":true,"requestId":"c8a8df2e-5721-4b25-a65d-dc2837dc5a80","actionType":"TASK_CREATE","taskId":"task-discuss-arch-b"}
+✔ task create is durably visible before the next dependent create runs (263.6484ms)
+✔ creator terminal report dedupe ignores close_report_id changes (277.6732ms)
+✔ createTask rejects dependency pointing to direct parent (93.3695ms)
+✔ patchTask rejects dependency pointing to ancestor (112.2627ms)
+✔ createTask rejects dependency whose chain reaches ancestor (127.2243ms)
+✔ TASK_REPORT allows owner or creator and supports partial apply (176.3296ms)
+✔ TASK_REPORT returns 409 when all reported tasks are unauthorized (113.44ms)
+✔ TASK_REPORT accepts owner role report even when ownerSession token is stale (138.9847ms)
+[2026-04-23 14:09:13] [INFO] [API] POST /api/projects/tasktree/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"project-root-tasktree","task_kind":"PROJECT_ROOT","title":"Project Root","owner_role":"manager"}
+[2026-04-23 14:09:13] [INFO] [API] POST /api/projects/tasktree/task-actions - completed in 60ms, result={"success":true,"requestId":"c94d0363-895f-4740-9869-e733e76c616b","actionType":"TASK_CREATE","taskId":"project-root-tasktree"}
+[2026-04-23 14:09:13] [INFO] [API] POST /api/projects/tasktree/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"user-root-tasktree","task_kind":"USER_ROOT","parent_task_id":"project-root-tasktree","title":"User Root","owner_role":"manager"}
+[2026-04-23 14:09:13] [INFO] [API] POST /api/projects/tasktree/task-actions - completed in 40ms, result={"success":true,"requestId":"6f4359db-18dc-4a9b-a914-bd8d36bbb44f","actionType":"TASK_CREATE","taskId":"user-root-tasktree"}
+[2026-04-23 14:09:13] [INFO] [API] POST /api/projects/tasktree/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-a","task_kind":"EXECUTION","parent_task_id":"user-root-tasktree","root_task_id":"user-root-tasktree","title":"Task A","owner_role":"dev"}
+[2026-04-23 14:09:13] [INFO] [API] POST /api/projects/tasktree/task-actions - completed in 70ms, result={"success":true,"requestId":"505bf385-5f99-4e95-8ba9-43ad7a08f1aa","actionType":"TASK_CREATE","taskId":"task-a"}
+[2026-04-23 14:09:13] [INFO] [API] POST /api/projects/tasktree/task-actions - request received, body={"action_type":"TASK_CREATE","from_agent":"manager","from_session_id":"manager-system","task_id":"task-b","task_kind":"EXECUTION","parent_task_id":"user-root-tasktree","root_task_id":"user-root-tasktree","title":"Task B","owner_role":"dev","dependencies":["task-a"]}
+[2026-04-23 14:09:13] [INFO] [API] POST /api/projects/tasktree/task-actions - completed in 58ms, result={"success":true,"requestId":"256fa02c-b5d2-418e-91a8-ffbffc69039b","actionType":"TASK_CREATE","taskId":"task-b"}
+✔ task-tree supports focus and external dependency edges (382.6868ms)
+✔ leaf task is blocked when any ancestor dependency is unfinished (210.018ms)
+✔ project and workflow TEAM.md consume agent summary with existing links (264.9332ms)
+✔ Codex TeamTool aliases use teamtool MCP namespace (0.4085ms)
+✔ TeamTool schema builder preserves object properties and array|string unions (3.1143ms)
+✔ TeamTool prompt and docs use next_action without hint wording (0.2326ms)
+✔ agent-visible prompts/doc index use registered TeamTools names consistently (61.5209ms)
+✔ runtime prompt and workspace guide switch by host platform (0.2719ms)
+✔ listWalRecords retries transient EPERM on wal file read (86.335ms)
+✔ listWalRecords retries transient EPERM on wal directory scan (76.5944ms)
+✔ listWalRecords throws StorageAccessError when wal file remains unreadable (1084.9866ms)
+✔ workflow agent-chat SSE endpoint emits stream events and interrupt endpoint is available (258.4111ms)
+✔ workflow agent-io timeline survives transient wal EPERM and keeps 200 (368.6203ms)
+[2026-04-23 14:09:20] [ERROR] [API] GET /api/workflow-runs/wf_timeline_fail_run/agent-io/timeline?limit=1000 - storage unavailable: WAL readFile failed after 8 attempts, details={"operation":"readFile","walDir":"C:\\Users\\spiri\\AppData\\Local\\Temp\\autodev-wf-timeline-wal-503-qpXMrK\\data\\workflows\\runs\\wf_timeline_fail_run\\.storage-wal","walFile":"C:\\Users\\spiri\\AppData\\Local\\Temp\\autodev-wf-timeline-wal-503-qpXMrK\\data\\workflows\\runs\\wf_timeline_fail_run\\.storage-wal\\tx-fail.wal.json","attempts":8,"errorCode":"EPERM","errorMessage":"simulated persistent wal read failure","runId":"wf_timeline_fail_run"}
+✔ workflow agent-io timeline returns 503 when wal read stays EPERM (1192.7724ms)
+✔ workflow template CRUD and run lifecycle work with workspace_path-only create (271.0229ms)
+✔ workflow run create hard-rejects retired binding fields and step-* endpoints are retired (106.6568ms)
+✔ workflow orchestrator defaults/settings and task-tree/detail parity endpoints are available (416.5873ms)
+✔ workflow dispatch can auto-select READY task even without inbox messages (302.4953ms)
+✔ workflow recurring settings reject loop and schedule coexistence (123.2974ms)
+✔ workflow dependency propagation moves blocked tasks to READY after dependencies complete (20169.1395ms)
+✔ workflow-native sessions/messages/timeline work end-to-end (419.2996ms)
+✔ workflow completion service auto-finishes after the stable window is satisfied (1.537ms)
+✔ workflow dispatch event adapter preserves recovery attempt metadata when provided (1.1442ms)
+✔ workflow dispatch launch adapter blocks session when minimax is not configured (2.3736ms)
+✔ workflow dispatch launch adapter blocks session on provider config error (5.8546ms)
+✔ workflow dispatch launch adapter keeps transient provider errors retryable with cooldown (1.1298ms)
+✔ workflow dispatch launch adapter records codex provider observations (1.0863ms)
+✔ workflow dispatch launch preparation resolves fallback role prompt, skills, and provider config (1.0489ms)
+✔ workflow dispatch launch support appends synthetic finished event when dispatch timed out first (0.9956ms)
+✔ workflow dispatch launch support appends failed event and dismisses session on open launch error (1.0881ms)
+✔ workflow dispatch launch support writes max-tokens recovery event with dispatch metadata (0.1824ms)
+✔ workflow dispatch prefers deeper runnable task for the same role (344.4314ms)
+✔ workflow dispatch prompt includes team/shared workspace contract (3.4982ms)
+✔ workflow dispatch prompt requires execution subtask before decomposition phase can finish (1.3053ms)
+✔ workflow dispatch selection resolves role and session for ready task (2.064ms)
+✔ workflow dispatch selection reports busy when session is cooling down (0.165ms)
+✔ workflow dispatch selection reports busy when session is already running with pending message (0.1865ms)
+✔ workflow dispatch selection reports busy when session is blocked (0.1338ms)
+✔ workflow dispatch selection skips duplicate open task dispatch (0.2901ms)
+✔ workflow dispatch selection blocks auto dispatch when budget is exhausted (0.1945ms)
+✔ workflow dispatch selection allows force redispatch for dispatched task (0.2822ms)
+✔ workflow dispatch selection synthesizes fresh task assignment with subtree from reminder source (5.8573ms)
+✔ workflow message routing service routes to authoritative session and persists inbox plus events (2.3497ms)
+✔ workflow message routing service rejects route denied by workflow route table (0.3143ms)
+✔ workflow routed message builder keeps discuss and accountability contract stable (0.1397ms)
+✔ workflow resolves role-authoritative session with persisted roleSessionMap (300.4532ms)
+✔ workflow dispatch skips duplicate open task dispatch (301.8758ms)
+✔ workflow orchestrator status service maps loop snapshot and run summaries deterministically (174.3276ms)
+✔ workflow parent task state follows child completion progress (459.3668ms)
+✔ workflow perf trace is disabled by default (3.1487ms)
+✔ workflow perf trace appends jsonl when enabled (3.8321ms)
+✔ workflow perf trace records failure and rethrows (2.6394ms)
+✔ workflow dismiss keeps local state untouched when external stop is unconfirmed (320.5461ms)
+✔ workflow repair requires confirmation after dismiss and retry-dispatch writes audit event (787.4142ms)
+✔ workflow recurring dispatcher spawns loop run from finished parent (239.4026ms)
+✔ workflow recurring dispatcher does not duplicate loop spawn across overlapping ticks (229.6619ms)
+✔ workflow recurring dispatcher does not duplicate schedule spawn across overlapping ticks (202.3385ms)
+[2026-04-23 14:10:00] [ERROR] [workflow-recurring-dispatcher] schedule recurring failed for run 'schedule_seed_run': schedule seed failure
+✔ workflow recurring dispatcher starts loop child even if another recurring seed fails later in tick (295.2767ms)
+[2026-04-23 14:10:00] [ERROR] [workflow-recurring-dispatcher] failed to start spawned run 'workflow-run-7ddd93aa-aa4': start failed once
+✔ workflow recurring dispatcher retries loop spawn after child start failure (341.136ms)
+✔ workflow recurring dispatcher enforces schedule single-active and HH:XX next-minute retry (406.831ms)
+[2026-04-23 14:10:01] [ERROR] [workflow-recurring-dispatcher] failed to start spawned run 'workflow-run-e97eed29-6f9': schedule start failed once
+✔ workflow recurring dispatcher retries schedule spawn after child start failure without consuming the window (368.2312ms)
+✔ workflow recurring schedule parser supports MM-DD HH:MM with XX matrix (0.6576ms)
+✔ workflow recurring schedule matcher handles wildcard and fixed windows (0.6372ms)
+✔ workflow recurring schedule window key and range honor HH:XX minute semantics (0.2246ms)
+✔ workflow recurring schedule next trigger search returns next minute-compatible match (0.2801ms)
+✔ workflow reminder service triggers reminder, appends inbox/event, and redispatches (2.2342ms)
+✔ workflow reminder service does not auto-create or resolve sessions for roles with no existing session (0.2422ms)
+✔ workflow reminder service skips parent reminder when descendants are unresolved (5.3227ms)
+✔ workflow repository bundle persists run runtime/session/event/inbox/reminder under a shared unit-of-work (50.5602ms)
+✔ workflow run lifecycle service starts and stops runs with session cancel cleanup (254.4782ms)
+✔ workflow run query service returns runtime, tree, and settings views through one seam (218.8792ms)
+✔ workflow run repository persists initial auto dispatch budget and falls back for legacy records (117.3764ms)
+✔ workflow runtime convergence moves blocked task to READY when dependencies complete (1.6009ms)
+✔ workflow runtime convergence unlocks multi-dependency tasks in the same snapshot (0.1354ms)
+✔ workflow runtime convergence recomputes parent states and does not reopen terminal leaf tasks (0.2777ms)
+✔ workflow auto finish window is deterministic for tick, reset, and finalize cases (0.1463ms)
+✔ addWorkflowTaskTransition preserves state when target is unchanged and updates summary (0.0793ms)
+✔ workflow runtime support service converges runtime and builds active snapshot (193.2169ms)
+✔ workflow runtime support service serializes stale runtime rewrites behind newer mutations (263.2641ms)
+✔ workflow runtime mutex rejects pending old-generation mutations after clear (0.4689ms)
+✔ workflow runtime view builds snapshot and counters deterministically (0.7482ms)
+✔ workflow runtime view builds task tree edges and settings summaries (0.3532ms)
+✔ workflow authoritative session auto-creation uses configured role provider (0.8685ms)
+✔ workflow authoritative session recreation inherits provider from historical mapped session (0.1851ms)
+✔ workflow timeout evidence is protected by fresh heartbeat (0.5045ms)
+✔ workflow timeout evidence is protected by recent terminal report (0.1785ms)
+✔ workflow timeout evidence closes session without protection (0.0887ms)
+✔ workflow timeout uses soft recovery (idle) before escalation (302.6367ms)
+✔ workflow task action service delegates discuss actions through message routing (0.988ms)
+✔ workflow task action service creates task with merged dependencies and updated runtime (1.6987ms)
+✔ workflow task action service reports partial apply without mutating session lifecycle (0.6154ms)
+✔ workflow task-actions support create/discuss/report with partial apply and cross-role restrictions (915.2786ms)
+✔ workflow task runtime API exposes runtime fields, dependency gates, and terminal convergence (1930.1604ms)
+✔ workflow route_targets_get only uses current run role scope (90.6607ms)
+✔ workflow task bridge surfaces TASK_DEPENDENCY_NOT_READY next_action for agent correction (1.0835ms)
+✔ workflow task bridge surfaces TASK_EXISTS with recoverable next_action (0.7336ms)
+✔ workflow tick service executes timeout -> finalize -> reminder -> dispatch order (1.2418ms)
+✔ workflow run bootstrap creates agent workspace files with fallback prompt for unregistered role (161.5561ms)
+ℹ tests 448
+ℹ suites 0
+ℹ pass 448
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 267193.0009

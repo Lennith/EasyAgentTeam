@@ -1,4 +1,4 @@
-# 后端系统 Workflow Runtime API 规范（最后更新：2026-04-22）
+# 后端系统 Workflow Runtime API 规范（最后更新：2026-04-23）
 
 本页只覆盖 workflow runtime 公开 API、恢复接口与错误契约。
 
@@ -28,6 +28,8 @@
 ## Workflow Recovery Read Model
 
 - `GET /api/workflow-runs/:run_id/runtime-recovery`
+- 可选查询参数：
+  - `attempt_limit`：正整数时按 session 返回最近 N 条 `recovery_attempts`；`all` 时返回 full history；缺省为后端默认有限条数
 - 返回固定 shape：
   - `scope_kind`
   - `scope_id`
@@ -107,7 +109,7 @@
 - `SESSION_RETRY_GUARD_REQUIRED` 与 `SESSION_RETRY_DISPATCH_NOT_ALLOWED` 都返回 `409`；前者用于 guard 缺失，后者用于 guard mismatch、policy 不允许或 orchestrator 拒绝
 - workflow retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分；读模型兼容历史 `REQUESTED`
 - workflow retry-dispatch 内部会生成 `recovery_attempt_id` 并串到 retry 审计事件与对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`；该字段只用于内部审计，不新增公开请求或响应字段
-- workflow `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的完整恢复历史；它保留 full history，不做 synthetic backfill，并至少返回：
+- workflow `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的恢复历史；默认按 session 返回最近有限条，`attempt_limit=all` 返回 full history，不做 synthetic backfill，并至少返回：
   - `recovery_attempt_id`
   - `status`
   - `integrity`
@@ -135,3 +137,6 @@
 - timeout close 前必须通过 workflow timeout evidence 纯函数判断 `should_close`，并基于 fresh heartbeat / recent terminal report 做 skip 保护
 - timeout runtime service 只负责加载数据、执行 close / cancel、关闭 dispatch / run、释放 in-flight gate 与写审计，不在 scanner 内继续堆条件分支
 - workflow task runtime 的 mutation 采用 run-scoped 串行语义：`TASK_REPORT`、runtime convergence、dispatch afterLoop 与 completion finalize 必须通过同一条 workflow transaction 入口执行，避免并发 stale snapshot 在较晚提交时覆盖已落盘的新任务状态
+- workflow runtime 当前只声明单 backend / 单进程 process-local lock 语义；不声明支持多个 backend 进程共享同一个 `dataRoot`
+- `clearRunScopedState()` 会提升 run scoped mutation generation；已开始执行的 mutation 不被强杀，等待旧 tail 的 pending mutation 必须拒绝执行
+- workflow dispatch pre-dispatch session touch 失败必须写结构化运行时日志，不允许静默吞掉

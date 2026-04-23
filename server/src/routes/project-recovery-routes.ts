@@ -13,6 +13,7 @@ import type { AppRuntimeContext } from "./shared/context.js";
 import { readStringField, sanitizeSessionForApi, sendApiError } from "./shared/http.js";
 import {
   readRecoveryActor,
+  readRecoveryAttemptLimit,
   readRecoveryConfirm,
   readRetryDispatchGuards,
   sendRecoveryRejection
@@ -23,7 +24,14 @@ export function registerProjectRecoveryRoutes(app: express.Application, context:
 
   app.get("/api/projects/:id/runtime-recovery", async (req, res, next) => {
     try {
-      const payload = await buildProjectRuntimeRecovery(dataRoot, req.params.id);
+      const attemptLimit = readRecoveryAttemptLimit(req.query.attempt_limit ?? req.query.attemptLimit);
+      if (attemptLimit.error) {
+        sendApiError(res, 400, attemptLimit.error.code, attemptLimit.error.message, attemptLimit.error.next_action);
+        return;
+      }
+      const payload = await buildProjectRuntimeRecovery(dataRoot, req.params.id, {
+        attempt_limit: attemptLimit.attempt_limit
+      });
       res.status(200).json(payload);
     } catch (error) {
       next(error);

@@ -1,0 +1,5 @@
+﻿stamp=20260423_140017
+cwd=C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+head=0aed765754be7f7d4c19db7dc5f4a4876f63fcea
+branch=main
+started_at=2026-04-23T14:00:17.7423675+08:00

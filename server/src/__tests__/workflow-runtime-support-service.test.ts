@@ -10,7 +10,10 @@ import {
   getWorkflowRun,
   patchWorkflowRun
 } from "../data/repository/workflow/run-repository.js";
-import { createWorkflowOrchestratorTransientState } from "../services/orchestrator/workflow/workflow-orchestrator-state.js";
+import {
+  WorkflowRunMutationClearedError,
+  createWorkflowOrchestratorTransientState
+} from "../services/orchestrator/workflow/workflow-orchestrator-state.js";
 import { WorkflowRuntimeSupportService } from "../services/orchestrator/workflow/workflow-runtime-support-service.js";
 import { addWorkflowTaskTransition } from "../services/orchestrator/shared/runtime/workflow-runtime-kernel.js";
 
@@ -137,4 +140,36 @@ test("workflow runtime support service serializes stale runtime rewrites behind 
 
   const runAfter = await getWorkflowRun(tempRoot, runId);
   assert.equal(runAfter?.runtime?.tasks.find((item) => item.taskId === "task_a")?.state, "DONE");
+});
+
+test("workflow runtime mutex rejects pending old-generation mutations after clear", async () => {
+  const runId = "wf_runtime_clear_pending";
+  const transientState = createWorkflowOrchestratorTransientState();
+  const runningStarted = createDeferred<void>();
+  const releaseRunning = createDeferred<void>();
+  let pendingMutationRan = false;
+  let freshMutationRan = false;
+
+  const runningMutation = transientState.runExclusiveRuntimeMutation(runId, async () => {
+    runningStarted.resolve();
+    await releaseRunning.promise;
+  });
+  await runningStarted.promise;
+
+  const pendingMutation = transientState.runExclusiveRuntimeMutation(runId, async () => {
+    pendingMutationRan = true;
+  });
+
+  transientState.clearRunScopedState(runId);
+
+  const freshMutation = transientState.runExclusiveRuntimeMutation(runId, async () => {
+    freshMutationRan = true;
+  });
+  await freshMutation;
+  assert.equal(freshMutationRan, true);
+
+  releaseRunning.resolve();
+  await runningMutation;
+  await assert.rejects(pendingMutation, WorkflowRunMutationClearedError);
+  assert.equal(pendingMutationRan, false);
 });

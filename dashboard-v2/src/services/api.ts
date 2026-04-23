@@ -50,6 +50,7 @@ import type {
 import type { ProviderId } from "@autodev/agent-library";
 
 const API_BASE = "/api";
+const RECOVERY_CENTER_ATTEMPT_LIMIT = 5;
 
 function formatError(error: unknown): string | undefined {
   if (error === undefined || error === null) return undefined;
@@ -498,7 +499,9 @@ export const projectApi = {
 
   getRuntimeRecovery: async (projectId: string): Promise<RuntimeRecoveryResponse> =>
     mapRuntimeRecoveryResponse(
-      await fetchJSON<Record<string, unknown>>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/runtime-recovery`)
+      await fetchJSON<Record<string, unknown>>(
+        `${API_BASE}/projects/${encodeURIComponent(projectId)}/runtime-recovery?attempt_limit=${RECOVERY_CENTER_ATTEMPT_LIMIT}`
+      )
     ),
 
   getTaskTree: (
@@ -1126,7 +1129,7 @@ export const workflowApi = {
   getRuntimeRecovery: async (runId: string): Promise<RuntimeRecoveryResponse> =>
     mapRuntimeRecoveryResponse(
       await fetchJSON<Record<string, unknown>>(
-        `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/runtime-recovery`
+        `${API_BASE}/workflow-runs/${encodeURIComponent(runId)}/runtime-recovery?attempt_limit=${RECOVERY_CENTER_ATTEMPT_LIMIT}`
       )
     ),
 

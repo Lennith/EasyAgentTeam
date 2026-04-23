@@ -306,6 +306,60 @@ test("project runtime recovery groups full recovery attempt history and marks in
   );
 });
 
+test("project runtime recovery defaults to limited attempts and supports full attempt history", async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-attempt-limit-"));
+  const repositories = getProjectRepositoryBundle(dataRoot);
+  const nowIso = new Date().toISOString();
+  const created = await repositories.projectRuntime.createProject({
+    projectId: "project_recovery_attempt_limit",
+    name: "Project Recovery Attempt Limit",
+    workspacePath: path.join(dataRoot, "workspace"),
+    autoDispatchEnabled: true,
+    autoDispatchRemaining: 3,
+    holdEnabled: false,
+    reminderMode: "backoff"
+  });
+
+  await repositories.sessions.addSession(created.paths, created.project.projectId, {
+    sessionId: "session-dev",
+    role: "dev",
+    status: "idle",
+    provider: "minimax",
+    providerSessionId: "provider-session-dev",
+    errorStreak: 1,
+    lastFailureAt: nowIso,
+    lastFailureKind: "error"
+  });
+
+  for (let index = 1; index <= 6; index += 1) {
+    await appendEvent(created.paths, {
+      projectId: created.project.projectId,
+      eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+      source: "system",
+      sessionId: "session-dev",
+      payload: {
+        recovery_attempt_id: `attempt-${index}`,
+        dispatch_scope: "role"
+      }
+    });
+    await waitForNextTick();
+  }
+
+  const defaultPayload = await buildProjectRuntimeRecovery(dataRoot, created.project.projectId);
+  assert.deepEqual(
+    defaultPayload.items[0]?.recovery_attempts.map((attempt) => attempt.recovery_attempt_id),
+    ["attempt-6", "attempt-5", "attempt-4", "attempt-3", "attempt-2"]
+  );
+
+  const fullPayload = await buildProjectRuntimeRecovery(dataRoot, created.project.projectId, {
+    attempt_limit: "all"
+  });
+  assert.deepEqual(
+    fullPayload.items[0]?.recovery_attempts.map((attempt) => attempt.recovery_attempt_id),
+    ["attempt-6", "attempt-5", "attempt-4", "attempt-3", "attempt-2", "attempt-1"]
+  );
+});
+
 test("project runtime recovery keeps recovery attempt lifecycle order when timestamps collide", async () => {
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-collided-order-"));
   const repositories = getProjectRepositoryBundle(dataRoot);

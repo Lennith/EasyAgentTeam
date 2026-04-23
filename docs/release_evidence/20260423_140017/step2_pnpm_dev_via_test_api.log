@@ -1,0 +1,83 @@
+﻿
+> auto-develop-framework@0.1.0 test:api C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> node tools/verify_dev.mjs
+
+node.exe : (node:33532) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead t
+o security vulnerabilities, as the arguments are not escaped, only concatenated.
+At C:\Users\spiri\AppData\Roaming\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:33532) [D...y concatenated.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[verify_dev] /healthz: {
+  status: 'ok',
+  service: 'autodevelopframework-server',
+  time: '2026-04-23T06:05:00.112Z'
+}
+[verify_dev] /api/projects (server): {
+  items: [
+    {
+      projectId: 'e2e_dispatch_chain_v1',
+      name: 'E2E Dispatch Chain v1',
+      workspacePath: 'D:\\AgentWorkSpace\\TestTeam\\TestRound20',
+      dataPath: 'data/projects/e2e_dispatch_chain_v1/collab'
+    },
+    {
+      projectId: 'e2e_team_discuss_v1',
+      name: 'E2E Team Discuss Framework v1',
+      workspacePath: 'D:\\AgentWorkSpace\\TestTeam\\TestTeamDiscuss',
+      dataPath: 'data/projects/e2e_team_discuss_v1/collab'
+    }
+  ],
+  total: 2
+}
+[verify_dev] /api/projects (dashboard-v2 proxy): {
+  items: [
+    {
+      projectId: 'e2e_dispatch_chain_v1',
+      name: 'E2E Dispatch Chain v1',
+      workspacePath: 'D:\\AgentWorkSpace\\TestTeam\\TestRound20',
+      dataPath: 'data/projects/e2e_dispatch_chain_v1/collab'
+    },
+    {
+      projectId: 'e2e_team_discuss_v1',
+      name: 'E2E Team Discuss Framework v1',
+      workspacePath: 'D:\\AgentWorkSpace\\TestTeam\\TestTeamDiscuss',
+      dataPath: 'data/projects/e2e_team_discuss_v1/collab'
+    }
+  ],
+  total: 2
+}
+[verify_dev] captured logs:
+
+> auto-develop-framework@0.1.0 dev C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+> concurrently -k -n server,web -c cyan,magenta "pnpm run dev:server" "pnpm run dev:web"
+
+[server] 
+[server] > auto-develop-framework@0.1.0 dev:server C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+[server] > pnpm --filter @autodev/server dev
+[server] 
+[web] 
+[web] > auto-develop-framework@0.1.0 dev:web C:\Users\spiri\Documents\GitHub\EasyAgentTeam
+[web] > pnpm --filter dashboard-v2 dev
+[web] 
+[server] 
+[server] > @autodev/server@0.1.0 dev C:\Users\spiri\Documents\GitHub\EasyAgentTeam\server
+[server] > node scripts/dev-entry.mjs
+[server] 
+[web] 
+[web] > dashboard-v2@1.0.0 dev C:\Users\spiri\Documents\GitHub\EasyAgentTeam\dashboard-v2
+[web] > vite
+[web] 
+[server] (node:77360) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+[server] (Use `node --trace-deprecation ...` to show where the warning was created)
+[web] 
+[web]   [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m248[22m[2m[0m ms[22m
+[web] 
+[web]   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m54174[22m/[39m
+[web] [2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[server] [2026-04-23 14:04:59] [INFO] [server] listening on http://127.0.0.1:43123
+[server] [2026-04-23 14:04:59] [INFO] [server] data root: C:\Users\spiri\Documents\GitHub\EasyAgentTeam\data
+

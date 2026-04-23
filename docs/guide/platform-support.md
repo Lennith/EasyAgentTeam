@@ -1,4 +1,4 @@
-﻿# 平台支持（最后更新：2026-04-16）
+﻿# 平台支持（最后更新：2026-04-23）
 
 ## 当前状态
 
@@ -17,8 +17,10 @@
 
 - PowerShell 包装的 E2E 脚本仍以 Windows 为主
 - 部分辅助 gate 脚本仍通过 PowerShell 入口运行
+- workflow runtime 的 run-scoped mutation 串行化当前是单 backend / 单进程 process-local lock；不声明支持多个 backend 进程共享同一个 `dataRoot`
 
 ## 使用建议
 
 - Windows 用户优先走 `pnpm dev`、Dashboard 和官方 E2E 入口
 - Linux/macOS 用户优先使用产品运行时，不把 PowerShell E2E 当成日常主入口
+- 部署 workflow runtime 时保持单 backend 进程持有同一 `dataRoot`；如需多进程部署，必须先引入跨进程锁或事务存储
