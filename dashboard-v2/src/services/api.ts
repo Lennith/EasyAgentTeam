@@ -40,6 +40,8 @@ import type {
   WorkflowRunMode,
   WorkflowRunOrchestratorSettings,
   RuntimeRecoveryItem,
+  RuntimeRecoveryAttempt,
+  RuntimeRecoveryAttemptPreview,
   RuntimeRecoveryAttemptsResponse,
   RuntimeRecoveryResponse,
   RuntimeRecoverySummary,
@@ -364,38 +366,38 @@ function mapRuntimeRecoveryItem(raw: Record<string, unknown>): RuntimeRecoveryIt
         }))
       : [],
     recovery_attempts: Array.isArray(raw.recovery_attempts)
-      ? raw.recovery_attempts.map((attempt) => {
-          const item = attempt as Record<string, unknown>;
-          return {
-            recovery_attempt_id: String(item.recovery_attempt_id ?? ""),
-            status:
-              (item.status as RuntimeRecoveryItem["recovery_attempts"][number]["status"] | undefined) ?? "requested",
-            integrity:
-              (item.integrity as RuntimeRecoveryItem["recovery_attempts"][number]["integrity"] | undefined) ??
-              "incomplete",
-            missing_markers: Array.isArray(item.missing_markers)
-              ? item.missing_markers
-                  .filter((marker): marker is string => typeof marker === "string")
-                  .map(
-                    (marker) => marker as RuntimeRecoveryItem["recovery_attempts"][number]["missing_markers"][number]
-                  )
-              : [],
-            requested_at: (item.requested_at as string | null | undefined) ?? null,
-            last_event_at: String(item.last_event_at ?? ""),
-            ended_at: (item.ended_at as string | null | undefined) ?? null,
-            dispatch_scope:
-              (item.dispatch_scope as RuntimeRecoveryItem["recovery_attempts"][number]["dispatch_scope"] | undefined) ??
-              null,
-            current_task_id: (item.current_task_id as string | null | undefined) ?? null,
-            events: Array.isArray(item.events)
-              ? item.events.map((event) => ({
-                  event_type: String((event as Record<string, unknown>).event_type ?? ""),
-                  created_at: String((event as Record<string, unknown>).created_at ?? ""),
-                  payload_summary: String((event as Record<string, unknown>).payload_summary ?? "")
-                }))
-              : []
-          };
-        })
+      ? raw.recovery_attempts.map((attempt) => mapRuntimeRecoveryAttemptPreview(attempt as Record<string, unknown>))
+      : []
+  };
+}
+
+function mapRuntimeRecoveryAttemptPreview(raw: Record<string, unknown>): RuntimeRecoveryAttemptPreview {
+  return {
+    recovery_attempt_id: String(raw.recovery_attempt_id ?? ""),
+    status: (raw.status as RuntimeRecoveryAttemptPreview["status"] | undefined) ?? "requested",
+    integrity: (raw.integrity as RuntimeRecoveryAttemptPreview["integrity"] | undefined) ?? "incomplete",
+    missing_markers: Array.isArray(raw.missing_markers)
+      ? raw.missing_markers
+          .filter((marker): marker is string => typeof marker === "string")
+          .map((marker) => marker as RuntimeRecoveryAttemptPreview["missing_markers"][number])
+      : [],
+    requested_at: (raw.requested_at as string | null | undefined) ?? null,
+    last_event_at: String(raw.last_event_at ?? ""),
+    ended_at: (raw.ended_at as string | null | undefined) ?? null,
+    dispatch_scope: (raw.dispatch_scope as RuntimeRecoveryAttemptPreview["dispatch_scope"] | undefined) ?? null,
+    current_task_id: (raw.current_task_id as string | null | undefined) ?? null
+  };
+}
+
+function mapRuntimeRecoveryAttempt(raw: Record<string, unknown>): RuntimeRecoveryAttempt {
+  return {
+    ...mapRuntimeRecoveryAttemptPreview(raw),
+    events: Array.isArray(raw.events)
+      ? raw.events.map((event) => ({
+          event_type: String((event as Record<string, unknown>).event_type ?? ""),
+          created_at: String((event as Record<string, unknown>).created_at ?? ""),
+          payload_summary: String((event as Record<string, unknown>).payload_summary ?? "")
+        }))
       : []
   };
 }
@@ -435,7 +437,9 @@ function mapRuntimeRecoveryAttemptsResponse(raw: Record<string, unknown>): Runti
       raw.attempt_limit === "all" ? "all" : Number.isFinite(Number(raw.attempt_limit)) ? Number(raw.attempt_limit) : 0,
     total_attempts: Number(raw.total_attempts ?? 0),
     truncated: Boolean(raw.truncated),
-    recovery_attempts: mapRuntimeRecoveryItem({ recovery_attempts: raw.recovery_attempts }).recovery_attempts
+    recovery_attempts: Array.isArray(raw.recovery_attempts)
+      ? raw.recovery_attempts.map((attempt) => mapRuntimeRecoveryAttempt(attempt as Record<string, unknown>))
+      : []
   };
 }
 

@@ -1,0 +1,9 @@
+﻿{
+  "ended_at": "2026-04-24T23:43:50.7508073+08:00",
+  "step": "step2_pnpm_build",
+  "log": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260424_233654\\step2_pnpm_build.log",
+  "command": "pnpm build",
+  "result": "PASS",
+  "exit_code": 0,
+  "started_at": "2026-04-24T23:43:41.2745416+08:00"
+}

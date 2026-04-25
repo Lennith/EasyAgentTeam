@@ -26,6 +26,12 @@ import {
   readRecoveryEventIndex,
   type RecoveryEventIndexState
 } from "../../../services/runtime-recovery-event-index.js";
+import {
+  appendRecoveryAttemptEventToArchive,
+  getRecoveryAttemptArchiveFile,
+  readRecoveryAttemptArchiveEvents
+} from "../../../services/runtime-recovery-attempt-archive.js";
+import { isRecoveryAttemptEventType, isRecoverySidecarRelevantEventType } from "../../../services/runtime-recovery-attempts.js";
 
 interface WorkflowRunRuntimePaths {
   runRootDir: string;
@@ -161,7 +167,8 @@ export function buildWorkflowRecoveryEventIndexScope(dataRoot: string, runIdRaw:
     scope_kind: "workflow" as const,
     scope_id: assertRunId(runIdRaw),
     index_file: path.join(paths.runRootDir, "recovery-event-index.json"),
-    events_file: paths.eventsFile
+    events_file: paths.eventsFile,
+    attempt_archive_dir: path.join(paths.runRootDir, "recovery-attempt-archive")
   };
 }
 
@@ -520,9 +527,20 @@ export async function appendWorkflowRunEvent(
     payload: input.payload
   };
   const indexScope = buildWorkflowRecoveryEventIndexScope(dataRoot, runId);
-  await runStorageTransaction([paths.eventsFile, indexScope.index_file], async () => {
+  if (!isRecoverySidecarRelevantEventType(event.eventType)) {
+    await runStorageTransaction([paths.eventsFile], async () => {
+      await appendJsonlLine(paths.eventsFile, event);
+    });
+    return event;
+  }
+  const transactionPaths = [paths.eventsFile, indexScope.index_file];
+  if (event.sessionId && isRecoveryAttemptEventType(event.eventType)) {
+    transactionPaths.push(getRecoveryAttemptArchiveFile(indexScope, event.sessionId));
+  }
+  await runStorageTransaction(transactionPaths, async () => {
     await appendJsonlLine(paths.eventsFile, event);
     await appendRecoveryEventToIndex(indexScope, event);
+    await appendRecoveryAttemptEventToArchive(indexScope, event);
   });
   return event;
 }
@@ -534,6 +552,18 @@ export async function getWorkflowRecoveryEventIndex(
   const runId = assertRunId(runIdRaw);
   await ensureWorkflowRunRuntime(dataRoot, runId);
   return readRecoveryEventIndex(buildWorkflowRecoveryEventIndexScope(dataRoot, runId));
+}
+
+export async function getWorkflowRecoveryAttemptArchiveEvents(
+  dataRoot: string,
+  runIdRaw: string,
+  sessionId: string
+): Promise<WorkflowRunEventRecord[]> {
+  const runId = assertRunId(runIdRaw);
+  await ensureWorkflowRunRuntime(dataRoot, runId);
+  return readRecoveryAttemptArchiveEvents(buildWorkflowRecoveryEventIndexScope(dataRoot, runId), sessionId) as Promise<
+    WorkflowRunEventRecord[]
+  >;
 }
 
 export async function listWorkflowRunEvents(

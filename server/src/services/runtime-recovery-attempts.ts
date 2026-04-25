@@ -71,7 +71,7 @@ export type RuntimeRecoveryAttemptMissingMarker =
   | "dispatch_started"
   | "dispatch_terminal";
 
-export interface RuntimeRecoveryAttempt {
+export interface RuntimeRecoveryAttemptPreview {
   recovery_attempt_id: string;
   status: RuntimeRecoveryAttemptStatus;
   integrity: RuntimeRecoveryAttemptIntegrity;
@@ -81,7 +81,21 @@ export interface RuntimeRecoveryAttempt {
   ended_at: string | null;
   dispatch_scope: "task" | "role" | null;
   current_task_id: string | null;
+}
+
+export interface RuntimeRecoveryAttempt extends RuntimeRecoveryAttemptPreview {
   events: RuntimeRecoveryEventSummary[];
+}
+
+export interface RecoveryAttemptPreviewState extends RuntimeRecoveryAttemptPreview {
+  last_event_id: string;
+  last_event_type: string;
+  has_requested: boolean;
+  has_accepted: boolean;
+  has_rejected: boolean;
+  has_dispatch_started: boolean;
+  has_dispatch_finished: boolean;
+  has_dispatch_failed: boolean;
 }
 
 export interface RuntimeRecoveryAttemptIndexOptions {
@@ -96,14 +110,35 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+export function isRunnerFailureEventType(eventType: string): boolean {
+  return RUNNER_FAILURE_EVENT_TYPES.has(eventType);
+}
+
+export function isRecoveryAttemptEventType(eventType: string): boolean {
+  return RECOVERY_ATTEMPT_EVENT_TYPES.has(eventType);
+}
+
+export function isRecoveryAuditEventType(eventType: string): boolean {
+  return RECOVERY_AUDIT_EVENT_TYPES.has(eventType) || eventType.startsWith("SESSION_STATUS_");
+}
+
+export function isRecoverySidecarRelevantEventType(eventType: string): boolean {
+  return (
+    isRunnerFailureEventType(eventType) ||
+    isRecoveryAttemptEventType(eventType) ||
+    eventType === "SESSION_DISMISS_EXTERNAL_RESULT" ||
+    eventType.startsWith("SESSION_STATUS_")
+  );
+}
+
 function resolveEventTypeOrder(eventType: string | undefined): number {
   return EVENT_TYPE_ORDER.get(eventType ?? "") ?? Number.MAX_SAFE_INTEGER;
 }
 
-export function compareRecoveryEventsAsc<TEvent extends { createdAt: string; eventId: string; eventType?: string }>(
-  left: TEvent,
-  right: TEvent
-): number {
+export function compareRecoveryEventsAsc<
+  TLeft extends { createdAt: string; eventId: string; eventType?: string },
+  TRight extends { createdAt: string; eventId: string; eventType?: string }
+>(left: TLeft, right: TRight): number {
   const timeDiff = Date.parse(left.createdAt) - Date.parse(right.createdAt);
   if (timeDiff !== 0) {
     return timeDiff;
@@ -115,10 +150,10 @@ export function compareRecoveryEventsAsc<TEvent extends { createdAt: string; eve
   return left.eventId.localeCompare(right.eventId);
 }
 
-export function compareRecoveryEventsDesc<TEvent extends { createdAt: string; eventId: string; eventType?: string }>(
-  left: TEvent,
-  right: TEvent
-): number {
+export function compareRecoveryEventsDesc<
+  TLeft extends { createdAt: string; eventId: string; eventType?: string },
+  TRight extends { createdAt: string; eventId: string; eventType?: string }
+>(left: TLeft, right: TRight): number {
   return compareRecoveryEventsAsc(right, left);
 }
 
@@ -141,6 +176,232 @@ function normalizeDispatchScope(value: string | null, taskId: string | null): "t
     return "task";
   }
   return null;
+}
+
+function resolveAttemptStatusFromState(state: RecoveryAttemptPreviewState): RuntimeRecoveryAttemptStatus {
+  if (state.has_rejected) {
+    return "rejected";
+  }
+  if (state.has_dispatch_failed) {
+    return "failed";
+  }
+  if (state.has_dispatch_finished) {
+    return "finished";
+  }
+  if (state.has_dispatch_started) {
+    return "running";
+  }
+  if (state.has_accepted) {
+    return "accepted";
+  }
+  return "requested";
+}
+
+function resolveMissingMarkers(
+  state: RecoveryAttemptPreviewState,
+  sessionStatus: RecoveryStatus,
+  isLatestAttempt: boolean
+): RuntimeRecoveryAttemptMissingMarker[] {
+  const hasDecision = state.has_accepted || state.has_rejected;
+  const hasDispatchTerminal = state.has_dispatch_finished || state.has_dispatch_failed;
+  const isInflight =
+    state.has_accepted &&
+    state.has_dispatch_started &&
+    !hasDispatchTerminal &&
+    !state.has_rejected &&
+    isLatestAttempt &&
+    sessionStatus === "running";
+  const missing = new Set<RuntimeRecoveryAttemptMissingMarker>();
+
+  if (!state.has_requested) {
+    missing.add("requested");
+  }
+  if (!hasDecision) {
+    missing.add("accepted_or_rejected");
+  }
+  if (
+    !state.has_rejected &&
+    (state.has_accepted || state.has_dispatch_started || hasDispatchTerminal) &&
+    !state.has_dispatch_started
+  ) {
+    missing.add("dispatch_started");
+  }
+  if (!state.has_rejected && state.has_dispatch_started && !hasDispatchTerminal && !isInflight) {
+    missing.add("dispatch_terminal");
+  }
+  return [...missing];
+}
+
+function readCurrentTaskId<TEvent extends { taskId?: string; payload: Record<string, unknown> }>(
+  event: TEvent
+): string | null {
+  const payload = asRecord(event.payload);
+  return readString(payload.current_task_id ?? payload.currentTaskId ?? payload.task_id) ?? event.taskId ?? null;
+}
+
+function readDispatchScope<TEvent extends { taskId?: string; payload: Record<string, unknown> }>(
+  event: TEvent
+): "task" | "role" | null {
+  const payload = asRecord(event.payload);
+  const direct = normalizeDispatchScope(readString(payload.dispatch_scope), event.taskId ?? null);
+  if (direct) {
+    return direct;
+  }
+  return normalizeDispatchScope(readDispatchKind(payload), event.taskId ?? null);
+}
+
+export function createRecoveryAttemptPreviewState<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(recoveryAttemptId: string, event: TEvent): RecoveryAttemptPreviewState {
+  const currentTaskId = readCurrentTaskId(event);
+  const dispatchScope = readDispatchScope(event);
+  const state: RecoveryAttemptPreviewState = {
+    recovery_attempt_id: recoveryAttemptId,
+    status: "requested",
+    integrity: "incomplete",
+    missing_markers: ["accepted_or_rejected"],
+    requested_at: null,
+    last_event_at: event.createdAt,
+    ended_at: null,
+    dispatch_scope: dispatchScope,
+    current_task_id: currentTaskId,
+    last_event_id: event.eventId,
+    last_event_type: event.eventType,
+    has_requested: false,
+    has_accepted: false,
+    has_rejected: false,
+    has_dispatch_started: false,
+    has_dispatch_finished: false,
+    has_dispatch_failed: false
+  };
+  return applyRecoveryAttemptEventToPreviewState(state, event);
+}
+
+export function applyRecoveryAttemptEventToPreviewState<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(current: RecoveryAttemptPreviewState, event: TEvent): RecoveryAttemptPreviewState {
+  const next: RecoveryAttemptPreviewState = { ...current };
+  if (event.eventType === "SESSION_RETRY_DISPATCH_REQUESTED") {
+    next.has_requested = true;
+    next.requested_at =
+      !next.requested_at ||
+      compareRecoveryEventsAsc(event, {
+        createdAt: next.requested_at,
+        eventId: next.last_event_id,
+        eventType: "SESSION_RETRY_DISPATCH_REQUESTED"
+      }) < 0
+        ? event.createdAt
+        : next.requested_at;
+  } else if (event.eventType === "SESSION_RETRY_DISPATCH_ACCEPTED") {
+    next.has_accepted = true;
+  } else if (event.eventType === "SESSION_RETRY_DISPATCH_REJECTED") {
+    next.has_rejected = true;
+    next.ended_at = event.createdAt;
+  } else if (event.eventType === "ORCHESTRATOR_DISPATCH_STARTED") {
+    next.has_dispatch_started = true;
+  } else if (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED") {
+    next.has_dispatch_started = true;
+    next.has_dispatch_finished = true;
+    next.ended_at = event.createdAt;
+  } else if (event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
+    next.has_dispatch_started = true;
+    next.has_dispatch_failed = true;
+    next.ended_at = event.createdAt;
+  }
+
+  const currentTaskId = readCurrentTaskId(event);
+  if (currentTaskId) {
+    next.current_task_id = currentTaskId;
+  }
+  const dispatchScope = readDispatchScope(event);
+  if (dispatchScope) {
+    next.dispatch_scope = dispatchScope;
+  }
+
+  if (
+    compareRecoveryEventsDesc(event, {
+      createdAt: next.last_event_at,
+      eventId: next.last_event_id,
+      eventType: next.last_event_type
+    }) < 0
+  ) {
+    next.last_event_at = event.createdAt;
+    next.last_event_id = event.eventId;
+    next.last_event_type = event.eventType;
+  }
+
+  return next;
+}
+
+export function buildRecoveryAttemptPreviewFromState(
+  state: RecoveryAttemptPreviewState,
+  sessionStatus: RecoveryStatus,
+  isLatestAttempt: boolean
+): RuntimeRecoveryAttemptPreview {
+  const missingMarkers = resolveMissingMarkers(state, sessionStatus, isLatestAttempt);
+  return {
+    recovery_attempt_id: state.recovery_attempt_id,
+    status: resolveAttemptStatusFromState(state),
+    integrity: missingMarkers.length === 0 ? "complete" : "incomplete",
+    missing_markers: missingMarkers,
+    requested_at: state.requested_at,
+    last_event_at: state.last_event_at,
+    ended_at: state.ended_at,
+    dispatch_scope: state.dispatch_scope,
+    current_task_id: state.current_task_id
+  };
+}
+
+export function buildRecoveryAttemptPreviewFromEvents<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(
+  recoveryAttemptId: string,
+  rawEvents: readonly TEvent[],
+  sessionStatus: RecoveryStatus,
+  isLatestAttempt: boolean
+): RuntimeRecoveryAttemptPreview {
+  const state = buildRecoveryAttemptPreviewStateFromEvents(recoveryAttemptId, rawEvents);
+  return buildRecoveryAttemptPreviewFromState(state, sessionStatus, isLatestAttempt);
+}
+
+export function buildRecoveryAttemptPreviewStateFromEvents<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(recoveryAttemptId: string, rawEvents: readonly TEvent[]): RecoveryAttemptPreviewState {
+  const events = [...rawEvents].sort(compareRecoveryEventsAsc);
+  const first = events[0];
+  if (!first) {
+    throw new Error(`attempt '${recoveryAttemptId}' has no events`);
+  }
+  return events
+    .slice(1)
+    .reduce(
+      (state, event) => applyRecoveryAttemptEventToPreviewState(state, event),
+      createRecoveryAttemptPreviewState(recoveryAttemptId, first)
+    );
 }
 
 export function summarizeRecoveryEventPayload(
@@ -212,110 +473,6 @@ function buildRecoveryAttemptEventSummary<
   };
 }
 
-function resolveAttemptDispatchScope<
-  TEvent extends {
-    taskId?: string;
-    payload: Record<string, unknown>;
-  }
->(events: readonly TEvent[]): "task" | "role" | null {
-  for (const event of events) {
-    const payload = asRecord(event.payload);
-    const direct = normalizeDispatchScope(readString(payload.dispatch_scope), event.taskId ?? null);
-    if (direct) {
-      return direct;
-    }
-    const derived = normalizeDispatchScope(readDispatchKind(payload), event.taskId ?? null);
-    if (derived) {
-      return derived;
-    }
-  }
-  return null;
-}
-
-function resolveAttemptCurrentTaskId<
-  TEvent extends {
-    taskId?: string;
-    payload: Record<string, unknown>;
-  }
->(events: readonly TEvent[]): string | null {
-  for (const event of events) {
-    const payload = asRecord(event.payload);
-    const fromPayload = readString(payload.current_task_id ?? payload.currentTaskId ?? payload.task_id);
-    if (fromPayload) {
-      return fromPayload;
-    }
-    if (event.taskId) {
-      return event.taskId;
-    }
-  }
-  return null;
-}
-
-function buildRecoveryAttemptStatus<
-  TEvent extends {
-    eventType: string;
-  }
->(events: readonly TEvent[]): RuntimeRecoveryAttemptStatus {
-  const eventTypes = new Set(events.map((event) => event.eventType));
-  if (eventTypes.has("SESSION_RETRY_DISPATCH_REJECTED")) {
-    return "rejected";
-  }
-  if (eventTypes.has("ORCHESTRATOR_DISPATCH_FAILED")) {
-    return "failed";
-  }
-  if (eventTypes.has("ORCHESTRATOR_DISPATCH_FINISHED")) {
-    return "finished";
-  }
-  if (eventTypes.has("ORCHESTRATOR_DISPATCH_STARTED")) {
-    return "running";
-  }
-  if (eventTypes.has("SESSION_RETRY_DISPATCH_ACCEPTED")) {
-    return "accepted";
-  }
-  return "requested";
-}
-
-function buildRecoveryAttemptMissingMarkers<
-  TEvent extends {
-    eventType: string;
-  }
->(
-  events: readonly TEvent[],
-  sessionStatus: RecoveryStatus,
-  isLatestAttempt: boolean
-): RuntimeRecoveryAttemptMissingMarker[] {
-  const eventTypes = new Set(events.map((event) => event.eventType));
-  const hasRequested = eventTypes.has("SESSION_RETRY_DISPATCH_REQUESTED");
-  const hasAccepted = eventTypes.has("SESSION_RETRY_DISPATCH_ACCEPTED");
-  const hasRejected = eventTypes.has("SESSION_RETRY_DISPATCH_REJECTED");
-  const hasDecision = hasAccepted || hasRejected;
-  const hasDispatchStarted = eventTypes.has("ORCHESTRATOR_DISPATCH_STARTED");
-  const hasDispatchTerminal =
-    eventTypes.has("ORCHESTRATOR_DISPATCH_FINISHED") || eventTypes.has("ORCHESTRATOR_DISPATCH_FAILED");
-  const isInflight =
-    hasAccepted &&
-    hasDispatchStarted &&
-    !hasDispatchTerminal &&
-    !hasRejected &&
-    isLatestAttempt &&
-    sessionStatus === "running";
-  const missing = new Set<RuntimeRecoveryAttemptMissingMarker>();
-
-  if (!hasRequested) {
-    missing.add("requested");
-  }
-  if (!hasDecision) {
-    missing.add("accepted_or_rejected");
-  }
-  if (!hasRejected && (hasAccepted || hasDispatchStarted || hasDispatchTerminal) && !hasDispatchStarted) {
-    missing.add("dispatch_started");
-  }
-  if (!hasRejected && hasDispatchStarted && !hasDispatchTerminal && !isInflight) {
-    missing.add("dispatch_terminal");
-  }
-  return [...missing];
-}
-
 export function buildRecoveryAttempt<
   TEvent extends {
     eventId: string;
@@ -331,26 +488,9 @@ export function buildRecoveryAttempt<
   isLatestAttempt: boolean
 ): RuntimeRecoveryAttempt {
   const events = [...rawEvents].sort(compareRecoveryEventsAsc);
-  const status = buildRecoveryAttemptStatus(events);
-  const missingMarkers = buildRecoveryAttemptMissingMarkers(events, sessionStatus, isLatestAttempt);
-  const requestedAt = events.find((event) => event.eventType === "SESSION_RETRY_DISPATCH_REQUESTED")?.createdAt ?? null;
-  const endedAt =
-    status === "rejected" || status === "failed" || status === "finished"
-      ? ([...events].reverse().find((event) => RECOVERY_ATTEMPT_TERMINAL_EVENT_TYPES.has(event.eventType))?.createdAt ??
-        null)
-      : null;
-  const lastEventAt = events[events.length - 1]!.createdAt;
-
+  const preview = buildRecoveryAttemptPreviewFromEvents(recoveryAttemptId, events, sessionStatus, isLatestAttempt);
   return {
-    recovery_attempt_id: recoveryAttemptId,
-    status,
-    integrity: missingMarkers.length === 0 ? "complete" : "incomplete",
-    missing_markers: missingMarkers,
-    requested_at: requestedAt,
-    last_event_at: lastEventAt,
-    ended_at: endedAt,
-    dispatch_scope: resolveAttemptDispatchScope(events),
-    current_task_id: resolveAttemptCurrentTaskId(events),
+    ...preview,
     events: events.map((event) => buildRecoveryAttemptEventSummary(event))
   };
 }
@@ -363,6 +503,86 @@ function resolveAttemptLimit(limit: RecoveryAttemptLimit | undefined): number | 
     return limit;
   }
   return DEFAULT_RECOVERY_ATTEMPT_LIMIT;
+}
+
+function buildAttemptInputs<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    sessionId?: string;
+    payload: Record<string, unknown>;
+  }
+>(events: readonly TEvent[]): Map<string, Map<string, TEvent[]>> {
+  const attemptsBySession = new Map<string, Map<string, TEvent[]>>();
+  for (const event of events) {
+    if (!event.sessionId || !RECOVERY_ATTEMPT_EVENT_TYPES.has(event.eventType)) {
+      continue;
+    }
+    const payload = asRecord(event.payload);
+    const recoveryAttemptId = readRecoveryAttemptId(payload);
+    if (!recoveryAttemptId) {
+      continue;
+    }
+    const sessionAttempts = attemptsBySession.get(event.sessionId) ?? new Map<string, TEvent[]>();
+    const attemptEvents = sessionAttempts.get(recoveryAttemptId) ?? [];
+    attemptEvents.push(event);
+    sessionAttempts.set(recoveryAttemptId, attemptEvents);
+    attemptsBySession.set(event.sessionId, sessionAttempts);
+  }
+  return attemptsBySession;
+}
+
+function sortAttemptInputs<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(attempts: ReadonlyMap<string, readonly TEvent[]>): Array<{ recoveryAttemptId: string; attemptEvents: TEvent[] }> {
+  return [...attempts.entries()]
+    .map(([recoveryAttemptId, attemptEvents]) => ({
+      recoveryAttemptId,
+      attemptEvents: [...attemptEvents].sort(compareRecoveryEventsAsc)
+    }))
+    .sort((left, right) => {
+      const leftLast = left.attemptEvents[left.attemptEvents.length - 1];
+      const rightLast = right.attemptEvents[right.attemptEvents.length - 1];
+      if (!leftLast || !rightLast) {
+        return 0;
+      }
+      return compareRecoveryEventsDesc(leftLast, rightLast);
+    });
+}
+
+export function buildSessionRecoveryAttempts<
+  TEvent extends {
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    sessionId?: string;
+    taskId?: string;
+    payload: Record<string, unknown>;
+  }
+>(
+  events: readonly TEvent[],
+  sessionId: string,
+  sessionStatus: RecoveryStatus,
+  options: RuntimeRecoveryAttemptIndexOptions = {}
+): { attempts: RuntimeRecoveryAttempt[]; total: number; truncated: boolean } {
+  const attemptsBySession = buildAttemptInputs(events);
+  const sortedAttemptInputs = sortAttemptInputs(attemptsBySession.get(sessionId) ?? new Map());
+  const limit = resolveAttemptLimit(options.attempt_limit);
+  const limitedAttemptInputs = limit === null ? sortedAttemptInputs : sortedAttemptInputs.slice(0, limit);
+  return {
+    attempts: limitedAttemptInputs.map((attempt, index) =>
+      buildRecoveryAttempt(attempt.recoveryAttemptId, attempt.attemptEvents, sessionStatus, index === 0)
+    ),
+    total: sortedAttemptInputs.length,
+    truncated: limit !== null && sortedAttemptInputs.length > limit
+  };
 }
 
 export function indexRecoveryAttempts<
@@ -379,47 +599,23 @@ export function indexRecoveryAttempts<
   sessionStatuses: ReadonlyMap<string, RecoveryStatus>,
   options: RuntimeRecoveryAttemptIndexOptions = {}
 ): Map<string, RuntimeRecoveryAttempt[]> {
-  const attemptsBySession = new Map<string, Map<string, TEvent[]>>();
-
-  for (const event of events) {
-    if (!event.sessionId || !RECOVERY_ATTEMPT_EVENT_TYPES.has(event.eventType)) {
-      continue;
-    }
-    const payload = asRecord(event.payload);
-    const recoveryAttemptId = readRecoveryAttemptId(payload);
-    if (!recoveryAttemptId) {
-      continue;
-    }
-    const sessionAttempts = attemptsBySession.get(event.sessionId) ?? new Map<string, TEvent[]>();
-    const attemptEvents = sessionAttempts.get(recoveryAttemptId) ?? [];
-    attemptEvents.push(event);
-    sessionAttempts.set(recoveryAttemptId, attemptEvents);
-    attemptsBySession.set(event.sessionId, sessionAttempts);
-  }
-
+  const attemptsBySession = buildAttemptInputs(events);
   const limit = resolveAttemptLimit(options.attempt_limit);
   const result = new Map<string, RuntimeRecoveryAttempt[]>();
   for (const [sessionId, attempts] of attemptsBySession.entries()) {
-    const sortedAttemptInputs = [...attempts.entries()]
-      .map(([recoveryAttemptId, attemptEvents]) => ({
-        recoveryAttemptId,
-        attemptEvents: [...attemptEvents].sort(compareRecoveryEventsAsc)
-      }))
-      .sort((left, right) => {
-        const leftLast = left.attemptEvents[left.attemptEvents.length - 1]!;
-        const rightLast = right.attemptEvents[right.attemptEvents.length - 1]!;
-        return compareRecoveryEventsDesc(leftLast, rightLast);
-      });
+    const sortedAttemptInputs = sortAttemptInputs(attempts);
     const limitedAttemptInputs = limit === null ? sortedAttemptInputs : sortedAttemptInputs.slice(0, limit);
-    const sortedAttempts = limitedAttemptInputs.map((attempt, index) =>
-      buildRecoveryAttempt(
-        attempt.recoveryAttemptId,
-        attempt.attemptEvents,
-        sessionStatuses.get(sessionId) ?? "idle",
-        index === 0
+    result.set(
+      sessionId,
+      limitedAttemptInputs.map((attempt, index) =>
+        buildRecoveryAttempt(
+          attempt.recoveryAttemptId,
+          attempt.attemptEvents,
+          sessionStatuses.get(sessionId) ?? "idle",
+          index === 0
+        )
       )
     );
-    result.set(sessionId, sortedAttempts);
   }
   return result;
 }

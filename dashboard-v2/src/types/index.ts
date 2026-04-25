@@ -96,7 +96,7 @@ export interface RuntimeRecoveryItem {
   risk: string | null;
   requires_confirmation: boolean;
   latest_events: RuntimeRecoveryEventSummary[];
-  recovery_attempts: RuntimeRecoveryAttempt[];
+  recovery_attempts: RuntimeRecoveryAttemptPreview[];
 }
 
 export interface RuntimeRecoverySummary {
@@ -116,7 +116,7 @@ export interface RuntimeRecoveryEventSummary {
   payload_summary: string;
 }
 
-export interface RuntimeRecoveryAttempt {
+export interface RuntimeRecoveryAttemptPreview {
   recovery_attempt_id: string;
   status: "requested" | "accepted" | "running" | "finished" | "failed" | "rejected";
   integrity: "complete" | "incomplete";
@@ -126,6 +126,9 @@ export interface RuntimeRecoveryAttempt {
   ended_at: string | null;
   dispatch_scope: "task" | "role" | null;
   current_task_id: string | null;
+}
+
+export interface RuntimeRecoveryAttempt extends RuntimeRecoveryAttemptPreview {
   events: RuntimeRecoveryEventSummary[];
 }
 

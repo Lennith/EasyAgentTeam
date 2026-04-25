@@ -1,0 +1,9 @@
+﻿{
+  "ended_at": "2026-04-24T23:44:43.0977648+08:00",
+  "step": "step2_pnpm_e2e_first_run",
+  "log": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260424_233654\\step2_pnpm_e2e_first_run.log",
+  "command": "pnpm e2e:first-run",
+  "result": "PASS",
+  "exit_code": 0,
+  "started_at": "2026-04-24T23:44:39.1144360+08:00"
+}

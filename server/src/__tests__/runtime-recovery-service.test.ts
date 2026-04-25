@@ -1,20 +1,26 @@
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
-import { appendEvent, getProjectRecoveryEventIndexFile } from "../data/repository/project/event-repository.js";
+import {
+  appendEvent,
+  buildProjectRecoveryEventIndexScope,
+  getProjectRecoveryEventIndexFile
+} from "../data/repository/project/event-repository.js";
 import { readTaskboard } from "../data/repository/project/taskboard-repository.js";
 import { createWorkflowRun, createWorkflowTemplate } from "../data/repository/workflow/run-repository.js";
 import {
   appendWorkflowRunEvent,
+  buildWorkflowRecoveryEventIndexScope,
   getWorkflowRecoveryEventIndexFile,
   readWorkflowRunTaskRuntimeState,
   touchWorkflowSession,
   upsertWorkflowSession,
   writeWorkflowRunTaskRuntimeState
 } from "../data/repository/workflow/runtime-repository.js";
+import { getRecoveryAttemptArchiveFile } from "../services/runtime-recovery-attempt-archive.js";
 import {
   buildProjectRuntimeRecovery,
   buildProjectSessionRecoveryAttempts,
@@ -26,6 +32,15 @@ const LEGACY_DONE_STATE = ["MAY", "BE", "DONE"].join("_");
 
 async function waitForNextTick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 2));
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function rewriteProjectEventFile(
@@ -282,7 +297,6 @@ test("project runtime recovery groups full recovery attempt history and marks in
   assert.deepEqual(requestedOnly?.missing_markers, ["accepted_or_rejected"]);
   assert.equal(requestedOnly?.requested_at, requestedOnlyRequestedEvent?.createdAt ?? null);
   assert.equal(requestedOnly?.last_event_at, requestedOnlyEvent?.createdAt);
-  assert.equal(requestedOnly?.events.map((event) => event.event_type).join(","), "SESSION_RETRY_DISPATCH_REQUESTED");
 
   assert.equal(terminalGap?.recovery_attempt_id, "attempt-terminal-gap");
   assert.equal(terminalGap?.status, "running");
@@ -291,18 +305,29 @@ test("project runtime recovery groups full recovery attempt history and marks in
   assert.equal(terminalGap?.dispatch_scope, "task");
   assert.equal(terminalGap?.current_task_id, "task_dev_exec");
   assert.equal(terminalGap?.last_event_at, terminalGapStartedEvent?.createdAt);
-  assert.deepEqual(
-    terminalGap?.events.map((event) => event.event_type),
-    ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_ACCEPTED", "ORCHESTRATOR_DISPATCH_STARTED"]
-  );
 
   assert.equal(finished?.recovery_attempt_id, "attempt-finished");
   assert.equal(finished?.status, "finished");
   assert.equal(finished?.integrity, "complete");
   assert.deepEqual(finished?.missing_markers, []);
   assert.equal(finished?.ended_at, finishedTerminalEvent?.createdAt);
+  assert.equal("events" in requestedOnly!, false);
+  assert.equal("events" in terminalGap!, false);
+  assert.equal("events" in finished!, false);
+
+  const detailPayload = await buildProjectSessionRecoveryAttempts(dataRoot, created.project.projectId, "session-dev");
+  assert.equal(detailPayload?.recovery_attempts.length, 3);
+  const [requestedOnlyDetail, terminalGapDetail, finishedDetail] = detailPayload?.recovery_attempts ?? [];
+  assert.equal(
+    requestedOnlyDetail?.events.map((event) => event.event_type).join(","),
+    "SESSION_RETRY_DISPATCH_REQUESTED"
+  );
   assert.deepEqual(
-    finished?.events.map((event) => event.event_type),
+    terminalGapDetail?.events.map((event) => event.event_type),
+    ["SESSION_RETRY_DISPATCH_REQUESTED", "SESSION_RETRY_DISPATCH_ACCEPTED", "ORCHESTRATOR_DISPATCH_STARTED"]
+  );
+  assert.deepEqual(
+    finishedDetail?.events.map((event) => event.event_type),
     [
       "SESSION_RETRY_DISPATCH_REQUESTED",
       "SESSION_RETRY_DISPATCH_ACCEPTED",
@@ -364,6 +389,127 @@ test("project runtime recovery defaults to limited attempts and supports full at
     fullPayload.items[0]?.recovery_attempts.map((attempt) => attempt.recovery_attempt_id),
     ["attempt-6", "attempt-5", "attempt-4", "attempt-3", "attempt-2", "attempt-1"]
   );
+});
+
+test("project recovery sidecar ignores irrelevant events and only writes hot index plus target attempt archive", async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-sidecar-filter-"));
+  const repositories = getProjectRepositoryBundle(dataRoot);
+  const created = await repositories.projectRuntime.createProject({
+    projectId: "project_recovery_sidecar_filter",
+    name: "Project Recovery Sidecar Filter",
+    workspacePath: path.join(dataRoot, "workspace")
+  });
+  await repositories.sessions.addSession(created.paths, created.project.projectId, {
+    sessionId: "session-dev",
+    role: "dev",
+    status: "idle",
+    provider: "minimax",
+    providerSessionId: "provider-session-dev",
+    errorStreak: 1,
+    lastFailureAt: new Date().toISOString(),
+    lastFailureKind: "error"
+  });
+
+  const scope = buildProjectRecoveryEventIndexScope(created.paths, created.project.projectId);
+  const indexFile = getProjectRecoveryEventIndexFile(created.paths);
+  const targetArchiveFile = getRecoveryAttemptArchiveFile(scope, "session-dev");
+  const otherArchiveFile = getRecoveryAttemptArchiveFile(scope, "session-other");
+
+  await appendEvent(created.paths, {
+    projectId: created.project.projectId,
+    eventType: "MANAGER_NOTE_ADDED",
+    source: "system",
+    sessionId: "session-dev",
+    payload: { note: "irrelevant recovery event" }
+  });
+  assert.equal(await fileExists(indexFile), false);
+  assert.equal(await fileExists(targetArchiveFile), false);
+
+  await appendEvent(created.paths, {
+    projectId: created.project.projectId,
+    eventType: "RUNNER_RUNTIME_ERROR_SOFT",
+    source: "system",
+    sessionId: "session-dev",
+    payload: {
+      retryable: true,
+      code: "UPSTREAM_TRANSIENT",
+      message: "retry later"
+    }
+  });
+  assert.equal(await fileExists(indexFile), true);
+  assert.equal(await fileExists(targetArchiveFile), false);
+  assert.equal(await fileExists(otherArchiveFile), false);
+
+  await appendEvent(created.paths, {
+    projectId: created.project.projectId,
+    eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+    source: "system",
+    sessionId: "session-dev",
+    payload: {
+      recovery_attempt_id: "attempt-1",
+      dispatch_scope: "role"
+    }
+  });
+  assert.equal(await fileExists(targetArchiveFile), true);
+  assert.equal(await fileExists(otherArchiveFile), false);
+});
+
+test("project runtime recovery hot index caps previews at 100 and detail endpoint rebuilds full history from archive when needed", async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-recovery-hot-index-cap-"));
+  const repositories = getProjectRepositoryBundle(dataRoot);
+  const created = await repositories.projectRuntime.createProject({
+    projectId: "project_recovery_hot_index_cap",
+    name: "Project Recovery Hot Index Cap",
+    workspacePath: path.join(dataRoot, "workspace")
+  });
+  await repositories.sessions.addSession(created.paths, created.project.projectId, {
+    sessionId: "session-dev",
+    role: "dev",
+    status: "idle",
+    provider: "minimax",
+    providerSessionId: "provider-session-dev",
+    errorStreak: 1,
+    lastFailureAt: new Date().toISOString(),
+    lastFailureKind: "error"
+  });
+
+  for (let index = 1; index <= 105; index += 1) {
+    await appendEvent(created.paths, {
+      projectId: created.project.projectId,
+      eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+      source: "system",
+      sessionId: "session-dev",
+      payload: {
+        recovery_attempt_id: `attempt-${index}`,
+        dispatch_scope: "role"
+      }
+    });
+    await waitForNextTick();
+  }
+
+  const hotPayload = await buildProjectRuntimeRecovery(dataRoot, created.project.projectId, {
+    attempt_limit: "all"
+  });
+  assert.equal(hotPayload.items[0]?.recovery_attempts.length, 100);
+  assert.equal(hotPayload.items[0]?.recovery_attempts[0]?.recovery_attempt_id, "attempt-105");
+  assert.equal(hotPayload.items[0]?.recovery_attempts[99]?.recovery_attempt_id, "attempt-6");
+
+  const scope = buildProjectRecoveryEventIndexScope(created.paths, created.project.projectId);
+  const archiveFile = getRecoveryAttemptArchiveFile(scope, "session-dev");
+  await rm(archiveFile, { force: true });
+  assert.equal(await fileExists(archiveFile), false);
+
+  const hotPayloadWithoutArchive = await buildProjectRuntimeRecovery(dataRoot, created.project.projectId, {
+    attempt_limit: "all"
+  });
+  assert.equal(hotPayloadWithoutArchive.items[0]?.recovery_attempts.length, 100);
+
+  const detailPayload = await buildProjectSessionRecoveryAttempts(dataRoot, created.project.projectId, "session-dev");
+  assert.equal(detailPayload?.total_attempts, 105);
+  assert.equal(detailPayload?.recovery_attempts.length, 105);
+  assert.equal(detailPayload?.recovery_attempts[0]?.recovery_attempt_id, "attempt-105");
+  assert.equal(detailPayload?.recovery_attempts[104]?.recovery_attempt_id, "attempt-1");
+  assert.equal(await fileExists(archiveFile), true);
 });
 
 test("project runtime recovery rebuilds missing or corrupt sidecar index from events and exposes session detail history", async () => {
@@ -513,8 +659,12 @@ test("project runtime recovery keeps recovery attempt lifecycle order when times
   assert.equal(attempt?.recovery_attempt_id, "attempt-collided");
   assert.equal(attempt?.status, "finished");
   assert.equal(attempt?.integrity, "complete");
+  assert.equal("events" in attempt!, false);
+
+  const detailPayload = await buildProjectSessionRecoveryAttempts(dataRoot, created.project.projectId, "session-dev");
+  const detailAttempt = detailPayload?.recovery_attempts[0];
   assert.deepEqual(
-    attempt?.events.map((event) => event.event_type),
+    detailAttempt?.events.map((event) => event.event_type),
     [
       "SESSION_RETRY_DISPATCH_REQUESTED",
       "SESSION_RETRY_DISPATCH_ACCEPTED",
@@ -837,6 +987,69 @@ test("workflow runtime recovery rebuilds sidecar index and session detail endpoi
     detailPayload?.recovery_attempts.map((attempt) => attempt.recovery_attempt_id),
     ["attempt-2", "attempt-1"]
   );
+});
+
+test("workflow recovery sidecar ignores irrelevant events and only writes hot index plus target attempt archive", async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-recovery-sidecar-filter-"));
+  await createWorkflowTemplate(dataRoot, {
+    templateId: "workflow_recovery_sidecar_tpl",
+    name: "Workflow Recovery Sidecar Template",
+    tasks: [{ taskId: "task_a", title: "Task A", ownerRole: "lead" }]
+  });
+  await createWorkflowRun(dataRoot, {
+    runId: "workflow_recovery_sidecar_run",
+    templateId: "workflow_recovery_sidecar_tpl",
+    name: "Workflow Recovery Sidecar Run",
+    workspacePath: path.join(dataRoot, "workspace"),
+    tasks: [{ taskId: "task_a", title: "Task A", resolvedTitle: "Task A", ownerRole: "lead" }]
+  });
+  await upsertWorkflowSession(dataRoot, "workflow_recovery_sidecar_run", {
+    sessionId: "session-lead",
+    role: "lead",
+    status: "idle",
+    provider: "minimax",
+    providerSessionId: "provider-session-lead",
+    errorStreak: 1,
+    lastFailureAt: new Date().toISOString(),
+    lastFailureKind: "error"
+  });
+
+  const scope = buildWorkflowRecoveryEventIndexScope(dataRoot, "workflow_recovery_sidecar_run");
+  const indexFile = getWorkflowRecoveryEventIndexFile(dataRoot, "workflow_recovery_sidecar_run");
+  const targetArchiveFile = getRecoveryAttemptArchiveFile(scope, "session-lead");
+
+  await appendWorkflowRunEvent(dataRoot, "workflow_recovery_sidecar_run", {
+    eventType: "WORKFLOW_RUNTIME_NOTE",
+    source: "system",
+    sessionId: "session-lead",
+    payload: { note: "irrelevant recovery event" }
+  });
+  assert.equal(await fileExists(indexFile), false);
+  assert.equal(await fileExists(targetArchiveFile), false);
+
+  await appendWorkflowRunEvent(dataRoot, "workflow_recovery_sidecar_run", {
+    eventType: "RUNNER_TIMEOUT_SOFT",
+    source: "system",
+    sessionId: "session-lead",
+    payload: {
+      retryable: true,
+      code: "WORKFLOW_TIMEOUT",
+      message: "timed out"
+    }
+  });
+  assert.equal(await fileExists(indexFile), true);
+  assert.equal(await fileExists(targetArchiveFile), false);
+
+  await appendWorkflowRunEvent(dataRoot, "workflow_recovery_sidecar_run", {
+    eventType: "SESSION_RETRY_DISPATCH_REQUESTED",
+    source: "system",
+    sessionId: "session-lead",
+    payload: {
+      recovery_attempt_id: "attempt-1",
+      dispatch_scope: "role"
+    }
+  });
+  assert.equal(await fileExists(targetArchiveFile), true);
 });
 
 test("project taskboard migration rewrites legacy ambiguous done state to DONE on read", async () => {

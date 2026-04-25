@@ -18,13 +18,14 @@ import { buildRecoveryPolicyContext } from "./runtime-recovery-policy-context.js
 import {
   type RecoveryAttemptLimit,
   type RuntimeRecoveryAttempt,
-  type RuntimeRecoveryEventSummary
+  type RuntimeRecoveryAttemptPreview,
+  type RuntimeRecoveryEventSummary,
+  buildSessionRecoveryAttempts
 } from "./runtime-recovery-attempts.js";
 import {
   getLatestAuditEventsFromIndex,
   getLatestFailureEventsFromIndex,
-  getRecoveryAttemptsFromIndex,
-  getSessionRecoveryAttemptsFromIndex,
+  getRecoveryAttemptPreviewsFromIndex,
   type RecoveryIndexableEvent
 } from "./runtime-recovery-event-index.js";
 
@@ -91,7 +92,7 @@ export interface RuntimeRecoveryItem {
   risk: string | null;
   requires_confirmation: boolean;
   latest_events: RuntimeRecoveryEventSummary[];
-  recovery_attempts: RuntimeRecoveryAttempt[];
+  recovery_attempts: RuntimeRecoveryAttemptPreview[];
 }
 
 export interface RuntimeRecoverySummary {
@@ -234,7 +235,7 @@ function buildProjectRecoveryItem(
   tasksById: Map<string, TaskRecord>,
   latestFailureBySession: Map<string, RecoveryIndexableEvent>,
   latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>,
-  attemptsBySession: Map<string, RuntimeRecoveryAttempt[]>
+  attemptsBySession: Map<string, RuntimeRecoveryAttemptPreview[]>
 ): RuntimeRecoveryItem {
   const currentTask = session.currentTaskId ? (tasksById.get(session.currentTaskId) ?? null) : null;
   const failure = buildFailureRecord(session, latestFailureBySession.get(session.sessionId));
@@ -289,7 +290,7 @@ function buildWorkflowRecoveryItem(
   runtimeTasksById: Map<string, WorkflowTaskRuntimeRecord>,
   latestFailureBySession: Map<string, RecoveryIndexableEvent>,
   latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>,
-  attemptsBySession: Map<string, RuntimeRecoveryAttempt[]>
+  attemptsBySession: Map<string, RuntimeRecoveryAttemptPreview[]>
 ): RuntimeRecoveryItem {
   const taskTemplate = session.currentTaskId
     ? (run.tasks.find((task) => task.taskId === session.currentTaskId) ?? null)
@@ -357,7 +358,7 @@ export async function buildProjectRuntimeRecovery(
   const sessionStatuses = new Map(sessions.map((session) => [session.sessionId, session.status] as const));
   const latestFailureBySession = getLatestFailureEventsFromIndex(recoveryIndex);
   const latestAuditBySession = getLatestAuditEventsFromIndex(recoveryIndex);
-  const attemptsBySession = getRecoveryAttemptsFromIndex(recoveryIndex, sessionStatuses, {
+  const attemptsBySession = getRecoveryAttemptPreviewsFromIndex(recoveryIndex, sessionStatuses, {
     attempt_limit: options.attempt_limit
   });
   const nowMs = Date.now();
@@ -399,7 +400,7 @@ export async function buildWorkflowRuntimeRecovery(
   const sessionStatuses = new Map(sessions.map((session) => [session.sessionId, session.status] as const));
   const latestFailureBySession = getLatestFailureEventsFromIndex(recoveryIndex);
   const latestAuditBySession = getLatestAuditEventsFromIndex(recoveryIndex);
-  const attemptsBySession = getRecoveryAttemptsFromIndex(recoveryIndex, sessionStatuses, {
+  const attemptsBySession = getRecoveryAttemptPreviewsFromIndex(recoveryIndex, sessionStatuses, {
     attempt_limit: options.attempt_limit
   });
   const nowMs = Date.now();
@@ -433,15 +434,15 @@ export async function buildProjectSessionRecoveryAttempts(
 ): Promise<RuntimeRecoveryAttemptsResponse | null> {
   const repositories = getProjectRepositoryBundle(dataRoot);
   const scope = await repositories.resolveScope(projectId);
-  const [session, recoveryIndex] = await Promise.all([
+  const [session, archiveEvents] = await Promise.all([
     repositories.sessions.getSession(scope.paths, scope.project.projectId, sessionId),
-    repositories.events.getRecoveryEventIndex(scope.paths, scope.project.projectId)
+    repositories.events.getRecoveryAttemptArchiveEvents(scope.paths, scope.project.projectId, sessionId)
   ]);
   if (!session) {
     return null;
   }
   const attemptLimit = options.attempt_limit ?? "all";
-  const result = getSessionRecoveryAttemptsFromIndex(recoveryIndex, session.sessionId, session.status, {
+  const attemptResult = buildSessionRecoveryAttempts(archiveEvents, session.sessionId, session.status, {
     attempt_limit: attemptLimit
   });
   return {
@@ -450,9 +451,9 @@ export async function buildProjectSessionRecoveryAttempts(
     session_id: session.sessionId,
     generated_at: new Date().toISOString(),
     attempt_limit: attemptLimit,
-    total_attempts: result.total,
-    truncated: result.truncated,
-    recovery_attempts: result.attempts
+    total_attempts: attemptResult?.total ?? 0,
+    truncated: attemptResult?.truncated ?? false,
+    recovery_attempts: attemptResult?.attempts ?? []
   };
 }
 
@@ -464,15 +465,15 @@ export async function buildWorkflowSessionRecoveryAttempts(
 ): Promise<RuntimeRecoveryAttemptsResponse | null> {
   const repositories = getWorkflowRepositoryBundle(dataRoot);
   const scope = await repositories.resolveScope(runId);
-  const [session, recoveryIndex] = await Promise.all([
+  const [session, archiveEvents] = await Promise.all([
     repositories.sessions.getSession(scope.run.runId, sessionId),
-    repositories.events.getRecoveryEventIndex(scope.run.runId)
+    repositories.events.getRecoveryAttemptArchiveEvents(scope.run.runId, sessionId)
   ]);
   if (!session) {
     return null;
   }
   const attemptLimit = options.attempt_limit ?? "all";
-  const result = getSessionRecoveryAttemptsFromIndex(recoveryIndex, session.sessionId, session.status, {
+  const attemptResult = buildSessionRecoveryAttempts(archiveEvents, session.sessionId, session.status, {
     attempt_limit: attemptLimit
   });
   return {
@@ -481,8 +482,8 @@ export async function buildWorkflowSessionRecoveryAttempts(
     session_id: session.sessionId,
     generated_at: new Date().toISOString(),
     attempt_limit: attemptLimit,
-    total_attempts: result.total,
-    truncated: result.truncated,
-    recovery_attempts: result.attempts
+    total_attempts: attemptResult?.total ?? 0,
+    truncated: attemptResult?.truncated ?? false,
+    recovery_attempts: attemptResult?.attempts ?? []
   };
 }

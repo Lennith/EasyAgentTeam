@@ -1,0 +1,10 @@
+﻿{
+  "step": "step3_pnpm_e2e_baseline",
+  "launch_mode": "detached_independent_process",
+  "process_id": 97576,
+  "stdout": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260424_233654\\step3_pnpm_e2e_baseline.stdout.log",
+  "started_at": "2026-04-24T23:44:57.3406584+08:00",
+  "status": "RUNNING",
+  "command": "pnpm e2e:baseline",
+  "stderr": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260424_233654\\step3_pnpm_e2e_baseline.stderr.log"
+}

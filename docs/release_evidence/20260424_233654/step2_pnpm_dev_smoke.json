@@ -1,0 +1,12 @@
+﻿{
+  "stdout": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260424_233654\\step2_pnpm_dev.stdout.log",
+  "step": "step2_pnpm_dev_smoke",
+  "process_id": 97096,
+  "command": "pnpm dev",
+  "was_running_after_20s": true,
+  "ended_at": "2026-04-24T23:44:23.6927965+08:00",
+  "stderr": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260424_233654\\step2_pnpm_dev.stderr.log",
+  "exit_code": 0,
+  "result": "PASS",
+  "started_at": "2026-04-24T23:44:03.6237983+08:00"
+}

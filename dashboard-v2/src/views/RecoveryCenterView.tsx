@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import type { RuntimeRecoveryAttemptsResponse, RuntimeRecoveryItem, RuntimeRecoveryResponse } from "@/types";
+import type {
+  RuntimeRecoveryAttempt,
+  RuntimeRecoveryAttemptsResponse,
+  RuntimeRecoveryItem,
+  RuntimeRecoveryResponse
+} from "@/types";
 
 interface RecoveryCenterViewProps {
   title: string;
@@ -25,6 +30,12 @@ function formatConfirmationMessage(title: string, risk: string | null): string {
 
 function formatMissingMarkers(markers: string[]): string {
   return markers.length === 0 ? "-" : markers.join(", ");
+}
+
+function hasAttemptEvents(
+  attempt: RuntimeRecoveryItem["recovery_attempts"][number] | RuntimeRecoveryAttempt
+): attempt is RuntimeRecoveryAttempt {
+  return "events" in attempt;
 }
 
 export function RecoveryCenterView({
@@ -54,6 +65,7 @@ export function RecoveryCenterView({
     [items, selectedSessionId]
   );
   const selectedAttemptDetails = selected ? attemptDetailsBySession[selected.session_id] : undefined;
+  const hasFullAttemptHistory = Boolean(selectedAttemptDetails);
   const displayedAttempts = selectedAttemptDetails?.recovery_attempts ?? selected?.recovery_attempts ?? [];
 
   async function runAction(action: () => Promise<void>, key: string) {
@@ -279,30 +291,34 @@ export function RecoveryCenterView({
                               </div>
                             ))}
                           </div>
-                          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
-                            Attempt Events
-                          </div>
-                          {attempt.events.length === 0 ? (
-                            <div>-</div>
-                          ) : (
-                            <div style={{ display: "grid", gap: "6px" }}>
-                              {attempt.events.map((event) => (
-                                <div
-                                  key={`${attempt.recovery_attempt_id}:${event.event_type}:${event.created_at}`}
-                                  style={{
-                                    border: "1px solid var(--border-color)",
-                                    borderRadius: "8px",
-                                    padding: "8px"
-                                  }}
-                                >
-                                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                                    {event.event_type} · {formatDateTime(event.created_at)}
-                                  </div>
-                                  <div>{event.payload_summary}</div>
+                          {hasFullAttemptHistory && hasAttemptEvents(attempt) ? (
+                            <>
+                              <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
+                                Attempt Events
+                              </div>
+                              {attempt.events.length === 0 ? (
+                                <div>-</div>
+                              ) : (
+                                <div style={{ display: "grid", gap: "6px" }}>
+                                  {attempt.events.map((event) => (
+                                    <div
+                                      key={`${attempt.recovery_attempt_id}:${event.event_type}:${event.created_at}`}
+                                      style={{
+                                        border: "1px solid var(--border-color)",
+                                        borderRadius: "8px",
+                                        padding: "8px"
+                                      }}
+                                    >
+                                      <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                                        {event.event_type} at {formatDateTime(event.created_at)}
+                                      </div>
+                                      <div>{event.payload_summary}</div>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          )}
+                              )}
+                            </>
+                          ) : null}
                         </div>
                       ))}
                     </div>

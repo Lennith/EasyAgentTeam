@@ -1,6 +1,7 @@
 import type { WorkflowRunEventRecord } from "../../../domain/models.js";
 import {
   appendWorkflowRunEvent,
+  getWorkflowRecoveryAttemptArchiveEvents,
   getWorkflowRecoveryEventIndex,
   listWorkflowRunEvents
 } from "./runtime-repository.js";
@@ -12,6 +13,7 @@ export interface WorkflowEventRepository {
   appendEvent(runId: string, input: AppendWorkflowEventInput): Promise<WorkflowRunEventRecord>;
   listEvents(runId: string, since?: string): Promise<WorkflowRunEventRecord[]>;
   getRecoveryEventIndex(runId: string): Promise<RecoveryEventIndexState>;
+  getRecoveryAttemptArchiveEvents(runId: string, sessionId: string): Promise<WorkflowRunEventRecord[]>;
 }
 
 class DefaultWorkflowEventRepository implements WorkflowEventRepository {
@@ -27,6 +29,10 @@ class DefaultWorkflowEventRepository implements WorkflowEventRepository {
 
   getRecoveryEventIndex(runId: string): Promise<RecoveryEventIndexState> {
     return getWorkflowRecoveryEventIndex(this.dataRoot, runId);
+  }
+
+  getRecoveryAttemptArchiveEvents(runId: string, sessionId: string): Promise<WorkflowRunEventRecord[]> {
+    return getWorkflowRecoveryAttemptArchiveEvents(this.dataRoot, runId, sessionId);
   }
 }
 

@@ -8,6 +8,12 @@ import {
   readRecoveryEventIndex,
   type RecoveryEventIndexState
 } from "../../../services/runtime-recovery-event-index.js";
+import {
+  appendRecoveryAttemptEventToArchive,
+  getRecoveryAttemptArchiveFile,
+  readRecoveryAttemptArchiveEvents
+} from "../../../services/runtime-recovery-attempt-archive.js";
+import { isRecoveryAttemptEventType, isRecoverySidecarRelevantEventType } from "../../../services/runtime-recovery-attempts.js";
 
 interface AppendEventInput {
   projectId: string;
@@ -35,9 +41,21 @@ export async function appendEvent(
   };
 
   const indexScope = buildProjectRecoveryEventIndexScope(paths, input.projectId);
-  await runStorageTransaction([paths.eventsFile, indexScope.index_file], async () => {
+  if (!isRecoverySidecarRelevantEventType(event.eventType)) {
+    await runStorageTransaction([paths.eventsFile], async () => {
+      await appendJsonlLine(paths.eventsFile, event);
+    });
+    return event;
+  }
+
+  const transactionPaths = [paths.eventsFile, indexScope.index_file];
+  if (event.sessionId && isRecoveryAttemptEventType(event.eventType)) {
+    transactionPaths.push(getRecoveryAttemptArchiveFile(indexScope, event.sessionId));
+  }
+  await runStorageTransaction(transactionPaths, async () => {
     await appendJsonlLine(paths.eventsFile, event);
     await appendRecoveryEventToIndex(indexScope, event);
+    await appendRecoveryAttemptEventToArchive(indexScope, event);
   });
   return event;
 }
@@ -46,12 +64,17 @@ export function getProjectRecoveryEventIndexFile(paths: ProjectPaths): string {
   return path.join(path.dirname(paths.sessionsFile), "recovery-event-index.json");
 }
 
+export function getProjectRecoveryAttemptArchiveDir(paths: ProjectPaths): string {
+  return path.join(path.dirname(paths.sessionsFile), "recovery-attempt-archive");
+}
+
 export function buildProjectRecoveryEventIndexScope(paths: ProjectPaths, projectId: string) {
   return {
     scope_kind: "project" as const,
     scope_id: projectId,
     index_file: getProjectRecoveryEventIndexFile(paths),
-    events_file: paths.eventsFile
+    events_file: paths.eventsFile,
+    attempt_archive_dir: getProjectRecoveryAttemptArchiveDir(paths)
   };
 }
 
@@ -60,6 +83,16 @@ export async function getRecoveryEventIndex(
   projectId: string
 ): Promise<RecoveryEventIndexState> {
   return readRecoveryEventIndex(buildProjectRecoveryEventIndexScope(paths, projectId));
+}
+
+export async function getRecoveryAttemptArchiveEvents(
+  paths: ProjectPaths,
+  projectId: string,
+  sessionId: string
+): Promise<EventRecord[]> {
+  return readRecoveryAttemptArchiveEvents(buildProjectRecoveryEventIndexScope(paths, projectId), sessionId) as Promise<
+    EventRecord[]
+  >;
 }
 
 export async function listEvents(paths: ProjectPaths, since?: string): Promise<EventRecord[]> {
@@ -87,6 +120,7 @@ export interface EventRepository {
   appendEvent(paths: ProjectPaths, input: AppendEventInput): Promise<EventRecord>;
   listEvents(paths: ProjectPaths, since?: string): Promise<EventRecord[]>;
   getRecoveryEventIndex(paths: ProjectPaths, projectId: string): Promise<RecoveryEventIndexState>;
+  getRecoveryAttemptArchiveEvents(paths: ProjectPaths, projectId: string, sessionId: string): Promise<EventRecord[]>;
 }
 
 class DefaultEventRepository implements EventRepository {
@@ -100,6 +134,10 @@ class DefaultEventRepository implements EventRepository {
 
   getRecoveryEventIndex(paths: ProjectPaths, projectId: string): Promise<RecoveryEventIndexState> {
     return getRecoveryEventIndex(paths, projectId);
+  }
+
+  getRecoveryAttemptArchiveEvents(paths: ProjectPaths, projectId: string, sessionId: string): Promise<EventRecord[]> {
+    return getRecoveryAttemptArchiveEvents(paths, projectId, sessionId);
   }
 }
 

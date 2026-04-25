@@ -1,0 +1,11 @@
+﻿{
+  "stdout": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260424_233654\\step3_rerun_pnpm_e2e_baseline.stdout.log",
+  "step": "step3_rerun_pnpm_e2e_baseline",
+  "process_id": 40012,
+  "command": "pnpm e2e:baseline",
+  "stderr": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam\\docs\\release_evidence\\20260424_233654\\step3_rerun_pnpm_e2e_baseline.stderr.log",
+  "started_at": "2026-04-25T07:48:31.7000461+08:00",
+  "status": "RUNNING",
+  "reason": "user_reported_original_runtime_process_accidentally_closed",
+  "launch_mode": "detached_independent_process"
+}
