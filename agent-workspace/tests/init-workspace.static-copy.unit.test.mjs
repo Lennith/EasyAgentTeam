@@ -29,8 +29,10 @@ test("initAgentWorkspace copies static TemplateAgentWorkspace and patches base_u
 
   await fs.access(path.join(workspaceRoot, "reports", "step-01-goal.md"));
   await fs.access(path.join(workspaceRoot, "reports", "step-06-submit.json"));
+  await fs.access(path.join(workspaceRoot, ".agent-tools", "agent-workspace-src", "template-bundle-guard.mjs"));
+  await fs.access(path.join(workspaceRoot, ".agent-tools", "agent-workspace-src", "engine.mjs"));
 
   const initReport = JSON.parse(await fs.readFile(result.reportJsonPath, "utf8"));
   assert.equal(typeof initReport.template_source === "string", true);
-  assert.equal(initReport.template_source.endsWith("TemplateAgentWorkspace"), true);
+  assert.equal(initReport.template_source.endsWith("template-agentstatic"), true);
 });

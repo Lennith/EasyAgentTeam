@@ -6,10 +6,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const workspaceRoot = path.resolve(__dirname, "..", "..");
+const localRuntime = path.resolve(workspaceRoot, ".agent-tools", "agent-workspace-src", "template-bundle-guard.mjs");
 const fromEnv = process.env.EASYAGENTTEAM_ROOT
   ? path.resolve(process.env.EASYAGENTTEAM_ROOT, "agent-workspace", "src", "template-bundle-guard.mjs")
   : "";
 const candidates = [];
+if (fs.existsSync(localRuntime)) candidates.push(localRuntime);
 if (fromEnv) candidates.push(fromEnv);
 let probe = workspaceRoot;
 for (let i = 0; i < 10; i += 1) {
@@ -20,7 +22,9 @@ for (let i = 0; i < 10; i += 1) {
 }
 const modulePath = candidates.find((item) => item && fs.existsSync(item));
 if (!modulePath) {
-  throw new Error("Cannot locate agent-workspace/src/template-bundle-guard.mjs. Set EASYAGENTTEAM_ROOT to repository root.");
+  throw new Error(
+    "Cannot locate template-bundle-guard runtime. Re-run agent-workspace init or set EASYAGENTTEAM_ROOT to repository root."
+  );
 }
 const guard = await import(pathToFileURL(modulePath).href);
 const exitCode = await guard.runTemplateBundleGuardCli(process.argv.slice(2), { workspaceRoot });

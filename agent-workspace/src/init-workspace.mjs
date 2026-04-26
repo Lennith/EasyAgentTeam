@@ -6,12 +6,9 @@ import { ensureDir, exists, readJsonFile, writeJsonFile, writeTextFile } from ".
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..", "..");
-const staticTemplateRoot = path.resolve(
-  repoRoot,
-  "agent-workspace",
-  "template-agentstatic"
-);
+const packageRoot = path.resolve(__dirname, "..");
+const staticTemplateRoot = path.resolve(packageRoot, "template-agentstatic");
+const agentWorkspaceSrcRoot = path.resolve(packageRoot, "src");
 
 function normalizeGoal(rawGoal) {
   const trimmed = typeof rawGoal === "string" ? rawGoal.trim() : "";
@@ -76,6 +73,15 @@ async function patchTemplateConfig(configPath, baseUrl) {
   await writeJsonFile(configPath, config);
 }
 
+async function vendorAgentWorkspaceRuntime(targetDir) {
+  if (!(await exists(agentWorkspaceSrcRoot))) {
+    throw new AgentWorkspaceError("agent-workspace runtime source not found", "INIT_TEMPLATE_GUARD_NOT_FOUND", {
+      runtime_source: agentWorkspaceSrcRoot
+    });
+  }
+  await copyDirectoryRecursive(agentWorkspaceSrcRoot, targetDir);
+}
+
 function buildInitMarkdown(options) {
   return [
     "# step-00-init",
@@ -120,6 +126,7 @@ export async function initAgentWorkspace(options) {
   const bundleSamplePath = path.join(workspaceRoot, "bundles", "template.bundle.sample.json");
   const configPath = path.join(workspaceRoot, ".agent-tools", "config.json");
   const guardScriptPath = path.join(workspaceRoot, ".agent-tools", "scripts", "template_bundle_guard.mjs");
+  const guardRuntimePath = path.join(workspaceRoot, ".agent-tools", "agent-workspace-src");
   const guardSkillPath = path.join(
     workspaceRoot,
     ".agent-tools",
@@ -130,6 +137,7 @@ export async function initAgentWorkspace(options) {
   const guardReportDir = path.join(workspaceRoot, "reports", "template-guard");
 
   await patchTemplateConfig(configPath, baseUrl);
+  await vendorAgentWorkspaceRuntime(guardRuntimePath);
   await ensureDir(guardReportDir);
 
   const stepOutputs = await collectStepOutputs(reportsDir);

@@ -15,6 +15,20 @@ interface ParsedUsage {
   totalTokens: number;
 }
 
+type ProcessTreeTerminationResultCode = "killed" | "not_found" | "access_denied" | "failed" | "skipped_no_pid";
+
+interface ProcessTreeTerminationResult {
+  attempted: boolean;
+  pid: number | null;
+  result: ProcessTreeTerminationResultCode;
+  message: string;
+}
+
+interface CodexTaskCompleteSignal {
+  taskComplete: boolean;
+  lastAgentMessage: string | null;
+}
+
 function parseArguments(raw: unknown): Record<string, unknown> {
   if (!raw) {
     return {};
@@ -170,6 +184,188 @@ function extractText(raw: unknown): string | undefined {
   return undefined;
 }
 
+function readTaskCompleteLastAgentMessage(payload: Record<string, unknown>): string | null {
+  const direct = typeof payload.last_agent_message === "string" ? payload.last_agent_message.trim() : "";
+  if (direct.length > 0) {
+    return direct;
+  }
+  const nested = payload.last_agent_message;
+  if (nested && typeof nested === "object") {
+    const nestedText = extractText(nested);
+    if (nestedText) {
+      return nestedText;
+    }
+  }
+  return null;
+}
+
+function resolveCodexTaskCompleteSignal(event: Record<string, unknown>): CodexTaskCompleteSignal {
+  const eventType = typeof event.type === "string" ? event.type : "";
+  if (eventType === "task_complete") {
+    return { taskComplete: true, lastAgentMessage: null };
+  }
+  if (eventType === "event_msg") {
+    const payload =
+      event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
+        ? (event.payload as Record<string, unknown>)
+        : null;
+    const payloadType = payload && typeof payload.type === "string" ? payload.type : "";
+    if (payloadType === "task_complete") {
+      return {
+        taskComplete: true,
+        lastAgentMessage: payload ? readTaskCompleteLastAgentMessage(payload) : null
+      };
+    }
+  }
+  const item =
+    event.item && typeof event.item === "object" && !Array.isArray(event.item)
+      ? (event.item as Record<string, unknown>)
+      : null;
+  const itemType = item && typeof item.type === "string" ? item.type : "";
+  if (itemType === "task_complete") {
+    return {
+      taskComplete: true,
+      lastAgentMessage: item ? readTaskCompleteLastAgentMessage(item) : null
+    };
+  }
+  return { taskComplete: false, lastAgentMessage: null };
+}
+
+export function isCodexTaskCompleteSignal(event: Record<string, unknown>): boolean {
+  return resolveCodexTaskCompleteSignal(event).taskComplete;
+}
+
+async function terminateProcessTreeByPid(pid: number | null, timeoutMs: number): Promise<ProcessTreeTerminationResult> {
+  if (!pid || !Number.isFinite(pid) || pid <= 0) {
+    return {
+      attempted: false,
+      pid: null,
+      result: "skipped_no_pid",
+      message: "no pid available"
+    };
+  }
+
+  if (process.platform !== "win32") {
+    try {
+      process.kill(pid, "SIGKILL");
+      return {
+        attempted: true,
+        pid,
+        result: "killed",
+        message: "process terminated"
+      };
+    } catch (error) {
+      const known = error as NodeJS.ErrnoException;
+      if (known.code === "ESRCH") {
+        return {
+          attempted: true,
+          pid,
+          result: "not_found",
+          message: "process not found"
+        };
+      }
+      if (known.code === "EPERM") {
+        return {
+          attempted: true,
+          pid,
+          result: "access_denied",
+          message: "access denied when terminating process"
+        };
+      }
+      return {
+        attempted: true,
+        pid,
+        result: "failed",
+        message: known.message || "process termination failed"
+      };
+    }
+  }
+
+  return await new Promise<ProcessTreeTerminationResult>((resolve) => {
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "pipe"
+      });
+    } catch (error) {
+      const known = error as NodeJS.ErrnoException;
+      resolve({
+        attempted: true,
+        pid,
+        result: known.code === "EPERM" ? "access_denied" : "failed",
+        message: known.message || "taskkill spawn failed"
+      });
+      return;
+    }
+
+    let stdout = "";
+    let stderr = "";
+    const timeoutHandle = setTimeout(() => {
+      proc.kill();
+      resolve({
+        attempted: true,
+        pid,
+        result: "failed",
+        message: `taskkill timeout after ${timeoutMs}ms`
+      });
+    }, timeoutMs);
+
+    proc.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    proc.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    proc.on("error", (error) => {
+      clearTimeout(timeoutHandle);
+      resolve({
+        attempted: true,
+        pid,
+        result: "failed",
+        message: error.message
+      });
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timeoutHandle);
+      if (code === 0) {
+        resolve({
+          attempted: true,
+          pid,
+          result: "killed",
+          message: "process tree terminated"
+        });
+        return;
+      }
+      const output = `${stdout}\n${stderr}`.toLowerCase();
+      if (output.includes("not found") || output.includes("no running instance")) {
+        resolve({
+          attempted: true,
+          pid,
+          result: "not_found",
+          message: "process not found"
+        });
+        return;
+      }
+      if (output.includes("access is denied")) {
+        resolve({
+          attempted: true,
+          pid,
+          result: "access_denied",
+          message: "access denied when terminating process"
+        });
+        return;
+      }
+      resolve({
+        attempted: true,
+        pid,
+        result: "failed",
+        message: (stderr || stdout || "taskkill failed").trim() || "taskkill failed"
+      });
+    });
+  });
+}
+
 export function looksLikeCodexThreadId(raw: string | undefined): boolean {
   if (!raw) {
     return false;
@@ -246,6 +442,8 @@ export function buildCodexSessionArgs(
 
 export class CodexSessionRuntime {
   private static readonly KEEPALIVE_INTERVAL_MS = 15_000;
+  private static readonly TASK_COMPLETE_TERMINATION_GRACE_MS = 8_000;
+  private static readonly PROCESS_TREE_TERMINATION_TIMEOUT_MS = 4_000;
   private readonly activeSessions = new Map<string, ChildProcessWithoutNullStreams>();
 
   private registerSessionKey(sessionKey: string, child: ChildProcessWithoutNullStreams): void {
@@ -332,6 +530,11 @@ export class CodexSessionRuntime {
     let step = 0;
     const assistantMessages: string[] = [];
     const toolCallNames = new Map<string, string>();
+    let taskCompleteObserved = false;
+    let taskCompleteObservedAt: string | null = null;
+    let taskCompleteLastAgentMessage: string | null = null;
+    let taskCompleteTerminationResult: ProcessTreeTerminationResult | null = null;
+    let taskCompleteWatchdog: NodeJS.Timeout | null = null;
 
     const emitObservation = (kind: string, details?: Record<string, unknown>) => {
       const callback = input.callback?.onProviderObservation;
@@ -356,6 +559,9 @@ export class CodexSessionRuntime {
     };
 
     const emitKeepalive = (source: "timer" | "stdout" | "stderr", force: boolean = false) => {
+      if (taskCompleteObserved && source === "timer") {
+        return;
+      }
       const now = Date.now();
       if (!force && now - lastKeepaliveAt < CodexSessionRuntime.KEEPALIVE_INTERVAL_MS) {
         return;
@@ -387,6 +593,30 @@ export class CodexSessionRuntime {
       await Promise.allSettled(pending);
     };
 
+    const scheduleTaskCompleteWatchdog = () => {
+      if (taskCompleteWatchdog) {
+        return;
+      }
+      taskCompleteWatchdog = setTimeout(() => {
+        void (async () => {
+          if (child.exitCode !== null || child.killed) {
+            return;
+          }
+          taskCompleteTerminationResult = await terminateProcessTreeByPid(
+            child.pid ?? null,
+            CodexSessionRuntime.PROCESS_TREE_TERMINATION_TIMEOUT_MS
+          );
+          emitObservation("task_complete_force_terminate", {
+            observed_at: taskCompleteObservedAt,
+            pid: taskCompleteTerminationResult.pid,
+            result: taskCompleteTerminationResult.result,
+            message: taskCompleteTerminationResult.message
+          });
+        })();
+      }, CodexSessionRuntime.TASK_COMPLETE_TERMINATION_GRACE_MS);
+      taskCompleteWatchdog.unref?.();
+    };
+
     const flushLine = (stream: "stdout" | "stderr", line: string) => {
       const trimmed = line.trim();
       if (!trimmed) {
@@ -399,6 +629,24 @@ export class CodexSessionRuntime {
         if (stream === "stderr" && trimmed.length > 0) {
           return;
         }
+        return;
+      }
+
+      const taskCompleteSignal = resolveCodexTaskCompleteSignal(event);
+      if (taskCompleteSignal.taskComplete) {
+        taskCompleteObserved = true;
+        taskCompleteObservedAt = new Date().toISOString();
+        taskCompleteLastAgentMessage = taskCompleteSignal.lastAgentMessage;
+        if (taskCompleteSignal.lastAgentMessage) {
+          assistantMessages.push(taskCompleteSignal.lastAgentMessage);
+        }
+        emitObservation("task_complete", {
+          stream,
+          observed_at: taskCompleteObservedAt,
+          has_last_agent_message: Boolean(taskCompleteSignal.lastAgentMessage),
+          pid: child.pid ?? null
+        });
+        scheduleTaskCompleteWatchdog();
         return;
       }
 
@@ -524,6 +772,9 @@ export class CodexSessionRuntime {
       }
     ).catch(async (error) => {
       clearInterval(keepaliveTimer);
+      if (taskCompleteWatchdog) {
+        clearTimeout(taskCompleteWatchdog);
+      }
       const normalized =
         error && typeof error === "object" && "code" in (error as Record<string, unknown>)
           ? (normalizeCodexLaunchFailure({
@@ -543,6 +794,9 @@ export class CodexSessionRuntime {
       throw normalized;
     });
     clearInterval(keepaliveTimer);
+    if (taskCompleteWatchdog) {
+      clearTimeout(taskCompleteWatchdog);
+    }
 
     const exitCode = closeResult.exitCode;
     const exitSignal = closeResult.signal;
@@ -557,7 +811,10 @@ export class CodexSessionRuntime {
     this.unregisterSessionKeys(trackedKeys, child);
 
     const content = assistantMessages.join("\n\n").trim();
-    if (exitCode !== 0) {
+    const terminationResult = taskCompleteTerminationResult as ProcessTreeTerminationResult | null;
+    const taskCompleteRecoveredByTermination =
+      taskCompleteObserved && (terminationResult?.result === "killed" || terminationResult?.result === "not_found");
+    if (exitCode !== 0 && !taskCompleteRecoveredByTermination) {
       const error =
         normalizeCodexLaunchFailure({
           model: input.model,
@@ -580,6 +837,16 @@ export class CodexSessionRuntime {
       await flushPendingObservations();
       input.callback?.onError?.(error);
       throw error;
+    }
+    if (exitCode !== 0 && taskCompleteRecoveredByTermination) {
+      emitObservation("run_completed_after_task_complete_recovery", {
+        exit_code: exitCode ?? null,
+        exit_signal: exitSignal ?? null,
+        recovery_result: terminationResult?.result ?? null
+      });
+    }
+    if (taskCompleteObserved && !finishReason) {
+      finishReason = "stop";
     }
 
     const result: MiniMaxRunResult = {
@@ -617,6 +884,9 @@ export class CodexSessionRuntime {
     if (!active) {
       return false;
     }
+    void terminateProcessTreeByPid(active.pid ?? null, CodexSessionRuntime.PROCESS_TREE_TERMINATION_TIMEOUT_MS).catch(
+      () => undefined
+    );
     active.kill();
     return true;
   }

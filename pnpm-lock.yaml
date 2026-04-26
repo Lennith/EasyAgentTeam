@@ -42,6 +42,12 @@ importers:
         specifier: ^8.17.0
         version: 8.56.1(eslint@9.39.3)(typescript@5.9.3)
 
+  agent-workspace:
+    devDependencies:
+      tsx:
+        specifier: ^4.20.5
+        version: 4.21.0
+
   agent_library:
     devDependencies:
       typescript:

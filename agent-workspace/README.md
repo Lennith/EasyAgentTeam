@@ -13,12 +13,16 @@ You can copy this directory directly and start using it without running `init`.
 
 ## Primary Commands
 
+`agent-workspace` is a private workspace package named `@autodev/agent-workspace`.
+Use the root package scripts as the supported product entry surface.
+
 ```powershell
-node agent-workspace/cli.mjs init --goal "build a gesture-recognition workflow" --base-url http://127.0.0.1:43123 --workspace .\tmp\external-agent-workspace
-node agent-workspace/cli.mjs validate --bundle .\agent-workspace\examples\bundle.sample.json --base-url http://127.0.0.1:43123
-node agent-workspace/cli.mjs apply --bundle .\agent-workspace\examples\bundle.sample.json --base-url http://127.0.0.1:43123 --dry-run
-node agent-workspace/campaign/run-campaign.mjs --manifest .\agent-workspace\campaign\scenarios.workflow.manifest.json --base-url http://127.0.0.1:43123
-node agent-workspace/supervisor/run-two-rounds-real.mjs --base-url http://127.0.0.1:43123 --data-root .\data
+pnpm agent-workspace -- init --goal "build a gesture-recognition workflow" --base-url http://127.0.0.1:43123 --workspace .\tmp\external-agent-workspace
+pnpm agent-workspace -- validate --bundle .\agent-workspace\examples\bundle.sample.json --base-url http://127.0.0.1:43123
+pnpm agent-workspace -- apply --bundle .\agent-workspace\examples\bundle.sample.json --base-url http://127.0.0.1:43123 --dry-run
+pnpm agent-workspace:campaign -- --manifest .\agent-workspace\campaign\scenarios.workflow.manifest.json --base-url http://127.0.0.1:43123
+pnpm agent-workspace:real-two-rounds -- --base-url http://127.0.0.1:43123 --data-root .\data
+pnpm agent-workspace:pack
 ```
 
 TemplateAgent default submit flow (inside initialized workspace):
@@ -31,7 +35,7 @@ node .agent-tools\scripts\template_bundle_guard.mjs publish
 Internal debug command:
 
 ```powershell
-node agent-workspace/cli.mjs module-check --module skill.bundle.validate --bundle .\agent-workspace\examples\bundle.sample.json --base-url http://127.0.0.1:43123
+pnpm agent-workspace -- module-check --module skill.bundle.validate --bundle .\agent-workspace\examples\bundle.sample.json --base-url http://127.0.0.1:43123
 ```
 
 ## Init Output

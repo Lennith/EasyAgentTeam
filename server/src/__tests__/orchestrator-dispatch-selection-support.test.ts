@@ -86,7 +86,8 @@ test("duplicate dispatch guard returns true and triggers callback on open task d
       callbackCount += 1;
     }
   });
-  assert.equal(duplicate, true);
+  assert.equal(duplicate.duplicateFound, true);
+  assert.equal(duplicate.staleRecovered, false);
   assert.equal(callbackCount, 1);
 });
 
@@ -121,8 +122,44 @@ test("duplicate dispatch guard returns false when task dispatch is already close
       callbackCount += 1;
     }
   });
-  assert.equal(duplicate, false);
+  assert.equal(duplicate.duplicateFound, false);
+  assert.equal(duplicate.staleRecovered, false);
   assert.equal(callbackCount, 0);
+});
+
+test("duplicate dispatch guard recovers stale open dispatch when session heartbeat is stale", async () => {
+  let staleRecoveredCount = 0;
+  let duplicateCallbackCount = 0;
+  const result = await guardOrchestratorDuplicateTaskDispatch({
+    taskId: "task_a",
+    sessionId: "session_a",
+    sessionStatus: "idle",
+    sessionLastDispatchId: "dispatch_1",
+    nowMs: Date.parse("2026-03-29T00:03:00.000Z"),
+    staleDuplicateWindowMs: 60_000,
+    listEvents: async () => [
+      {
+        eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+        createdAt: "2026-03-29T00:00:10.000Z",
+        taskId: "task_a",
+        sessionId: "session_a",
+        payload: {
+          dispatchId: "dispatch_1",
+          dispatchKind: "task"
+        }
+      }
+    ],
+    onDuplicateDetected: async () => {
+      duplicateCallbackCount += 1;
+    },
+    onStaleDuplicateRecovered: async () => {
+      staleRecoveredCount += 1;
+    }
+  });
+  assert.equal(result.duplicateFound, false);
+  assert.equal(result.staleRecovered, true);
+  assert.equal(staleRecoveredCount, 1);
+  assert.equal(duplicateCallbackCount, 0);
 });
 
 test("duplicate dispatch skip helper returns built result only when duplicate is found", async () => {

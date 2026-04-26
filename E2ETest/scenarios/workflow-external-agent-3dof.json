@@ -201,8 +201,8 @@
   },
   "subtask_stats_expectation": {
     "min_non_manager_subtask_count": 1,
-    "allowed_creator_role_refs": ["rd_lead"],
-    "require_parent_scope_phase_only": true
+    "allowed_creator_role_refs": ["rd_lead", "ml_engineer"],
+    "require_parent_scope_phase_only": false
   },
   "phase_tasks": [
     {

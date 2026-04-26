@@ -286,6 +286,43 @@ test("project dispatch selection skips duplicate open task dispatch", async () =
   assert.equal(appendedEvents.length, 1);
 });
 
+test("project dispatch selection recovers stale open task dispatch and continues dispatch", async () => {
+  const task = createTask({ taskId: "task_dup", ownerRole: "dev", state: "READY" });
+  const openDispatchEvents = [
+    {
+      eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+      createdAt: "2026-03-28T10:00:00.000Z",
+      taskId: "task_dup",
+      sessionId: "session_dev",
+      payload: { dispatchId: "dispatch-open", dispatchKind: "task" }
+    }
+  ];
+  const { repositories, appendedEvents } = createRepositories({
+    tasks: [task],
+    runnableTasks: [task],
+    events: openDispatchEvents
+  });
+  const adapter = new ProjectDispatchSelectionAdapter(repositories);
+
+  const result = await adapter.select(
+    {
+      project: createProject(),
+      paths: createPaths(),
+      session: createSession({
+        status: "idle",
+        lastDispatchId: "dispatch-open",
+        lastActiveAt: "2026-03-28T10:00:00.000Z"
+      })
+    },
+    { mode: "manual" }
+  );
+
+  assert.equal(result.status, "selected");
+  assert.equal(appendedEvents.length, 1);
+  assert.equal(appendedEvents[0]?.eventType, "ORCHESTRATOR_DISPATCH_FINISHED");
+  assert.equal((appendedEvents[0]?.payload as Record<string, unknown>).reason, "stale_open_dispatch_recovered");
+});
+
 test("project dispatch selection honors onlyIdle gate", async () => {
   const task = createTask({ taskId: "task_idle", ownerRole: "dev", state: "READY" });
   const { repositories } = createRepositories({

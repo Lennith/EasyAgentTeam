@@ -194,29 +194,119 @@ function Resolve-WorkspaceRootSafePath {
   return $fullPath
 }
 
+function Convert-ToWorkspacePathKey {
+  param([string]$Path)
+
+  $trimmed = ([string]$Path).Trim()
+  if (-not $trimmed) {
+    return ""
+  }
+  try {
+    return ([System.IO.Path]::GetFullPath($trimmed)).TrimEnd('\').ToLowerInvariant()
+  } catch {
+    return $trimmed.TrimEnd('\').ToLowerInvariant()
+  }
+}
+
+function Resolve-WorkspaceRootFromContextBase64 {
+  param([string]$CommandLine)
+
+  $line = ([string]$CommandLine)
+  if ([string]::IsNullOrWhiteSpace($line)) {
+    return ""
+  }
+
+  $patterns = @(
+    "context-base64['`"]\s*,\s*['`"](?<b64>[A-Za-z0-9+/=]+)",
+    "--context-base64\s+['`"]?(?<b64>[A-Za-z0-9+/=]+)['`"]?",
+    "context-base64=(?<b64>[A-Za-z0-9+/=]+)"
+  )
+
+  foreach ($pattern in $patterns) {
+    $match = [regex]::Match($line, $pattern)
+    if (-not $match.Success) {
+      continue
+    }
+    $b64 = [string]$match.Groups["b64"].Value
+    if ([string]::IsNullOrWhiteSpace($b64)) {
+      continue
+    }
+
+    try {
+      $json = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
+      $obj = $json | ConvertFrom-Json -ErrorAction Stop
+      $workspaceRoot = ""
+      if ($obj -and $obj.PSObject.Properties["workspaceRoot"]) {
+        $workspaceRoot = [string]$obj.workspaceRoot
+      } elseif ($obj -and $obj.PSObject.Properties["workspace_root"]) {
+        $workspaceRoot = [string]$obj.workspace_root
+      }
+      $normalized = Convert-ToWorkspacePathKey -Path $workspaceRoot
+      if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+        return $normalized
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return ""
+}
+
+function Stop-ProcessTreeBestEffort {
+  param([Parameter(Mandatory = $true)][int]$ProcessId)
+
+  if ($ProcessId -le 0) {
+    return
+  }
+
+  if ($env:OS -eq "Windows_NT") {
+    try {
+      & taskkill /PID $ProcessId /T /F | Out-Null
+      return
+    } catch {}
+  }
+
+  try {
+    Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+  } catch {}
+}
+
 function Stop-WorkspaceBoundProcesses {
   param([Parameter(Mandatory = $true)][string]$WorkspaceRoot)
 
   $safeRoot = Resolve-WorkspaceRootSafePath -WorkspaceRoot $WorkspaceRoot
-  $needle = ([string]$safeRoot).Trim().ToLowerInvariant()
+  $needle = Convert-ToWorkspacePathKey -Path $safeRoot
   if ([string]::IsNullOrWhiteSpace($needle)) {
     return
   }
 
-  $matches = Get-CimInstance Win32_Process | Where-Object {
+  $candidateProcesses = Get-CimInstance Win32_Process | Where-Object {
     $_.ProcessId -ne $PID -and
     $_.Name -match 'codex|node|powershell' -and
-    -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine) -and
-    ([string]$_.CommandLine).ToLowerInvariant().Contains($needle)
+    -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine)
+  }
+  $matches = @()
+  foreach ($proc in @($candidateProcesses)) {
+    $commandLine = [string]$proc.CommandLine
+    $directMatch = $commandLine.ToLowerInvariant().Contains($needle)
+    if ($directMatch) {
+      $matches += $proc
+      continue
+    }
+    $contextWorkspace = Resolve-WorkspaceRootFromContextBase64 -CommandLine $commandLine
+    if ($contextWorkspace -eq $needle) {
+      $matches += $proc
+    }
   }
 
-  foreach ($proc in @($matches)) {
-    try {
-      Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
-    } catch {}
+  $uniqueIds = @($matches | Select-Object -ExpandProperty ProcessId -Unique)
+
+  foreach ($procId in $uniqueIds) {
+    Stop-ProcessTreeBestEffort -ProcessId ([int]$procId)
   }
 
-  if (@($matches).Count -gt 0) {
+  if ($uniqueIds.Count -gt 0) {
     Start-Sleep -Milliseconds 500
   }
 }

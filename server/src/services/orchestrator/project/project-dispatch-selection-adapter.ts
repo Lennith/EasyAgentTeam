@@ -252,6 +252,8 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
         taskId: selectedTaskId,
         sessionId: session.sessionId,
         listEvents: async () => await this.repositories.events.listEvents(paths),
+        sessionStatus: session.status,
+        sessionLastDispatchId: session.lastDispatchId ?? null,
         onDuplicateDetected: async () => {
           await this.repositories.events.appendEvent(paths, {
             projectId: project.projectId,
@@ -265,6 +267,27 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
               messageIds: selectedMessageIds,
               requestId: firstMessage.envelope.correlation.request_id,
               dispatchSkipReason: "duplicate_open_dispatch"
+            }
+          });
+        },
+        onStaleDuplicateRecovered: async ({ dispatchId, startedAt, requestId, messageId, dispatchKind: staleKind }) => {
+          await this.repositories.events.appendEvent(paths, {
+            projectId: project.projectId,
+            eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
+            source: "manager",
+            sessionId: session.sessionId,
+            taskId: selectedTaskId,
+            payload: {
+              mode: input.mode,
+              requestId: requestId ?? null,
+              dispatchId,
+              dispatchKind: staleKind ?? dispatchKind,
+              messageId: messageId ?? null,
+              synthetic: true,
+              timedOut: false,
+              reason: "stale_open_dispatch_recovered",
+              startedAt,
+              finishedAt: new Date().toISOString()
             }
           });
         },

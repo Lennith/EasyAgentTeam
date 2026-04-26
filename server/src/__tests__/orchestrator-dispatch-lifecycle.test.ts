@@ -104,6 +104,25 @@ test("dispatch lifecycle loader resolves terminal state from repository callback
   });
 });
 
+test("dispatch lifecycle treats timed-out terminal dispatch event as timeout evidence", () => {
+  const events = [
+    {
+      eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
+      createdAt: "2026-03-28T00:02:00.000Z",
+      sessionId: "session-1",
+      payload: {
+        dispatchId: "dispatch-1",
+        timedOut: true
+      }
+    }
+  ];
+
+  assert.deepEqual(resolveOrchestratorDispatchTerminalState(events, "session-1", "dispatch-1"), {
+    closed: true,
+    timedOut: true
+  });
+});
+
 test("dispatch lifecycle state applier skips closed dispatch and applies for open dispatch", async () => {
   let operationCalls = 0;
   const closedState = await applyOrchestratorDispatchTerminalState(

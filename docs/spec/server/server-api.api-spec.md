@@ -3,7 +3,7 @@
 本页只覆盖系统、catalog、project 相关公开 API。  
 workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 
-文档状态：`实装`
+文档状态：`验证中`
 
 ## 系统入口
 
@@ -14,6 +14,23 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - `PATCH /api/settings`
 - `GET /api/orchestrator/status`
 - `GET /api/models`
+
+## System Settings Provider Profile
+
+- `GET /api/settings` 继续返回旧 settings 字段，同时返回 `providers`：
+  - `providers.codex.cliCommand`
+  - `providers.codex.model`
+  - `providers.codex.reasoningEffort`
+  - `providers.minimax.apiKey`
+  - `providers.minimax.apiBase`
+  - `providers.minimax.model`
+  - `providers.minimax.sessionDir`
+  - `providers.minimax.mcpServers`
+  - `providers.minimax.maxSteps`
+  - `providers.minimax.tokenLimit`
+  - `providers.minimax.maxOutputTokens`
+- `PATCH /api/settings` 继续兼容旧字段，也接受 `providers.codex` 与 `providers.minimax` patch。
+- runtime 内部以 provider profile 为归一化配置源；旧字段只作为兼容映射。
 
 ## Catalog 入口
 

@@ -1,9 +1,22 @@
-﻿{
-  "name": "agent-workspace",
+{
+  "name": "@autodev/agent-workspace",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "bin": {
     "agent-workspace": "./cli.mjs"
+  },
+  "scripts": {
+    "cli": "node ./cli.mjs",
+    "check": "node --check ./cli.mjs && node --check ./src/cli-runner.mjs",
+    "test": "node --import tsx --test ./tests/*.test.mjs",
+    "campaign": "node ./campaign/run-campaign.mjs",
+    "campaign:dry": "node ./campaign/run-campaign.mjs --dry-run",
+    "real-two-rounds": "node ./supervisor/run-two-rounds-real.mjs",
+    "drive-run": "node ./supervisor/drive-run-to-finished.mjs",
+    "pack:local": "node ./scripts/pack-local.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
   }
 }

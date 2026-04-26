@@ -162,10 +162,13 @@ export async function runWorkflowDispatchProviderLaunch(
   adapterContext: WorkflowDispatchLaunchAdapterContext,
   context: WorkflowDispatchLaunchContext
 ): Promise<Awaited<ReturnType<ProviderRegistry["runSessionWithTools"]>>> {
-  if (context.prepared.providerId === "minimax" && !context.prepared.settings.minimaxApiKey) {
+  const minimaxApiKey = context.prepared.settings.providers?.minimax.apiKey ?? context.prepared.settings.minimaxApiKey;
+  const codexCliCommand =
+    context.prepared.settings.providers?.codex.cliCommand ?? context.prepared.settings.codexCliCommand;
+  if (context.prepared.providerId === "minimax" && !minimaxApiKey) {
     throw new WorkflowDispatchConfigurationError("minimax_not_configured");
   }
-  if (context.prepared.providerId === "codex" && !context.prepared.settings.codexCliCommand?.trim()) {
+  if (context.prepared.providerId === "codex" && !codexCliCommand?.trim()) {
     throw createProviderCliUnavailableError("codex", "codex");
   }
   const runtime = await adapterContext.ensureRuntime(context.input.run);

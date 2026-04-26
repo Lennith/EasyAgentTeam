@@ -168,6 +168,8 @@ export class WorkflowDispatchSelectionAdapter implements OrchestratorDispatchSel
           taskId: chosenTaskId,
           sessionId: session.sessionId,
           listEvents: async () => await this.context.repositories.events.listEvents(scope.run.runId),
+          sessionStatus: session.status,
+          sessionLastDispatchId: session.lastDispatchId ?? null,
           onDuplicateDetected: async () => {
             await this.context.repositories.events.appendEvent(scope.run.runId, {
               eventType: "ORCHESTRATOR_DISPATCH_SKIPPED",
@@ -178,6 +180,24 @@ export class WorkflowDispatchSelectionAdapter implements OrchestratorDispatchSel
                 requestId: input.requestId,
                 dispatchKind: chosen.dispatchKind,
                 dispatchSkipReason: "duplicate_open_dispatch"
+              }
+            });
+          },
+          onStaleDuplicateRecovered: async ({ dispatchId, startedAt, requestId, dispatchKind: staleKind }) => {
+            await this.context.repositories.events.appendEvent(scope.run.runId, {
+              eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
+              source: "system",
+              sessionId: session.sessionId,
+              taskId: chosenTaskId,
+              payload: {
+                requestId: requestId ?? null,
+                dispatchId,
+                dispatchKind: staleKind ?? chosen.dispatchKind,
+                synthetic: true,
+                timedOut: false,
+                reason: "stale_open_dispatch_recovered",
+                startedAt,
+                finishedAt: new Date().toISOString()
               }
             });
           },

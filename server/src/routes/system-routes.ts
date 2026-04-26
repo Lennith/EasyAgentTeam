@@ -10,6 +10,19 @@ import {
 import type { AppRuntimeContext } from "./shared/context.js";
 import { readNullableStringPatch, readStringField } from "./shared/http.js";
 
+function readObjectField(body: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const value = body[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function readNumberField(body: Record<string, unknown>, snakeKey: string, camelKey: string): number | undefined {
+  return typeof body[snakeKey] === "number"
+    ? (body[snakeKey] as number)
+    : typeof body[camelKey] === "number"
+      ? (body[camelKey] as number)
+      : undefined;
+}
+
 export function registerSystemRoutes(app: express.Application, context: AppRuntimeContext): void {
   const { dataRoot, orchestrator } = context;
   app.get("/healthz", (_req, res) => {
@@ -60,6 +73,15 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
       const theme = themeRaw === "dark" || themeRaw === "vibrant" || themeRaw === "lively" ? themeRaw : undefined;
       const minimaxApiKeyPatch = readNullableStringPatch(body, ["minimax_api_key", "minimaxApiKey"]);
       const minimaxApiBasePatch = readNullableStringPatch(body, ["minimax_api_base", "minimaxApiBase"]);
+      const providersRaw = readObjectField(body, "providers");
+      const codexProviderRaw = providersRaw ? readObjectField(providersRaw, "codex") : undefined;
+      const minimaxProviderRaw = providersRaw ? readObjectField(providersRaw, "minimax") : undefined;
+      const providerMiniMaxApiKeyPatch = minimaxProviderRaw
+        ? readNullableStringPatch(minimaxProviderRaw, ["api_key", "apiKey"])
+        : undefined;
+      const providerMiniMaxApiBasePatch = minimaxProviderRaw
+        ? readNullableStringPatch(minimaxProviderRaw, ["api_base", "apiBase"])
+        : undefined;
       const updated = await patchRuntimeSettingsForApi(dataRoot, {
         codexCliCommand: readStringField(body, ["codex_cli_command", "codexCliCommand"]),
         theme,
@@ -85,7 +107,50 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
             ? body.minimax_max_output_tokens
             : typeof body.minimaxMaxOutputTokens === "number"
               ? body.minimaxMaxOutputTokens
-              : undefined
+              : undefined,
+        providers: providersRaw
+          ? {
+              ...(codexProviderRaw
+                ? {
+                    codex: {
+                      cliCommand: readStringField(codexProviderRaw, ["cli_command", "cliCommand"]),
+                      model: readStringField(codexProviderRaw, ["model"]),
+                      reasoningEffort: readStringField(codexProviderRaw, ["reasoning_effort", "reasoningEffort"]) as
+                        | "low"
+                        | "medium"
+                        | "high"
+                        | undefined
+                    }
+                  }
+                : {}),
+              ...(minimaxProviderRaw
+                ? {
+                    minimax: {
+                      ...(providerMiniMaxApiKeyPatch !== undefined ? { apiKey: providerMiniMaxApiKeyPatch } : {}),
+                      ...(providerMiniMaxApiBasePatch !== undefined ? { apiBase: providerMiniMaxApiBasePatch } : {}),
+                      model: readStringField(minimaxProviderRaw, ["model"]),
+                      sessionDir: readStringField(minimaxProviderRaw, ["session_dir", "sessionDir"]),
+                      mcpServers: minimaxProviderRaw.mcp_servers ?? (minimaxProviderRaw.mcpServers as any),
+                      maxSteps: readNumberField(minimaxProviderRaw, "max_steps", "maxSteps"),
+                      tokenLimit: readNumberField(minimaxProviderRaw, "token_limit", "tokenLimit"),
+                      maxOutputTokens: readNumberField(minimaxProviderRaw, "max_output_tokens", "maxOutputTokens"),
+                      shellTimeout: readNumberField(minimaxProviderRaw, "shell_timeout", "shellTimeout"),
+                      shellOutputIdleTimeout: readNumberField(
+                        minimaxProviderRaw,
+                        "shell_output_idle_timeout",
+                        "shellOutputIdleTimeout"
+                      ),
+                      shellMaxRunTime: readNumberField(minimaxProviderRaw, "shell_max_run_time", "shellMaxRunTime"),
+                      shellMaxOutputSize: readNumberField(
+                        minimaxProviderRaw,
+                        "shell_max_output_size",
+                        "shellMaxOutputSize"
+                      )
+                    }
+                  }
+                : {})
+            }
+          : undefined
       });
       res.status(200).json(updated);
     } catch (error) {

@@ -18,7 +18,7 @@ import type {
   ProjectDispatchLaunchContext,
   ProjectDispatchLaunchOperations
 } from "./project-dispatch-launch-adapter.js";
-import { applyOrchestratorDispatchTerminalState } from "../shared/index.js";
+import { applyOrchestratorDispatchTerminalState, resolveOrchestratorDispatchTerminalState } from "../shared/index.js";
 
 type ProjectDispatchEventWriter = {
   appendFinished(scope: ProjectDispatchEventScope, details: ProjectDispatchFinishedDetails): Promise<void>;
@@ -78,6 +78,9 @@ interface ProjectDispatchRunOutcomeLike {
 }
 
 interface ProjectDispatchLifecycleDependencies {
+  context: {
+    repositories: Pick<ProjectRepositoryBundle, "events">;
+  };
   operations: Pick<
     ProjectDispatchLaunchOperations,
     | "markRunnerTimeout"
@@ -341,6 +344,14 @@ export async function finalizeProjectDispatchRunLifecycle(
       provider: input.provider
     });
     return timeoutResult.escalated ? "runner timeout escalated" : null;
+  }
+  const dispatchTerminalState = resolveOrchestratorDispatchTerminalState(
+    await dependencies.context.repositories.events.listEvents(context.input.paths),
+    sessionId,
+    context.dispatchId
+  );
+  if (dispatchTerminalState.timedOut) {
+    return null;
   }
   if (input.exitCode === 0) {
     await dependencies.operations.markRunnerSuccess({

@@ -294,6 +294,42 @@ test("workflow dispatch selection skips duplicate open task dispatch", async () 
   assert.equal(appendedEvents.length, 1);
 });
 
+test("workflow dispatch selection recovers stale duplicate task dispatch and continues selection", async () => {
+  const run = createRun();
+  const runtime = createRuntime([{ taskId: "task_a", state: "READY" }]);
+  const session = createSession({
+    status: "idle",
+    lastDispatchId: "dispatch-open",
+    lastActiveAt: "2026-03-28T10:00:00.000Z"
+  });
+  const openDispatchEvents = [
+    {
+      eventType: "ORCHESTRATOR_DISPATCH_STARTED",
+      createdAt: "2026-03-28T10:00:00.000Z",
+      taskId: "task_a",
+      sessionId: "session_dev",
+      payload: { dispatchId: "dispatch-open", dispatchKind: "task" }
+    }
+  ];
+  const { repositories, appendedEvents } = createRepositories({ events: openDispatchEvents });
+  const adapter = new WorkflowDispatchSelectionAdapter({
+    repositories,
+    inFlightDispatchSessionKeys: new OrchestratorSingleFlightGate(),
+    buildRunSessionKey: (runId, sessionId) => `${runId}:${sessionId}`,
+    resolveAuthoritativeSession: async () => session
+  });
+
+  const result = await adapter.select(
+    { run, runtime, sessions: [session] },
+    { force: false, onlyIdle: false, requestId: "request-stale-duplicate", remainingBudget: 3 }
+  );
+
+  assert.equal(result.status, "selected");
+  assert.equal(appendedEvents.length, 1);
+  assert.equal(appendedEvents[0]?.eventType, "ORCHESTRATOR_DISPATCH_FINISHED");
+  assert.equal((appendedEvents[0]?.payload as Record<string, unknown>).reason, "stale_open_dispatch_recovered");
+});
+
 test("workflow dispatch selection blocks auto dispatch when budget is exhausted", async () => {
   const run = createRun({ autoDispatchEnabled: true });
   const runtime = createRuntime([{ taskId: "task_a", state: "READY" }]);

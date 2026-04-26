@@ -33,16 +33,7 @@ function New-E2ESettingsIsolationState {
   $reasons = New-Object System.Collections.Generic.List[string]
 
   if ($hasMiniMax) {
-    if ([string]$before.minimaxModel -ne $targetMiniMaxModel) {
-      $patch["minimaxModel"] = $targetMiniMaxModel
-      $restorePatch["minimaxModel"] = if ([string]::IsNullOrWhiteSpace([string]$before.minimaxModel)) {
-        Get-E2EServerDefaultMiniMaxModel
-      } else {
-        [string]$before.minimaxModel
-      }
-      [void]$changedKeys.Add("minimaxModel")
-      [void]$reasons.Add("align_minimax_model")
-    }
+    [void]$reasons.Add("model_controlled_by_scenario_matrix")
   }
 
   if ($AllowMiniMaxCredentialPatch.IsPresent -and $hasMiniMax) {
@@ -92,11 +83,7 @@ function New-E2ESettingsIsolationState {
     before = $before
     patch = if ($changedKeys.Count -gt 0) { $patch } else { $null }
     restore_patch = if ($changedKeys.Count -gt 0) { $restorePatch } else { $null }
-    restore_fallback_keys = @(
-      if ($hasMiniMax -and [string]::IsNullOrWhiteSpace([string]$before.minimaxModel) -and $patch.Contains("minimaxModel")) {
-        "minimaxModel"
-      }
-    )
+    restore_fallback_keys = @()
     changed_keys = @($changedKeys)
     reasons = @(Get-E2EUniqueStringValues -Values $reasons)
     applied = $false

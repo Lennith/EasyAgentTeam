@@ -210,6 +210,138 @@ test("project dispatch launch adapter handles sync task dispatch and terminal ev
   ]);
 });
 
+test("project dispatch launch adapter does not reclassify timeout-killed runner exit as fatal", async () => {
+  const fatalErrors: unknown[] = [];
+  const retryableErrors: unknown[] = [];
+  const successCalls: unknown[] = [];
+  const emitted: Array<{ kind: string; details: unknown }> = [];
+
+  const adapter = new ProjectDispatchLaunchAdapter(
+    {
+      dataRoot: "C:\\memory",
+      providerRegistry: {
+        launchProjectDispatch: async () => ({
+          mode: "sync" as const,
+          result: {
+            runId: "run-timeout-tail",
+            finishedAt: "2026-03-28T12:02:00.000Z",
+            exitCode: 1,
+            timedOut: false,
+            sessionId: "provider-session-timeout-tail"
+          }
+        })
+      } as any,
+      repositories: {
+        taskboard: {
+          listTasks: async () => [{ taskId: "task-timeout-tail", state: "READY" }],
+          patchTask: async () => {}
+        },
+        sessions: {
+          touchSession: async () => {}
+        },
+        events: {
+          appendEvent: async () => {},
+          listEvents: async () => [
+            {
+              eventType: "RUNNER_TIMEOUT_SOFT",
+              createdAt: "2026-03-28T12:01:00.000Z",
+              sessionId: "session-timeout-tail",
+              payload: {
+                dispatch_id: "dispatch-timeout-tail",
+                run_id: "run-timeout-tail"
+              }
+            },
+            {
+              eventType: "ORCHESTRATOR_DISPATCH_FINISHED",
+              createdAt: "2026-03-28T12:01:01.000Z",
+              sessionId: "session-timeout-tail",
+              payload: {
+                dispatchId: "dispatch-timeout-tail",
+                runId: "run-timeout-tail",
+                timedOut: true
+              }
+            }
+          ]
+        }
+      } as any,
+      eventAdapter: {
+        appendStarted: async () => {},
+        appendFinished: async (_scope: unknown, details: unknown) => {
+          emitted.push({ kind: "finished", details });
+        },
+        appendFailed: async (_scope: unknown, details: unknown) => {
+          emitted.push({ kind: "failed", details });
+        }
+      } as any
+    },
+    {
+      now: () => "2026-03-28T12:00:00.000Z",
+      createDispatchId: () => "dispatch-timeout-tail",
+      getRuntimeSettings: async () => ({}) as any,
+      prepareProjectDispatchLaunch: async () =>
+        ({
+          routingSnapshot: { routes: [] },
+          prompt: "dispatch prompt",
+          promptArtifactPath: "C:\\memory\\project-timeout\\prompts\\dispatch-timeout-tail.md",
+          modelCommand: undefined,
+          modelParams: {}
+        }) as any,
+      addPendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      confirmPendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      releasePendingMessagesForRole: async () => ({ confirmedMessageIds: [], pendingConfirmedMessages: [] }) as any,
+      markRunnerStarted: async () => null,
+      markRunnerSuccess: async (payload: unknown) => {
+        successCalls.push(payload);
+        return null;
+      },
+      markRunnerTimeout: async () => ({ escalated: false }) as any,
+      markRunnerBlocked: async () => null,
+      markRunnerRetryableError: async (payload: unknown) => {
+        retryableErrors.push(payload);
+        return null;
+      },
+      markRunnerFatalError: async (payload: unknown) => {
+        fatalErrors.push(payload);
+        return null;
+      }
+    }
+  );
+
+  const result = await adapter.launch({
+    project: { projectId: "project-timeout-tail" } as any,
+    paths: { projectRootDir: "C:\\memory\\project-timeout" } as any,
+    session: {
+      sessionId: "session-timeout-tail",
+      role: "lead-a",
+      provider: "codex"
+    } as any,
+    taskId: "task-timeout-tail",
+    input: { mode: "manual" },
+    dispatchKind: "task",
+    selectedMessageIds: [],
+    messages: [] as any,
+    allTasks: [] as any,
+    firstMessage: {
+      envelope: {
+        message_id: "msg-timeout-tail",
+        correlation: {
+          request_id: "req-timeout-tail"
+        }
+      }
+    } as any,
+    activeTask: null,
+    rolePromptMap: new Map([["lead-a", "role prompt"]]),
+    roleSummaryMap: new Map([["lead-a", "lead"]]),
+    registeredAgentIds: ["lead-a"]
+  });
+
+  assert.equal(result.outcome, "dispatched");
+  assert.equal(fatalErrors.length, 0);
+  assert.equal(retryableErrors.length, 0);
+  assert.equal(successCalls.length, 0);
+  assert.equal(emitted.length, 0);
+});
+
 test("project dispatch launch adapter resumes codex only when provider session id is a real thread id", async () => {
   const launchCalls: Array<{ providerId: string; input: Record<string, unknown> }> = [];
 

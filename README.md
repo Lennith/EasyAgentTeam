@@ -22,10 +22,16 @@ pnpm e2e:first-run
 
 ## Project Builder Agent
 
-首次体验默认使用项目专用建项目 Agent：
+首次体验默认使用一等 CLI 入口 `@autodev/agent-workspace`：
 
 ```powershell
 pnpm agent-workspace -- init --goal "build a first project workspace" --base-url http://127.0.0.1:43123 --workspace .\tmp\project-builder-workspace
+```
+
+本地分发包可通过以下命令生成到 `dist/release_artifacts/`：
+
+```powershell
+pnpm agent-workspace:pack
 ```
 
 完整路径、发布步骤和外部 Agent 工作区说明见：

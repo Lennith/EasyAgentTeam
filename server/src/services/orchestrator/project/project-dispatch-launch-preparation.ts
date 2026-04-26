@@ -103,7 +103,10 @@ export async function prepareProjectDispatchLaunch(
   );
   const runtimeSettings = await operations.getRuntimeSettings(input.dataRoot);
   const modelConfig = input.project.agentModelConfigs?.[input.session.role];
-  const modelCommand = input.providerId === "minimax" ? undefined : runtimeSettings.codexCliCommand;
+  const modelCommand =
+    input.providerId === "minimax"
+      ? undefined
+      : (runtimeSettings.providers?.codex.cliCommand ?? runtimeSettings.codexCliCommand);
   const modelParams: Record<string, string> = {};
   if (modelConfig?.model) {
     modelParams.model = modelConfig.model;

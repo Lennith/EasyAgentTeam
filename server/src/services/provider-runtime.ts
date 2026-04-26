@@ -17,6 +17,7 @@ import { composeSystemPrompt } from "./prompt-composer.js";
 import { resolveSkillPromptSegments } from "./skill-catalog.js";
 import { getDefaultShellType } from "../runtime-platform.js";
 import { normalizeMiniMaxRuntimeFailure } from "./provider-launch-error.js";
+import { DEFAULT_MINIMAX_MODEL } from "./provider-model-compat.js";
 
 type ProjectSyncRunResult = ModelRunResult | MiniMaxRunResultInternal;
 
@@ -173,9 +174,12 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
   }
 
   async runSessionWithTools(settings: RuntimeSettings, input: MiniMaxSessionRunInput): Promise<MiniMaxRunResult> {
-    if (!settings.minimaxApiKey) {
+    const profile = settings.providers?.minimax;
+    const apiKey = profile?.apiKey ?? settings.minimaxApiKey;
+    if (!apiKey) {
       throw new Error("MiniMax API key is not configured. Please configure it in Settings.");
     }
+    const model = resolveMiniMaxRuntimeModel(settings, input);
 
     const skillPrompt = resolveSkillPromptSegments({
       manifestPath: input.skillManifestPath ?? process.env.AUTO_DEV_SKILL_MANIFEST,
@@ -202,24 +206,24 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
     const sessionKey = input.providerSessionId.trim();
     const agent = createMiniMaxAgent({
       config: {
-        apiKey: settings.minimaxApiKey ?? "",
-        apiBase: settings.minimaxApiBase ?? input.apiBaseFallback,
-        model: settings.minimaxModel ?? input.modelFallback,
+        apiKey,
+        apiBase: profile?.apiBase ?? settings.minimaxApiBase ?? input.apiBaseFallback,
+        model,
         workspaceDir: input.workspaceDir,
-        sessionDir: settings.minimaxSessionDir ?? input.sessionDirFallback,
-        maxSteps: settings.minimaxMaxSteps ?? 200,
-        tokenLimit: settings.minimaxTokenLimit ?? 180000,
-        maxOutputTokens: settings.minimaxMaxOutputTokens ?? 16384,
+        sessionDir: profile?.sessionDir ?? settings.minimaxSessionDir ?? input.sessionDirFallback,
+        maxSteps: profile?.maxSteps ?? settings.minimaxMaxSteps ?? 200,
+        tokenLimit: profile?.tokenLimit ?? settings.minimaxTokenLimit ?? 180000,
+        maxOutputTokens: profile?.maxOutputTokens ?? settings.minimaxMaxOutputTokens ?? 16384,
         enableFileTools: true,
         enableShell: true,
         enableNote: true,
         shellType: getDefaultShellType(),
-        shellTimeout: settings.minimaxShellTimeout ?? 30000,
-        shellOutputIdleTimeout: settings.minimaxShellOutputIdleTimeout ?? 60000,
-        shellMaxRunTime: settings.minimaxShellMaxRunTime ?? 600000,
-        shellMaxOutputSize: settings.minimaxShellMaxOutputSize ?? 52428800,
-        mcpEnabled: (settings.minimaxMcpServers?.length ?? 0) > 0,
-        mcpServers: settings.minimaxMcpServers ?? [],
+        shellTimeout: profile?.shellTimeout ?? settings.minimaxShellTimeout ?? 30000,
+        shellOutputIdleTimeout: profile?.shellOutputIdleTimeout ?? settings.minimaxShellOutputIdleTimeout ?? 60000,
+        shellMaxRunTime: profile?.shellMaxRunTime ?? settings.minimaxShellMaxRunTime ?? 600000,
+        shellMaxOutputSize: profile?.shellMaxOutputSize ?? settings.minimaxShellMaxOutputSize ?? 52428800,
+        mcpEnabled: ((profile?.mcpServers ?? settings.minimaxMcpServers)?.length ?? 0) > 0,
+        mcpServers: profile?.mcpServers ?? settings.minimaxMcpServers ?? [],
         mcpConnectTimeout: 30000,
         mcpExecuteTimeout: 60000,
         systemPrompt: promptCompose.systemPrompt,
@@ -268,6 +272,19 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
     }
     return isMiniMaxRunnerActive(sessionId);
   }
+}
+
+export function resolveMiniMaxRuntimeModel(
+  settings: RuntimeSettings,
+  input: Pick<MiniMaxSessionRunInput, "model" | "modelFallback">
+): string {
+  return (
+    input.model ??
+    settings.providers?.minimax?.model ??
+    settings.minimaxModel ??
+    input.modelFallback ??
+    DEFAULT_MINIMAX_MODEL
+  );
 }
 
 export class ProviderRegistry {

@@ -1,4 +1,6 @@
-﻿# Dashboard 共享 API 消费规范（最后更新：2026-04-16）
+# Dashboard 共享 API 消费规范（最后更新：2026-04-25）
+
+文档状态：`验证中`
 
 ## 目标
 
@@ -6,18 +8,20 @@
 
 ## 共享约束
 
-- 前端默认通过统一的 API 访问层请求后端。
-- API 访问层负责把后端字段映射成前端统一结构。
+- 前端默认通过按域拆分的 API 访问层请求后端。
+- API 访问层按 `project / workflow / recovery / settings / catalog / team` 等域维护 mapper 和 client。
+- 根 `dashboard-v2/src/services/api.ts` 仅保留兼容 re-export，不继续承载新业务实现。
+- 前端类型按域拆分，根 `dashboard-v2/src/types/index.ts` 仅保留兼容 barrel。
 - 前端页面消费已经归一化后的 provider、session、event、timeline 数据，不重复定义迁移和兼容逻辑。
 
 ## 共享页面能力
 
-- 首页：读取 project orchestrator 状态
-- 项目工作区：详见 `project-workspace.api-spec.md`
-- workflow 页面：详见 `workflow-ui.api-spec.md`
-- settings 页面：详见 `settings-ui.api-spec.md`
-- 调试观察页面：详见 `debug-observation.api-spec.md`
-- hash 路由和本地状态：详见 `routing-and-local-state.api-spec.md`
+- 首页：读取 project orchestrator 状态。
+- 项目工作区：详见 `project-workspace.api-spec.md`。
+- workflow 页面：详见 `workflow-ui.api-spec.md`。
+- settings 页面：详见 `settings-ui.api-spec.md`。
+- 调试观察页面：详见 `debug-observation.api-spec.md`。
+- hash 路由和本地状态：详见 `routing-and-local-state.api-spec.md`。
 
 ## 明确边界
 

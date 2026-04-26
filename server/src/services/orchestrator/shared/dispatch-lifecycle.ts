@@ -144,6 +144,13 @@ export function wasOrchestratorDispatchTimedOut<T extends OrchestratorDispatchEv
     if (event.sessionId !== sessionId) {
       return false;
     }
+    const payload = event.payload as Record<string, unknown>;
+    if (
+      (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") &&
+      readDispatchId(payload) === dispatchId
+    ) {
+      return payload.timedOut === true || payload.timed_out === true;
+    }
     if (
       event.eventType !== "SESSION_HEARTBEAT_TIMEOUT" &&
       event.eventType !== "RUNNER_TIMEOUT_SOFT" &&
@@ -151,7 +158,6 @@ export function wasOrchestratorDispatchTimedOut<T extends OrchestratorDispatchEv
     ) {
       return false;
     }
-    const payload = event.payload as Record<string, unknown>;
     return readDispatchId(payload) === dispatchId;
   });
 }

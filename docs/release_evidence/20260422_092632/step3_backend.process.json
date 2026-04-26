@@ -1,0 +1,9 @@
+﻿{
+  "pid": 83908,
+  "started_at": "2026-04-22T09:38:58.3685091+08:00",
+  "cwd": "C:\\Users\\spiri\\Documents\\GitHub\\EasyAgentTeam",
+  "command": "pnpm run dev:server",
+  "stdout": "docs\\release_evidence\\20260422_092632\\step3_backend.stdout.log",
+  "health_url": "http://127.0.0.1:43123/healthz",
+  "healthy": true
+}

@@ -1,4 +1,4 @@
-import { hasOpenTaskDispatch } from "./dispatch-engine.js";
+import { findLatestOpenTaskDispatch, readPayloadString } from "./dispatch-engine.js";
 import type { OrchestratorDispatchSelectionKind, NormalizedDispatchSelectionResult } from "./contracts.js";
 
 export interface OrchestratorDispatchSessionAvailabilityInput {
@@ -30,6 +30,17 @@ export interface OrchestratorDuplicateTaskDispatchGuardInput<TEvent extends Disp
   sessionId: string;
   listEvents(): Promise<TEvent[]>;
   onDuplicateDetected?(): Promise<void>;
+  onStaleDuplicateRecovered?(details: {
+    dispatchId: string;
+    startedAt: string;
+    requestId: string | null;
+    messageId: string | null;
+    dispatchKind: string | null;
+  }): Promise<void>;
+  sessionStatus?: string;
+  sessionLastDispatchId?: string | null;
+  nowMs?: number;
+  staleDuplicateWindowMs?: number;
 }
 
 export interface OrchestratorDuplicateTaskDispatchSkipInput<
@@ -53,6 +64,20 @@ export interface BuildNormalizedDispatchSelectionResultInput<
   skipReason?: string;
   terminalOutcome?: string;
 }
+
+export interface OrchestratorDuplicateTaskDispatchGuardResult {
+  duplicateFound: boolean;
+  staleRecovered: boolean;
+  openDispatch?: {
+    dispatchId: string;
+    startedAt: string;
+    requestId: string | null;
+    messageId: string | null;
+    dispatchKind: string | null;
+  };
+}
+
+const DEFAULT_STALE_DUPLICATE_WINDOW_MS = 90_000;
 
 export function evaluateOrchestratorDispatchSessionAvailability(
   input: OrchestratorDispatchSessionAvailabilityInput
@@ -109,23 +134,77 @@ export function evaluateOrchestratorDispatchSessionAvailability(
 
 export async function guardOrchestratorDuplicateTaskDispatch(
   input: OrchestratorDuplicateTaskDispatchGuardInput
-): Promise<boolean> {
+): Promise<OrchestratorDuplicateTaskDispatchGuardResult> {
   const events = await input.listEvents();
-  const duplicateFound = hasOpenTaskDispatch(events, input.taskId, input.sessionId);
-  if (duplicateFound) {
-    await input.onDuplicateDetected?.();
+  const openDispatch = findLatestOpenTaskDispatch(events, input.taskId, input.sessionId);
+  if (!openDispatch) {
+    return {
+      duplicateFound: false,
+      staleRecovered: false
+    };
   }
-  return duplicateFound;
+  const details = {
+    dispatchId: openDispatch.dispatchId,
+    startedAt: openDispatch.event.createdAt,
+    requestId: readPayloadString(openDispatch.event.payload as Record<string, unknown>, "requestId") ?? null,
+    messageId: readPayloadString(openDispatch.event.payload as Record<string, unknown>, "messageId") ?? null,
+    dispatchKind: readPayloadString(openDispatch.event.payload as Record<string, unknown>, "dispatchKind") ?? null
+  };
+  if (shouldRecoverStaleDuplicateDispatch(input, details)) {
+    await input.onStaleDuplicateRecovered?.(details);
+    return {
+      duplicateFound: false,
+      staleRecovered: true,
+      openDispatch: details
+    };
+  }
+  await input.onDuplicateDetected?.();
+  return {
+    duplicateFound: true,
+    staleRecovered: false,
+    openDispatch: details
+  };
 }
 
 export async function buildOrchestratorDuplicateTaskDispatchSkipResult<TResult>(
   input: OrchestratorDuplicateTaskDispatchSkipInput<TResult>
 ): Promise<TResult | null> {
-  const duplicateFound = await guardOrchestratorDuplicateTaskDispatch(input);
-  if (!duplicateFound) {
+  const guardResult = await guardOrchestratorDuplicateTaskDispatch(input);
+  if (!guardResult.duplicateFound) {
     return null;
   }
   return input.buildSkippedResult();
+}
+
+function shouldRecoverStaleDuplicateDispatch(
+  input: OrchestratorDuplicateTaskDispatchGuardInput,
+  openDispatch: { dispatchId: string; startedAt: string; dispatchKind: string | null }
+): boolean {
+  if (input.sessionStatus === undefined || input.sessionStatus === "running") {
+    return false;
+  }
+  if (openDispatch.dispatchKind !== "task") {
+    return false;
+  }
+  const sessionLastDispatchId =
+    typeof input.sessionLastDispatchId === "string" ? input.sessionLastDispatchId.trim() : "";
+  if (!sessionLastDispatchId || sessionLastDispatchId !== openDispatch.dispatchId) {
+    return false;
+  }
+  const openStartedAtMs = Date.parse(openDispatch.startedAt);
+  if (!Number.isFinite(openStartedAtMs)) {
+    return false;
+  }
+  const nowMs = input.nowMs ?? Date.now();
+  const staleWindowMs =
+    typeof input.staleDuplicateWindowMs === "number" && Number.isFinite(input.staleDuplicateWindowMs)
+      ? Math.max(5_000, Math.floor(input.staleDuplicateWindowMs))
+      : DEFAULT_STALE_DUPLICATE_WINDOW_MS;
+  if (nowMs - openStartedAtMs < staleWindowMs) {
+    return false;
+  }
+
+  return true;
 }
 
 export function buildNormalizedDispatchSelectionResult<

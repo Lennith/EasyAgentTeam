@@ -114,7 +114,8 @@ export async function prepareWorkflowDispatchLaunch(
   );
   const settings = await operations.getRuntimeSettings(input.dataRoot);
   const providerId = input.session.provider ?? resolveSessionProviderId(input.run, input.role, "minimax");
-  const modelSelection = providerId === "codex" ? readAgentModelParams(agents, input.role) : {};
+  const modelSelection = readAgentModelParams(agents, input.role);
+  const minimaxProfile = settings.providers?.minimax;
 
   return {
     requestedSkillIds: rolePromptSkillBundle.skillIds,
@@ -123,8 +124,8 @@ export async function prepareWorkflowDispatchLaunch(
     providerId,
     model: modelSelection.model,
     reasoningEffort: modelSelection.reasoningEffort,
-    tokenLimit: settings.minimaxTokenLimit ?? 180000,
-    maxOutputTokens: settings.minimaxMaxOutputTokens ?? 16384,
+    tokenLimit: minimaxProfile?.tokenLimit ?? settings.minimaxTokenLimit ?? 180000,
+    maxOutputTokens: minimaxProfile?.maxOutputTokens ?? settings.minimaxMaxOutputTokens ?? 16384,
     rolePrompt: rolePromptSkillBundle.rolePrompt ?? operations.buildDefaultRolePrompt(input.role)
   };
 }

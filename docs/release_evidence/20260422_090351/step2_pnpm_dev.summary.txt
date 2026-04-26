@@ -1,0 +1,4 @@
+﻿mode=log-marker-smoke
+server_ready=True
+web_ready=True
+stdout=docs\release_evidence\20260422_090351\step2_pnpm_dev.stdout.log

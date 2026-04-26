@@ -216,7 +216,19 @@ export class ModelManagerService {
         schemaVersion: "1.0",
         updatedAt: new Date().toISOString(),
         codexCliCommand: "codex",
-        minimaxModel: DEFAULT_MINIMAX_MODEL
+        minimaxModel: DEFAULT_MINIMAX_MODEL,
+        providers: {
+          codex: {
+            cliCommand: "codex"
+          },
+          minimax: {
+            model: DEFAULT_MINIMAX_MODEL,
+            mcpServers: [],
+            maxSteps: 100,
+            tokenLimit: 80000,
+            maxOutputTokens: 16384
+          }
+        }
       };
     }
   }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildCodexSessionArgs,
+  isCodexTaskCompleteSignal,
   normalizeCodexToolResultItem,
   resolveCodexToolName
 } from "../services/codex-session-runtime.js";
@@ -79,4 +80,30 @@ test("codex session runtime resolves MCP tool names from item.tool", () => {
   });
 
   assert.equal(resolved, "task_report_done");
+});
+
+test("codex session runtime detects task_complete signal from top-level event", () => {
+  const isTaskComplete = isCodexTaskCompleteSignal({
+    type: "task_complete"
+  });
+
+  assert.equal(isTaskComplete, true);
+});
+
+test("codex session runtime detects task_complete signal from nested payload/item", () => {
+  const nestedPayloadSignal = isCodexTaskCompleteSignal({
+    type: "event_msg",
+    payload: {
+      type: "task_complete",
+      last_agent_message: "done"
+    }
+  });
+  const nestedItemSignal = isCodexTaskCompleteSignal({
+    item: {
+      type: "task_complete"
+    }
+  });
+
+  assert.equal(nestedPayloadSignal, true);
+  assert.equal(nestedItemSignal, true);
 });

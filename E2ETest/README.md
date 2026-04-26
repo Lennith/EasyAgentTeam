@@ -1,4 +1,6 @@
-﻿# E2E 场景说明（最后更新：2026-04-16）
+# E2E 场景说明（最后更新：2026-04-25）
+
+文档状态：`验证中`
 
 本目录只描述当前有效的场景脚本、官方 baseline 口径，以及辅助验证入口。
 
@@ -28,20 +30,19 @@
 
 ## 设计边界
 
-- reminder、redispatch、repair、timeout recovery 等机制必须在主场景内验证
-- 不新增 reminder-only、skill-import-only 之类 mechanism-only E2E
-- release gate 的正式上线检测规则以仓库根 `AGENTS.md` 为准
-- 本文档只说明脚本用途、场景覆盖和预期产物，不承担正式 release gate 规则定义
+- reminder、redispatch、repair、timeout recovery 等机制必须在主场景内验证。
+- 不新增 reminder-only、skill-import-only 之类 mechanism-only E2E。
+- release gate 的正式上线检测规则以仓库根 `AGENTS.md` 为准。
+- 本文档只说明脚本用途、场景覆盖和预期产物，不承担正式 release gate 规则定义。
 
 ## Provider / Model 隔离边界
 
-- baseline 脚本优先通过 scenario `agent_model_matrix`、agent 默认模型和 project/workflow role 配置来控制 provider/model
-- `codex` 路径不依赖全局 `/api/settings` 模型项
-- 由于当前 server 的 `minimax` 运行时仍会优先读取 runtime settings 里的 `minimaxModel`，mixed baseline 在包含 `minimax` 时仍会做最小必要的全局 `minimaxModel` patch
-- `run-standard-e2e.ps1` 和 `run-discuss-e2e.ps1` 只会在确实需要 `minimax` 且当前模型不匹配时 patch `minimaxModel`
-- `run-workflow-e2e.ps1` 默认也只 patch `minimaxModel`；只有显式传入 `-MiniMaxApiKeyOverride`、`-MiniMaxApiBaseOverride` 或 `-ClearMiniMaxSettings` 时，才会额外 patch 凭证/base
-- 如果测试前没有显式配置 `minimaxModel`，restore 会回到 server 当前默认 MiniMax 模型，而不会把 E2E 测试模型残留在全局 settings
-- 三个主脚本都会在 artifact 目录输出 `settings_isolation_audit.json`，记录 apply/restore 边界
+- baseline 脚本优先通过 scenario `agent_model_matrix`、agent 默认模型和 project/workflow role 配置来控制 provider/model。
+- `codex` 路径不依赖全局 `/api/settings` 模型项。
+- mixed baseline 不再为了模型选择 patch 全局 `minimaxModel`。
+- `run-standard-e2e.ps1`、`run-discuss-e2e.ps1` 和 `run-workflow-e2e.ps1` 必须通过 scenario `agent_model_matrix`、agent 默认模型和 project/workflow role 配置控制 provider/model。
+- 只有显式传入 `-MiniMaxApiKeyOverride`、`-MiniMaxApiBaseOverride` 或 `-ClearMiniMaxSettings` 时，E2E settings isolation 才允许 patch MiniMax 凭证/base。
+- 三个主脚本都会在 artifact 目录输出 `settings_isolation_audit.json`，记录 apply/restore 边界。
 
 ## 主场景覆盖
 
