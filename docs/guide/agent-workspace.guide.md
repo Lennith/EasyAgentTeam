@@ -39,7 +39,15 @@ node .agent-tools\scripts\template_bundle_guard.mjs publish
 
 ## 本地分发包
 
-`pnpm agent-workspace:pack` 会在 `dist/release_artifacts/` 下生成 `@autodev/agent-workspace` 的 `.tgz` 包。该包用于本地交付和回溯，不表示本轮发布到 npm registry。
+`pnpm agent-workspace:pack` 会在 `dist/release_artifacts/` 下生成 `@autodev/agent-workspace` 的 `.tgz` 包与 manifest（包含校验信息）。该包用于本地交付和回溯，不表示本轮发布到 npm registry。
+
+建议在 release gate 前执行：
+
+```powershell
+pnpm agent-workspace:verify
+```
+
+该命令会执行 artifact checksum 校验，并在隔离目录做 CLI 安装/启动 smoke。
 
 ## 关键默认规则
 

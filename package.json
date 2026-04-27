@@ -40,6 +40,7 @@
     "agent-workspace:real-two-rounds": "pnpm --filter @autodev/agent-workspace run real-two-rounds",
     "agent-workspace:drive-run": "pnpm --filter @autodev/agent-workspace run drive-run",
     "agent-workspace:pack": "pnpm --filter @autodev/agent-workspace run pack:local",
+    "agent-workspace:verify": "pnpm --filter @autodev/agent-workspace run verify:local",
     "test:agent-workspace": "pnpm --filter @autodev/agent-workspace test",
     "mock:report": "node --import tsx tools/mock_report.ts",
     "mock:lock": "node --import tsx tools/mock_lock.ts",

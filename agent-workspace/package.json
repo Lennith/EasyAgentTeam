@@ -14,7 +14,8 @@
     "campaign:dry": "node ./campaign/run-campaign.mjs --dry-run",
     "real-two-rounds": "node ./supervisor/run-two-rounds-real.mjs",
     "drive-run": "node ./supervisor/drive-run-to-finished.mjs",
-    "pack:local": "node ./scripts/pack-local.mjs"
+    "pack:local": "node ./scripts/pack-local.mjs",
+    "verify:local": "node ./scripts/verify-local.mjs"
   },
   "devDependencies": {
     "tsx": "^4.20.5"

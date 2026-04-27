@@ -23,6 +23,7 @@ pnpm agent-workspace -- apply --bundle .\agent-workspace\examples\bundle.sample.
 pnpm agent-workspace:campaign -- --manifest .\agent-workspace\campaign\scenarios.workflow.manifest.json --base-url http://127.0.0.1:43123
 pnpm agent-workspace:real-two-rounds -- --base-url http://127.0.0.1:43123 --data-root .\data
 pnpm agent-workspace:pack
+pnpm agent-workspace:verify
 ```
 
 TemplateAgent default submit flow (inside initialized workspace):
@@ -68,6 +69,11 @@ Campaign writes:
 
 - `agent-workspace/reports/campaign/<run-id>/campaign_report.json`
 - `agent-workspace/reports/campaign/<run-id>/campaign_report.md`
+
+Pack writes:
+
+- `dist/release_artifacts/<package>.tgz`
+- `dist/release_artifacts/<package>.tgz.manifest.json`
 
 Real two-round supervisor writes:
 

@@ -44,6 +44,13 @@ node .\tmp\project-builder-workspace\.agent-tools\scripts\template_bundle_guard.
 node .\tmp\project-builder-workspace\.agent-tools\scripts\template_bundle_guard.mjs publish
 ```
 
+5. 如需本地交付 `@autodev/agent-workspace`，执行打包与校验。
+
+```powershell
+pnpm agent-workspace:pack
+pnpm agent-workspace:verify
+```
+
 ## 成功标志
 
 - Dashboard 可以访问。

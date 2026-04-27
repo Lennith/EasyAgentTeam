@@ -123,9 +123,42 @@ function getSessionTerminationTimeoutMs(): number {
   return Math.floor(raw);
 }
 
+function terminateProcessBySignal(pid: number): SessionProcessTerminationResult {
+  try {
+    process.kill(pid, "SIGKILL");
+    return { attempted: true, pid, result: "killed", message: "process terminated" };
+  } catch (error) {
+    const known = error as NodeJS.ErrnoException;
+    if (known.code === "ESRCH") {
+      return { attempted: true, pid, result: "not_found", message: "process not found" };
+    }
+    if (known.code === "EPERM") {
+      return { attempted: true, pid, result: "access_denied", message: "access denied when terminating process" };
+    }
+    return { attempted: true, pid, result: "failed", message: known.message || "failed to terminate process" };
+  }
+}
+
+function withFallbackMessage(primary: string, fallback: SessionProcessTerminationResult): string {
+  return `${primary}; fallback=${fallback.result}: ${fallback.message}`;
+}
+
 export async function terminateProcessByPid(pid: number): Promise<SessionProcessTerminationResult> {
   if (process.platform === "win32") {
     return new Promise((resolve) => {
+      let settled = false;
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      const settle = (result: SessionProcessTerminationResult): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
+        resolve(result);
+      };
       let proc: ReturnType<typeof spawn>;
       try {
         proc = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
@@ -134,7 +167,15 @@ export async function terminateProcessByPid(pid: number): Promise<SessionProcess
         });
       } catch (error) {
         const known = error as NodeJS.ErrnoException;
-        resolve({
+        const fallback = terminateProcessBySignal(pid);
+        if (fallback.result === "killed" || fallback.result === "not_found" || fallback.result === "access_denied") {
+          settle({
+            ...fallback,
+            message: withFallbackMessage(known.message || "taskkill spawn failed", fallback)
+          });
+          return;
+        }
+        settle({
           attempted: true,
           pid,
           result: known.code === "EPERM" ? "access_denied" : "failed",
@@ -143,9 +184,17 @@ export async function terminateProcessByPid(pid: number): Promise<SessionProcess
         return;
       }
       const timeoutMs = getSessionTerminationTimeoutMs();
-      const timeoutTimer = setTimeout(() => {
+      timeoutTimer = setTimeout(() => {
         proc.kill();
-        resolve({
+        const fallback = terminateProcessBySignal(pid);
+        if (fallback.result === "killed" || fallback.result === "not_found" || fallback.result === "access_denied") {
+          settle({
+            ...fallback,
+            message: withFallbackMessage(`taskkill timeout after ${timeoutMs}ms`, fallback)
+          });
+          return;
+        }
+        settle({
           attempted: true,
           pid,
           result: "failed",
@@ -161,25 +210,39 @@ export async function terminateProcessByPid(pid: number): Promise<SessionProcess
         stderr += data.toString();
       });
       proc.on("error", (error) => {
-        clearTimeout(timeoutTimer);
-        resolve({ attempted: true, pid, result: "failed", message: error.message });
+        const fallback = terminateProcessBySignal(pid);
+        if (fallback.result === "killed" || fallback.result === "not_found" || fallback.result === "access_denied") {
+          settle({
+            ...fallback,
+            message: withFallbackMessage(error.message, fallback)
+          });
+          return;
+        }
+        settle({ attempted: true, pid, result: "failed", message: error.message });
       });
       proc.on("close", (code) => {
-        clearTimeout(timeoutTimer);
         if (code === 0) {
-          resolve({ attempted: true, pid, result: "killed", message: "process tree terminated" });
+          settle({ attempted: true, pid, result: "killed", message: "process tree terminated" });
           return;
         }
         const output = `${stdout}\n${stderr}`.toLowerCase();
         if (output.includes("not found") || output.includes("no running instance")) {
-          resolve({ attempted: true, pid, result: "not_found", message: "process not found" });
+          settle({ attempted: true, pid, result: "not_found", message: "process not found" });
           return;
         }
         if (output.includes("access is denied")) {
-          resolve({ attempted: true, pid, result: "access_denied", message: "access denied when terminating process" });
+          settle({ attempted: true, pid, result: "access_denied", message: "access denied when terminating process" });
           return;
         }
-        resolve({
+        const fallback = terminateProcessBySignal(pid);
+        if (fallback.result === "killed" || fallback.result === "not_found" || fallback.result === "access_denied") {
+          settle({
+            ...fallback,
+            message: withFallbackMessage((stderr || stdout || "taskkill failed").trim() || "taskkill failed", fallback)
+          });
+          return;
+        }
+        settle({
           attempted: true,
           pid,
           result: "failed",
@@ -189,23 +252,7 @@ export async function terminateProcessByPid(pid: number): Promise<SessionProcess
     });
   }
 
-  return new Promise((resolve) => {
-    try {
-      process.kill(pid, "SIGKILL");
-      resolve({ attempted: true, pid, result: "killed", message: "process terminated" });
-    } catch (error) {
-      const known = error as NodeJS.ErrnoException;
-      if (known.code === "ESRCH") {
-        resolve({ attempted: true, pid, result: "not_found", message: "process not found" });
-        return;
-      }
-      if (known.code === "EPERM") {
-        resolve({ attempted: true, pid, result: "access_denied", message: "access denied when terminating process" });
-        return;
-      }
-      resolve({ attempted: true, pid, result: "failed", message: known.message || "failed to terminate process" });
-    }
-  });
+  return Promise.resolve(terminateProcessBySignal(pid));
 }
 
 function resolveProjectTerminationPid(session: SessionRecord, sessionEvents: EventRecord[]): number | null {

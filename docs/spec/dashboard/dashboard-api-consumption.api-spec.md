@@ -9,9 +9,9 @@
 ## 共享约束
 
 - 前端默认通过按域拆分的 API 访问层请求后端。
-- API 访问层按 `project / workflow / recovery / settings / catalog / team` 等域维护 mapper 和 client。
+- API 访问层按 `project / workflow / recovery / settings / catalog / team` 等域维护 mapper 和 client，不再依赖单一 `legacy.ts` 兼容实现。
 - 根 `dashboard-v2/src/services/api.ts` 仅保留兼容 re-export，不继续承载新业务实现。
-- 前端类型按域拆分，根 `dashboard-v2/src/types/index.ts` 仅保留兼容 barrel。
+- 前端类型按域拆分，根 `dashboard-v2/src/types/index.ts` 仅保留兼容 barrel，不再依赖单一 `types/legacy.ts`。
 - 前端页面消费已经归一化后的 provider、session、event、timeline 数据，不重复定义迁移和兼容逻辑。
 
 ## 共享页面能力
