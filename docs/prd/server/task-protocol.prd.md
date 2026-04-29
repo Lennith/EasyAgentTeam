@@ -2,7 +2,7 @@
 
 ## 状态
 
-- 文档状态：`验证中`
+- 文档状态：`实装`
 
 ## 目标
 
@@ -25,4 +25,4 @@
 ## 兼容边界
 
 - project 不保留旧 `agent-handoff`、`reports`、`tasks` 兼容接口
-- workflow 旧 `step-runtime`、`step-actions` 接口维持退役状态
+- workflow 不保留旧 `step-runtime`、`step-actions` 接口

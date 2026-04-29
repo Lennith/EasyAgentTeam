@@ -1,4 +1,4 @@
-import type { OrchestratorStatus } from "@/types";
+import type { OrchestratorStatus } from "@/types/project";
 import { API_BASE, fetchJSON, fetchStream } from "./shared/http";
 
 type AgentChatScope = { projectId: string; runId?: never } | { runId: string; projectId?: never };

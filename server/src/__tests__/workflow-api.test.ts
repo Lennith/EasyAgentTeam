@@ -114,7 +114,7 @@ test("workflow template CRUD and run lifecycle work with workspace_path-only cre
   }
 });
 
-test("workflow run create hard-rejects retired binding fields and step-* endpoints are retired", async () => {
+test("workflow run create hard-rejects retired binding fields", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-hardcut-"));
   const dataRoot = path.join(tempRoot, "data");
   const workspaceRoot = path.join(tempRoot, "workspace");
@@ -160,31 +160,6 @@ test("workflow run create hard-rejects retired binding fields and step-* endpoin
       })
     });
     assert.equal(withProjectId.status, 400);
-
-    const createRun = await fetch(`${baseUrl}/api/workflow-runs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        template_id: "hardcut_tpl",
-        run_id: "hardcut_run_03",
-        workspace_path: workspaceRoot
-      })
-    });
-    assert.equal(createRun.status, 201);
-
-    const retiredRuntime = await fetch(`${baseUrl}/api/workflow-runs/hardcut_run_03/step-runtime`);
-    assert.equal(retiredRuntime.status, 410);
-    const retiredRuntimeBody = (await retiredRuntime.json()) as { code?: string };
-    assert.equal(retiredRuntimeBody.code, "ENDPOINT_RETIRED");
-
-    const retiredActions = await fetch(`${baseUrl}/api/workflow-runs/hardcut_run_03/step-actions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action_type: "STEP_REPORT", results: [] })
-    });
-    assert.equal(retiredActions.status, 410);
-    const retiredActionsBody = (await retiredActions.json()) as { code?: string };
-    assert.equal(retiredActionsBody.code, "ENDPOINT_RETIRED");
   } finally {
     await server.close();
   }

@@ -45,7 +45,6 @@ import {
   readStringMap,
   readWorkflowTaskActionRequest,
   readWorkflowTasks,
-  retiredEndpoint,
   sanitizeSessionForApi,
   sendApiError,
   withDerivedWorkflowRunStatus
@@ -447,14 +446,6 @@ export function registerWorkflowRoutes(app: express.Application, context: AppRun
     } catch (error) {
       next(error);
     }
-  });
-
-  app.get("/api/workflow-runs/:run_id/step-runtime", async (_req, res) => {
-    retiredEndpoint(res, "/api/workflow-runs/:run_id/task-runtime");
-  });
-
-  app.post("/api/workflow-runs/:run_id/step-actions", async (_req, res) => {
-    retiredEndpoint(res, "/api/workflow-runs/:run_id/task-actions");
   });
 
   app.get("/api/workflow-runs/:run_id/task-runtime", async (req, res, next) => {

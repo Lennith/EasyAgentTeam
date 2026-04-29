@@ -4,9 +4,9 @@ import type {
   SkillDefinition,
   SkillImportResult,
   SkillListDefinition
-} from "@/types";
+} from "@/types/catalog";
 import { API_BASE, fetchJSON } from "./shared/http";
-import { mapSkillDefinition, mapSkillListDefinition } from "./shared/mappers";
+import { mapSkillDefinition, mapSkillListDefinition } from "./catalog-mappers";
 
 export const agentApi = {
   list: async () => {

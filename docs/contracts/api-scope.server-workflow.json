@@ -77,18 +77,6 @@
     },
     {
       "method": "GET",
-      "path": "/api/workflow-runs/:run_id/step-runtime",
-      "status": "active",
-      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
-    },
-    {
-      "method": "POST",
-      "path": "/api/workflow-runs/:run_id/step-actions",
-      "status": "active",
-      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
-    },
-    {
-      "method": "GET",
       "path": "/api/workflow-runs/:run_id/task-tree-runtime",
       "status": "active",
       "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]

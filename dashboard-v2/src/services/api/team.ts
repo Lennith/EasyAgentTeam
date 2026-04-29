@@ -1,4 +1,4 @@
-import type { CreateTeamRequest, TeamRecord, TeamSummary, UpdateTeamRequest } from "@/types";
+import type { CreateTeamRequest, TeamRecord, TeamSummary, UpdateTeamRequest } from "@/types/team";
 import { API_BASE, fetchJSON } from "./shared/http";
 
 export const teamApi = {

@@ -1,4 +1,4 @@
-import type { ModelInfo, RuntimeSettings } from "@/types";
+import type { ModelInfo, RuntimeSettings } from "@/types/settings";
 import { API_BASE, fetchJSON } from "./shared/http";
 
 export const settingsApi = {
