@@ -34,7 +34,7 @@ async function persistWorkflowProviderSessionObservation(
   context: WorkflowDispatchLaunchContext,
   event: ProviderObservationEvent
 ): Promise<void> {
-  if (event.providerId !== "codex" || event.kind !== "thread_started") {
+  if ((event.providerId !== "codex" && event.providerId !== "dpagent") || event.kind !== "thread_started") {
     return;
   }
   const observedProviderSessionId = resolveObservedProviderSessionId(event);

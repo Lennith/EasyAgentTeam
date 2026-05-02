@@ -133,6 +133,87 @@ class CodexProviderRuntime implements ProviderRuntime {
   }
 }
 
+function buildDpAgentExtraArgs(settings: RuntimeSettings, input: MiniMaxSessionRunInput): string[] {
+  void settings;
+  const args: string[] = [];
+  args.push("--workspace", input.workspaceRoot);
+  return args;
+}
+
+class DpAgentProviderRuntime implements ProviderRuntime {
+  public readonly providerId: ProviderId = "dpagent";
+  private readonly sessionRuntime = new CodexSessionRuntime({
+    providerId: "dpagent",
+    validateCodexModel: false,
+    resolveCommand: (settings) => settings.providers.dpagent.cliCommand?.trim() || "dpagent",
+    buildExtraArgs: buildDpAgentExtraArgs
+  });
+
+  async launchProjectDispatch(
+    project: ProjectRecord,
+    paths: ProjectPaths,
+    input: ProjectDispatchInput,
+    settings: RuntimeSettings
+  ): Promise<ProjectDispatchLaunchResult> {
+    const codexTeamToolContext: ProjectCodexTeamToolContext | undefined =
+      input.dataRoot && input.agentRole
+        ? buildProjectCodexTeamToolContext({
+            dataRoot: input.dataRoot,
+            project,
+            paths,
+            agentRole: input.agentRole,
+            sessionId: input.sessionId,
+            activeTaskId: input.taskId,
+            activeTaskTitle: input.activeTaskTitle,
+            activeParentTaskId: input.activeParentTaskId,
+            activeRootTaskId: input.activeRootTaskId,
+            activeRequestId: input.activeRequestId,
+            parentRequestId: input.parentRequestId
+          })
+        : undefined;
+    const result = await runModelForProject(
+      project,
+      paths,
+      {
+        session_id: input.sessionId,
+        prompt: input.prompt,
+        dispatch_id: input.dispatchId,
+        task_id: input.taskId,
+        active_task_title: input.activeTaskTitle,
+        active_parent_task_id: input.activeParentTaskId,
+        active_root_task_id: input.activeRootTaskId,
+        active_request_id: input.activeRequestId,
+        parent_request_id: input.parentRequestId,
+        agent_role: input.agentRole,
+        cli_tool: "codex",
+        model_command: settings.providers.dpagent.cliCommand?.trim() || "dpagent",
+        model_params: {
+          workspace: project.workspacePath
+        },
+        resume_session_id: input.resumeSessionId,
+        codex_teamtool_context: codexTeamToolContext
+      },
+      settings
+    );
+    return {
+      mode: "sync",
+      result
+    };
+  }
+
+  async runSessionWithTools(settings: RuntimeSettings, input: MiniMaxSessionRunInput): Promise<MiniMaxRunResult> {
+    return await this.sessionRuntime.runSessionWithTools(settings, input);
+  }
+
+  cancelSession(sessionId: string): boolean {
+    return this.sessionRuntime.cancelSession(sessionId);
+  }
+
+  isSessionActive(sessionId: string): boolean {
+    return this.sessionRuntime.isSessionActive(sessionId);
+  }
+}
+
 class MiniMaxProviderRuntime implements ProviderRuntime {
   public readonly providerId: ProviderId = "minimax";
   private readonly activeToolSessions = new Map<string, MiniMaxAgent>();
@@ -286,6 +367,7 @@ export class ProviderRegistry {
 
   constructor() {
     this.register(new CodexProviderRuntime());
+    this.register(new DpAgentProviderRuntime());
     this.register(new MiniMaxProviderRuntime());
   }
 
@@ -295,7 +377,7 @@ export class ProviderRegistry {
 
   resolve(providerId: string | undefined | null): ProviderRuntime {
     const resolvedProviderId = (providerId ?? "minimax").trim().toLowerCase();
-    if (resolvedProviderId === "codex" || resolvedProviderId === "minimax") {
+    if (resolvedProviderId === "codex" || resolvedProviderId === "minimax" || resolvedProviderId === "dpagent") {
       const runtime = this.runtimes.get(resolvedProviderId);
       if (runtime) {
         return runtime;
@@ -360,7 +442,7 @@ export function resolveSessionProviderId(
   }
   const modelConfig = modelConfigs[normalizedRole];
   const providerIdRaw = modelConfig?.provider_id;
-  if (providerIdRaw === "codex" || providerIdRaw === "minimax") {
+  if (providerIdRaw === "codex" || providerIdRaw === "minimax" || providerIdRaw === "dpagent") {
     return providerIdRaw;
   }
   return fallback;

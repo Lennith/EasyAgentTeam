@@ -1,7 +1,7 @@
-﻿param(
+param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string]$ScenarioPath = "",
-  [ValidateSet("", "codex", "minimax")]
+  [ValidateSet("", "codex", "minimax", "dpagent")]
   [string]$ProviderId = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestRound20",
   [int]$AutoDispatchBudget = 30,
@@ -147,7 +147,7 @@ function Build-ProjectProviderActivitySummary {
   }
 
   $providerItems = @()
-  foreach ($providerIdValue in @("codex", "minimax")) {
+  foreach ($providerIdValue in @("codex", "dpagent", "minimax")) {
     $rolesForProvider = @(
       $roleList | Where-Object { ([string](Get-ResolvedRoleModelConfig -RoleId $_).provider_id) -eq $providerIdValue }
     )
@@ -168,13 +168,13 @@ function Build-ProjectProviderActivitySummary {
         observed_efforts = @()
       }
       if (-not [string]::IsNullOrWhiteSpace($sessionId)) {
-        $providerRunStartedEvents = if ($providerIdValue -eq "codex") {
+        $providerRunStartedEvents = if ($providerIdValue -eq "codex" -or $providerIdValue -eq "dpagent") {
           @($events | Where-Object { [string]$_.eventType -eq "CODEX_RUN_STARTED" -and [string]$_.sessionId -eq $sessionId })
         } else {
           @($events | Where-Object { [string]$_.eventType -eq "MINIMAX_RUN_STARTED" -and [string]$_.sessionId -eq $sessionId })
         }
         $startedCount = @($providerRunStartedEvents).Count
-        $finishedCount = if ($providerIdValue -eq "codex") {
+        $finishedCount = if ($providerIdValue -eq "codex" -or $providerIdValue -eq "dpagent") {
           @($events | Where-Object { [string]$_.eventType -eq "CODEX_RUN_FINISHED" -and [string]$_.sessionId -eq $sessionId }).Count
         } else {
           @($events | Where-Object { [string]$_.eventType -eq "MINIMAX_RUN_FINISHED" -and [string]$_.sessionId -eq $sessionId }).Count
@@ -182,11 +182,13 @@ function Build-ProjectProviderActivitySummary {
         $agentOutputLines = @($agentOutput | Where-Object { [string]$_.sessionId -eq $sessionId }).Count
         $observedRunConfig = if ($providerIdValue -eq "codex") {
           Get-E2ECodexObservedRunConfig -Events $providerRunStartedEvents
+        } elseif ($providerIdValue -eq "dpagent") {
+          [ordered]@{ observed_models = @(); observed_efforts = @() }
         } else {
           Get-E2EMiniMaxObservedRunConfig -Events $providerRunStartedEvents
         }
       }
-      $modelMatches = Test-E2EObservedValueMatch -ExpectedValue ([string]$expected.model) -ObservedValues $observedRunConfig.observed_models
+      $modelMatches = if ($providerIdValue -eq "dpagent") { $true } else { Test-E2EObservedValueMatch -ExpectedValue ([string]$expected.model) -ObservedValues $observedRunConfig.observed_models }
       $effortMatches = if ($providerIdValue -eq "codex") {
         Test-E2EObservedValueMatch -ExpectedValue ([string]$expected.effort) -ObservedValues $observedRunConfig.observed_efforts
       } else {
@@ -207,12 +209,14 @@ function Build-ProjectProviderActivitySummary {
         run_started_count = $startedCount
         run_finished_count = $finishedCount
         agent_output_line_count = $agentOutputLines
-        direct_evidence_pass = if ($providerIdValue -eq "codex") {
+        direct_evidence_pass = if ($providerIdValue -eq "codex" -or $providerIdValue -eq "dpagent") {
           ($startedCount -ge 1 -and $finishedCount -ge 1 -and $agentOutputLines -ge 1)
         } else {
           ($startedCount -ge 1)
         }
-        model_evidence_pass = if ($providerIdValue -eq "codex") {
+        model_evidence_pass = if ($providerIdValue -eq "dpagent") {
+          ($startedCount -ge 1)
+        } elseif ($providerIdValue -eq "codex") {
           ($startedCount -ge 1 -and $modelMatches -and $effortMatches)
         } else {
           ($startedCount -ge 1 -and $modelMatches)

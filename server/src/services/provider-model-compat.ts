@@ -3,6 +3,7 @@ import type { ProviderId } from "@autodev/agent-library";
 export const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
 export const DEFAULT_CODEX_MODELS = [DEFAULT_CODEX_MODEL, "gpt-5"] as const;
 export const DEFAULT_MINIMAX_MODEL = "MiniMax-M2.5-High-speed";
+export const DEFAULT_DPAGENT_MODEL = "dpagent-config";
 
 export type ProviderModelValidationCode = "PROVIDER_MODEL_MISMATCH" | "PROVIDER_MODEL_UNSUPPORTED";
 
@@ -50,6 +51,9 @@ export function getDefaultProviderModels(providerId: ProviderId): string[] {
   if (providerId === "codex") {
     return [...DEFAULT_CODEX_MODELS];
   }
+  if (providerId === "dpagent") {
+    return [DEFAULT_DPAGENT_MODEL];
+  }
   return [DEFAULT_MINIMAX_MODEL];
 }
 
@@ -72,6 +76,9 @@ export function isMiniMaxModelName(model: string | null | undefined): boolean {
 export function buildProviderModelMismatchNextAction(providerId: ProviderId): string {
   if (providerId === "codex") {
     return `Use a Codex model such as ${DEFAULT_CODEX_MODEL}, or switch provider to minimax.`;
+  }
+  if (providerId === "dpagent") {
+    return "DPAgent owns model selection in its config.yaml. Leave the EAT model empty or use dpagent-config.";
   }
   return `Use a MiniMax model such as ${DEFAULT_MINIMAX_MODEL}, or switch provider to codex.`;
 }
@@ -121,6 +128,10 @@ export function validateProviderModelCompatibility(input: {
         knownModels
       }
     };
+  }
+
+  if (input.providerId === "dpagent") {
+    return { ok: true };
   }
 
   if (isCodexModelName(model)) {

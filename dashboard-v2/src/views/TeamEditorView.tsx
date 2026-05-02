@@ -183,7 +183,7 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
     return routeTable[from] ?? [];
   }
 
-  function getModelsForProvider(providerId: "codex" | "minimax"): ModelInfo[] {
+  function getModelsForProvider(providerId: "codex" | "minimax" | "dpagent"): ModelInfo[] {
     return availableModels.filter((m) => m.vendor === providerId);
   }
 
@@ -339,13 +339,14 @@ export function TeamEditorView({ teamId }: TeamEditorViewProps) {
                   onChange={(e) =>
                     setModelConfigs((prev) => ({
                       ...prev,
-                      [agent]: { ...prev[agent], provider_id: e.target.value as "codex" | "minimax" }
+                      [agent]: { ...prev[agent], provider_id: e.target.value as "codex" | "minimax" | "dpagent" }
                     }))
                   }
                   style={{ fontSize: "12px", padding: "4px 8px", width: "90px" }}
                 >
                   <option value="minimax">MiniMax</option>
                   <option value="codex">Codex</option>
+                  <option value="dpagent">DPAgent</option>
                 </select>
                 <select
                   value={modelConfigs[agent]?.model ?? ""}

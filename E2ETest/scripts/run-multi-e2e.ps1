@@ -1,7 +1,7 @@
-﻿param(
+param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string[]]$Cases = @("chain", "discuss", "workflow"),
-  [ValidateSet("", "codex", "minimax")]
+  [ValidateSet("", "codex", "minimax", "dpagent")]
   [string]$ProviderId = "",
   [string]$ChainScenarioPath = "",
   [string]$DiscussScenarioPath = "",

@@ -149,7 +149,7 @@ export class WorkflowOrchestratorService {
       sessionId?: string;
       status?: string;
       providerSessionId?: string;
-      provider?: "codex" | "minimax";
+      provider?: "codex" | "minimax" | "dpagent";
     }
   ): Promise<{ session: WorkflowSessionRecord; created: boolean }> {
     return this.sessionRuntimeService.registerRunSession(runId, input);

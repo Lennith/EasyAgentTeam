@@ -88,3 +88,72 @@ test("project dispatch launch preparation resolves model config and writes promp
   assert.match(prepared.promptArtifactPath, /session-1_dispatch-1\.md$/);
   assert.equal(await readFile(prepared.promptArtifactPath, "utf8"), "prepared prompt");
 });
+
+test("project dispatch launch preparation keeps DPAgent model selection on DPAgent backend", async () => {
+  const promptDir = await mkdtemp(path.join(os.tmpdir(), "autodev-project-dispatch-dpagent-"));
+
+  const prepared = await prepareProjectDispatchLaunch(
+    {
+      dataRoot: "C:\\memory",
+      project: {
+        projectId: "project-dpagent",
+        workspacePath: "D:\\AgentWorkSpace\\ProjectDpAgent",
+        agentModelConfigs: {
+          dev: {
+            provider_id: "dpagent",
+            model: "ignored-by-dpagent",
+            effort: "high"
+          }
+        }
+      } as any,
+      paths: {
+        promptsDir: promptDir
+      } as any,
+      session: {
+        sessionId: "session-dpagent",
+        role: "dev"
+      } as any,
+      providerId: "dpagent",
+      taskId: "task-1",
+      messages: [] as any,
+      allTasks: [] as any,
+      rolePromptMap: new Map([["dev", "prompt"]]),
+      roleSummaryMap: new Map([["dev", "summary"]]),
+      registeredAgentIds: ["dev"],
+      startedAt: "2026-03-28T12:00:00.000Z",
+      dispatchId: "dispatch-dpagent"
+    },
+    {
+      getRuntimeSettings: async () =>
+        ({
+          providers: {
+            codex: {
+              cliCommand: "codex-cli"
+            },
+            dpagent: {
+              cliCommand: "dpagent"
+            },
+            minimax: {}
+          }
+        }) as any,
+      ensureProjectAgentScripts: async () => {},
+      ensureAgentWorkspaces: async () => ({ created: [], updated: [] }) as any,
+      ensureRolePromptFile: async () => {},
+      buildProjectRoutingSnapshot: () =>
+        ({
+          projectId: "project-dpagent",
+          fromAgent: "dev",
+          fromAgentEnabled: true,
+          enabledAgents: ["dev"],
+          hasExplicitRouteTable: false,
+          allowedTargets: []
+        }) as any,
+      buildProjectDispatchPromptContext: () => ({ kind: "prompt-context" }) as any,
+      buildProjectDispatchPrompt: () => "prepared prompt",
+      writeOrchestratorPromptArtifact
+    }
+  );
+
+  assert.equal(prepared.modelCommand, "dpagent");
+  assert.deepEqual(prepared.modelParams, {});
+});

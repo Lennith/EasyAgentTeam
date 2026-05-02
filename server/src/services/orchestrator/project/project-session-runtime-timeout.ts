@@ -26,7 +26,7 @@ export interface ProjectSessionTimeoutDependencies {
 function resolveSyntheticRunFinishedEventType(
   provider: string | null | undefined
 ): "CODEX_RUN_FINISHED" | "MINIMAX_RUN_FINISHED" {
-  return provider === "codex" ? "CODEX_RUN_FINISHED" : "MINIMAX_RUN_FINISHED";
+  return provider === "codex" || provider === "dpagent" ? "CODEX_RUN_FINISHED" : "MINIMAX_RUN_FINISHED";
 }
 
 async function revalidateTimedOutProjectSession(input: {

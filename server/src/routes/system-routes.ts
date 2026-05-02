@@ -104,7 +104,7 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
           res,
           400,
           "SETTINGS_FIELD_RETIRED",
-          `Runtime settings field '${retiredField}' is retired. Use providers.codex or providers.minimax.`
+          `Runtime settings field '${retiredField}' is retired. Use providers.codex, providers.dpagent, or providers.minimax.`
         );
         return;
       }
@@ -112,6 +112,7 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
       const theme = themeRaw === "dark" || themeRaw === "vibrant" || themeRaw === "lively" ? themeRaw : undefined;
       const providersRaw = readObjectField(body, "providers");
       const codexProviderRaw = providersRaw ? readObjectField(providersRaw, "codex") : undefined;
+      const dpagentProviderRaw = providersRaw ? readObjectField(providersRaw, "dpagent") : undefined;
       const minimaxProviderRaw = providersRaw ? readObjectField(providersRaw, "minimax") : undefined;
       const providerMiniMaxApiKeyPatch = minimaxProviderRaw
         ? readNullableStringPatch(minimaxProviderRaw, ["api_key", "apiKey"])
@@ -133,6 +134,13 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
                         | "medium"
                         | "high"
                         | undefined
+                    }
+                  }
+                : {}),
+              ...(dpagentProviderRaw
+                ? {
+                    dpagent: {
+                      cliCommand: readStringField(dpagentProviderRaw, ["cli_command", "cliCommand"])
                     }
                   }
                 : {}),
@@ -191,6 +199,7 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
         const defaultModels = [
           { vendor: "codex", model: "gpt-5.3-codex", description: "Codex recommended model" },
           { vendor: "codex", model: "gpt-5", description: "GPT-5 model" },
+          { vendor: "dpagent", model: "dpagent-config", description: "DPAgent model from external config.yaml" },
           { vendor: "minimax", model: minimaxModel, description: `MiniMax model: ${minimaxModel}` }
         ];
         res.status(200).json({

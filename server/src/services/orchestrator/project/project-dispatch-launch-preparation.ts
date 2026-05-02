@@ -18,7 +18,7 @@ import { buildProjectDispatchPromptContext } from "./project-dispatch-prompt-con
 import { buildProjectDispatchPrompt } from "./project-dispatch-prompt.js";
 import { writeOrchestratorPromptArtifact } from "../shared/prompt-artifact-writer.js";
 
-export type ProjectDispatchProviderId = "codex" | "minimax";
+export type ProjectDispatchProviderId = "codex" | "minimax" | "dpagent";
 
 async function ensureRolePromptFile(project: ProjectRecord, role: string): Promise<void> {
   const roleFile = path.resolve(project.workspacePath, "Agents", role, "role.md");
@@ -103,9 +103,14 @@ export async function prepareProjectDispatchLaunch(
   );
   const runtimeSettings = await operations.getRuntimeSettings(input.dataRoot);
   const modelConfig = input.project.agentModelConfigs?.[input.session.role];
-  const modelCommand = input.providerId === "minimax" ? undefined : runtimeSettings.providers.codex.cliCommand;
+  const modelCommand =
+    input.providerId === "minimax"
+      ? undefined
+      : input.providerId === "dpagent"
+        ? runtimeSettings.providers.dpagent.cliCommand
+        : runtimeSettings.providers.codex.cliCommand;
   const modelParams: Record<string, string> = {};
-  if (modelConfig?.model) {
+  if (modelConfig?.model && input.providerId !== "dpagent") {
     modelParams.model = modelConfig.model;
   }
   if (modelConfig?.effort) {

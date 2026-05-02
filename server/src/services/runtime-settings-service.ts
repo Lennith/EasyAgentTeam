@@ -16,6 +16,9 @@ export interface PatchRuntimeSettingsApiProviders {
     model?: string;
     reasoningEffort?: "low" | "medium" | "high";
   };
+  dpagent?: {
+    cliCommand?: string;
+  };
   minimax?: {
     apiKey?: string | null;
     apiBase?: string | null;
@@ -46,6 +49,9 @@ export interface RuntimeSettingsApiResponse {
       cliCommand?: string;
       model?: string;
       reasoningEffort?: "low" | "medium" | "high";
+    };
+    dpagent: {
+      cliCommand?: string;
     };
     minimax: {
       apiKey?: string;
@@ -82,6 +88,9 @@ function toRuntimeSettingsApiResponse(
         cliCommand: settings.providers.codex.cliCommand,
         model: settings.providers.codex.model,
         reasoningEffort: settings.providers.codex.reasoningEffort
+      },
+      dpagent: {
+        cliCommand: settings.providers.dpagent.cliCommand
       },
       minimax: {
         apiKey: settings.providers.minimax.apiKey,

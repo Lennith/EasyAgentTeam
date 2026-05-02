@@ -1,7 +1,7 @@
-﻿param(
+param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
   [string]$ScenarioPath = "",
-  [ValidateSet("", "codex", "minimax")]
+  [ValidateSet("", "codex", "minimax", "dpagent")]
   [string]$ProviderId = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\TestWorkflowSpace",
   [int]$AutoDispatchBudget = 30,
@@ -474,7 +474,7 @@ function Build-WorkflowProviderActivitySummary {
   $observationEvents = @($events | Where-Object { [string]$_.eventType -eq "PROVIDER_OBSERVATION_RECORDED" })
   $providerItems = @()
 
-  foreach ($providerIdValue in @("codex", "minimax")) {
+  foreach ($providerIdValue in @("codex", "dpagent", "minimax")) {
     $auditRoles = @($SessionAudit.items | Where-Object { [string]$_.expected_provider_id -eq $providerIdValue })
     if ($auditRoles.Count -eq 0) {
       continue
@@ -525,6 +525,8 @@ function Build-WorkflowProviderActivitySummary {
       )
       $observedRunConfig = if ($providerIdValue -eq "codex") {
         Get-E2EObservedRunConfigFromProviderObservations -ObservationEvents $roleLaunchObservationEvents
+      } elseif ($providerIdValue -eq "dpagent") {
+        [ordered]@{ observed_models = @(); observed_efforts = @() }
       } else {
         $observedMiniMaxModel = if (-not [string]::IsNullOrWhiteSpace([string]$script:activeMiniMaxRuntimeModel)) {
           [string]$script:activeMiniMaxRuntimeModel
@@ -538,14 +540,14 @@ function Build-WorkflowProviderActivitySummary {
           observed_efforts = @([string]$auditRole.effort)
         }
       }
-      $modelMatches = Test-E2EObservedValueMatch -ExpectedValue ([string]$auditRole.model) -ObservedValues $observedRunConfig.observed_models
+      $modelMatches = if ($providerIdValue -eq "dpagent") { $true } else { Test-E2EObservedValueMatch -ExpectedValue ([string]$auditRole.model) -ObservedValues $observedRunConfig.observed_models }
       $effortMatches = if ($providerIdValue -eq "codex") {
         Test-E2EObservedValueMatch -ExpectedValue ([string]$auditRole.effort) -ObservedValues $observedRunConfig.observed_efforts
       } else {
         $true
       }
       $hasRuntimeActivity = ($roleTimelineItems.Count -ge 1 -or $roleObservationEvents.Count -ge 1)
-      $providerSessionMatchesObservation = if ($providerIdValue -eq "codex") {
+      $providerSessionMatchesObservation = if ($providerIdValue -eq "codex" -or $providerIdValue -eq "dpagent") {
         (-not [string]::IsNullOrWhiteSpace([string]$auditRole.provider_session_id) -and
           $observedProviderSessionIds.Count -ge 1 -and
           (Test-E2EObservedValueMatch -ExpectedValue ([string]$auditRole.provider_session_id) -ObservedValues $observedProviderSessionIds))
@@ -578,7 +580,7 @@ function Build-WorkflowProviderActivitySummary {
       } else {
         $true
       }
-      $providerSessionObservationPass = if ($providerIdValue -eq "codex" -and $wasDispatched -and $hasRuntimeActivity) {
+      $providerSessionObservationPass = if (($providerIdValue -eq "codex" -or $providerIdValue -eq "dpagent") -and $wasDispatched -and $hasRuntimeActivity) {
         $providerSessionMatchesObservation
       } else {
         $true
@@ -606,7 +608,7 @@ function Build-WorkflowProviderActivitySummary {
         expected_effort = [string]$auditRole.effort
         observed_models = @($observedRunConfig.observed_models)
         observed_efforts = @($observedRunConfig.observed_efforts)
-        model_evidence_source = if ($providerIdValue -eq "codex") { "provider_observation" } else { "runtime_settings_override" }
+        model_evidence_source = if ($providerIdValue -eq "codex") { "provider_observation" } elseif ($providerIdValue -eq "dpagent") { "backend_owned" } else { "runtime_settings_override" }
         model_matches = [bool]$modelMatches
         effort_matches = [bool]$effortMatches
         has_runtime_activity = [bool]$hasRuntimeActivity
@@ -3267,4 +3269,3 @@ Write-Host "total_elapsed_ms=$totalElapsedMs"
 if (-not $pass) {
   exit 2
 }
-

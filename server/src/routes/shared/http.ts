@@ -119,7 +119,7 @@ function parseProviderId(raw: unknown): ProviderId | undefined {
     return undefined;
   }
   const normalized = raw.trim().toLowerCase();
-  if (normalized === "codex" || normalized === "minimax") {
+  if (normalized === "codex" || normalized === "minimax" || normalized === "dpagent") {
     return normalized;
   }
   return undefined;

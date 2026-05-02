@@ -84,7 +84,7 @@ export const agentApi = {
     prompt: string;
     summary?: string;
     skill_list?: string[];
-    provider_id?: "codex" | "minimax";
+    provider_id?: "codex" | "minimax" | "dpagent";
   }) =>
     fetchJSON<{ agentId: string }>(`${API_BASE}/agents`, {
       method: "POST",
@@ -98,7 +98,7 @@ export const agentApi = {
       prompt?: string;
       summary?: string | null;
       skill_list?: string[];
-      provider_id?: "codex" | "minimax";
+      provider_id?: "codex" | "minimax" | "dpagent";
     }
   ) =>
     fetchJSON<{ agentId: string }>(`${API_BASE}/agents/${encodeURIComponent(agentId)}`, {

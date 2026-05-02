@@ -11,6 +11,9 @@ function settingsWithProfile(model: string | undefined): RuntimeSettings {
       codex: {
         cliCommand: "codex"
       },
+      dpagent: {
+        cliCommand: "dpagent"
+      },
       minimax: {
         model
       }

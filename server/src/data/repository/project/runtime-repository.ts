@@ -177,7 +177,7 @@ function normalizeAgentModelConfigs(
     if (!config || typeof config !== "object") {
       continue;
     }
-    const providerId = config.provider_id === "minimax" ? "minimax" : "codex";
+    const providerId = config.provider_id === "minimax" || config.provider_id === "dpagent" ? config.provider_id : "codex";
     const model = typeof config.model === "string" ? config.model.trim() : "";
     const effortRaw = typeof config.effort === "string" ? config.effort.trim().toLowerCase() : "";
     const effort = effortRaw === "low" || effortRaw === "medium" || effortRaw === "high"

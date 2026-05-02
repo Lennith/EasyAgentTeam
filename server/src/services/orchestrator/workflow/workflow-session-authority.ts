@@ -15,7 +15,7 @@ export interface WorkflowSessionRegistrationInput {
   sessionId?: string;
   status?: string;
   providerSessionId?: string;
-  provider?: "codex" | "minimax";
+  provider?: "codex" | "minimax" | "dpagent";
 }
 
 function sortSessionsByRecentActivity(a: WorkflowSessionRecord, b: WorkflowSessionRecord): number {
@@ -31,19 +31,26 @@ function resolveHistoricalWorkflowRoleProvider(
   run: WorkflowRunRecord,
   role: string,
   sessions: WorkflowSessionRecord[]
-): "codex" | "minimax" {
+): "codex" | "minimax" | "dpagent" {
   const mappedSessionId = run.roleSessionMap?.[role];
   if (mappedSessionId) {
     const mappedSession = sessions.find((item) => item.sessionId === mappedSessionId && item.role === role);
-    if (mappedSession?.provider === "codex" || mappedSession?.provider === "minimax") {
+    if (
+      mappedSession?.provider === "codex" ||
+      mappedSession?.provider === "minimax" ||
+      mappedSession?.provider === "dpagent"
+    ) {
       return mappedSession.provider;
     }
   }
   const historicalRoleSessions = sessions
-    .filter((item) => item.role === role && (item.provider === "codex" || item.provider === "minimax"))
+    .filter(
+      (item) =>
+        item.role === role && (item.provider === "codex" || item.provider === "minimax" || item.provider === "dpagent")
+    )
     .sort(sortSessionsByRecentActivity);
   const historicalProvider = historicalRoleSessions[0]?.provider;
-  if (historicalProvider === "codex" || historicalProvider === "minimax") {
+  if (historicalProvider === "codex" || historicalProvider === "minimax" || historicalProvider === "dpagent") {
     return historicalProvider;
   }
   return resolveSessionProviderId(run, role, "minimax");

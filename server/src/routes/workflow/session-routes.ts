@@ -30,7 +30,7 @@ export function registerWorkflowSessionRoutes(app: express.Application, context:
         return;
       }
       if (isUnsupportedProviderId(body.provider_id)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
       const result = await withWorkflowRoutePerfTrace(

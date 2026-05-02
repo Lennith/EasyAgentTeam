@@ -446,6 +446,15 @@ export class CodexSessionRuntime {
   private static readonly PROCESS_TREE_TERMINATION_TIMEOUT_MS = 4_000;
   private readonly activeSessions = new Map<string, ChildProcessWithoutNullStreams>();
 
+  constructor(
+    private readonly options: {
+      providerId?: "codex" | "dpagent";
+      resolveCommand?: (settings: RuntimeSettings) => string;
+      buildExtraArgs?: (settings: RuntimeSettings, input: ProviderSessionRunInput) => string[];
+      validateCodexModel?: boolean;
+    } = {}
+  ) {}
+
   private registerSessionKey(sessionKey: string, child: ChildProcessWithoutNullStreams): void {
     const normalized = sessionKey.trim();
     if (!normalized) {
@@ -468,9 +477,10 @@ export class CodexSessionRuntime {
   }
 
   async runSessionWithTools(settings: RuntimeSettings, input: ProviderSessionRunInput): Promise<MiniMaxRunResult> {
+    const providerId = this.options.providerId ?? "codex";
     const skillPrompt = resolveSkillPromptSegments({
       manifestPath: input.skillManifestPath ?? process.env.AUTO_DEV_SKILL_MANIFEST,
-      providerId: "codex",
+      providerId,
       contextKind: input.contextKind,
       requestedSkillIds: input.skillIds,
       requiredSkillIds: input.requiredSkillIds
@@ -480,7 +490,7 @@ export class CodexSessionRuntime {
     }
 
     const promptCompose = composeSystemPrompt({
-      providerId: "codex",
+      providerId,
       hostPlatform: process.platform,
       role: input.role,
       rolePrompt: input.rolePrompt,
@@ -490,13 +500,17 @@ export class CodexSessionRuntime {
       skillSegments: [...(input.skillSegments ?? []), ...skillPrompt.segments]
     });
 
-    const configuredCommand = settings.providers?.codex.cliCommand?.trim() || "codex";
-    assertProviderModelLaunchable({
-      providerId: "codex",
-      model: input.model
-    });
+    const configuredCommand =
+      this.options.resolveCommand?.(settings).trim() || settings.providers?.codex.cliCommand?.trim() || "codex";
+    if (this.options.validateCodexModel !== false) {
+      assertProviderModelLaunchable({
+        providerId: "codex",
+        model: input.model
+      });
+    }
     const requestedSessionId = input.providerSessionId.trim();
     const { args, shouldResume } = buildCodexSessionArgs(input);
+    args.push(...(this.options.buildExtraArgs?.(settings, input) ?? []));
     const codexHome = await ensureCodexRuntimeHome(
       buildSessionCodexRuntimeHome({
         sessionDirFallback: input.sessionDirFallback,
@@ -543,7 +557,7 @@ export class CodexSessionRuntime {
       }
       try {
         const pending = callback({
-          providerId: "codex",
+          providerId,
           kind,
           role: input.role,
           providerSessionId: actualSessionId || requestedSessionId || undefined,

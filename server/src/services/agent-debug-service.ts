@@ -8,7 +8,7 @@ interface AgentOutputLine {
   content: string;
   cliCommand?: string;
   prompt?: string;
-  provider?: "codex" | "minimax";
+  provider?: "codex" | "minimax" | "dpagent";
 }
 
 type ParseMode = "thinking" | "exec" | "agent" | "codex" | null;
@@ -83,7 +83,7 @@ export interface DebugAgentRunDetail {
   };
   summary: DebugAgentRunSummary;
   parsedLines: DebugAgentParsedLine[];
-  provider?: "codex" | "minimax";
+  provider?: "codex" | "minimax" | "dpagent";
 }
 
 interface ParseRunOptions {

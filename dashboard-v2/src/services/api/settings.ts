@@ -9,6 +9,9 @@ export interface UpdateRuntimeSettingsRequest {
       model?: string;
       reasoningEffort?: "low" | "medium" | "high";
     };
+    dpagent?: {
+      cliCommand?: string;
+    };
     minimax?: {
       apiKey?: string | null;
       apiBase?: string | null;

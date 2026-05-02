@@ -50,7 +50,11 @@ export function createProjectDispatchLaunchExecutionAdapter(
   return {
     createContext: async (input: ProjectDispatchLaunchInput) => {
       const providerFromSession =
-        input.session.provider === "codex" || input.session.provider === "minimax" ? input.session.provider : null;
+        input.session.provider === "codex" ||
+        input.session.provider === "minimax" ||
+        input.session.provider === "dpagent"
+          ? input.session.provider
+          : null;
       return {
         input,
         providerId: providerFromSession ?? resolveSessionProviderId(input.project, input.session.role, "minimax"),

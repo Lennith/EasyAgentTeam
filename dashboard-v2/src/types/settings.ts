@@ -19,6 +19,9 @@ export interface RuntimeProviderSettings {
     model?: string;
     reasoningEffort?: "low" | "medium" | "high";
   };
+  dpagent?: {
+    cliCommand?: string;
+  };
   minimax?: {
     apiKey?: string;
     apiBase?: string;

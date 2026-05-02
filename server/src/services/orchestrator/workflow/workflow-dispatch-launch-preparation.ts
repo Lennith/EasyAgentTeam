@@ -114,7 +114,7 @@ export async function prepareWorkflowDispatchLaunch(
   );
   const settings = await operations.getRuntimeSettings(input.dataRoot);
   const providerId = input.session.provider ?? resolveSessionProviderId(input.run, input.role, "minimax");
-  const modelSelection = readAgentModelParams(agents, input.role);
+  const modelSelection = providerId === "dpagent" ? {} : readAgentModelParams(agents, input.role);
   const minimaxProfile = settings.providers?.minimax;
 
   return {

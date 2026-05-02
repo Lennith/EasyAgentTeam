@@ -9,6 +9,11 @@ $script:E2EDefaultAgentModels = @{
     model = "MiniMax-M2.7-High-speed"
     effort = "high"
   }
+  dpagent = [ordered]@{
+    provider_id = "dpagent"
+    model = "dpagent-config"
+    effort = "medium"
+  }
 }
 
 function Get-E2EObjectString {
@@ -74,10 +79,10 @@ function Normalize-E2EProviderId {
   if ([string]::IsNullOrWhiteSpace($text)) {
     return $Fallback
   }
-  if ($text -eq "codex" -or $text -eq "minimax") {
+  if ($text -eq "codex" -or $text -eq "minimax" -or $text -eq "dpagent") {
     return $text
   }
-  throw "Unsupported provider '$text'. Supported values: codex, minimax."
+  throw "Unsupported provider '$text'. Supported values: codex, minimax, dpagent."
 }
 
 function Get-E2EDefaultAgentModelConfig {
@@ -330,6 +335,13 @@ function Assert-E2EProvidersConfigured {
       $codexCommand = Get-E2EProviderProfileString -SettingsBody $settingsResp.body -ProviderId "codex" -Names @("cliCommand", "cli_command")
       if ([string]::IsNullOrWhiteSpace($codexCommand)) {
         throw "Codex provider is not configured. settings.providers.codex.cliCommand is empty."
+      }
+      continue
+    }
+    if ($providerId -eq "dpagent") {
+      $dpagentCommand = Get-E2EProviderProfileString -SettingsBody $settingsResp.body -ProviderId "dpagent" -Names @("cliCommand", "cli_command")
+      if ([string]::IsNullOrWhiteSpace($dpagentCommand)) {
+        throw "DPAgent provider is not configured. settings.providers.dpagent.cliCommand is empty."
       }
       continue
     }

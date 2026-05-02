@@ -555,3 +555,98 @@ test("workflow dispatch launch adapter records codex provider observations", asy
   );
   assert.equal(heartbeatTouches.length, 3);
 });
+
+test("workflow dispatch launch adapter persists DPAgent provider thread observations", async () => {
+  const touchedSessions: Array<{ runId: string; sessionId: string; patch: Record<string, unknown> }> = [];
+
+  const adapter = new WorkflowDispatchLaunchAdapter(
+    {
+      dataRoot: "C:\\memory",
+      providerRegistry: {
+        runSessionWithTools: async (_providerId: string, _settings: unknown, input: any) => {
+          await input.callback?.onProviderObservation?.({
+            providerId: "dpagent",
+            kind: "thread_started",
+            providerSessionId: "dpagent-thread-1",
+            step: 1,
+            details: {
+              thread_id: "dpagent-thread-1"
+            }
+          });
+          return {
+            content: "done",
+            sessionId: "dpagent-thread-1",
+            providerSessionId: "dpagent-thread-1",
+            finishReason: "stop",
+            step: 1
+          };
+        }
+      } as any,
+      repositories: {
+        sessions: {
+          touchSession: async (runId: string, sessionId: string, patch: Record<string, unknown>) => {
+            touchedSessions.push({ runId, sessionId, patch });
+          },
+          getSession: async () => ({ errorStreak: 0 })
+        },
+        events: {
+          appendEvent: async () => ({ eventId: "event-dpagent-observation" }),
+          listEvents: async () => []
+        }
+      } as any,
+      touchSessionHeartbeat: async () => {},
+      ensureRuntime: async () => ({ tasks: [] }) as any,
+      applyTaskActions: async () => ({ appliedTaskIds: [] }) as any,
+      sendRunMessage: async () => ({}),
+      eventAdapter: {
+        appendStarted: async () => {},
+        appendFinished: async () => {},
+        appendFailed: async () => {}
+      } as any
+    },
+    {
+      listAgents: async () =>
+        [
+          {
+            agentId: "lead",
+            prompt: "you are lead",
+            summary: "lead"
+          }
+        ] as any,
+      resolveSkillIdsForAgent: async () => [],
+      resolveImportedSkillPromptSegments: async () => ({ segments: [] }) as any,
+      getRuntimeSettings: async () =>
+        ({ providers: { codex: {}, minimax: {}, dpagent: { cliCommand: "dpagent" } } }) as any,
+      ensureAgentWorkspaces: async () => ({ created: [], updated: [] }) as any,
+      buildDefaultRolePrompt: () => "default prompt"
+    }
+  );
+
+  await adapter.launch({
+    run: {
+      runId: "run-dpagent-observe",
+      name: "Workflow Run",
+      workspacePath: "C:\\workspace\\wf",
+      createdAt: "2026-05-02T12:00:00.000Z",
+      updatedAt: "2026-05-02T12:00:00.000Z",
+      tasks: [{ ownerRole: "lead" }]
+    } as any,
+    session: {
+      sessionId: "session-dpagent-observe",
+      role: "lead",
+      provider: "dpagent",
+      errorStreak: 0
+    } as any,
+    role: "lead",
+    dispatchKind: "task",
+    taskId: "task-dpagent-observe",
+    message: null,
+    requestId: "req-dpagent-observe",
+    dispatchId: "dispatch-dpagent-observe"
+  });
+
+  assert.equal(
+    touchedSessions.some((entry) => entry.patch.providerSessionId === "dpagent-thread-1"),
+    true
+  );
+});

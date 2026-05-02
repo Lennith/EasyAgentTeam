@@ -96,7 +96,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         return;
       }
       if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
       const roleSessionMap = (body.role_session_map ?? body.roleSessionMap) as Record<string, string> | undefined;
@@ -236,7 +236,7 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         | Record<string, Record<string, number>>
         | undefined;
       if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
       const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);

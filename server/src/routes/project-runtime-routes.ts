@@ -52,13 +52,18 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
         return;
       }
       const configuredProviderId = project.agentModelConfigs?.[role]?.provider_id;
-      if (configuredProviderId && configuredProviderId !== "codex" && configuredProviderId !== "minimax") {
+      if (
+        configuredProviderId &&
+        configuredProviderId !== "codex" &&
+        configuredProviderId !== "minimax" &&
+        configuredProviderId !== "dpagent"
+      ) {
         sendApiError(
           res,
           409,
           "SESSION_PROVIDER_NOT_SUPPORTED",
           `role '${role}' is configured with unsupported provider '${configuredProviderId}'`,
-          "Only codex and minimax providers are supported for session startup."
+          "Only codex, minimax, and dpagent providers are supported for session startup."
         );
         return;
       }

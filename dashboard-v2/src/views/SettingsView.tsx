@@ -55,6 +55,7 @@ export function SettingsView() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const [codexCliCommand, setCodexCliCommand] = useState("");
+  const [dpagentCliCommand, setDpAgentCliCommand] = useState("dpagent");
   const [theme, setTheme] = useState<Theme>(() => readCurrentTheme());
   const [minimaxApiKey, setMiniMaxApiKey] = useState("");
   const [minimaxApiBase, setMiniMaxApiBase] = useState("");
@@ -84,8 +85,10 @@ export function SettingsView() {
           setMiniMaxModels(minimaxOptions);
           setSettings(data);
           const codexProvider = data.providers?.codex;
+          const dpagentProvider = data.providers?.dpagent;
           const minimaxProvider = data.providers?.minimax;
           setCodexCliCommand(codexProvider?.cliCommand ?? "");
+          setDpAgentCliCommand(dpagentProvider?.cliCommand ?? "dpagent");
           const resolvedTheme = data.theme ?? readCurrentTheme();
           setTheme(resolvedTheme);
           setMiniMaxApiKey(minimaxProvider?.apiKey ?? "");
@@ -134,6 +137,9 @@ export function SettingsView() {
         providers: {
           codex: {
             cliCommand: codexCliCommand
+          },
+          dpagent: {
+            cliCommand: dpagentCliCommand
           },
           minimax: {
             apiKey: minimaxApiKey.trim().length > 0 ? minimaxApiKey.trim() : null,
@@ -313,6 +319,19 @@ export function SettingsView() {
           />
           <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
             Default for this platform: {runtimeSettings?.codexCliCommandDefault ?? "codex"}
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label>DPAgent CLI</label>
+          <input
+            value={dpagentCliCommand}
+            onChange={(e) => setDpAgentCliCommand(e.target.value)}
+            placeholder="dpagent"
+          />
+          <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+            External provider command. It must support `exec --json`, read the prompt from stdin, and call a running
+            DPAgent backend.
           </p>
         </div>
       </div>

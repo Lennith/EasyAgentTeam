@@ -17,13 +17,14 @@ test("settings API returns and updates provider settings", async () => {
     const initialRes = await fetch(`${baseUrl}/api/settings`);
     assert.equal(initialRes.status, 200);
     const initialPayload = (await initialRes.json()) as {
-      providers?: { codex?: { cliCommand?: string } };
+      providers?: { codex?: { cliCommand?: string }; dpagent?: { cliCommand?: string } };
       hostPlatform?: string;
       supportedShellTypes?: string[];
       defaultShellType?: string;
     };
     assert.equal(typeof initialPayload.providers?.codex?.cliCommand, "string");
     assert.equal((initialPayload.providers?.codex?.cliCommand ?? "").trim().length > 0, true);
+    assert.equal(initialPayload.providers?.dpagent?.cliCommand, "dpagent");
     assert.equal(["win32", "linux", "darwin"].includes(initialPayload.hostPlatform ?? ""), true);
     assert.equal(Array.isArray(initialPayload.supportedShellTypes), true);
     assert.equal(typeof initialPayload.defaultShellType, "string");
@@ -35,16 +36,20 @@ test("settings API returns and updates provider settings", async () => {
         providers: {
           codex: {
             cliCommand: "codex"
+          },
+          dpagent: {
+            cliCommand: "dpagent-test"
           }
         }
       })
     });
     assert.equal(patchRes.status, 200);
     const patchPayload = (await patchRes.json()) as {
-      providers?: { codex?: { cliCommand?: string } };
+      providers?: { codex?: { cliCommand?: string }; dpagent?: { cliCommand?: string } };
       hostPlatform?: string;
     };
     assert.equal(patchPayload.providers?.codex?.cliCommand, "codex");
+    assert.equal(patchPayload.providers?.dpagent?.cliCommand, "dpagent-test");
     assert.equal(["win32", "linux", "darwin"].includes(patchPayload.hostPlatform ?? ""), true);
 
     const afterRes = await fetch(`${baseUrl}/api/settings`);
@@ -182,6 +187,9 @@ test("settings API exposes provider profiles without root compatibility fields",
             model: "gpt-5.4",
             reasoningEffort: "medium"
           },
+          dpagent: {
+            cliCommand: "dpagent-test"
+          },
           minimax: {
             apiKey: "provider_key",
             apiBase: "https://provider.example/v1",
@@ -196,6 +204,7 @@ test("settings API exposes provider profiles without root compatibility fields",
     const payload = (await patchRes.json()) as {
       providers?: {
         codex?: { cliCommand?: string; model?: string; reasoningEffort?: string };
+        dpagent?: { cliCommand?: string };
         minimax?: {
           apiKey?: string;
           apiBase?: string;
@@ -213,6 +222,7 @@ test("settings API exposes provider profiles without root compatibility fields",
     assert.equal(payload.providers?.codex?.cliCommand, "codex-test");
     assert.equal(payload.providers?.codex?.model, "gpt-5.4");
     assert.equal(payload.providers?.codex?.reasoningEffort, "medium");
+    assert.equal(payload.providers?.dpagent?.cliCommand, "dpagent-test");
     assert.equal(payload.providers?.minimax?.apiKey, "provider_key");
     assert.equal(payload.providers?.minimax?.apiBase, "https://provider.example/v1");
     assert.equal(payload.providers?.minimax?.model, "MiniMax-M2.7-High-speed");

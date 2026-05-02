@@ -40,8 +40,8 @@ export const workflowSessionApi = {
       role: string;
       session_id?: string;
       status?: "running" | "idle" | "blocked" | "dismissed";
-      provider_id?: "codex" | "minimax";
-      provider?: "codex" | "minimax";
+      provider_id?: "codex" | "minimax" | "dpagent";
+      provider?: "codex" | "minimax" | "dpagent";
       provider_session_id?: string;
     }
   ) =>

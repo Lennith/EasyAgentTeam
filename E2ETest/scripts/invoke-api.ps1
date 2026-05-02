@@ -272,6 +272,40 @@ function Stop-ProcessTreeBestEffort {
   } catch {}
 }
 
+function Get-CurrentProcessAncestorIds {
+  $ancestorIds = New-Object 'System.Collections.Generic.HashSet[int]'
+  $currentId = [int]$PID
+  while ($currentId -gt 0) {
+    try {
+      $process = Get-CimInstance Win32_Process -Filter "ProcessId = $currentId" -ErrorAction Stop
+    } catch {
+      break
+    }
+    if ($null -eq $process -or $null -eq $process.ParentProcessId) {
+      break
+    }
+    $parentId = [int]$process.ParentProcessId
+    if ($parentId -le 0 -or $ancestorIds.Contains($parentId)) {
+      break
+    }
+    [void]$ancestorIds.Add($parentId)
+    $currentId = $parentId
+  }
+  return $ancestorIds
+}
+
+function Test-ProcessTreeContainsCurrentProcess {
+  param([Parameter(Mandatory = $true)][int]$ProcessId)
+
+  $currentId = [int]$PID
+  if ($ProcessId -eq $currentId) {
+    return $true
+  }
+
+  $ancestorIds = Get-CurrentProcessAncestorIds
+  return $ancestorIds.Contains($ProcessId)
+}
+
 function Stop-WorkspaceBoundProcesses {
   param([Parameter(Mandatory = $true)][string]$WorkspaceRoot)
 
@@ -281,9 +315,11 @@ function Stop-WorkspaceBoundProcesses {
     return
   }
 
+  $currentAncestorIds = Get-CurrentProcessAncestorIds
   $candidateProcesses = Get-CimInstance Win32_Process | Where-Object {
     $_.ProcessId -ne $PID -and
-    $_.Name -match 'codex|node|powershell' -and
+    -not $currentAncestorIds.Contains([int]$_.ProcessId) -and
+    $_.Name -match 'codex|dpagent|node|powershell' -and
     -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine)
   }
   $matches = @()
@@ -303,6 +339,9 @@ function Stop-WorkspaceBoundProcesses {
   $uniqueIds = @($matches | Select-Object -ExpandProperty ProcessId -Unique)
 
   foreach ($procId in $uniqueIds) {
+    if (Test-ProcessTreeContainsCurrentProcess -ProcessId ([int]$procId)) {
+      continue
+    }
     Stop-ProcessTreeBestEffort -ProcessId ([int]$procId)
   }
 

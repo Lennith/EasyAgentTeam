@@ -39,9 +39,14 @@ export interface MiniMaxProviderProfile {
   shellMaxOutputSize?: number;
 }
 
+export interface DpAgentProviderProfile {
+  cliCommand?: string;
+}
+
 export interface ProviderProfiles {
   codex: CodexProviderProfile;
   minimax: MiniMaxProviderProfile;
+  dpagent: DpAgentProviderProfile;
 }
 
 export interface RuntimeSettings {
@@ -55,6 +60,7 @@ interface PatchRuntimeSettingsInput {
   theme?: "dark" | "vibrant" | "lively";
   providers?: Partial<{
     codex: Partial<CodexProviderProfile>;
+    dpagent: Partial<DpAgentProviderProfile>;
     minimax: Partial<Omit<MiniMaxProviderProfile, "apiKey" | "apiBase">> & {
       apiKey?: string | null;
       apiBase?: string | null;
@@ -89,6 +95,9 @@ function defaultRuntimeSettings(): RuntimeSettings {
     providers: {
       codex: {
         cliCommand: codexCliCommand
+      },
+      dpagent: {
+        cliCommand: "dpagent"
       },
       minimax: {
         model: minimaxModel,
@@ -180,6 +189,7 @@ function normalizeReasoningEffort(raw: unknown): "low" | "medium" | "high" | und
 function normalizeProviderProfiles(state: Partial<RuntimeSettings>, fallback: RuntimeSettings): ProviderProfiles {
   const rawProviders = state.providers && typeof state.providers === "object" ? state.providers : {};
   const rawCodex = "codex" in rawProviders && rawProviders.codex ? rawProviders.codex : {};
+  const rawDpAgent = "dpagent" in rawProviders && rawProviders.dpagent ? rawProviders.dpagent : {};
   const rawMiniMax = "minimax" in rawProviders && rawProviders.minimax ? rawProviders.minimax : {};
   const codexCliCommand = normalizeCodexCliCommand(
     (rawCodex as CodexProviderProfile).cliCommand,
@@ -195,6 +205,12 @@ function normalizeProviderProfiles(state: Partial<RuntimeSettings>, fallback: Ru
       cliCommand: codexCliCommand,
       model: normalizeOptionalString((rawCodex as CodexProviderProfile).model),
       reasoningEffort: normalizeReasoningEffort((rawCodex as CodexProviderProfile).reasoningEffort)
+    },
+    dpagent: {
+      cliCommand: normalizeCodexCliCommand(
+        (rawDpAgent as DpAgentProviderProfile).cliCommand,
+        fallback.providers.dpagent.cliCommand ?? "dpagent"
+      )
     },
     minimax: {
       apiKey: normalizeOptionalString((rawMiniMax as MiniMaxProviderProfile).apiKey),
@@ -247,6 +263,10 @@ export async function patchRuntimeSettings(
   const current = await getRuntimeSettings(dataRoot);
   const providerPatch = patch.providers ?? {};
   const patchedCodexCliCommand = normalizeCodexCliCommand(providerPatch.codex?.cliCommand, current.providers.codex.cliCommand ?? defaultCodexCliCommand());
+  const patchedDpAgentCliCommand = normalizeCodexCliCommand(
+    providerPatch.dpagent?.cliCommand,
+    current.providers.dpagent.cliCommand ?? "dpagent"
+  );
   const patchedMiniMax: MiniMaxProviderProfile = {
     apiKey: resolveOptionalStringPatch(providerPatch.minimax, "apiKey", current.providers.minimax.apiKey),
     apiBase: resolveOptionalStringPatch(providerPatch.minimax, "apiBase", current.providers.minimax.apiBase),
@@ -272,6 +292,11 @@ export async function patchRuntimeSettings(
         ...current.providers.codex,
         ...withoutUndefined(providerPatch.codex),
         cliCommand: patchedCodexCliCommand
+      },
+      dpagent: {
+        ...current.providers.dpagent,
+        ...withoutUndefined(providerPatch.dpagent),
+        cliCommand: patchedDpAgentCliCommand
       },
       minimax: patchedMiniMax
     }

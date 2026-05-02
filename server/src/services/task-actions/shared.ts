@@ -292,7 +292,12 @@ export async function resolveTargetSession(
 ): Promise<string> {
   const repositories = getProjectRepositoryBundle(dataRoot);
   const configuredProviderId = project.agentModelConfigs?.[toRole]?.provider_id;
-  if (configuredProviderId && configuredProviderId !== "codex" && configuredProviderId !== "minimax") {
+  if (
+    configuredProviderId &&
+    configuredProviderId !== "codex" &&
+    configuredProviderId !== "minimax" &&
+    configuredProviderId !== "dpagent"
+  ) {
     throw new TaskActionError(
       `SESSION_PROVIDER_NOT_SUPPORTED: role '${toRole}' is configured with unsupported provider '${configuredProviderId}'`,
       "TASK_BINDING_MISMATCH",

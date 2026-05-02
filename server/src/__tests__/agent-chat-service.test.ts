@@ -23,6 +23,9 @@ test("agent chat SSE emits structured provider error payload", async () => {
           codex: {
             cliCommand: "codex"
           },
+          dpagent: {
+            cliCommand: "dpagent"
+          },
           minimax: {
             model: "MiniMax-M2.5-High-speed"
           }

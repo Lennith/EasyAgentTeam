@@ -135,3 +135,72 @@ test("agent and project patch reject provider/model mismatch", async () => {
     await server.close();
   }
 });
+
+test("project session startup accepts DPAgent provider roles", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dpagent-project-session-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  await mkdir(workspaceRoot, { recursive: true });
+
+  const app = createApp({ dataRoot });
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+
+  try {
+    const createAgent = await fetch(`${baseUrl}/api/agents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent_id: "lead",
+        prompt: "lead prompt"
+      })
+    });
+    assert.equal(createAgent.status, 201);
+
+    const createProject = await fetch(`${baseUrl}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: "project_dpagent_session",
+        name: "Project DPAgent Session",
+        workspace_path: workspaceRoot,
+        agent_ids: ["lead"]
+      })
+    });
+    assert.equal(createProject.status, 201);
+
+    const patchRouting = await fetch(`${baseUrl}/api/projects/project_dpagent_session/routing-config`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent_ids: ["lead"],
+        route_table: { lead: [] },
+        agent_model_configs: {
+          lead: {
+            provider_id: "dpagent",
+            model: "dpagent-backend-default"
+          }
+        }
+      })
+    });
+    assert.equal(patchRouting.status, 200);
+
+    const createSession = await fetch(`${baseUrl}/api/projects/project_dpagent_session/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role: "lead",
+        session_id: "session-dpagent-lead"
+      })
+    });
+    assert.equal(createSession.status, 201);
+    const payload = (await createSession.json()) as {
+      session?: { sessionId?: string; role?: string; provider?: string };
+    };
+    assert.equal(payload.session?.sessionId, "session-dpagent-lead");
+    assert.equal(payload.session?.role, "lead");
+    assert.equal(payload.session?.provider, "dpagent");
+  } finally {
+    await server.close();
+  }
+});

@@ -145,7 +145,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
     try {
       const body = req.body as Record<string, unknown>;
       if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
       const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
@@ -178,7 +178,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
     try {
       const body = req.body as Record<string, unknown>;
       if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
       const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
@@ -228,7 +228,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
       const summary = readStringField(body, ["summary"]);
       const defaultProviderId = body.provider_id as string | undefined;
       if (isUnsupportedProviderId(defaultProviderId)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
       const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as
@@ -298,7 +298,7 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
       const agentId = req.params.agent_id;
       const body = req.body as Record<string, unknown>;
       if (Object.prototype.hasOwnProperty.call(body, "provider_id") && isUnsupportedProviderId(body.provider_id)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
       let skillListPatch: string[] | undefined;

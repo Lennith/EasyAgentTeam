@@ -15,7 +15,9 @@ const PROVIDER_BASELINES: Record<ProviderId, string> = {
     "If a required TeamTool call fails, quote the returned error_code and next_action instead of inventing a missing-tool explanation."
   ].join(" "),
   minimax:
-    "Provider policy: MiniMax runtime. Keep tool-call ordering valid and avoid stale tool_result reuse. Use summary_messages when context noise is high."
+    "Provider policy: MiniMax runtime. Keep tool-call ordering valid and avoid stale tool_result reuse. Use summary_messages when context noise is high.",
+  dpagent:
+    "Provider policy: DPAgent external runtime. Execute the assigned task through the external DPAgent CLI and preserve structured TeamTool reporting when available."
 };
 
 const CONTEXT_BASELINES: Record<string, string> = {

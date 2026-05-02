@@ -1,6 +1,6 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:43123",
-  [ValidateSet("", "codex", "minimax")]
+  [ValidateSet("", "codex", "minimax", "dpagent")]
   [string]$ProviderId = "",
   [string]$WorkspaceRoot = "D:\AgentWorkSpace\TestTeam\ExternalAgent3DoF",
   [int]$AutoDispatchBudget = 30,

@@ -134,3 +134,59 @@ test("workflow dispatch launch preparation applies MiniMax agent model without g
   assert.equal(prepared.tokenLimit, 4096);
   assert.equal(prepared.maxOutputTokens, 1024);
 });
+
+test("workflow dispatch launch preparation leaves DPAgent model selection to DPAgent config", async () => {
+  const prepared = await prepareWorkflowDispatchLaunch(
+    {
+      dataRoot: "C:\\memory",
+      run: {
+        runId: "run-dpagent",
+        name: "Workflow Run",
+        workspacePath: "D:\\AgentWorkSpace\\WorkflowDpAgent",
+        createdAt: "2026-05-02T12:00:00.000Z",
+        updatedAt: "2026-05-02T12:00:00.000Z",
+        tasks: [{ ownerRole: "dev" }]
+      } as any,
+      role: "dev",
+      session: {
+        sessionId: "session-dpagent",
+        role: "dev",
+        provider: "dpagent"
+      } as any
+    },
+    {
+      listAgents: async () =>
+        [
+          {
+            agentId: "dev",
+            prompt: "Developer",
+            defaultModelParams: {
+              model: "dpagent-backend-default",
+              effort: "high"
+            }
+          }
+        ] as any,
+      resolveSkillIdsForAgent: async () => [],
+      resolveImportedSkillPromptSegments: async () => ({ segments: [] }) as any,
+      getRuntimeSettings: async () =>
+        ({
+          providers: {
+            codex: {},
+            minimax: {
+              tokenLimit: 4096,
+              maxOutputTokens: 1024
+            },
+            dpagent: {
+              cliCommand: "dpagent"
+            }
+          }
+        }) as any,
+      ensureAgentWorkspaces: async () => ({ created: [], updated: [] }) as any,
+      buildDefaultRolePrompt: (role: string) => `default:${role}`
+    }
+  );
+
+  assert.equal(prepared.providerId, "dpagent");
+  assert.equal(prepared.model, undefined);
+  assert.equal(prepared.reasoningEffort, undefined);
+});

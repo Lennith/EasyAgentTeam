@@ -169,7 +169,7 @@ export function RoutingConfigView({ projectId, project, reload }: RoutingConfigV
     return routeTable[from] ?? [];
   }
 
-  function getModelsForProvider(providerId: "codex" | "minimax"): ModelInfo[] {
+  function getModelsForProvider(providerId: "codex" | "minimax" | "dpagent"): ModelInfo[] {
     return availableModels.filter((m) => m.vendor === providerId);
   }
 
@@ -358,13 +358,14 @@ export function RoutingConfigView({ projectId, project, reload }: RoutingConfigV
                         onChange={(e) =>
                           setModelConfigs((prev) => ({
                             ...prev,
-                            [from]: { ...prev[from], provider_id: e.target.value as "codex" | "minimax" }
+                            [from]: { ...prev[from], provider_id: e.target.value as "codex" | "minimax" | "dpagent" }
                           }))
                         }
                         style={{ fontSize: "11px", padding: "2px 6px", width: "70px" }}
                       >
                         <option value="minimax">MiniMax</option>
                         <option value="codex">Codex</option>
+                        <option value="dpagent">DPAgent</option>
                       </select>
                       <select
                         value={modelConfigs[from]?.model ?? ""}

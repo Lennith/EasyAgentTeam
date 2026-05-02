@@ -1,0 +1,171 @@
+{
+  "scenario_id": "dpagent_workflow_multistep_long_v1",
+  "template_id": "e2e_dpagent_workflow_multistep_long_template_v1",
+  "run_id_prefix": "e2e_dpagent_workflow_multistep_long_run",
+  "workflow_name": "E2E DPAgent Multi-step Workflow Long Run",
+  "primary_goal": "Complete a realistic multi-role DPAgent workflow with ordered planning, architecture, implementation planning, integration, QA, and final delivery evidence. Each phase must create its required artifact and report DONE through TeamTool.",
+  "roles": {
+    "product_owner": "dpagent_long_product_owner",
+    "architect": "dpagent_long_architect",
+    "backend_engineer": "dpagent_long_backend_engineer",
+    "frontend_engineer": "dpagent_long_frontend_engineer",
+    "integration_engineer": "dpagent_long_integration_engineer",
+    "qa_engineer": "dpagent_long_qa_engineer"
+  },
+  "agent_model_matrix": {
+    "product_owner": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "architect": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "backend_engineer": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "frontend_engineer": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "integration_engineer": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "qa_engineer": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" }
+  },
+  "route_table": {
+    "dpagent_long_product_owner": ["dpagent_long_architect", "dpagent_long_qa_engineer"],
+    "dpagent_long_architect": [
+      "dpagent_long_backend_engineer",
+      "dpagent_long_frontend_engineer",
+      "dpagent_long_integration_engineer"
+    ],
+    "dpagent_long_backend_engineer": ["dpagent_long_architect", "dpagent_long_integration_engineer"],
+    "dpagent_long_frontend_engineer": ["dpagent_long_architect", "dpagent_long_integration_engineer"],
+    "dpagent_long_integration_engineer": [
+      "dpagent_long_backend_engineer",
+      "dpagent_long_frontend_engineer",
+      "dpagent_long_qa_engineer"
+    ],
+    "dpagent_long_qa_engineer": ["dpagent_long_product_owner", "dpagent_long_integration_engineer"]
+  },
+  "task_assign_route_table": {
+    "dpagent_long_product_owner": ["dpagent_long_architect", "dpagent_long_qa_engineer"],
+    "dpagent_long_architect": [
+      "dpagent_long_backend_engineer",
+      "dpagent_long_frontend_engineer",
+      "dpagent_long_integration_engineer"
+    ],
+    "dpagent_long_backend_engineer": ["dpagent_long_integration_engineer"],
+    "dpagent_long_frontend_engineer": ["dpagent_long_integration_engineer"],
+    "dpagent_long_integration_engineer": ["dpagent_long_qa_engineer"],
+    "dpagent_long_qa_engineer": []
+  },
+  "route_discuss_rounds": {
+    "dpagent_long_product_owner": { "dpagent_long_architect": 2, "dpagent_long_qa_engineer": 2 },
+    "dpagent_long_architect": {
+      "dpagent_long_backend_engineer": 2,
+      "dpagent_long_frontend_engineer": 2,
+      "dpagent_long_integration_engineer": 2
+    },
+    "dpagent_long_backend_engineer": { "dpagent_long_architect": 2, "dpagent_long_integration_engineer": 2 },
+    "dpagent_long_frontend_engineer": { "dpagent_long_architect": 2, "dpagent_long_integration_engineer": 2 },
+    "dpagent_long_integration_engineer": {
+      "dpagent_long_backend_engineer": 2,
+      "dpagent_long_frontend_engineer": 2,
+      "dpagent_long_qa_engineer": 2
+    },
+    "dpagent_long_qa_engineer": { "dpagent_long_product_owner": 2, "dpagent_long_integration_engineer": 2 }
+  },
+  "phase_tasks": [
+    {
+      "task_id": "wf_requirements_brief",
+      "title": "Phase 1: product requirements and acceptance baseline",
+      "owner_role": "dpagent_long_product_owner",
+      "dependencies": [],
+      "artifacts": ["docs/dpagent-long/01_requirements.md"],
+      "marker": "DPAGENT_LONG_REQ_DONE",
+      "acceptance": [
+        "Create docs/dpagent-long/01_requirements.md containing DPAGENT_LONG_REQ_DONE.",
+        "Document user goals, workflow scope, non-goals, and acceptance criteria for this E2E run.",
+        "Call task_report_done for wf_requirements_brief after the artifact is written."
+      ]
+    },
+    {
+      "task_id": "wf_solution_architecture",
+      "title": "Phase 2: solution architecture and module contract",
+      "owner_role": "dpagent_long_architect",
+      "dependencies": ["wf_requirements_brief"],
+      "artifacts": ["docs/dpagent-long/02_architecture.md"],
+      "marker": "DPAGENT_LONG_ARCH_DONE",
+      "acceptance": [
+        "Create docs/dpagent-long/02_architecture.md containing DPAGENT_LONG_ARCH_DONE.",
+        "Define components, data flow, runtime boundaries, failure handling, and how later phases consume the requirements.",
+        "Call task_report_done for wf_solution_architecture after the artifact is written."
+      ]
+    },
+    {
+      "task_id": "wf_backend_contract",
+      "title": "Phase 3A: backend contract and API plan",
+      "owner_role": "dpagent_long_backend_engineer",
+      "dependencies": ["wf_solution_architecture"],
+      "artifacts": ["docs/dpagent-long/03_backend_contract.md"],
+      "marker": "DPAGENT_LONG_BACKEND_DONE",
+      "acceptance": [
+        "Create docs/dpagent-long/03_backend_contract.md containing DPAGENT_LONG_BACKEND_DONE.",
+        "Define endpoint contracts, state transitions, validation rules, and observability signals.",
+        "Call task_report_done for wf_backend_contract after the artifact is written."
+      ]
+    },
+    {
+      "task_id": "wf_frontend_flow",
+      "title": "Phase 3B: frontend flow and UX state plan",
+      "owner_role": "dpagent_long_frontend_engineer",
+      "dependencies": ["wf_solution_architecture"],
+      "artifacts": ["docs/dpagent-long/04_frontend_flow.md"],
+      "marker": "DPAGENT_LONG_FRONTEND_DONE",
+      "acceptance": [
+        "Create docs/dpagent-long/04_frontend_flow.md containing DPAGENT_LONG_FRONTEND_DONE.",
+        "Define screens, user feedback states, error states, and how UI consumes backend events.",
+        "Call task_report_done for wf_frontend_flow after the artifact is written."
+      ]
+    },
+    {
+      "task_id": "wf_integration_plan",
+      "title": "Phase 4: integration plan and executable smoke manifest",
+      "owner_role": "dpagent_long_integration_engineer",
+      "dependencies": ["wf_backend_contract", "wf_frontend_flow"],
+      "artifacts": ["docs/dpagent-long/05_integration_plan.md", "src/dpagent-long-e2e/README.md"],
+      "marker": "DPAGENT_LONG_INTEGRATION_DONE",
+      "acceptance": [
+        "Create docs/dpagent-long/05_integration_plan.md containing DPAGENT_LONG_INTEGRATION_DONE.",
+        "Create src/dpagent-long-e2e/README.md with a concise smoke manifest and dependency order.",
+        "Call task_report_done for wf_integration_plan after both artifacts are written."
+      ]
+    },
+    {
+      "task_id": "wf_qa_matrix",
+      "title": "Phase 5: QA matrix and risk checklist",
+      "owner_role": "dpagent_long_qa_engineer",
+      "dependencies": ["wf_integration_plan"],
+      "artifacts": ["docs/dpagent-long/06_qa_matrix.md"],
+      "marker": "DPAGENT_LONG_QA_DONE",
+      "acceptance": [
+        "Create docs/dpagent-long/06_qa_matrix.md containing DPAGENT_LONG_QA_DONE.",
+        "Define test matrix, edge cases, regression gates, and risks linked to earlier artifacts.",
+        "Call task_report_done for wf_qa_matrix after the artifact is written."
+      ]
+    },
+    {
+      "task_id": "wf_final_delivery",
+      "title": "Phase 6: final delivery summary",
+      "owner_role": "dpagent_long_product_owner",
+      "dependencies": ["wf_qa_matrix"],
+      "artifacts": ["docs/dpagent-long/07_final_summary.md"],
+      "marker": "DPAGENT_LONG_FINAL_DONE",
+      "acceptance": [
+        "Create docs/dpagent-long/07_final_summary.md containing DPAGENT_LONG_FINAL_DONE.",
+        "Summarize completed artifacts, phase order, QA status, and remaining risks.",
+        "Call task_report_done for wf_final_delivery after the artifact is written."
+      ]
+    }
+  ],
+  "validation": {
+    "required_markers": [
+      "DPAGENT_LONG_REQ_DONE",
+      "DPAGENT_LONG_ARCH_DONE",
+      "DPAGENT_LONG_BACKEND_DONE",
+      "DPAGENT_LONG_FRONTEND_DONE",
+      "DPAGENT_LONG_INTEGRATION_DONE",
+      "DPAGENT_LONG_QA_DONE",
+      "DPAGENT_LONG_FINAL_DONE"
+    ]
+  }
+}

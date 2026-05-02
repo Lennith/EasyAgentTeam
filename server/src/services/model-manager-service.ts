@@ -3,10 +3,10 @@ import path from "node:path";
 import type { ProjectPaths } from "../domain/models.js";
 import { readJsonFile, writeJsonFile } from "../utils/file-utils.js";
 import { getRuntimeSettings, type RuntimeSettings } from "../data/repository/system/runtime-settings-repository.js";
-import { DEFAULT_CODEX_MODELS, DEFAULT_MINIMAX_MODEL } from "./provider-model-compat.js";
+import { DEFAULT_CODEX_MODELS, DEFAULT_DPAGENT_MODEL, DEFAULT_MINIMAX_MODEL } from "./provider-model-compat.js";
 
 export interface ModelInfo {
-  vendor: "codex" | "minimax";
+  vendor: "codex" | "minimax" | "dpagent";
   model: string;
   description?: string;
 }
@@ -29,6 +29,13 @@ const DEFAULT_MODELS: Record<ModelInfo["vendor"], ModelInfo[]> = {
     model,
     description: `Codex model: ${model}`
   })),
+  dpagent: [
+    {
+      vendor: "dpagent" as const,
+      model: DEFAULT_DPAGENT_MODEL,
+      description: "DPAgent model selected by external config.yaml"
+    }
+  ],
   minimax: []
 };
 
@@ -110,8 +117,9 @@ export class ModelManagerService {
     const runtimeSettings = await this.loadRuntimeSettings();
     const warnings: string[] = [];
     const codex = await this.getVendorModels("codex", runtimeSettings.providers.codex.cliCommand ?? "codex", warnings);
+    const dpagent = DEFAULT_MODELS.dpagent;
     const minimax = this.resolveMiniMaxModels(runtimeSettings);
-    const models = [...codex, ...minimax];
+    const models = [...codex, ...dpagent, ...minimax];
     const store: ModelStore = {
       schemaVersion: "1.0",
       updatedAt: new Date().toISOString(),
@@ -162,6 +170,12 @@ export class ModelManagerService {
       const key = `${minimaxModel.vendor}:${minimaxModel.model}`;
       if (!deduped.has(key)) {
         deduped.set(key, minimaxModel);
+      }
+    }
+    for (const dpagentModel of DEFAULT_MODELS.dpagent) {
+      const key = `${dpagentModel.vendor}:${dpagentModel.model}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, dpagentModel);
       }
     }
     return [...deduped.values()];
@@ -218,6 +232,9 @@ export class ModelManagerService {
         providers: {
           codex: {
             cliCommand: "codex"
+          },
+          dpagent: {
+            cliCommand: "dpagent"
           },
           minimax: {
             model: DEFAULT_MINIMAX_MODEL,
