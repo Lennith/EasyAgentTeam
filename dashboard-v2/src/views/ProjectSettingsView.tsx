@@ -1,8 +1,15 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
-import type { ProjectDetail, SessionRecord, TaskTreeNode, LockRecord, EventRecord, AgentIOTimelineItem } from "@/types";
-import { projectApi } from "@/services/api";
+import type {
+  ProjectDetail,
+  SessionRecord,
+  TaskTreeNode,
+  LockRecord,
+  EventRecord,
+  AgentIOTimelineItem
+} from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import * as mockData from "@/mock/data";
 import { Save, Loader, RefreshCw, Settings, Play, Pause } from "lucide-react";
 

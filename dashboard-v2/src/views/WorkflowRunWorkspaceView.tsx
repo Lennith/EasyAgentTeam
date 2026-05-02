@@ -1,15 +1,13 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Edit, Play, RefreshCw, Square } from "lucide-react";
-import { workflowApi } from "@/services/api";
+import { workflowApi } from "@/services/api/workflow";
 import { useWorkflowOrchestratorStatus, useWorkflowRunStatus } from "@/hooks/useWorkflowData";
 import { AgentChatView } from "./AgentChatView";
 import { ChatTimelineView } from "./ChatTimelineView";
 import { TaskTreeView } from "./TaskTreeView";
 import { WorkflowRecoveryView } from "./WorkflowRecoveryView";
+import type { AgentIOTimelineItem, SessionRecord, TaskTreeNode } from "@/types/project";
 import type {
-  AgentIOTimelineItem,
-  SessionRecord,
-  TaskTreeNode,
   WorkflowRunRecord,
   WorkflowRunMode,
   WorkflowRunOrchestratorSettings,
@@ -18,7 +16,7 @@ import type {
   WorkflowTaskState,
   WorkflowTaskTreeRuntimeResponse,
   WorkflowRunWorkspaceView as WorkflowRunWorkspaceTab
-} from "@/types";
+} from "@/types/workflow";
 
 interface WorkflowRunWorkspaceViewProps {
   runId: string;

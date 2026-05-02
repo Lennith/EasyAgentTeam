@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { createApp } from "../app.js";
 import { startTestHttpServer } from "./helpers/http-test-server.js";
 
-test("settings API returns and updates codex cli command", async () => {
+test("settings API returns and updates provider settings", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-settings-api-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
@@ -17,13 +17,13 @@ test("settings API returns and updates codex cli command", async () => {
     const initialRes = await fetch(`${baseUrl}/api/settings`);
     assert.equal(initialRes.status, 200);
     const initialPayload = (await initialRes.json()) as {
-      codexCliCommand?: string;
+      providers?: { codex?: { cliCommand?: string } };
       hostPlatform?: string;
       supportedShellTypes?: string[];
       defaultShellType?: string;
     };
-    assert.equal(typeof initialPayload.codexCliCommand, "string");
-    assert.equal((initialPayload.codexCliCommand ?? "").trim().length > 0, true);
+    assert.equal(typeof initialPayload.providers?.codex?.cliCommand, "string");
+    assert.equal((initialPayload.providers?.codex?.cliCommand ?? "").trim().length > 0, true);
     assert.equal(["win32", "linux", "darwin"].includes(initialPayload.hostPlatform ?? ""), true);
     assert.equal(Array.isArray(initialPayload.supportedShellTypes), true);
     assert.equal(typeof initialPayload.defaultShellType, "string");
@@ -32,24 +32,31 @@ test("settings API returns and updates codex cli command", async () => {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        codex_cli_command: "codex"
+        providers: {
+          codex: {
+            cliCommand: "codex"
+          }
+        }
       })
     });
     assert.equal(patchRes.status, 200);
-    const patchPayload = (await patchRes.json()) as { codexCliCommand?: string; hostPlatform?: string };
-    assert.equal(patchPayload.codexCliCommand, "codex");
+    const patchPayload = (await patchRes.json()) as {
+      providers?: { codex?: { cliCommand?: string } };
+      hostPlatform?: string;
+    };
+    assert.equal(patchPayload.providers?.codex?.cliCommand, "codex");
     assert.equal(["win32", "linux", "darwin"].includes(patchPayload.hostPlatform ?? ""), true);
 
     const afterRes = await fetch(`${baseUrl}/api/settings`);
     assert.equal(afterRes.status, 200);
-    const afterPayload = (await afterRes.json()) as { codexCliCommand?: string };
-    assert.equal(afterPayload.codexCliCommand, "codex");
+    const afterPayload = (await afterRes.json()) as { providers?: { codex?: { cliCommand?: string } } };
+    assert.equal(afterPayload.providers?.codex?.cliCommand, "codex");
   } finally {
     await serverHandle.close();
   }
 });
 
-test("settings API supports minimax clear and reset with null semantics", async () => {
+test("settings API supports minimax provider clear and reset with null semantics", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-settings-api-minimax-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
@@ -61,80 +68,103 @@ test("settings API supports minimax clear and reset with null semantics", async 
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        minimaxApiKey: "test_key_1",
-        minimaxApiBase: "https://api.minimaxi.com/v1"
+        providers: {
+          minimax: {
+            apiKey: "test_key_1",
+            apiBase: "https://api.minimaxi.com/v1"
+          }
+        }
       })
     });
     assert.equal(setRes.status, 200);
-    const setPayload = (await setRes.json()) as { minimaxApiKey?: string; minimaxApiBase?: string };
-    assert.equal(setPayload.minimaxApiKey, "test_key_1");
-    assert.equal(setPayload.minimaxApiBase, "https://api.minimaxi.com/v1");
+    const setPayload = (await setRes.json()) as { providers?: { minimax?: { apiKey?: string; apiBase?: string } } };
+    assert.equal(setPayload.providers?.minimax?.apiKey, "test_key_1");
+    assert.equal(setPayload.providers?.minimax?.apiBase, "https://api.minimaxi.com/v1");
 
     const clearRes = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        minimaxApiKey: null,
-        minimaxApiBase: null
+        providers: {
+          minimax: {
+            apiKey: null,
+            apiBase: null
+          }
+        }
       })
     });
     assert.equal(clearRes.status, 200);
-    const clearPayload = (await clearRes.json()) as { minimaxApiKey?: string; minimaxApiBase?: string };
-    assert.equal(clearPayload.minimaxApiKey, undefined);
-    assert.equal(clearPayload.minimaxApiBase, undefined);
+    const clearPayload = (await clearRes.json()) as { providers?: { minimax?: { apiKey?: string; apiBase?: string } } };
+    assert.equal(clearPayload.providers?.minimax?.apiKey, undefined);
+    assert.equal(clearPayload.providers?.minimax?.apiBase, undefined);
 
     const afterClearRes = await fetch(`${baseUrl}/api/settings`);
     assert.equal(afterClearRes.status, 200);
-    const afterClearPayload = (await afterClearRes.json()) as { minimaxApiKey?: string; minimaxApiBase?: string };
-    assert.equal(afterClearPayload.minimaxApiKey, undefined);
-    assert.equal(afterClearPayload.minimaxApiBase, undefined);
+    const afterClearPayload = (await afterClearRes.json()) as {
+      providers?: { minimax?: { apiKey?: string; apiBase?: string } };
+    };
+    assert.equal(afterClearPayload.providers?.minimax?.apiKey, undefined);
+    assert.equal(afterClearPayload.providers?.minimax?.apiBase, undefined);
 
     const resetRes = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        minimaxApiKey: "test_key_2",
-        minimaxApiBase: "https://api.minimaxi.com/v1"
+        providers: {
+          minimax: {
+            apiKey: "test_key_2",
+            apiBase: "https://api.minimaxi.com/v1"
+          }
+        }
       })
     });
     assert.equal(resetRes.status, 200);
-    const resetPayload = (await resetRes.json()) as { minimaxApiKey?: string; minimaxApiBase?: string };
-    assert.equal(resetPayload.minimaxApiKey, "test_key_2");
-    assert.equal(resetPayload.minimaxApiBase, "https://api.minimaxi.com/v1");
+    const resetPayload = (await resetRes.json()) as { providers?: { minimax?: { apiKey?: string; apiBase?: string } } };
+    assert.equal(resetPayload.providers?.minimax?.apiKey, "test_key_2");
+    assert.equal(resetPayload.providers?.minimax?.apiBase, "https://api.minimaxi.com/v1");
 
     const partialRes = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        minimaxApiKey: "test_key_3"
+        providers: {
+          minimax: {
+            apiKey: "test_key_3"
+          }
+        }
       })
     });
     assert.equal(partialRes.status, 200);
-    const partialPayload = (await partialRes.json()) as { minimaxApiKey?: string; minimaxApiBase?: string };
-    assert.equal(partialPayload.minimaxApiKey, "test_key_3");
-    assert.equal(partialPayload.minimaxApiBase, "https://api.minimaxi.com/v1");
+    const partialPayload = (await partialRes.json()) as {
+      providers?: { minimax?: { apiKey?: string; apiBase?: string } };
+    };
+    assert.equal(partialPayload.providers?.minimax?.apiKey, "test_key_3");
+    assert.equal(partialPayload.providers?.minimax?.apiBase, "https://api.minimaxi.com/v1");
 
     const emptyStringClearRes = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        minimaxApiKey: "",
-        minimaxApiBase: ""
+        providers: {
+          minimax: {
+            apiKey: "",
+            apiBase: ""
+          }
+        }
       })
     });
     assert.equal(emptyStringClearRes.status, 200);
     const emptyStringClearPayload = (await emptyStringClearRes.json()) as {
-      minimaxApiKey?: string;
-      minimaxApiBase?: string;
+      providers?: { minimax?: { apiKey?: string; apiBase?: string } };
     };
-    assert.equal(emptyStringClearPayload.minimaxApiKey, undefined);
-    assert.equal(emptyStringClearPayload.minimaxApiBase, undefined);
+    assert.equal(emptyStringClearPayload.providers?.minimax?.apiKey, undefined);
+    assert.equal(emptyStringClearPayload.providers?.minimax?.apiBase, undefined);
   } finally {
     await serverHandle.close();
   }
 });
 
-test("settings API exposes provider profiles and keeps legacy fields compatible", async () => {
+test("settings API exposes provider profiles without root compatibility fields", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-settings-api-provider-profile-"));
   const dataRoot = path.join(tempRoot, "data");
   const app = createApp({ dataRoot });
@@ -164,12 +194,6 @@ test("settings API exposes provider profiles and keeps legacy fields compatible"
     });
     assert.equal(patchRes.status, 200);
     const payload = (await patchRes.json()) as {
-      codexCliCommand?: string;
-      minimaxApiKey?: string;
-      minimaxApiBase?: string;
-      minimaxModel?: string;
-      minimaxTokenLimit?: number;
-      minimaxMaxOutputTokens?: number;
       providers?: {
         codex?: { cliCommand?: string; model?: string; reasoningEffort?: string };
         minimax?: {
@@ -182,12 +206,10 @@ test("settings API exposes provider profiles and keeps legacy fields compatible"
       };
     };
 
-    assert.equal(payload.codexCliCommand, "codex-test");
-    assert.equal(payload.minimaxApiKey, "provider_key");
-    assert.equal(payload.minimaxApiBase, "https://provider.example/v1");
-    assert.equal(payload.minimaxModel, "MiniMax-M2.7-High-speed");
-    assert.equal(payload.minimaxTokenLimit, 12345);
-    assert.equal(payload.minimaxMaxOutputTokens, 6789);
+    assert.equal("codexCliCommand" in payload, false);
+    assert.equal("minimaxApiKey" in payload, false);
+    assert.equal("minimaxApiBase" in payload, false);
+    assert.equal("minimaxModel" in payload, false);
     assert.equal(payload.providers?.codex?.cliCommand, "codex-test");
     assert.equal(payload.providers?.codex?.model, "gpt-5.4");
     assert.equal(payload.providers?.codex?.reasoningEffort, "medium");
@@ -197,20 +219,16 @@ test("settings API exposes provider profiles and keeps legacy fields compatible"
     assert.equal(payload.providers?.minimax?.tokenLimit, 12345);
     assert.equal(payload.providers?.minimax?.maxOutputTokens, 6789);
 
-    const legacyPatchRes = await fetch(`${baseUrl}/api/settings`, {
+    const retiredPatchRes = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         minimaxModel: "MiniMax-M2.5-High-speed"
       })
     });
-    assert.equal(legacyPatchRes.status, 200);
-    const legacyPayload = (await legacyPatchRes.json()) as {
-      minimaxModel?: string;
-      providers?: { minimax?: { model?: string } };
-    };
-    assert.equal(legacyPayload.minimaxModel, "MiniMax-M2.5-High-speed");
-    assert.equal(legacyPayload.providers?.minimax?.model, "MiniMax-M2.5-High-speed");
+    assert.equal(retiredPatchRes.status, 400);
+    const retiredPayload = (await retiredPatchRes.json()) as { error_code?: string };
+    assert.equal(retiredPayload.error_code, "SETTINGS_FIELD_RETIRED");
 
     const codexPartialPatchRes = await fetch(`${baseUrl}/api/settings`, {
       method: "PATCH",

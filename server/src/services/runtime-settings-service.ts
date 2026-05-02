@@ -6,20 +6,7 @@ import {
 import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 
 export interface PatchRuntimeSettingsApiInput {
-  codexCliCommand?: string;
   theme?: "dark" | "vibrant" | "lively";
-  minimaxApiKey?: string | null;
-  minimaxApiBase?: string | null;
-  minimaxModel?: string;
-  minimaxSessionDir?: string;
-  minimaxMcpServers?: MCPServerConfig[];
-  minimaxMaxSteps?: number;
-  minimaxTokenLimit?: number;
-  minimaxMaxOutputTokens?: number;
-  minimaxShellTimeout?: number;
-  minimaxShellOutputIdleTimeout?: number;
-  minimaxShellMaxRunTime?: number;
-  minimaxShellMaxOutputSize?: number;
   providers?: PatchRuntimeSettingsApiProviders;
 }
 
@@ -46,16 +33,7 @@ export interface PatchRuntimeSettingsApiProviders {
 }
 
 export interface RuntimeSettingsApiResponse {
-  codexCliCommand: string;
   theme: string;
-  minimaxApiKey?: string;
-  minimaxApiBase?: string;
-  minimaxModel: string;
-  minimaxSessionDir?: string;
-  minimaxMcpServers: unknown[];
-  minimaxMaxSteps: number;
-  minimaxTokenLimit: number;
-  minimaxMaxOutputTokens: number;
   hostPlatform: string;
   hostPlatformLabel: string;
   supportedShellTypes: string[];
@@ -91,16 +69,7 @@ function toRuntimeSettingsApiResponse(
 ): RuntimeSettingsApiResponse {
   const runtime = getRuntimePlatformCapabilities();
   return {
-    codexCliCommand: settings.codexCliCommand,
     theme: settings.theme ?? "dark",
-    minimaxApiKey: settings.minimaxApiKey,
-    minimaxApiBase: settings.minimaxApiBase,
-    minimaxModel: settings.minimaxModel ?? "",
-    minimaxSessionDir: settings.minimaxSessionDir,
-    minimaxMcpServers: settings.minimaxMcpServers ?? [],
-    minimaxMaxSteps: settings.minimaxMaxSteps ?? 0,
-    minimaxTokenLimit: settings.minimaxTokenLimit ?? 0,
-    minimaxMaxOutputTokens: settings.minimaxMaxOutputTokens ?? 0,
     hostPlatform: runtime.platform,
     hostPlatformLabel: runtime.label,
     supportedShellTypes: runtime.supportedShells,

@@ -109,7 +109,7 @@ export class ModelManagerService {
   async refreshModels(): Promise<ModelListResponse> {
     const runtimeSettings = await this.loadRuntimeSettings();
     const warnings: string[] = [];
-    const codex = await this.getVendorModels("codex", runtimeSettings.codexCliCommand, warnings);
+    const codex = await this.getVendorModels("codex", runtimeSettings.providers.codex.cliCommand ?? "codex", warnings);
     const minimax = this.resolveMiniMaxModels(runtimeSettings);
     const models = [...codex, ...minimax];
     const store: ModelStore = {
@@ -145,7 +145,7 @@ export class ModelManagerService {
   }
 
   private resolveMiniMaxModels(runtimeSettings: RuntimeSettings): ModelInfo[] {
-    const configured = runtimeSettings.minimaxModel?.trim();
+    const configured = runtimeSettings.providers.minimax.model?.trim();
     const model = configured && configured.length > 0 ? configured : DEFAULT_MINIMAX_MODEL;
     return [{ vendor: "minimax", model, description: `MiniMax model: ${model}` }];
   }
@@ -215,8 +215,6 @@ export class ModelManagerService {
       return {
         schemaVersion: "1.0",
         updatedAt: new Date().toISOString(),
-        codexCliCommand: "codex",
-        minimaxModel: DEFAULT_MINIMAX_MODEL,
         providers: {
           codex: {
             cliCommand: "codex"

@@ -99,7 +99,7 @@ export class WorkflowOrchestratorService {
     this.clearAllTransientState();
   }
 
-  // Compatibility seam: internal tests and legacy orchestrator glue still call this helper directly.
+  // Private hook used by focused prompt tests.
   private buildDispatchPrompt(input: {
     run: WorkflowRunRecord;
     role: string;
@@ -113,7 +113,7 @@ export class WorkflowOrchestratorService {
     return buildWorkflowDispatchPrompt(buildWorkflowDispatchPromptContext(input));
   }
 
-  // Compatibility seam: timeout-recovery tests and legacy codepaths call this through service instance.
+  // Private hook used by timeout recovery orchestration tests.
   private async markTimedOutSessions(run: WorkflowRunRecord, sessions: WorkflowSessionRecord[]): Promise<void> {
     return this.sessionRuntimeService.markTimedOutSessions(run, sessions);
   }

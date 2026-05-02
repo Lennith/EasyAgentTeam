@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import type { ProjectDetail, SessionRecord, TaskTreeNode, LockRecord, EventRecord, AgentIOTimelineItem } from "@/types";
+import type {
+  ProjectDetail,
+  SessionRecord,
+  TaskTreeNode,
+  LockRecord,
+  EventRecord,
+  AgentIOTimelineItem
+} from "@/types/project";
 
 interface ChatTimelineViewProps {
   projectId?: string;

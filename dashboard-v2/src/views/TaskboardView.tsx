@@ -8,8 +8,8 @@ import type {
   LockRecord,
   EventRecord,
   AgentIOTimelineItem
-} from "@/types";
-import { projectApi } from "@/services/api";
+} from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import { Play, Loader } from "lucide-react";
 
 interface TaskboardViewProps {

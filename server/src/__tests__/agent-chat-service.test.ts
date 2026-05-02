@@ -19,7 +19,6 @@ test("agent chat SSE emits structured provider error payload", async () => {
       settings: {
         schemaVersion: "1.0",
         updatedAt: new Date().toISOString(),
-        codexCliCommand: "codex",
         providers: {
           codex: {
             cliCommand: "codex"

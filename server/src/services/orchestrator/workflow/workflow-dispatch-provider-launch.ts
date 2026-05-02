@@ -162,9 +162,8 @@ export async function runWorkflowDispatchProviderLaunch(
   adapterContext: WorkflowDispatchLaunchAdapterContext,
   context: WorkflowDispatchLaunchContext
 ): Promise<Awaited<ReturnType<ProviderRegistry["runSessionWithTools"]>>> {
-  const minimaxApiKey = context.prepared.settings.providers?.minimax.apiKey ?? context.prepared.settings.minimaxApiKey;
-  const codexCliCommand =
-    context.prepared.settings.providers?.codex.cliCommand ?? context.prepared.settings.codexCliCommand;
+  const minimaxApiKey = context.prepared.settings.providers.minimax.apiKey;
+  const codexCliCommand = context.prepared.settings.providers.codex.cliCommand;
   if (context.prepared.providerId === "minimax" && !minimaxApiKey) {
     throw new WorkflowDispatchConfigurationError("minimax_not_configured");
   }

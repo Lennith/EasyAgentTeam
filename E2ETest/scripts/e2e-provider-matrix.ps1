@@ -37,6 +37,30 @@ function Get-E2EObjectString {
   return $null
 }
 
+function Get-E2EProviderProfileString {
+  param(
+    [object]$SettingsBody,
+    [string]$ProviderId,
+    [string[]]$Names
+  )
+
+  if (-not $SettingsBody -or [string]::IsNullOrWhiteSpace($ProviderId)) {
+    return $null
+  }
+
+  $providersProp = $SettingsBody.PSObject.Properties["providers"]
+  if (-not $providersProp -or -not $providersProp.Value) {
+    return $null
+  }
+
+  $providerProfile = $providersProp.Value.PSObject.Properties[$ProviderId]
+  if (-not $providerProfile -or -not $providerProfile.Value) {
+    return $null
+  }
+
+  return Get-E2EObjectString -Obj $providerProfile.Value -Names $Names
+}
+
 function Normalize-E2EProviderId {
   param(
     [object]$Raw,
@@ -296,19 +320,16 @@ function Assert-E2EProvidersConfigured {
   $providers = if ($ResolvedMatrix.providers) { @($ResolvedMatrix.providers) } else { @() }
   foreach ($providerId in $providers) {
     if ($providerId -eq "minimax") {
-      $minimaxKey = Get-E2EObjectString -Obj $settingsResp.body -Names @("minimaxApiKey", "minimax_api_key")
+      $minimaxKey = Get-E2EProviderProfileString -SettingsBody $settingsResp.body -ProviderId "minimax" -Names @("apiKey", "api_key")
       if ([string]::IsNullOrWhiteSpace($minimaxKey)) {
-        throw "MiniMax provider is not configured. settings.minimaxApiKey is empty."
+        throw "MiniMax provider is not configured. settings.providers.minimax.apiKey is empty."
       }
       continue
     }
     if ($providerId -eq "codex") {
-      $codexCommand = Get-E2EObjectString -Obj $settingsResp.body -Names @("codexCliCommand", "codex_cli_command")
+      $codexCommand = Get-E2EProviderProfileString -SettingsBody $settingsResp.body -ProviderId "codex" -Names @("cliCommand", "cli_command")
       if ([string]::IsNullOrWhiteSpace($codexCommand)) {
-        $codexCommand = Get-E2EObjectString -Obj $settingsResp.body -Names @("codexCliCommandDefault", "codex_cli_command_default")
-      }
-      if ([string]::IsNullOrWhiteSpace($codexCommand)) {
-        throw "Codex provider is not configured. settings.codexCliCommand is empty."
+        throw "Codex provider is not configured. settings.providers.codex.cliCommand is empty."
       }
       continue
     }

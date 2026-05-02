@@ -173,11 +173,7 @@ export class MiniMaxRunner {
   }
 
   private getSessionDir(): string {
-    return (
-      this.settings.providers?.minimax.sessionDir ??
-      this.settings.minimaxSessionDir ??
-      path.join(this.project.workspacePath, ".minimax", "sessions")
-    );
+    return this.settings.providers?.minimax.sessionDir ?? path.join(this.project.workspacePath, ".minimax", "sessions");
   }
 
   protected resolveWorkingDirectory(): string {
@@ -262,9 +258,8 @@ export class MiniMaxRunner {
 
   async run(): Promise<MiniMaxRunResultInternal> {
     const minimaxProfile = this.settings.providers?.minimax;
-    const apiKey = minimaxProfile?.apiKey ?? this.settings.minimaxApiKey;
-    const model =
-      this.request.model ?? minimaxProfile?.model ?? this.settings.minimaxModel ?? "MiniMax-M2.5-High-speed";
+    const apiKey = minimaxProfile?.apiKey;
+    const model = this.request.model ?? minimaxProfile?.model ?? "MiniMax-M2.5-High-speed";
 
     if (!apiKey) {
       const missingKeyError = "MiniMax API key not configured";
@@ -294,8 +289,8 @@ export class MiniMaxRunner {
         dispatchId: this.request.dispatchId ?? null,
         model,
         provider: "minimax",
-        tokenLimit: minimaxProfile?.tokenLimit ?? this.settings.minimaxTokenLimit ?? 180000,
-        maxOutputTokens: minimaxProfile?.maxOutputTokens ?? this.settings.minimaxMaxOutputTokens ?? 16384,
+        tokenLimit: minimaxProfile?.tokenLimit ?? 180000,
+        maxOutputTokens: minimaxProfile?.maxOutputTokens ?? 16384,
         resumeSessionId: this.request.resumeSessionId ?? null,
         parentRequestId: this.request.parentRequestId ?? null
       },
@@ -309,13 +304,13 @@ export class MiniMaxRunner {
 
       await this.appendLog(
         "system",
-        `[MiniMaxRunner] sessionDir from settings: ${minimaxProfile?.sessionDir ?? this.settings.minimaxSessionDir ?? "(not set)"}`
+        `[MiniMaxRunner] sessionDir from settings: ${minimaxProfile?.sessionDir ?? "(not set)"}`
       );
       await this.appendLog("system", `[MiniMaxRunner] resolved sessionDir: ${sessionDir}`);
       await this.appendLog("system", `[MiniMaxRunner] workingDirectory: ${workingDirectory}`);
       await this.appendLog(
         "system",
-        `[MiniMaxRunner] token_limit=${minimaxProfile?.tokenLimit ?? this.settings.minimaxTokenLimit ?? 180000}, max_output_tokens=${minimaxProfile?.maxOutputTokens ?? this.settings.minimaxMaxOutputTokens ?? 16384}`
+        `[MiniMaxRunner] token_limit=${minimaxProfile?.tokenLimit ?? 180000}, max_output_tokens=${minimaxProfile?.maxOutputTokens ?? 16384}`
       );
       const rolePromptSkillBundle = await resolveOrchestratorRolePromptSkillBundle({
         dataRoot: this.dataRoot,
@@ -356,24 +351,23 @@ export class MiniMaxRunner {
       this.agent = createMiniMaxAgent({
         config: {
           apiKey,
-          apiBase: minimaxProfile?.apiBase ?? this.settings.minimaxApiBase ?? "https://api.minimax.io",
+          apiBase: minimaxProfile?.apiBase ?? "https://api.minimax.io",
           model,
           workspaceDir: workingDirectory,
           sessionDir,
-          maxSteps: minimaxProfile?.maxSteps ?? this.settings.minimaxMaxSteps ?? 200,
-          tokenLimit: minimaxProfile?.tokenLimit ?? this.settings.minimaxTokenLimit ?? 180000,
-          maxOutputTokens: minimaxProfile?.maxOutputTokens ?? this.settings.minimaxMaxOutputTokens ?? 16384,
+          maxSteps: minimaxProfile?.maxSteps ?? 200,
+          tokenLimit: minimaxProfile?.tokenLimit ?? 180000,
+          maxOutputTokens: minimaxProfile?.maxOutputTokens ?? 16384,
           enableFileTools: true,
           enableShell: true,
           enableNote: true,
           shellType: getDefaultShellType(),
-          shellTimeout: minimaxProfile?.shellTimeout ?? this.settings.minimaxShellTimeout ?? 30000,
-          shellOutputIdleTimeout:
-            minimaxProfile?.shellOutputIdleTimeout ?? this.settings.minimaxShellOutputIdleTimeout ?? 60000,
-          shellMaxRunTime: minimaxProfile?.shellMaxRunTime ?? this.settings.minimaxShellMaxRunTime ?? 600000,
-          shellMaxOutputSize: minimaxProfile?.shellMaxOutputSize ?? this.settings.minimaxShellMaxOutputSize ?? 52428800,
-          mcpEnabled: ((minimaxProfile?.mcpServers ?? this.settings.minimaxMcpServers)?.length ?? 0) > 0,
-          mcpServers: minimaxProfile?.mcpServers ?? this.settings.minimaxMcpServers ?? [],
+          shellTimeout: minimaxProfile?.shellTimeout ?? 30000,
+          shellOutputIdleTimeout: minimaxProfile?.shellOutputIdleTimeout ?? 60000,
+          shellMaxRunTime: minimaxProfile?.shellMaxRunTime ?? 600000,
+          shellMaxOutputSize: minimaxProfile?.shellMaxOutputSize ?? 52428800,
+          mcpEnabled: (minimaxProfile?.mcpServers?.length ?? 0) > 0,
+          mcpServers: minimaxProfile?.mcpServers ?? [],
           mcpConnectTimeout: 30000,
           mcpExecuteTimeout: 60000,
           systemPrompt: promptCompose.systemPrompt,

@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import { teamApi, modelsApi } from "@/services/api";
-import type { TeamRecord, AgentModelConfig, ModelInfo } from "@/types";
+import { teamApi } from "@/services/api/team";
+import { modelsApi } from "@/services/api/settings";
+import type { TeamRecord } from "@/types/team";
+import type { AgentModelConfig } from "@/types/catalog";
+import type { ModelInfo } from "@/types/settings";
 import { Save, Loader, Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 
 interface TeamEditorViewProps {

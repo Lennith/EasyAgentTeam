@@ -22,7 +22,6 @@ import {
   writeWorkflowRunTaskRuntimeState
 } from "./runtime-repository.js";
 import { traceWorkflowPerfSpan } from "../../../services/workflow-perf-trace.js";
-import { isLegacyAmbiguousDoneState } from "../shared/legacy-task-state.js";
 
 export class WorkflowStoreError extends Error {
   constructor(
@@ -382,11 +381,8 @@ async function ensureWorkflowRuntime(dataRoot: string): Promise<WorkflowPaths> {
   return paths;
 }
 
-function mapLegacyWorkflowState(raw: string | undefined): WorkflowTaskState {
+function normalizeWorkflowTaskState(raw: string | undefined): WorkflowTaskState {
   const state = String(raw ?? "").trim().toUpperCase();
-  if (isLegacyAmbiguousDoneState(state)) {
-    return "DONE";
-  }
   switch (state) {
     case "READY":
     case "DISPATCHED":
@@ -396,10 +392,6 @@ function mapLegacyWorkflowState(raw: string | undefined): WorkflowTaskState {
     case "CANCELED":
     case "PLANNED":
       return state as WorkflowTaskState;
-    case "CREATED":
-      return "PLANNED";
-    case "FAILED":
-      return "CANCELED";
     default:
       return "PLANNED";
   }
@@ -419,7 +411,7 @@ function normalizeBlockReasonCode(raw: unknown): WorkflowBlockReasonCode | undef
   return undefined;
 }
 
-function normalizeLegacyBlockedReasons(raw: unknown): WorkflowTaskBlockReason[] {
+function normalizeBlockedReasons(raw: unknown): WorkflowTaskBlockReason[] {
   if (!Array.isArray(raw)) {
     return [];
   }
@@ -570,7 +562,7 @@ async function normalizeRunRecord(
   const runtimeRaw = raw.runtime as Record<string, unknown> | undefined;
   let runtime: WorkflowRunRuntimeState | null = null;
   if (runtimeRaw && typeof runtimeRaw === "object") {
-    const runtimeTasksRaw = Array.isArray(runtimeRaw.tasks) ? runtimeRaw.tasks : Array.isArray(runtimeRaw.steps) ? runtimeRaw.steps : [];
+    const runtimeTasksRaw = Array.isArray(runtimeRaw.tasks) ? runtimeRaw.tasks : [];
     runtime = {
       initializedAt:
         typeof runtimeRaw.initializedAt === "string" && runtimeRaw.initializedAt.trim().length > 0
@@ -586,7 +578,7 @@ async function normalizeRunRecord(
         .map((item, index) => {
           const row = item as Record<string, unknown>;
           const taskId = String(row.taskId ?? row.task_id ?? "").trim();
-          const mappedState = mapLegacyWorkflowState(typeof row.state === "string" ? row.state : undefined);
+          const mappedState = normalizeWorkflowTaskState(typeof row.state === "string" ? row.state : undefined);
           const transitionsRaw = Array.isArray(row.transitions) ? row.transitions : [];
           const transitions = transitionsRaw
             .filter((entry) => entry && typeof entry === "object")
@@ -598,8 +590,8 @@ async function normalizeRunRecord(
                 fromState:
                   transition.fromState === null || transition.fromState === undefined
                     ? null
-                    : mapLegacyWorkflowState(String(transition.fromState)),
-                toState: mapLegacyWorkflowState(String(transition.toState ?? mappedState)),
+                    : normalizeWorkflowTaskState(String(transition.fromState)),
+                toState: normalizeWorkflowTaskState(String(transition.toState ?? mappedState)),
                 reasonCode: normalizeBlockReasonCode(transition.reasonCode),
                 summary: typeof transition.summary === "string" ? transition.summary : undefined
               };
@@ -610,7 +602,7 @@ async function normalizeRunRecord(
             blockedBy: Array.isArray(row.blockedBy)
               ? row.blockedBy.map((item) => String(item).trim()).filter((item) => item.length > 0)
               : [],
-            blockedReasons: normalizeLegacyBlockedReasons(row.blockedReasons),
+            blockedReasons: normalizeBlockedReasons(row.blockedReasons),
             lastSummary: typeof row.lastSummary === "string" ? row.lastSummary : undefined,
             blockers: Array.isArray(row.blockers)
               ? row.blockers.map((item) => String(item).trim()).filter((item) => item.length > 0)
@@ -622,12 +614,6 @@ async function normalizeRunRecord(
                 ? transitions
                 : [{ seq: index + 1, at: updatedAt, fromState: null, toState: mappedState }]
           };
-          if (String(row.state ?? "").trim().toUpperCase() === "FAILED") {
-            normalized.blockedReasons = [
-              ...normalized.blockedReasons,
-              { code: "INVALID_TRANSITION", message: "migrated from legacy FAILED state to CANCELED" }
-            ];
-          }
           return normalized;
         })
     };
@@ -659,17 +645,17 @@ async function readRunRegistry(dataRoot: string): Promise<WorkflowRunRegistrySta
   const maybeState = raw as WorkflowRunRegistryState;
   if (maybeState.schemaVersion === "2.0" && Array.isArray(maybeState.runs)) {
     const normalizedRuns: WorkflowRunRecord[] = [];
-    let hasLegacyMigration = false;
+    let droppedNonCurrentRuns = false;
     for (const item of maybeState.runs) {
       const normalized = await normalizeRunRecord(dataRoot, item as unknown as Record<string, unknown>);
       if (normalized.migrated) {
-        hasLegacyMigration = true;
+        droppedNonCurrentRuns = true;
         await repository.deleteDirectory(path.join(paths.runsRootDir, normalized.record.runId));
         continue;
       }
       normalizedRuns.push(normalized.record);
     }
-    if (hasLegacyMigration) {
+    if (droppedNonCurrentRuns) {
       const next: WorkflowRunRegistryState = {
         schemaVersion: "2.0",
         updatedAt: new Date().toISOString(),

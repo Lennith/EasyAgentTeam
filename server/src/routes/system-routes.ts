@@ -8,7 +8,36 @@ import {
   readRuntimeSettings
 } from "../services/runtime-settings-service.js";
 import type { AppRuntimeContext } from "./shared/context.js";
-import { readNullableStringPatch, readStringField } from "./shared/http.js";
+import { readNullableStringPatch, readStringField, sendApiError } from "./shared/http.js";
+
+const RETIRED_SETTINGS_FIELDS = [
+  "codex_cli_command",
+  "codexCliCommand",
+  "minimax_api_key",
+  "minimaxApiKey",
+  "minimax_api_base",
+  "minimaxApiBase",
+  "minimax_model",
+  "minimaxModel",
+  "minimax_session_dir",
+  "minimaxSessionDir",
+  "minimax_mcp_servers",
+  "minimaxMcpServers",
+  "minimax_max_steps",
+  "minimaxMaxSteps",
+  "minimax_token_limit",
+  "minimaxTokenLimit",
+  "minimax_max_output_tokens",
+  "minimaxMaxOutputTokens",
+  "minimax_shell_timeout",
+  "minimaxShellTimeout",
+  "minimax_shell_output_idle_timeout",
+  "minimaxShellOutputIdleTimeout",
+  "minimax_shell_max_run_time",
+  "minimaxShellMaxRunTime",
+  "minimax_shell_max_output_size",
+  "minimaxShellMaxOutputSize"
+];
 
 function readObjectField(body: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
   const value = body[key];
@@ -69,10 +98,18 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
   app.patch("/api/settings", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
+      const retiredField = RETIRED_SETTINGS_FIELDS.find((key) => Object.prototype.hasOwnProperty.call(body, key));
+      if (retiredField) {
+        sendApiError(
+          res,
+          400,
+          "SETTINGS_FIELD_RETIRED",
+          `Runtime settings field '${retiredField}' is retired. Use providers.codex or providers.minimax.`
+        );
+        return;
+      }
       const themeRaw = readStringField(body, ["theme"]);
       const theme = themeRaw === "dark" || themeRaw === "vibrant" || themeRaw === "lively" ? themeRaw : undefined;
-      const minimaxApiKeyPatch = readNullableStringPatch(body, ["minimax_api_key", "minimaxApiKey"]);
-      const minimaxApiBasePatch = readNullableStringPatch(body, ["minimax_api_base", "minimaxApiBase"]);
       const providersRaw = readObjectField(body, "providers");
       const codexProviderRaw = providersRaw ? readObjectField(providersRaw, "codex") : undefined;
       const minimaxProviderRaw = providersRaw ? readObjectField(providersRaw, "minimax") : undefined;
@@ -83,31 +120,7 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
         ? readNullableStringPatch(minimaxProviderRaw, ["api_base", "apiBase"])
         : undefined;
       const updated = await patchRuntimeSettingsForApi(dataRoot, {
-        codexCliCommand: readStringField(body, ["codex_cli_command", "codexCliCommand"]),
         theme,
-        ...(minimaxApiKeyPatch !== undefined ? { minimaxApiKey: minimaxApiKeyPatch } : {}),
-        ...(minimaxApiBasePatch !== undefined ? { minimaxApiBase: minimaxApiBasePatch } : {}),
-        minimaxModel: readStringField(body, ["minimax_model", "minimaxModel"]),
-        minimaxSessionDir: readStringField(body, ["minimax_session_dir", "minimaxSessionDir"]),
-        minimaxMcpServers: body.minimax_mcp_servers ?? (body.minimaxMcpServers as any),
-        minimaxMaxSteps:
-          typeof body.minimax_max_steps === "number"
-            ? body.minimax_max_steps
-            : typeof body.minimaxMaxSteps === "number"
-              ? body.minimaxMaxSteps
-              : undefined,
-        minimaxTokenLimit:
-          typeof body.minimax_token_limit === "number"
-            ? body.minimax_token_limit
-            : typeof body.minimaxTokenLimit === "number"
-              ? body.minimaxTokenLimit
-              : undefined,
-        minimaxMaxOutputTokens:
-          typeof body.minimax_max_output_tokens === "number"
-            ? body.minimax_max_output_tokens
-            : typeof body.minimaxMaxOutputTokens === "number"
-              ? body.minimaxMaxOutputTokens
-              : undefined,
         providers: providersRaw
           ? {
               ...(codexProviderRaw
@@ -174,7 +187,7 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
 
       if (!projectId) {
         const runtimeSettings = await readRuntimeSettings(dataRoot);
-        const minimaxModel = runtimeSettings.minimaxModel?.trim() || "MiniMax-M2.5-High-speed";
+        const minimaxModel = runtimeSettings.providers.minimax.model?.trim() || "MiniMax-M2.5-High-speed";
         const defaultModels = [
           { vendor: "codex", model: "gpt-5.3-codex", description: "Codex recommended model" },
           { vendor: "codex", model: "gpt-5", description: "GPT-5 model" },

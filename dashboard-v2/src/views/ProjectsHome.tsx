@@ -1,5 +1,5 @@
 import { useTranslation } from "@/hooks/i18n";
-import type { ProjectSummary } from "@/types";
+import type { ProjectSummary } from "@/types/project";
 import { FolderKanban, ArrowRight, Trash2 } from "lucide-react";
 
 interface ProjectsHomeProps {

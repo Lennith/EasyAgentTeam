@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
-import type { ModelInfo, RuntimeSettings, Theme } from "@/types";
-import { modelsApi, settingsApi } from "@/services/api";
+import type { ModelInfo, RuntimeSettings, Theme } from "@/types/settings";
+import { modelsApi, settingsApi } from "@/services/api/settings";
 import { Save, Loader, Database, Wifi, Palette } from "lucide-react";
 
 const DEFAULT_MINIMAX_MODEL = "MiniMax-M2.5-High-speed";
@@ -83,15 +83,17 @@ export function SettingsView() {
               : [];
           setMiniMaxModels(minimaxOptions);
           setSettings(data);
-          setCodexCliCommand(data.codexCliCommand ?? "");
+          const codexProvider = data.providers?.codex;
+          const minimaxProvider = data.providers?.minimax;
+          setCodexCliCommand(codexProvider?.cliCommand ?? "");
           const resolvedTheme = data.theme ?? readCurrentTheme();
           setTheme(resolvedTheme);
-          setMiniMaxApiKey(data.minimaxApiKey ?? "");
-          setMiniMaxApiBase(data.minimaxApiBase ?? "");
-          setMiniMaxModel(data.minimaxModel ?? DEFAULT_MINIMAX_MODEL);
-          setMiniMaxSessionDir(data.minimaxSessionDir ?? "");
-          setMiniMaxMaxSteps(data.minimaxMaxSteps ?? 100);
-          setMiniMaxTokenLimit(data.minimaxTokenLimit ?? 80000);
+          setMiniMaxApiKey(minimaxProvider?.apiKey ?? "");
+          setMiniMaxApiBase(minimaxProvider?.apiBase ?? "");
+          setMiniMaxModel(minimaxProvider?.model ?? DEFAULT_MINIMAX_MODEL);
+          setMiniMaxSessionDir(minimaxProvider?.sessionDir ?? "");
+          setMiniMaxMaxSteps(minimaxProvider?.maxSteps ?? 100);
+          setMiniMaxTokenLimit(minimaxProvider?.tokenLimit ?? 80000);
           setError(null);
         }
       } catch (err) {
@@ -128,17 +130,23 @@ export function SettingsView() {
       setError(null);
       setSuccess(null);
       const updated = await settingsApi.update({
-        codexCliCommand,
         theme,
-        minimaxApiKey: minimaxApiKey.trim().length > 0 ? minimaxApiKey.trim() : null,
-        minimaxApiBase: minimaxApiBase.trim().length > 0 ? minimaxApiBase.trim() : null,
-        minimaxModel,
-        minimaxSessionDir: minimaxSessionDir || undefined,
-        minimaxMaxSteps,
-        minimaxTokenLimit
+        providers: {
+          codex: {
+            cliCommand: codexCliCommand
+          },
+          minimax: {
+            apiKey: minimaxApiKey.trim().length > 0 ? minimaxApiKey.trim() : null,
+            apiBase: minimaxApiBase.trim().length > 0 ? minimaxApiBase.trim() : null,
+            model: minimaxModel,
+            sessionDir: minimaxSessionDir || undefined,
+            maxSteps: minimaxMaxSteps,
+            tokenLimit: minimaxTokenLimit
+          }
+        }
       });
-      setMiniMaxApiKey(updated.minimaxApiKey ?? "");
-      setMiniMaxApiBase(updated.minimaxApiBase ?? "");
+      setMiniMaxApiKey(updated.providers?.minimax?.apiKey ?? "");
+      setMiniMaxApiBase(updated.providers?.minimax?.apiBase ?? "");
       applyTheme(theme);
       setSuccess(t.settingsSaved);
     } catch (err) {

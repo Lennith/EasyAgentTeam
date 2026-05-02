@@ -528,7 +528,7 @@ test("project dispatch launch adapter handles minimax async callbacks and termin
     {
       now: () => "2026-03-28T12:00:00.000Z",
       createDispatchId: () => "dispatch-async-1",
-      getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+      getRuntimeSettings: async () => ({ providers: { codex: {}, minimax: { apiKey: "test-key" } } }) as any,
       prepareProjectDispatchLaunch: async () =>
         ({
           routingSnapshot: { routes: [] },
@@ -817,7 +817,7 @@ test("project dispatch launch adapter keeps message dispatch retryable after asy
     {
       now: () => "2026-03-28T12:00:00.000Z",
       createDispatchId: () => "dispatch-async-msg",
-      getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+      getRuntimeSettings: async () => ({ providers: { codex: {}, minimax: { apiKey: "test-key" } } }) as any,
       prepareProjectDispatchLaunch: async () =>
         ({
           routingSnapshot: { routes: [] },
@@ -987,7 +987,7 @@ test("project dispatch launch adapter keeps task dispatch retryable after async 
     {
       now: () => "2026-03-28T12:00:00.000Z",
       createDispatchId: () => "dispatch-async-task",
-      getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+      getRuntimeSettings: async () => ({ providers: { codex: {}, minimax: { apiKey: "test-key" } } }) as any,
       prepareProjectDispatchLaunch: async () =>
         ({
           routingSnapshot: { routes: [] },
@@ -1089,7 +1089,7 @@ test("project dispatch launch adapter releases message dispatch when minimax asy
     {
       now: () => "2026-03-28T12:00:00.000Z",
       createDispatchId: () => "dispatch-async-throw",
-      getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+      getRuntimeSettings: async () => ({ providers: { codex: {}, minimax: { apiKey: "test-key" } } }) as any,
       prepareProjectDispatchLaunch: async () =>
         ({
           routingSnapshot: { routes: [] },
@@ -1209,7 +1209,7 @@ test("project dispatch launch adapter releases message dispatch if terminal life
     {
       now: () => "2026-03-28T12:00:00.000Z",
       createDispatchId: () => "dispatch-sync-msg",
-      getRuntimeSettings: async () => ({ codexCliCommand: "codex" }) as any,
+      getRuntimeSettings: async () => ({ providers: { codex: { cliCommand: "codex" }, minimax: {} } }) as any,
       prepareProjectDispatchLaunch: async () =>
         ({
           routingSnapshot: { routes: [] },

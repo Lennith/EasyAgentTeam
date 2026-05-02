@@ -1,12 +1,12 @@
-# Provider Runtime 规范（最后更新：2026-04-25）
+# Provider Runtime 规范（最后更新：2026-04-30）
 
-文档状态：`验证中`
+文档状态：`实装`
 
 ## 范围
 
 本规范描述 provider 运行时、provider profile、模型兼容校验、启动错误归一与 session 级恢复约束。
 
-## 当前正式 provider
+## 当前正式 Provider
 
 - `codex`
 - `minimax`
@@ -14,11 +14,10 @@
 ## Provider Profile
 
 - `/api/settings` 返回并接受 `providers.codex` 与 `providers.minimax`。
-- 旧 settings 字段继续兼容读写，但内部运行时以 provider profile 作为归一化配置源。
-- `providers.codex.cliCommand` 是 Codex CLI 命令的规范字段，旧 `codexCliCommand` 映射到该字段。
+- 不再接受 settings 顶层兼容字段；运行时只从 provider profile 读取配置。
+- `providers.codex.cliCommand` 是 Codex CLI 命令的规范字段。
 - `providers.minimax` 持有 MiniMax API key、API base、默认 model、sessionDir、MCP servers、step/token/output/shell limits。
-- 模型选择优先级固定为：dispatch/session 显式模型与 role 配置、provider profile 默认模型、provider hardcoded default。
-- mixed E2E baseline 不允许为了模型选择 patch 全局 `minimaxModel`。
+- 模型选择优先级固定为：dispatch/session 显式模型、role 配置、provider profile 默认模型、provider hardcoded default。
 
 ## 写入与启动规则
 
@@ -39,12 +38,11 @@
 - `PROVIDER_UPSTREAM_TRANSIENT_ERROR` 属于 `category=runtime`、`retryable=true`。
 - project / workflow 命中这类错误后统一落为 `idle + cooldown`，不落 `blocked` 或 `dismissed`。
 - project / workflow 的 runner failure transition 使用共享决策规则输出 session 落态、cooldown 与 runtime event payload。
-- project session timeout 在真正执行 kill 前必须对 running session 做一次事实重判：如果 heartbeat 已刷新，或同一 session 对当前 task 的最近终态成功事件仍在 trailing 保护窗口内，则本轮 timeout kill 必须跳过。
+- project session timeout 在真正执行 kill 前必须对 running session 做一次事实重刷；如果 heartbeat 已刷新，或同一 session 对当前 task 的最近终态成功事件仍在 trailing 保护窗口内，则本轮 timeout kill 必须跳过。
 - `agent-chat` SSE 的 `error` 事件必须直接透出结构化 provider error payload。
 - provider error 与 runtime failure 相关对外字段统一使用 snake_case：`next_action`、`raw_status`、`cooldown_until`。
 
-## 兼容边界
+## Provider 边界
 
-- 新写入不再接受 `trae`。
-- 旧数据读路径允许把 legacy `trae` 归一化为 `minimax`。
-- 兼容归一只存在于读路径；不允许继续产生新的 `trae` 配置。
+- 只支持 `codex` 与 `minimax`。
+- `trae` 不再作为 provider id 被读时归一化；写入或 session 注册中出现非 `codex|minimax` provider 必须返回 `PROVIDER_NOT_SUPPORTED`。

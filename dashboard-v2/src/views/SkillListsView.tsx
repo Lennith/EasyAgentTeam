@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
-import { skillApi, skillListApi } from "@/services/api";
-import type { SkillDefinition, SkillListDefinition } from "@/types";
+import { skillApi, skillListApi } from "@/services/api/catalog";
+import type { SkillDefinition, SkillListDefinition } from "@/types/catalog";
 import * as mockData from "@/mock/data";
 import { Edit, Loader, Plus, Save, Search, Trash2, X } from "lucide-react";
 

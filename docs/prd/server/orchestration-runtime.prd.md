@@ -14,7 +14,7 @@
 - 调度围绕单个 focus task 进行，不把多个无关任务拼进一次 dispatch
 - reminder 只在焦点任务没有未收敛后代时触发
 - 自动调度与 reminder 只围绕事实态任务运行，不引入近似终态或待确认终态
-- 历史运行时中遗留的非正式终态会在读路径归一为正式终态后再参与收敛
+- 运行时只接受当前正式任务状态；非正式终态不再在读路径归一化。
 - provider 配置错误会被识别为可诊断错误，不再伪装成普通运行失败
 - MiniMax 上游 `429`、明显 `5xx/529` 与连接超时这类暂态错误会归一为可恢复运行错误
 - project / workflow 的 runner failure transition 由统一决策规则决定最终 session 落态、cooldown 与错误事件，不再允许各自拼装不一致的失败收口
@@ -30,7 +30,7 @@
 - reminder 触发后的自动 redispatch 也必须遵守 `onlyIdle=true`；reminder 只负责补发提醒与驱动 idle session 重新进入正常 dispatch，不允许绕开 idle gate 抢占运行中或未完成收口的 session
 - workflow task runtime 的 read-modify-write 变更必须按 `run_id` 串行执行；`TASK_REPORT`、runtime convergence、dispatch afterLoop 和 completion finalize 不能并发读取同一旧快照后再互相覆盖，避免较晚提交的 stale runtime 把更新后的任务状态回滚；当前串行化是单 backend / 单进程内存锁模型，不声明支持多进程共享同一个 `dataRoot`
 - session 恢复上下文除了 `last_failure_at / last_failure_kind` 外，还必须沉淀 `last_failure_event_id`、`last_failure_dispatch_id`、`last_failure_message_id`、`last_failure_task_id`，供 recovery read model 展示与 retry-dispatch guard 回填；其中 `last_failure_event_id` 或 `last_failure_dispatch_id` 才能单独作为 authoritative retry anchor，`message_id / task_id` 仅作为增强上下文，不单独放开 retry
-- retry-dispatch 审计事件语义分为 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED`；读模型兼容历史 `REQUESTED`，但新实现必须区分请求、接受与拒绝，并在同一 retry command 生成统一的 `recovery_attempt_id`
+- retry-dispatch 审计事件语义分为 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED`；实现必须区分请求、接受与拒绝，并在同一 retry command 生成统一的 `recovery_attempt_id`
 - `recovery_attempt_id` 继续不写入 session 主模型，但 recovery read model 必须把它产品化为 `runtime-recovery.items[].recovery_attempts[]`：按 `recovery_attempt_id` 归并 retry-dispatch 的 requested / accepted / rejected 审计事件，以及对应的 `ORCHESTRATOR_DISPATCH_STARTED` / `ORCHESTRATOR_DISPATCH_FINISHED` / `ORCHESTRATOR_DISPATCH_FAILED`
 - project / workflow recovery read model 必须优先读取与 runtime event log 同步维护的 sidecar hot index，而不是每次全量扫描 `events.jsonl`；hot index 只对 recovery 相关事件家族增量维护 `latest_failure_event`、最近审计片段与每个 session 最近有限条 attempt preview。缺失、损坏或 schema 不兼容时允许从 append-only event log 只扫描 recovery 相关事件重建一次后继续读取
 - attempt full history 不再常驻在 scope 级 hot index 内；detail endpoint 使用按 session 拆分的 attempt archive 作为 authoritative full-history 源。attempt archive 是 session 级 append-only 文件，只沉淀该 session 的 recovery-attempt 生命周期事件；archive 缺失、损坏或 schema 不兼容时，只允许按被请求 session 从 append-only event log 过滤重建，不预先重建全部 session archive
@@ -38,7 +38,7 @@
 - `runtime-recovery.items[].recovery_attempts[]` 默认返回最近有限条 attempt preview，避免 Recovery Center 长历史无界渲染；main `runtime-recovery` 只接受正整数 `attempt_limit`，session 级 full history 改由 `GET /api/projects/:id/sessions/:session_id/recovery-attempts` 与 `GET /api/workflow-runs/:run_id/sessions/:session_id/recovery-attempts` 提供。main endpoint 中每条 attempt preview 只稳定返回 `recovery_attempt_id`、`status`、`integrity`、`missing_markers`、`requested_at`、`last_event_at`、`ended_at`、`dispatch_scope` 与 `current_task_id`，不再携带 `events[]`
 - hot index 中的 recent attempts 必须在写时维护为 newest-first 的 capped 列表，避免主 recovery 读路径退化为“先排序完整 attempt 历史再截断”；默认 bounded 读取的外部表现保持不变，但底层必须是真正有界的 hot read
 - session detail endpoint 返回的 full-history attempts 继续稳定返回 `status`、`integrity`、`missing_markers`、时间戳、dispatch scope、current task 与按时间正序排列的 `events[]`；当多个审计事件落在同一毫秒时，排序必须优先遵循恢复生命周期顺序（requested -> accepted/rejected -> dispatch started -> dispatch finished/failed），不能退化为按随机 `eventId` 排序
-- `runtime-recovery.items[].latest_events[]` 继续保留为兼容字段，但 Recovery Center 主展示迁移到 `recovery_attempts[]`；旧历史中没有 `recovery_attempt_id` 的事件不做 synthetic backfill，只保留在兼容 summary 视图中
+- `runtime-recovery.items[].recovery_attempts[]` 是 Recovery Center 的 attempt preview 视图；attempt detail endpoint 返回完整 `recovery_attempts[]`。
 - dismiss 采用“外部停止结果审计 -> 本地 dismiss 落盘”两阶段审计；外部停止未确认时不允许继续写本地 dismiss 状态
 - dismiss / repair 的对外响应会返回统一 command contract，包含前后状态、外部取消结果、本地终止结果、映射清理结果与 warnings
 - recovery read model 与 recovery command enforcement 共享同一套 policy context builder，确保 Recovery Center 展示与实际命令约束一致；当 session 非 `running` 但仍保留 `agentPid` 时，policy 会把进程状态视为 `unknown`，只允许先执行 dismiss，不允许 repair 或 retry-dispatch
@@ -74,5 +74,5 @@
 ## 兼容边界
 
 - provider 仅支持当前正式 provider 集合
-- 历史运行时中遗留的非正式终态会先经过一次性迁移再参与当前编排；正式实现不再保留长期读路径兼容分支
+- 历史运行时中的非正式终态不再参与当前编排读路径。
 - reminder、redispatch、timeout recovery 属于主场景内机制，不单独暴露为独立产品面

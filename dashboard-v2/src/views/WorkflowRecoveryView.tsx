@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { workflowApi } from "@/services/api";
-import type { RuntimeRecoveryResponse } from "@/types";
+import { workflowApi } from "@/services/api/workflow";
+import type { RuntimeRecoveryResponse } from "@/types/recovery";
 import { RecoveryCenterView } from "./RecoveryCenterView";
 
 interface WorkflowRecoveryViewProps {

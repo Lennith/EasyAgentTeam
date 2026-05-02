@@ -7,13 +7,15 @@ import type {
   LockRecord,
   EventRecord,
   AgentIOTimelineItem,
-  OrchestratorStatus,
+  OrchestratorStatus
+} from "@/types/project";
+import type {
   AgentDefinition,
   AgentTemplateDefinition,
   TemplateDefinition,
   SkillDefinition,
   SkillListDefinition
-} from "@/types";
+} from "@/types/catalog";
 
 const now = new Date().toISOString();
 const hourAgo = new Date(Date.now() - 3600000).toISOString();

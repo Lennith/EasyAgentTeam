@@ -22,7 +22,8 @@ import { WorkflowRunWizardView } from "@/views/WorkflowRunWizardView";
 import { WorkflowRunWorkspaceView } from "@/views/WorkflowRunWorkspaceView";
 import { SkillsLibraryView } from "@/views/SkillsLibraryView";
 import { SkillListsView } from "@/views/SkillListsView";
-import { projectApi, settingsApi } from "@/services/api";
+import { projectApi } from "@/services/api/project";
+import { settingsApi } from "@/services/api/settings";
 import {
   Home,
   FolderKanban,

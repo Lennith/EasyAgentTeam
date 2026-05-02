@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { RefreshCw, Trash2, Pencil, Play, Plus, Search } from "lucide-react";
-import { workflowApi } from "@/services/api";
+import { workflowApi } from "@/services/api/workflow";
 import { useWorkflowTemplates } from "@/hooks/useWorkflowData";
 
 export function WorkflowTemplatesView() {

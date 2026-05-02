@@ -124,8 +124,8 @@ export async function prepareWorkflowDispatchLaunch(
     providerId,
     model: modelSelection.model,
     reasoningEffort: modelSelection.reasoningEffort,
-    tokenLimit: minimaxProfile?.tokenLimit ?? settings.minimaxTokenLimit ?? 180000,
-    maxOutputTokens: minimaxProfile?.maxOutputTokens ?? settings.minimaxMaxOutputTokens ?? 16384,
+    tokenLimit: minimaxProfile?.tokenLimit ?? 180000,
+    maxOutputTokens: minimaxProfile?.maxOutputTokens ?? 16384,
     rolePrompt: rolePromptSkillBundle.rolePrompt ?? operations.buildDefaultRolePrompt(input.role)
   };
 }

@@ -114,25 +114,22 @@ export function readStringMap(raw: unknown): Record<string, string> | undefined 
   return Object.fromEntries(entries);
 }
 
-export function normalizeProviderId(raw: unknown, fallback: ProviderId = "minimax"): ProviderId {
+function parseProviderId(raw: unknown): ProviderId | undefined {
   if (typeof raw !== "string") {
-    return fallback;
+    return undefined;
   }
   const normalized = raw.trim().toLowerCase();
-  if (normalized === "trae") {
-    return "minimax";
-  }
   if (normalized === "codex" || normalized === "minimax") {
     return normalized;
   }
-  return fallback;
+  return undefined;
 }
 
-export function isLegacyTraeProviderId(raw: unknown): boolean {
-  return typeof raw === "string" && raw.trim().toLowerCase() === "trae";
+export function isUnsupportedProviderId(raw: unknown): boolean {
+  return typeof raw === "string" && raw.trim().length > 0 && !parseProviderId(raw);
 }
 
-export function hasLegacyTraeAgentModelConfigs(raw: unknown): boolean {
+export function hasUnsupportedAgentModelConfigs(raw: unknown): boolean {
   if (!raw || typeof raw !== "object") {
     return false;
   }
@@ -140,7 +137,7 @@ export function hasLegacyTraeAgentModelConfigs(raw: unknown): boolean {
     if (!configRaw || typeof configRaw !== "object") {
       return false;
     }
-    return isLegacyTraeProviderId((configRaw as Record<string, unknown>).provider_id);
+    return isUnsupportedProviderId((configRaw as Record<string, unknown>).provider_id);
   });
 }
 
@@ -151,7 +148,7 @@ export function readProviderIdField(
 ): ProviderId {
   const value = body[key];
   if (typeof value === "string" && value.trim().length > 0) {
-    return normalizeProviderId(value, fallback);
+    return parseProviderId(value) ?? fallback;
   }
   return fallback;
 }
@@ -467,14 +464,6 @@ export function withDerivedWorkflowRunStatus<
     };
   }
   return run;
-}
-
-export function retiredEndpoint(res: express.Response, replacement: string): void {
-  res.status(410).json({
-    code: "ENDPOINT_RETIRED",
-    error: "endpoint retired",
-    replacement
-  });
 }
 
 export function sendApiError(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { projectApi } from "@/services/api";
-import type { RuntimeRecoveryResponse } from "@/types";
+import { projectApi } from "@/services/api/project";
+import type { RuntimeRecoveryResponse } from "@/types/recovery";
 import { RecoveryCenterView } from "./RecoveryCenterView";
 
 interface ProjectRecoveryViewProps {

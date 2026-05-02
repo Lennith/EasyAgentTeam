@@ -11,8 +11,8 @@ import type {
   TaskTreeNode,
   TaskDetail,
   TaskLifecycleEvent
-} from "@/types";
-import { projectApi } from "@/services/api";
+} from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import { ChevronRight, ChevronDown, Circle, X, Loader, Play } from "lucide-react";
 import { TaskDetailsModal } from "./TaskDetailsModal";
 

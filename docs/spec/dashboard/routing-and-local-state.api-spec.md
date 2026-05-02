@@ -21,7 +21,6 @@
 - `#/workflow/templates`
 - `#/workflow/templates/new`
 - `#/workflow/templates/:template_id/edit`
-- 兼容旧别名：`#/templates/...` 仍映射到 workflow template 路由
 
 ## 本地状态
 

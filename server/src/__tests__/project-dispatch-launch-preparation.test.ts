@@ -44,7 +44,12 @@ test("project dispatch launch preparation resolves model config and writes promp
     {
       getRuntimeSettings: async () =>
         ({
-          codexCliCommand: "codex-cli"
+          providers: {
+            codex: {
+              cliCommand: "codex-cli"
+            },
+            minimax: {}
+          }
         }) as any,
       ensureProjectAgentScripts: async () => {
         ensured.push("scripts");

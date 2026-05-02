@@ -47,38 +47,12 @@ export interface ProviderProfiles {
 export interface RuntimeSettings {
   schemaVersion: "1.0";
   updatedAt: string;
-  codexCliCommand: string;
   theme?: "dark" | "vibrant" | "lively";
-  minimaxApiKey?: string;
-  minimaxApiBase?: string;
-  minimaxModel?: string;
-  minimaxSessionDir?: string;
-  minimaxMcpServers?: MCPServerConfig[];
-  minimaxMaxSteps?: number;
-  minimaxTokenLimit?: number;
-  minimaxMaxOutputTokens?: number;
-  minimaxShellTimeout?: number;
-  minimaxShellOutputIdleTimeout?: number;
-  minimaxShellMaxRunTime?: number;
-  minimaxShellMaxOutputSize?: number;
   providers: ProviderProfiles;
 }
 
 interface PatchRuntimeSettingsInput {
-  codexCliCommand?: string;
   theme?: "dark" | "vibrant" | "lively";
-  minimaxApiKey?: string | null;
-  minimaxApiBase?: string | null;
-  minimaxModel?: string;
-  minimaxSessionDir?: string;
-  minimaxMcpServers?: MCPServerConfig[];
-  minimaxMaxSteps?: number;
-  minimaxTokenLimit?: number;
-  minimaxMaxOutputTokens?: number;
-  minimaxShellTimeout?: number;
-  minimaxShellOutputIdleTimeout?: number;
-  minimaxShellMaxRunTime?: number;
-  minimaxShellMaxOutputSize?: number;
   providers?: Partial<{
     codex: Partial<CodexProviderProfile>;
     minimax: Partial<Omit<MiniMaxProviderProfile, "apiKey" | "apiBase">> & {
@@ -111,16 +85,7 @@ function defaultRuntimeSettings(): RuntimeSettings {
   return {
     schemaVersion: "1.0",
     updatedAt: new Date().toISOString(),
-    codexCliCommand,
     theme: "dark",
-    minimaxApiKey: undefined,
-    minimaxApiBase: undefined,
-    minimaxModel,
-    minimaxSessionDir: undefined,
-    minimaxMcpServers: [],
-    minimaxMaxSteps: 100,
-    minimaxTokenLimit: 80000,
-    minimaxMaxOutputTokens: 16384,
     providers: {
       codex: {
         cliCommand: codexCliCommand
@@ -136,19 +101,23 @@ function defaultRuntimeSettings(): RuntimeSettings {
   };
 }
 
-function hasOwnField<T extends object>(obj: T, key: keyof T): boolean {
+export function getDefaultRuntimeSettings(): RuntimeSettings {
+  return defaultRuntimeSettings();
+}
+
+function hasOwnField(obj: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
-function resolveOptionalStringPatch<T extends object>(
-  patch: T,
-  key: keyof T,
+function resolveOptionalStringPatch(
+  patch: object | undefined,
+  key: string,
   current: string | undefined
 ): string | undefined {
-  if (!hasOwnField(patch, key)) {
+  if (!patch || !hasOwnField(patch, key)) {
     return current;
   }
-  const raw = (patch as Record<string, unknown>)[String(key)];
+  const raw = (patch as Record<string, unknown>)[key];
   if (raw === null) {
     return undefined;
   }
@@ -213,13 +182,13 @@ function normalizeProviderProfiles(state: Partial<RuntimeSettings>, fallback: Ru
   const rawCodex = "codex" in rawProviders && rawProviders.codex ? rawProviders.codex : {};
   const rawMiniMax = "minimax" in rawProviders && rawProviders.minimax ? rawProviders.minimax : {};
   const codexCliCommand = normalizeCodexCliCommand(
-    (rawCodex as CodexProviderProfile).cliCommand ?? state.codexCliCommand,
-    fallback.codexCliCommand
+    (rawCodex as CodexProviderProfile).cliCommand,
+    fallback.providers.codex.cliCommand ?? defaultCodexCliCommand()
   );
   const minimaxModel =
     normalizeOptionalString((rawMiniMax as MiniMaxProviderProfile).model) ??
-    normalizeOptionalString(state.minimaxModel) ??
-    fallback.minimaxModel;
+    fallback.providers.minimax.model ??
+    "MiniMax-M2.5-High-speed";
 
   return {
     codex: {
@@ -228,44 +197,26 @@ function normalizeProviderProfiles(state: Partial<RuntimeSettings>, fallback: Ru
       reasoningEffort: normalizeReasoningEffort((rawCodex as CodexProviderProfile).reasoningEffort)
     },
     minimax: {
-      apiKey:
-        normalizeOptionalString((rawMiniMax as MiniMaxProviderProfile).apiKey) ??
-        normalizeOptionalString(state.minimaxApiKey),
-      apiBase:
-        normalizeOptionalString((rawMiniMax as MiniMaxProviderProfile).apiBase) ??
-        normalizeOptionalString(state.minimaxApiBase),
+      apiKey: normalizeOptionalString((rawMiniMax as MiniMaxProviderProfile).apiKey),
+      apiBase: normalizeOptionalString((rawMiniMax as MiniMaxProviderProfile).apiBase),
       model: minimaxModel,
-      sessionDir:
-        normalizeOptionalString((rawMiniMax as MiniMaxProviderProfile).sessionDir) ??
-        normalizeOptionalString(state.minimaxSessionDir),
+      sessionDir: normalizeOptionalString((rawMiniMax as MiniMaxProviderProfile).sessionDir),
       mcpServers:
         normalizeMcpServers((rawMiniMax as MiniMaxProviderProfile).mcpServers) ??
-        normalizeMcpServers(state.minimaxMcpServers) ??
-        fallback.minimaxMcpServers,
+        fallback.providers.minimax.mcpServers,
       maxSteps:
         normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).maxSteps) ??
-        normalizeOptionalNumber(state.minimaxMaxSteps) ??
-        fallback.minimaxMaxSteps,
+        fallback.providers.minimax.maxSteps,
       tokenLimit:
         normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).tokenLimit) ??
-        normalizeOptionalNumber(state.minimaxTokenLimit) ??
-        fallback.minimaxTokenLimit,
+        fallback.providers.minimax.tokenLimit,
       maxOutputTokens:
         normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).maxOutputTokens) ??
-        normalizeOptionalNumber(state.minimaxMaxOutputTokens) ??
-        fallback.minimaxMaxOutputTokens,
-      shellTimeout:
-        normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).shellTimeout) ??
-        normalizeOptionalNumber(state.minimaxShellTimeout),
-      shellOutputIdleTimeout:
-        normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).shellOutputIdleTimeout) ??
-        normalizeOptionalNumber(state.minimaxShellOutputIdleTimeout),
-      shellMaxRunTime:
-        normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).shellMaxRunTime) ??
-        normalizeOptionalNumber(state.minimaxShellMaxRunTime),
-      shellMaxOutputSize:
-        normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).shellMaxOutputSize) ??
-        normalizeOptionalNumber(state.minimaxShellMaxOutputSize)
+        fallback.providers.minimax.maxOutputTokens,
+      shellTimeout: normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).shellTimeout),
+      shellOutputIdleTimeout: normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).shellOutputIdleTimeout),
+      shellMaxRunTime: normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).shellMaxRunTime),
+      shellMaxOutputSize: normalizeOptionalNumber((rawMiniMax as MiniMaxProviderProfile).shellMaxOutputSize)
     }
   };
 }
@@ -284,19 +235,7 @@ export async function getRuntimeSettings(dataRoot: string): Promise<RuntimeSetti
   return {
     schemaVersion: "1.0",
     updatedAt: state.updatedAt ?? fallback.updatedAt,
-    codexCliCommand: providers.codex.cliCommand ?? fallback.codexCliCommand,
-    minimaxApiKey: providers.minimax.apiKey,
-    minimaxApiBase: providers.minimax.apiBase,
-    minimaxModel: providers.minimax.model ?? fallback.minimaxModel,
-    minimaxSessionDir: providers.minimax.sessionDir,
-    minimaxMcpServers: providers.minimax.mcpServers ?? fallback.minimaxMcpServers,
-    minimaxMaxSteps: providers.minimax.maxSteps ?? fallback.minimaxMaxSteps,
-    minimaxTokenLimit: providers.minimax.tokenLimit ?? fallback.minimaxTokenLimit,
-    minimaxMaxOutputTokens: providers.minimax.maxOutputTokens ?? fallback.minimaxMaxOutputTokens,
-    minimaxShellTimeout: providers.minimax.shellTimeout,
-    minimaxShellOutputIdleTimeout: providers.minimax.shellOutputIdleTimeout,
-    minimaxShellMaxRunTime: providers.minimax.shellMaxRunTime,
-    minimaxShellMaxOutputSize: providers.minimax.shellMaxOutputSize,
+    theme: normalizeTheme(state.theme) ?? fallback.theme,
     providers
   };
 }
@@ -307,52 +246,27 @@ export async function patchRuntimeSettings(
 ): Promise<RuntimeSettings> {
   const current = await getRuntimeSettings(dataRoot);
   const providerPatch = patch.providers ?? {};
-  const patchedCodexCliCommand = normalizeCodexCliCommand(
-    providerPatch.codex?.cliCommand ?? patch.codexCliCommand ?? current.codexCliCommand,
-    current.codexCliCommand
-  );
+  const patchedCodexCliCommand = normalizeCodexCliCommand(providerPatch.codex?.cliCommand, current.providers.codex.cliCommand ?? defaultCodexCliCommand());
   const patchedMiniMax: MiniMaxProviderProfile = {
-    apiKey:
-      providerPatch.minimax && hasOwnField(providerPatch.minimax, "apiKey")
-        ? resolveOptionalStringPatch(providerPatch.minimax, "apiKey", current.minimaxApiKey)
-        : resolveOptionalStringPatch(patch, "minimaxApiKey", current.minimaxApiKey),
-    apiBase:
-      providerPatch.minimax && hasOwnField(providerPatch.minimax, "apiBase")
-        ? resolveOptionalStringPatch(providerPatch.minimax, "apiBase", current.minimaxApiBase)
-        : resolveOptionalStringPatch(patch, "minimaxApiBase", current.minimaxApiBase),
-    model: normalizeOptionalString(providerPatch.minimax?.model ?? patch.minimaxModel ?? current.minimaxModel) ?? "MiniMax-M2.5-High-speed",
-    sessionDir: normalizeOptionalString(providerPatch.minimax?.sessionDir ?? patch.minimaxSessionDir ?? current.minimaxSessionDir),
-    mcpServers: normalizeMcpServers(providerPatch.minimax?.mcpServers ?? patch.minimaxMcpServers ?? current.minimaxMcpServers) ?? [],
-    maxSteps: normalizeOptionalNumber(providerPatch.minimax?.maxSteps ?? patch.minimaxMaxSteps ?? current.minimaxMaxSteps) ?? 100,
-    tokenLimit: normalizeOptionalNumber(providerPatch.minimax?.tokenLimit ?? patch.minimaxTokenLimit ?? current.minimaxTokenLimit) ?? 80000,
-    maxOutputTokens:
-      normalizeOptionalNumber(providerPatch.minimax?.maxOutputTokens ?? patch.minimaxMaxOutputTokens ?? current.minimaxMaxOutputTokens) ?? 16384,
-    shellTimeout: normalizeOptionalNumber(providerPatch.minimax?.shellTimeout ?? patch.minimaxShellTimeout ?? current.minimaxShellTimeout),
+    apiKey: resolveOptionalStringPatch(providerPatch.minimax, "apiKey", current.providers.minimax.apiKey),
+    apiBase: resolveOptionalStringPatch(providerPatch.minimax, "apiBase", current.providers.minimax.apiBase),
+    model: normalizeOptionalString(providerPatch.minimax?.model ?? current.providers.minimax.model) ?? "MiniMax-M2.5-High-speed",
+    sessionDir: normalizeOptionalString(providerPatch.minimax?.sessionDir ?? current.providers.minimax.sessionDir),
+    mcpServers: normalizeMcpServers(providerPatch.minimax?.mcpServers ?? current.providers.minimax.mcpServers) ?? [],
+    maxSteps: normalizeOptionalNumber(providerPatch.minimax?.maxSteps ?? current.providers.minimax.maxSteps) ?? 100,
+    tokenLimit: normalizeOptionalNumber(providerPatch.minimax?.tokenLimit ?? current.providers.minimax.tokenLimit) ?? 80000,
+    maxOutputTokens: normalizeOptionalNumber(providerPatch.minimax?.maxOutputTokens ?? current.providers.minimax.maxOutputTokens) ?? 16384,
+    shellTimeout: normalizeOptionalNumber(providerPatch.minimax?.shellTimeout ?? current.providers.minimax.shellTimeout),
     shellOutputIdleTimeout: normalizeOptionalNumber(
-      providerPatch.minimax?.shellOutputIdleTimeout ?? patch.minimaxShellOutputIdleTimeout ?? current.minimaxShellOutputIdleTimeout
+      providerPatch.minimax?.shellOutputIdleTimeout ?? current.providers.minimax.shellOutputIdleTimeout
     ),
-    shellMaxRunTime: normalizeOptionalNumber(providerPatch.minimax?.shellMaxRunTime ?? patch.minimaxShellMaxRunTime ?? current.minimaxShellMaxRunTime),
-    shellMaxOutputSize: normalizeOptionalNumber(
-      providerPatch.minimax?.shellMaxOutputSize ?? patch.minimaxShellMaxOutputSize ?? current.minimaxShellMaxOutputSize
-    )
+    shellMaxRunTime: normalizeOptionalNumber(providerPatch.minimax?.shellMaxRunTime ?? current.providers.minimax.shellMaxRunTime),
+    shellMaxOutputSize: normalizeOptionalNumber(providerPatch.minimax?.shellMaxOutputSize ?? current.providers.minimax.shellMaxOutputSize)
   };
   const next: RuntimeSettings = {
     schemaVersion: "1.0",
     updatedAt: new Date().toISOString(),
-    codexCliCommand: patchedCodexCliCommand,
     theme: normalizeTheme(patch.theme ?? current.theme) ?? "dark",
-    minimaxApiKey: patchedMiniMax.apiKey,
-    minimaxApiBase: patchedMiniMax.apiBase,
-    minimaxModel: patchedMiniMax.model,
-    minimaxSessionDir: patchedMiniMax.sessionDir,
-    minimaxMcpServers: patchedMiniMax.mcpServers ?? [],
-    minimaxMaxSteps: patchedMiniMax.maxSteps ?? 100,
-    minimaxTokenLimit: patchedMiniMax.tokenLimit ?? 80000,
-    minimaxMaxOutputTokens: patchedMiniMax.maxOutputTokens ?? 16384,
-    minimaxShellTimeout: patchedMiniMax.shellTimeout,
-    minimaxShellOutputIdleTimeout: patchedMiniMax.shellOutputIdleTimeout,
-    minimaxShellMaxRunTime: patchedMiniMax.shellMaxRunTime,
-    minimaxShellMaxOutputSize: patchedMiniMax.shellMaxOutputSize,
     providers: {
       codex: {
         ...current.providers.codex,

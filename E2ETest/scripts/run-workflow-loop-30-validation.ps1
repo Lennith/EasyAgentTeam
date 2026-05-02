@@ -86,6 +86,24 @@ function Get-FieldValue {
   return $null
 }
 
+function Get-ProviderProfileValue {
+  param(
+    [Parameter(Mandatory = $true)][object]$SettingsBody,
+    [Parameter(Mandatory = $true)][string]$ProviderId,
+    [Parameter(Mandatory = $true)][string[]]$Names
+  )
+
+  $providers = Get-FieldValue -InputObject $SettingsBody -Names @("providers")
+  if ($null -eq $providers) {
+    return $null
+  }
+  $profile = Get-FieldValue -InputObject $providers -Names @($ProviderId)
+  if ($null -eq $profile) {
+    return $null
+  }
+  return Get-FieldValue -InputObject $profile -Names $Names
+}
+
 function Get-RunId {
   param([Parameter(Mandatory = $true)][object]$Run)
   return [string](Get-FieldValue -InputObject $Run -Names @("run_id", "runId"))
@@ -491,8 +509,8 @@ try {
   }
 
   $settingsResp = Invoke-ApiJson -BaseUrl $BaseUrl -Method GET -Path "/api/settings"
-  $minimaxApiKey = [string](Get-FieldValue -InputObject $settingsResp.body -Names @("minimaxApiKey", "minimax_api_key"))
-  $minimaxModel = [string](Get-FieldValue -InputObject $settingsResp.body -Names @("minimaxModel", "minimax_model"))
+  $minimaxApiKey = [string](Get-ProviderProfileValue -SettingsBody $settingsResp.body -ProviderId "minimax" -Names @("apiKey", "api_key"))
+  $minimaxModel = [string](Get-ProviderProfileValue -SettingsBody $settingsResp.body -ProviderId "minimax" -Names @("model"))
   $minimaxConfigured = (-not [string]::IsNullOrWhiteSpace($minimaxApiKey)) -and (-not [string]::IsNullOrWhiteSpace($minimaxModel))
   if (-not $minimaxConfigured) {
     throw "MiniMax configuration is missing; fail by policy."

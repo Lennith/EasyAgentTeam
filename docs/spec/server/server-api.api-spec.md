@@ -17,7 +17,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 
 ## System Settings Provider Profile
 
-- `GET /api/settings` 继续返回旧 settings 字段，同时返回 `providers`：
+- `GET /api/settings` 返回 `providers` 作为唯一运行时 settings 模型：
   - `providers.codex.cliCommand`
   - `providers.codex.model`
   - `providers.codex.reasoningEffort`
@@ -29,8 +29,8 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `providers.minimax.maxSteps`
   - `providers.minimax.tokenLimit`
   - `providers.minimax.maxOutputTokens`
-- `PATCH /api/settings` 继续兼容旧字段，也接受 `providers.codex` 与 `providers.minimax` patch。
-- runtime 内部以 provider profile 为归一化配置源；旧字段只作为兼容映射。
+- `PATCH /api/settings` 只接受 `providers.codex` 与 `providers.minimax` patch。
+- 旧 settings 顶层字段已经退役；请求携带时返回 `SETTINGS_FIELD_RETIRED`，不会映射到 provider profile。
 
 ## Catalog 入口
 
@@ -168,7 +168,6 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `disabled_reason`
   - `risk`
   - `requires_confirmation`
-  - `latest_events`
   - `recovery_attempts`
 - `items[].recovery_attempts[]` 在 main `runtime-recovery` 中只返回 preview fields：
   - `recovery_attempt_id`
@@ -215,7 +214,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `SESSION_RETRY_GUARD_REQUIRED`
   - `SESSION_RETRY_DISPATCH_NOT_ALLOWED`
   - `SESSION_DISMISS_EXTERNAL_STOP_UNCONFIRMED`
-- retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分；读模型兼容历史 `REQUESTED`
+- retry-dispatch 审计事件按 `SESSION_RETRY_DISPATCH_REQUESTED`、`SESSION_RETRY_DISPATCH_ACCEPTED`、`SESSION_RETRY_DISPATCH_REJECTED` 区分
 - `SESSION_RETRY_GUARD_REQUIRED` 与 `SESSION_RETRY_DISPATCH_NOT_ALLOWED` 都返回 `409`；前者用于 guard 缺失，后者用于 guard mismatch、policy 不允许或 orchestrator 拒绝
 - retry-dispatch 内部会生成 `recovery_attempt_id` 并串到 retry 审计事件与对应的 dispatch started / finished / failed 事件；该字段只用于内部审计，不新增公开请求或响应字段
 - `runtime-recovery.items[].recovery_attempts[]` 用于公开展示按 `recovery_attempt_id` 分组的恢复历史 preview；默认按 session 返回最近有限条，不做 synthetic backfill，且不返回 `events[]`；full history 改由 `GET /api/projects/:id/sessions/:session_id/recovery-attempts?attempt_limit=all` 返回，并至少返回：

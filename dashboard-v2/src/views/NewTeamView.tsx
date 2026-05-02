@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import type { ProjectSummary, AgentModelConfig, ModelInfo } from "@/types";
-import { teamApi, projectApi, modelsApi } from "@/services/api";
+import type { ProjectSummary } from "@/types/project";
+import type { AgentModelConfig } from "@/types/catalog";
+import type { ModelInfo } from "@/types/settings";
+import { teamApi } from "@/services/api/team";
+import { projectApi } from "@/services/api/project";
+import { modelsApi } from "@/services/api/settings";
 import { Plus, Loader, ArrowLeft, Save, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 
 interface DiscussRoundsConfig {

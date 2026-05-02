@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
-import type { AgentDefinition, AgentTemplateDefinition, SkillListDefinition } from "@/types";
-import { agentApi, templateApi, skillListApi } from "@/services/api";
+import type { AgentDefinition, AgentTemplateDefinition, SkillListDefinition } from "@/types/catalog";
+import { agentApi, templateApi, skillListApi } from "@/services/api/catalog";
 import * as mockData from "@/mock/data";
 import { Plus, Save, Trash2, Loader, Edit, Copy, Cpu } from "lucide-react";
 

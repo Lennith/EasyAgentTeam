@@ -4,7 +4,7 @@ import type {
   RuntimeRecoveryAttemptsResponse,
   RuntimeRecoveryItem,
   RuntimeRecoveryResponse
-} from "@/types";
+} from "@/types/recovery";
 
 interface RecoveryCenterViewProps {
   title: string;

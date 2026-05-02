@@ -1,13 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import type {
-  L1Route,
-  ProjectView,
-  AgentView,
-  DebugView,
-  TeamView,
-  WorkflowRunWorkspaceView,
-  SkillView
-} from "@/types";
+import type { ProjectView } from "@/types/project";
+import type { WorkflowRunWorkspaceView } from "@/types/workflow";
+import type { AgentView, DebugView, SkillView } from "@/types/catalog";
+import type { L1Route } from "@/types/routing";
+import type { TeamView } from "@/types/team";
 
 export function useRoute() {
   const [route, setRoute] = useState<L1Route>({ l1: "home" });
@@ -83,21 +79,6 @@ export function useRoute() {
       const viewRaw = (parts[1] as SkillView) || "library";
       const view: SkillView = viewRaw === "lists" ? "lists" : "library";
       return { l1: "skills", view };
-    }
-
-    // backward compatibility for old template L1 paths
-    if (l1 === "templates") {
-      const segment = parts[1];
-      if (!segment) {
-        return { l1: "workflow", view: "templates" };
-      }
-      if (segment === "new") {
-        return { l1: "workflow", view: "new-template" };
-      }
-      if (parts[2] === "edit") {
-        return { l1: "workflow", view: "edit-template", templateId: segment };
-      }
-      return { l1: "workflow", view: "templates" };
     }
 
     if (l1 === "agents") {

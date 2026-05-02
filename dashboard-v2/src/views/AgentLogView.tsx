@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
-import type { ProjectSummary } from "@/types";
-import { projectApi } from "@/services/api";
+import type { ProjectSummary } from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import * as mockData from "@/mock/data";
 import { Loader, Bug, Play, Pause, RotateCcw, ChevronDown, ChevronRight, FileCode } from "lucide-react";
 

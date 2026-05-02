@@ -490,7 +490,7 @@ export class CodexSessionRuntime {
       skillSegments: [...(input.skillSegments ?? []), ...skillPrompt.segments]
     });
 
-    const configuredCommand = settings.codexCliCommand?.trim() || "codex";
+    const configuredCommand = settings.providers?.codex.cliCommand?.trim() || "codex";
     assertProviderModelLaunchable({
       providerId: "codex",
       model: input.model

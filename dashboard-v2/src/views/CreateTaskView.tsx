@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import type { ProjectDetail, SessionRecord, TaskTreeNode, LockRecord, EventRecord, AgentIOTimelineItem } from "@/types";
-import { projectApi } from "@/services/api";
+import type {
+  ProjectDetail,
+  SessionRecord,
+  TaskTreeNode,
+  LockRecord,
+  EventRecord,
+  AgentIOTimelineItem
+} from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import { Plus, Loader, X } from "lucide-react";
 
 interface CreateTaskViewProps {

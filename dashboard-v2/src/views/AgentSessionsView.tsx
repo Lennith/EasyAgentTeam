@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
-import type { SessionRecord, ProjectSummary } from "@/types";
-import { projectApi } from "@/services/api";
+import type { SessionRecord, ProjectSummary } from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import * as mockData from "@/mock/data";
 import { Users, Loader } from "lucide-react";
 

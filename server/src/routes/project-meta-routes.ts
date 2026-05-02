@@ -17,7 +17,7 @@ import { createProjectWithAudit } from "../services/project-meta-use-cases.js";
 import { logger } from "../utils/logger.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import {
-  hasLegacyTraeAgentModelConfigs,
+  hasUnsupportedAgentModelConfigs,
   parseBoolean,
   parseInteger,
   parseReminderMode,
@@ -95,8 +95,8 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         });
         return;
       }
-      if (hasLegacyTraeAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+      if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
         return;
       }
       const roleSessionMap = (body.role_session_map ?? body.roleSessionMap) as Record<string, string> | undefined;
@@ -235,8 +235,8 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
       const routeDiscussRounds = (body.route_discuss_rounds ?? body.routeDiscussRounds) as
         | Record<string, Record<string, number>>
         | undefined;
-      if (hasLegacyTraeAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+      if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
         return;
       }
       const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);

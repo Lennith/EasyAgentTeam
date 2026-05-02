@@ -6,11 +6,12 @@ import type {
   TaskTreeNode,
   LockRecord,
   EventRecord,
-  AgentIOTimelineItem,
-  AgentModelConfig,
-  ModelInfo
-} from "@/types";
-import { projectApi, modelsApi } from "@/services/api";
+  AgentIOTimelineItem
+} from "@/types/project";
+import type { AgentModelConfig } from "@/types/catalog";
+import type { ModelInfo } from "@/types/settings";
+import { projectApi } from "@/services/api/project";
+import { modelsApi } from "@/services/api/settings";
 import { Save, Loader, Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 
 interface RoutingConfigViewProps {

@@ -1,7 +1,10 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import type { TemplateDefinition, AgentDefinition, TeamSummary } from "@/types";
-import { projectApi, projectTemplateApi, agentApi, teamApi } from "@/services/api";
+import type { TemplateDefinition, AgentDefinition } from "@/types/catalog";
+import type { TeamSummary } from "@/types/team";
+import { projectApi, projectTemplateApi } from "@/services/api/project";
+import { agentApi } from "@/services/api/catalog";
+import { teamApi } from "@/services/api/team";
 import { Plus, Loader, ArrowLeft } from "lucide-react";
 
 export function NewProjectView() {

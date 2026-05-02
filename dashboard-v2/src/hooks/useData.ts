@@ -8,8 +8,9 @@ import type {
   EventRecord,
   AgentIOTimelineItem,
   OrchestratorStatus
-} from "@/types";
-import { projectApi, orchestratorApi } from "@/services/api";
+} from "@/types/project";
+import { projectApi } from "@/services/api/project";
+import { orchestratorApi } from "@/services/api/recovery";
 import { useSettings } from "./useSettings";
 import * as mockData from "@/mock/data";
 

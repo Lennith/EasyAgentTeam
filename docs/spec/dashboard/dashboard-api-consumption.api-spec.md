@@ -1,17 +1,18 @@
-# Dashboard 共享 API 消费规范（最后更新：2026-04-25）
+# Dashboard 共享 API 消费规范（最后更新：2026-04-30）
 
 文档状态：`实装`
 
 ## 目标
 
-本页只描述前端共享的 API 消费边界，不重复记录各页面的完整接口清单。
+本页只描述前端共享 API 消费边界，不重复记录各页面的完整接口清单。
 
 ## 共享约束
 
 - 前端默认通过按域拆分的 API 访问层请求后端。
 - API 访问层按 `project / workflow / recovery / settings / catalog / team` 等域维护 mapper 和 client，不再依赖单一 `legacy.ts` 兼容实现。
-- 根 `dashboard-v2/src/services/api.ts` 仅保留兼容 re-export，不继续承载新业务实现。
-- 前端类型按域拆分，根 `dashboard-v2/src/types/index.ts` 仅保留兼容 barrel，不再依赖单一 `types/legacy.ts`。
+- `dashboard-v2/src/services/api.ts` 不再作为兼容 re-export 入口存在；dashboard 内部只能从具体领域入口导入 API。
+- 前端类型按域拆分，`dashboard-v2/src/types/index.ts` 不再作为兼容 barrel 存在；dashboard 内部只能从具体领域入口导入类型。
+- dashboard 页面、hooks、mock 数据默认从具体领域入口导入 API 与类型。
 - 前端页面消费已经归一化后的 provider、session、event、timeline 数据，不重复定义迁移和兼容逻辑。
 
 ## 共享页面能力

@@ -175,7 +175,7 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
 
   async runSessionWithTools(settings: RuntimeSettings, input: MiniMaxSessionRunInput): Promise<MiniMaxRunResult> {
     const profile = settings.providers?.minimax;
-    const apiKey = profile?.apiKey ?? settings.minimaxApiKey;
+    const apiKey = profile?.apiKey;
     if (!apiKey) {
       throw new Error("MiniMax API key is not configured. Please configure it in Settings.");
     }
@@ -207,23 +207,23 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
     const agent = createMiniMaxAgent({
       config: {
         apiKey,
-        apiBase: profile?.apiBase ?? settings.minimaxApiBase ?? input.apiBaseFallback,
+        apiBase: profile?.apiBase ?? input.apiBaseFallback,
         model,
         workspaceDir: input.workspaceDir,
-        sessionDir: profile?.sessionDir ?? settings.minimaxSessionDir ?? input.sessionDirFallback,
-        maxSteps: profile?.maxSteps ?? settings.minimaxMaxSteps ?? 200,
-        tokenLimit: profile?.tokenLimit ?? settings.minimaxTokenLimit ?? 180000,
-        maxOutputTokens: profile?.maxOutputTokens ?? settings.minimaxMaxOutputTokens ?? 16384,
+        sessionDir: profile?.sessionDir ?? input.sessionDirFallback,
+        maxSteps: profile?.maxSteps ?? 200,
+        tokenLimit: profile?.tokenLimit ?? 180000,
+        maxOutputTokens: profile?.maxOutputTokens ?? 16384,
         enableFileTools: true,
         enableShell: true,
         enableNote: true,
         shellType: getDefaultShellType(),
-        shellTimeout: profile?.shellTimeout ?? settings.minimaxShellTimeout ?? 30000,
-        shellOutputIdleTimeout: profile?.shellOutputIdleTimeout ?? settings.minimaxShellOutputIdleTimeout ?? 60000,
-        shellMaxRunTime: profile?.shellMaxRunTime ?? settings.minimaxShellMaxRunTime ?? 600000,
-        shellMaxOutputSize: profile?.shellMaxOutputSize ?? settings.minimaxShellMaxOutputSize ?? 52428800,
-        mcpEnabled: ((profile?.mcpServers ?? settings.minimaxMcpServers)?.length ?? 0) > 0,
-        mcpServers: profile?.mcpServers ?? settings.minimaxMcpServers ?? [],
+        shellTimeout: profile?.shellTimeout ?? 30000,
+        shellOutputIdleTimeout: profile?.shellOutputIdleTimeout ?? 60000,
+        shellMaxRunTime: profile?.shellMaxRunTime ?? 600000,
+        shellMaxOutputSize: profile?.shellMaxOutputSize ?? 52428800,
+        mcpEnabled: (profile?.mcpServers?.length ?? 0) > 0,
+        mcpServers: profile?.mcpServers ?? [],
         mcpConnectTimeout: 30000,
         mcpExecuteTimeout: 60000,
         systemPrompt: promptCompose.systemPrompt,
@@ -278,13 +278,7 @@ export function resolveMiniMaxRuntimeModel(
   settings: RuntimeSettings,
   input: Pick<MiniMaxSessionRunInput, "model" | "modelFallback">
 ): string {
-  return (
-    input.model ??
-    settings.providers?.minimax?.model ??
-    settings.minimaxModel ??
-    input.modelFallback ??
-    DEFAULT_MINIMAX_MODEL
-  );
+  return input.model ?? settings.providers?.minimax?.model ?? input.modelFallback ?? DEFAULT_MINIMAX_MODEL;
 }
 
 export class ProviderRegistry {
@@ -300,8 +294,7 @@ export class ProviderRegistry {
   }
 
   resolve(providerId: string | undefined | null): ProviderRuntime {
-    const normalized = (providerId ?? "minimax").trim().toLowerCase();
-    const resolvedProviderId = normalized === "trae" ? "minimax" : normalized;
+    const resolvedProviderId = (providerId ?? "minimax").trim().toLowerCase();
     if (resolvedProviderId === "codex" || resolvedProviderId === "minimax") {
       const runtime = this.runtimes.get(resolvedProviderId);
       if (runtime) {
@@ -367,9 +360,6 @@ export function resolveSessionProviderId(
   }
   const modelConfig = modelConfigs[normalizedRole];
   const providerIdRaw = modelConfig?.provider_id;
-  if (providerIdRaw === "trae") {
-    return "minimax";
-  }
   if (providerIdRaw === "codex" || providerIdRaw === "minimax") {
     return providerIdRaw;
   }

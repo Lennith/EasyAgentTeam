@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Play, Square, RefreshCw, Eye, Plus } from "lucide-react";
-import { workflowApi } from "@/services/api";
+import { workflowApi } from "@/services/api/workflow";
 import { useWorkflowOrchestratorStatus, useWorkflowRuns } from "@/hooks/useWorkflowData";
-import type { WorkflowRunRecord, WorkflowRunState } from "@/types";
+import type { WorkflowRunRecord, WorkflowRunState } from "@/types/workflow";
 
 const TERMINAL_TASK_STATES = new Set(["DONE", "CANCELED"]);
 

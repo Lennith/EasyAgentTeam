@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
-import type { AgentIOTimelineItem } from "@/types";
-import type { TaskLifecycleEvent } from "@/types";
+import type { AgentIOTimelineItem, TaskLifecycleEvent } from "@/types/project";
 
 interface MiniMaxLogItem {
   id: string;

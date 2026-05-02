@@ -41,7 +41,7 @@
 - `POST /api/workflow-runs/:run_id/sessions/:session_id/retry-dispatch`
 - `GET /api/workflow-templates/:template_id`
 - `POST /api/workflow-runs/:run_id/agent-chat`
-- `POST /api/workflow-runs/:run_id/agent-chat/:session_id/interrupt`
+- `POST /api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt`
 
 ## 页面职责映射
 
@@ -54,7 +54,7 @@
 - run workspace agent-chat：对单个会话发起聊天和中断
 - run workspace team-config：以模板快照展示 route matrix 与 discuss rounds
 - run workspace recovery：按当前 run 聚合需恢复 session、最近 failure、cooldown、dismiss/repair 动作与最近恢复审计片段；默认请求有限条 `recovery_attempts`，避免长历史无界渲染
-- run workspace recovery：高风险动作必须根据 `requires_confirmation` 显式提交 `confirm: true`，并直接展示 `disabled_reason / risk / latest_events`
+- run workspace recovery：高风险动作必须根据 `requires_confirmation` 显式提交 `confirm: true`，并直接展示 `disabled_reason / risk / recovery_attempts`
 - run workspace recovery：retry-dispatch 必须直接回填后端返回的 `expected_*` failure context guard 字段，不自行拼装 retry 条件
 
 ## 明确不属于当前工作区主契约的能力

@@ -58,7 +58,7 @@ test("workflow dispatch launch adapter blocks session when minimax is not config
         ] as any,
       resolveSkillIdsForAgent: async () => ["skill-1"],
       resolveImportedSkillPromptSegments: async () => ({ segments: ["skill prompt"] }) as any,
-      getRuntimeSettings: async () => ({ minimaxApiKey: "" }) as any,
+      getRuntimeSettings: async () => ({ providers: { codex: {}, minimax: {} } }) as any,
       ensureAgentWorkspaces: async () => ({ created: [], updated: [] }) as any,
       buildDefaultRolePrompt: () => "default prompt"
     }
@@ -213,7 +213,7 @@ test("workflow dispatch launch adapter blocks session on provider config error",
         ] as any,
       resolveSkillIdsForAgent: async () => [],
       resolveImportedSkillPromptSegments: async () => ({ segments: [] }) as any,
-      getRuntimeSettings: async () => ({ codexCliCommand: "codex" }) as any,
+      getRuntimeSettings: async () => ({ providers: { codex: { cliCommand: "codex" }, minimax: {} } }) as any,
       ensureAgentWorkspaces: async () => ({ created: [], updated: [] }) as any,
       buildDefaultRolePrompt: () => "default prompt"
     }
@@ -334,7 +334,7 @@ test("workflow dispatch launch adapter keeps transient provider errors retryable
           ] as any,
         resolveSkillIdsForAgent: async () => [],
         resolveImportedSkillPromptSegments: async () => ({ segments: [] }) as any,
-        getRuntimeSettings: async () => ({ minimaxApiKey: "test-key" }) as any,
+        getRuntimeSettings: async () => ({ providers: { codex: {}, minimax: { apiKey: "test-key" } } }) as any,
         ensureAgentWorkspaces: async () => ({ created: [], updated: [] }) as any,
         buildDefaultRolePrompt: () => "default prompt"
       }
@@ -489,7 +489,7 @@ test("workflow dispatch launch adapter records codex provider observations", asy
         ] as any,
       resolveSkillIdsForAgent: async () => [],
       resolveImportedSkillPromptSegments: async () => ({ segments: [] }) as any,
-      getRuntimeSettings: async () => ({ codexCliCommand: "codex" }) as any,
+      getRuntimeSettings: async () => ({ providers: { codex: { cliCommand: "codex" }, minimax: {} } }) as any,
       ensureAgentWorkspaces: async () => ({ created: [], updated: [] }) as any,
       buildDefaultRolePrompt: () => "default prompt"
     }

@@ -1,7 +1,14 @@
 import { useState, useMemo } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import type { ProjectDetail, SessionRecord, TaskTreeNode, LockRecord, EventRecord, AgentIOTimelineItem } from "@/types";
-import { projectApi } from "@/services/api";
+import type {
+  ProjectDetail,
+  SessionRecord,
+  TaskTreeNode,
+  LockRecord,
+  EventRecord,
+  AgentIOTimelineItem
+} from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import { Lock, Unlock, Loader } from "lucide-react";
 
 interface LockManagerViewProps {

@@ -666,7 +666,7 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
       ? timeoutMsRaw
       : 10 * 60 * 1000;
 
-  const cliTool = cliToolRaw === "trae" || cliToolRaw === "minimax" ? "minimax" : "codex";
+  const cliTool = cliToolRaw === "minimax" ? "minimax" : "codex";
 
   return {
     sessionId,

@@ -42,13 +42,6 @@ function mapRuntimeRecoveryItem(raw: Record<string, unknown>): RuntimeRecoveryIt
     disabled_reason: (raw.disabled_reason as string | null | undefined) ?? null,
     risk: (raw.risk as string | null | undefined) ?? null,
     requires_confirmation: Boolean(raw.requires_confirmation),
-    latest_events: Array.isArray(raw.latest_events)
-      ? raw.latest_events.map((event) => ({
-          event_type: String((event as Record<string, unknown>).event_type ?? ""),
-          created_at: String((event as Record<string, unknown>).created_at ?? ""),
-          payload_summary: String((event as Record<string, unknown>).payload_summary ?? "")
-        }))
-      : [],
     recovery_attempts: Array.isArray(raw.recovery_attempts)
       ? raw.recovery_attempts.map((attempt) => mapRuntimeRecoveryAttemptPreview(attempt as Record<string, unknown>))
       : []

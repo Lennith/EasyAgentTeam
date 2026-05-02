@@ -22,13 +22,15 @@ function New-E2ESettingsIsolationState {
   }
 
   $before = [ordered]@{
-    minimaxApiKey = Get-E2EObjectString -Obj $SettingsBody -Names @("minimaxApiKey", "minimax_api_key")
-    minimaxApiBase = Get-E2EObjectString -Obj $SettingsBody -Names @("minimaxApiBase", "minimax_api_base")
-    minimaxModel = Get-E2EObjectString -Obj $SettingsBody -Names @("minimaxModel", "minimax_model")
+    minimaxApiKey = Get-E2EProviderProfileString -SettingsBody $SettingsBody -ProviderId "minimax" -Names @("apiKey", "api_key")
+    minimaxApiBase = Get-E2EProviderProfileString -SettingsBody $SettingsBody -ProviderId "minimax" -Names @("apiBase", "api_base")
+    minimaxModel = Get-E2EProviderProfileString -SettingsBody $SettingsBody -ProviderId "minimax" -Names @("model")
   }
 
   $patch = [ordered]@{}
   $restorePatch = [ordered]@{}
+  $patchValues = [ordered]@{}
+  $restoreValues = [ordered]@{}
   $changedKeys = New-Object System.Collections.Generic.List[string]
   $reasons = New-Object System.Collections.Generic.List[string]
 
@@ -50,17 +52,26 @@ function New-E2ESettingsIsolationState {
         if ([string]::IsNullOrWhiteSpace($MiniMaxApiBaseOverride)) { [string]$before.minimaxApiBase } else { $MiniMaxApiBaseOverride.Trim() }
       }
 
+      $minimaxPatch = [ordered]@{}
+      $restoreMiniMaxPatch = [ordered]@{}
       foreach ($item in @(
-          @{ Key = "minimaxApiKey"; Target = $targetApiKey; Original = [string]$before.minimaxApiKey },
-          @{ Key = "minimaxApiBase"; Target = $targetApiBase; Original = [string]$before.minimaxApiBase }
+          @{ AuditKey = "minimaxApiKey"; ProviderKey = "apiKey"; Target = $targetApiKey; Original = [string]$before.minimaxApiKey },
+          @{ AuditKey = "minimaxApiBase"; ProviderKey = "apiBase"; Target = $targetApiBase; Original = [string]$before.minimaxApiBase }
         )) {
         $normalizedOriginal = if ([string]::IsNullOrWhiteSpace([string]$item.Original)) { $null } else { [string]$item.Original }
         $normalizedTarget = if ([string]::IsNullOrWhiteSpace([string]$item.Target)) { $null } else { [string]$item.Target }
         if ($normalizedOriginal -ne $normalizedTarget) {
-          $patch[$item.Key] = $normalizedTarget
-          $restorePatch[$item.Key] = $normalizedOriginal
-          [void]$changedKeys.Add([string]$item.Key)
+          $minimaxPatch[$item.ProviderKey] = $normalizedTarget
+          $restoreMiniMaxPatch[$item.ProviderKey] = $normalizedOriginal
+          $patchValues[$item.AuditKey] = $normalizedTarget
+          $restoreValues[$item.AuditKey] = $normalizedOriginal
+          [void]$changedKeys.Add([string]$item.AuditKey)
         }
+      }
+
+      if ($minimaxPatch.Count -gt 0) {
+        $patch["providers"] = [ordered]@{ minimax = $minimaxPatch }
+        $restorePatch["providers"] = [ordered]@{ minimax = $restoreMiniMaxPatch }
       }
 
       if ($ClearMiniMaxSettings.IsPresent) {
@@ -83,6 +94,8 @@ function New-E2ESettingsIsolationState {
     before = $before
     patch = if ($changedKeys.Count -gt 0) { $patch } else { $null }
     restore_patch = if ($changedKeys.Count -gt 0) { $restorePatch } else { $null }
+    patch_values = if ($changedKeys.Count -gt 0) { $patchValues } else { $null }
+    restore_values = if ($changedKeys.Count -gt 0) { $restoreValues } else { $null }
     restore_fallback_keys = @()
     changed_keys = @($changedKeys)
     reasons = @(Get-E2EUniqueStringValues -Values $reasons)
@@ -204,14 +217,14 @@ function Invoke-E2ESettingsIsolationApply {
 
   $afterBody = (& $GetSettings).body
   $State.after_apply = [ordered]@{
-    minimaxApiKey = Get-E2EObjectString -Obj $afterBody -Names @("minimaxApiKey", "minimax_api_key")
-    minimaxApiBase = Get-E2EObjectString -Obj $afterBody -Names @("minimaxApiBase", "minimax_api_base")
-    minimaxModel = Get-E2EObjectString -Obj $afterBody -Names @("minimaxModel", "minimax_model")
+    minimaxApiKey = Get-E2EProviderProfileString -SettingsBody $afterBody -ProviderId "minimax" -Names @("apiKey", "api_key")
+    minimaxApiBase = Get-E2EProviderProfileString -SettingsBody $afterBody -ProviderId "minimax" -Names @("apiBase", "api_base")
+    minimaxModel = Get-E2EProviderProfileString -SettingsBody $afterBody -ProviderId "minimax" -Names @("model")
   }
 
   $applyVerified = $true
   foreach ($key in @($State.changed_keys)) {
-    $expected = $State.patch[$key]
+    $expected = $State.patch_values[$key]
     $actual = $State.after_apply[$key]
     $normalizedExpected = if ($null -eq $expected) { "" } else { ([string]$expected).Trim() }
     $normalizedActual = if ($null -eq $actual) { "" } else { ([string]$actual).Trim() }
@@ -280,14 +293,14 @@ function Invoke-E2ESettingsIsolationRestore {
 
     $afterBody = (& $GetSettings).body
     $State.after_restore = [ordered]@{
-      minimaxApiKey = Get-E2EObjectString -Obj $afterBody -Names @("minimaxApiKey", "minimax_api_key")
-      minimaxApiBase = Get-E2EObjectString -Obj $afterBody -Names @("minimaxApiBase", "minimax_api_base")
-      minimaxModel = Get-E2EObjectString -Obj $afterBody -Names @("minimaxModel", "minimax_model")
+      minimaxApiKey = Get-E2EProviderProfileString -SettingsBody $afterBody -ProviderId "minimax" -Names @("apiKey", "api_key")
+      minimaxApiBase = Get-E2EProviderProfileString -SettingsBody $afterBody -ProviderId "minimax" -Names @("apiBase", "api_base")
+      minimaxModel = Get-E2EProviderProfileString -SettingsBody $afterBody -ProviderId "minimax" -Names @("model")
     }
 
     $restoreVerified = $true
     foreach ($key in @($State.changed_keys)) {
-      $expected = $State.restore_patch[$key]
+      $expected = $State.restore_values[$key]
       $actual = $State.after_restore[$key]
       $normalizedExpected = if ($null -eq $expected) { "" } else { ([string]$expected).Trim() }
       $normalizedActual = if ($null -eq $actual) { "" } else { ([string]$actual).Trim() }

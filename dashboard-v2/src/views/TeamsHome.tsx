@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import { teamApi } from "@/services/api";
-import type { TeamSummary } from "@/types";
+import { teamApi } from "@/services/api/team";
+import type { TeamSummary } from "@/types/team";
 import { UserCircle, ArrowRight, Trash2 } from "lucide-react";
 
 export function TeamsHome() {

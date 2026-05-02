@@ -9,8 +9,8 @@ import type {
   AgentIOTimelineItem,
   TaskState,
   TaskDetail
-} from "@/types";
-import { projectApi } from "@/services/api";
+} from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import { Save, Loader, Search, FileText } from "lucide-react";
 
 import { TaskDetailsModal } from "./TaskDetailsModal";

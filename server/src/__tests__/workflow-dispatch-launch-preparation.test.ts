@@ -47,8 +47,13 @@ test("workflow dispatch launch preparation resolves fallback role prompt, skills
       },
       getRuntimeSettings: async () =>
         ({
-          minimaxTokenLimit: 2048,
-          minimaxMaxOutputTokens: 512
+          providers: {
+            codex: {},
+            minimax: {
+              tokenLimit: 2048,
+              maxOutputTokens: 512
+            }
+          }
         }) as any,
       ensureAgentWorkspaces: async (project: { projectId: string; agentIds?: string[] }) => {
         workspaceCalls.push({ projectId: project.projectId, agentIds: project.agentIds ?? [] });
@@ -109,10 +114,8 @@ test("workflow dispatch launch preparation applies MiniMax agent model without g
       resolveImportedSkillPromptSegments: async () => ({ segments: [] }) as any,
       getRuntimeSettings: async () =>
         ({
-          minimaxModel: "MiniMax-M2.5-High-speed",
-          minimaxTokenLimit: 2048,
-          minimaxMaxOutputTokens: 512,
           providers: {
+            codex: {},
             minimax: {
               model: "MiniMax-M2.5-High-speed",
               tokenLimit: 4096,

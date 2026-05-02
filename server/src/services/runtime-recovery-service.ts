@@ -19,11 +19,9 @@ import {
   type RecoveryAttemptLimit,
   type RuntimeRecoveryAttempt,
   type RuntimeRecoveryAttemptPreview,
-  type RuntimeRecoveryEventSummary,
   buildSessionRecoveryAttempts
 } from "./runtime-recovery-attempts.js";
 import {
-  getLatestAuditEventsFromIndex,
   getLatestFailureEventsFromIndex,
   getRecoveryAttemptPreviewsFromIndex,
   type RecoveryIndexableEvent
@@ -91,7 +89,6 @@ export interface RuntimeRecoveryItem {
   disabled_reason: string | null;
   risk: string | null;
   requires_confirmation: boolean;
-  latest_events: RuntimeRecoveryEventSummary[];
   recovery_attempts: RuntimeRecoveryAttemptPreview[];
 }
 
@@ -234,7 +231,6 @@ function buildProjectRecoveryItem(
   project: ProjectRecord,
   tasksById: Map<string, TaskRecord>,
   latestFailureBySession: Map<string, RecoveryIndexableEvent>,
-  latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>,
   attemptsBySession: Map<string, RuntimeRecoveryAttemptPreview[]>
 ): RuntimeRecoveryItem {
   const currentTask = session.currentTaskId ? (tasksById.get(session.currentTaskId) ?? null) : null;
@@ -279,7 +275,6 @@ function buildProjectRecoveryItem(
     disabled_reason: policy.disabled_reason,
     risk: policy.risk,
     requires_confirmation: policy.requires_confirmation,
-    latest_events: latestAuditBySession.get(session.sessionId) ?? [],
     recovery_attempts: attemptsBySession.get(session.sessionId) ?? []
   };
 }
@@ -289,7 +284,6 @@ function buildWorkflowRecoveryItem(
   run: WorkflowRunRecord,
   runtimeTasksById: Map<string, WorkflowTaskRuntimeRecord>,
   latestFailureBySession: Map<string, RecoveryIndexableEvent>,
-  latestAuditBySession: Map<string, RuntimeRecoveryEventSummary[]>,
   attemptsBySession: Map<string, RuntimeRecoveryAttemptPreview[]>
 ): RuntimeRecoveryItem {
   const taskTemplate = session.currentTaskId
@@ -337,7 +331,6 @@ function buildWorkflowRecoveryItem(
     disabled_reason: policy.disabled_reason,
     risk: policy.risk,
     requires_confirmation: policy.requires_confirmation,
-    latest_events: latestAuditBySession.get(session.sessionId) ?? [],
     recovery_attempts: attemptsBySession.get(session.sessionId) ?? []
   };
 }
@@ -357,21 +350,13 @@ export async function buildProjectRuntimeRecovery(
   const tasksById = new Map(tasks.map((task) => [task.taskId, task]));
   const sessionStatuses = new Map(sessions.map((session) => [session.sessionId, session.status] as const));
   const latestFailureBySession = getLatestFailureEventsFromIndex(recoveryIndex);
-  const latestAuditBySession = getLatestAuditEventsFromIndex(recoveryIndex);
   const attemptsBySession = getRecoveryAttemptPreviewsFromIndex(recoveryIndex, sessionStatuses, {
     attempt_limit: options.attempt_limit
   });
   const nowMs = Date.now();
   const items = sessions
     .map((session) =>
-      buildProjectRecoveryItem(
-        session,
-        scope.project,
-        tasksById,
-        latestFailureBySession,
-        latestAuditBySession,
-        attemptsBySession
-      )
+      buildProjectRecoveryItem(session, scope.project, tasksById, latestFailureBySession, attemptsBySession)
     )
     .filter((item) => isRecoveryCandidate(item, nowMs))
     .sort((left, right) => left.role.localeCompare(right.role) || left.session_id.localeCompare(right.session_id));
@@ -399,21 +384,13 @@ export async function buildWorkflowRuntimeRecovery(
   const runtimeTasksById = new Map(runtime.tasks.map((task) => [task.taskId, task]));
   const sessionStatuses = new Map(sessions.map((session) => [session.sessionId, session.status] as const));
   const latestFailureBySession = getLatestFailureEventsFromIndex(recoveryIndex);
-  const latestAuditBySession = getLatestAuditEventsFromIndex(recoveryIndex);
   const attemptsBySession = getRecoveryAttemptPreviewsFromIndex(recoveryIndex, sessionStatuses, {
     attempt_limit: options.attempt_limit
   });
   const nowMs = Date.now();
   const items = sessions
     .map((session) =>
-      buildWorkflowRecoveryItem(
-        session,
-        scope.run,
-        runtimeTasksById,
-        latestFailureBySession,
-        latestAuditBySession,
-        attemptsBySession
-      )
+      buildWorkflowRecoveryItem(session, scope.run, runtimeTasksById, latestFailureBySession, attemptsBySession)
     )
     .filter((item) => isRecoveryCandidate(item, nowMs))
     .sort((left, right) => left.role.localeCompare(right.role) || left.session_id.localeCompare(right.session_id));

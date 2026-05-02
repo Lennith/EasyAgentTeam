@@ -9,13 +9,11 @@ import {
   buildProjectRecoveryEventIndexScope,
   getProjectRecoveryEventIndexFile
 } from "../data/repository/project/event-repository.js";
-import { readTaskboard } from "../data/repository/project/taskboard-repository.js";
 import { createWorkflowRun, createWorkflowTemplate } from "../data/repository/workflow/run-repository.js";
 import {
   appendWorkflowRunEvent,
   buildWorkflowRecoveryEventIndexScope,
   getWorkflowRecoveryEventIndexFile,
-  readWorkflowRunTaskRuntimeState,
   touchWorkflowSession,
   upsertWorkflowSession,
   writeWorkflowRunTaskRuntimeState
@@ -27,8 +25,6 @@ import {
   buildWorkflowRuntimeRecovery,
   buildWorkflowSessionRecoveryAttempts
 } from "../services/runtime-recovery-service.js";
-
-const LEGACY_DONE_STATE = ["MAY", "BE", "DONE"].join("_");
 
 async function waitForNextTick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 2));
@@ -148,9 +144,6 @@ test("project runtime recovery aggregates latest runner failure and current task
     item.disabled_reason,
     "Cooldown is still active. Wait for cooldown to expire before retrying or repairing this session."
   );
-  assert.equal(item.latest_events.length > 0, true);
-  assert.equal(item.latest_events[0]?.event_type, "RUNNER_TRANSIENT_ERROR_SOFT");
-  assert.match(item.latest_events[0]?.payload_summary ?? "", /PROVIDER_UPSTREAM_TRANSIENT_ERROR/);
   assert.deepEqual(item.recovery_attempts, []);
 });
 
@@ -831,8 +824,6 @@ test("dismissed recovery item carries confirmation requirement and latest recove
   assert.equal(item.requires_confirmation, true);
   assert.equal(item.can_retry_dispatch, false);
   assert.match(item.risk ?? "", /Manual recovery/);
-  assert.equal(item.latest_events[0]?.event_type, "SESSION_STATUS_DISMISSED");
-  assert.match(item.latest_events[0]?.payload_summary ?? "", /manual dismiss/i);
   assert.deepEqual(item.recovery_attempts, []);
 });
 
@@ -1050,110 +1041,4 @@ test("workflow recovery sidecar ignores irrelevant events and only writes hot in
     }
   });
   assert.equal(await fileExists(targetArchiveFile), true);
-});
-
-test("project taskboard migration rewrites legacy ambiguous done state to DONE on read", async () => {
-  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-legacy-done-"));
-  const repositories = getProjectRepositoryBundle(dataRoot);
-  const created = await repositories.projectRuntime.createProject({
-    projectId: "project_legacy_done",
-    name: "Project Legacy Done",
-    workspacePath: path.join(dataRoot, "workspace")
-  });
-  await writeFile(
-    created.paths.taskboardFile,
-    `${JSON.stringify(
-      {
-        schemaVersion: "1.0",
-        projectId: created.project.projectId,
-        updatedAt: "2026-04-19T10:00:00.000Z",
-        tasks: [
-          {
-            taskId: "task_legacy",
-            taskKind: "EXECUTION",
-            parentTaskId: "task_legacy",
-            rootTaskId: "task_legacy",
-            title: "Legacy task",
-            ownerRole: "lead",
-            state: LEGACY_DONE_STATE,
-            writeSet: [],
-            dependencies: [],
-            acceptance: [],
-            artifacts: [],
-            createdAt: "2026-04-19T10:00:00.000Z",
-            updatedAt: "2026-04-19T10:00:00.000Z"
-          }
-        ]
-      },
-      null,
-      2
-    )}\n`
-  );
-
-  const taskboard = await readTaskboard(created.paths, created.project.projectId);
-  assert.equal(taskboard.tasks[0]?.state, "DONE");
-
-  const persisted = JSON.parse(await readFile(created.paths.taskboardFile, "utf8")) as {
-    tasks: Array<{ state: string }>;
-  };
-  assert.equal(persisted.tasks[0]?.state, "DONE");
-});
-
-test("workflow runtime migration rewrites legacy ambiguous done state and transitions to DONE on read", async () => {
-  const dataRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-legacy-done-"));
-  await createWorkflowTemplate(dataRoot, {
-    templateId: "workflow_legacy_tpl",
-    name: "Workflow Legacy Template",
-    tasks: [{ taskId: "task_a", title: "Task A", ownerRole: "lead" }]
-  });
-  await createWorkflowRun(dataRoot, {
-    runId: "workflow_legacy_run",
-    templateId: "workflow_legacy_tpl",
-    name: "Workflow Legacy Run",
-    workspacePath: path.join(dataRoot, "workspace"),
-    tasks: [{ taskId: "task_a", title: "Task A", resolvedTitle: "Task A", ownerRole: "lead" }]
-  });
-  const tasksFile = path.join(dataRoot, "workflows", "runs", "workflow_legacy_run", "tasks.json");
-  await writeFile(
-    tasksFile,
-    `${JSON.stringify(
-      {
-        initializedAt: "2026-04-19T10:00:00.000Z",
-        updatedAt: "2026-04-19T10:00:00.000Z",
-        transitionSeq: 1,
-        tasks: [
-          {
-            taskId: "task_a",
-            state: LEGACY_DONE_STATE,
-            blockedBy: [],
-            blockedReasons: [],
-            lastTransitionAt: "2026-04-19T10:00:00.000Z",
-            transitionCount: 1,
-            transitions: [
-              {
-                seq: 1,
-                at: "2026-04-19T10:00:00.000Z",
-                fromState: LEGACY_DONE_STATE,
-                toState: LEGACY_DONE_STATE
-              }
-            ]
-          }
-        ]
-      },
-      null,
-      2
-    )}\n`
-  );
-
-  const runtime = await readWorkflowRunTaskRuntimeState(dataRoot, "workflow_legacy_run");
-  assert.equal(runtime.tasks[0]?.state, "DONE");
-  assert.equal(runtime.tasks[0]?.transitions?.[0]?.fromState, "DONE");
-  assert.equal(runtime.tasks[0]?.transitions?.[0]?.toState, "DONE");
-
-  const persisted = JSON.parse(await readFile(tasksFile, "utf8")) as {
-    tasks: Array<{ state: string; transitions: Array<{ fromState: string; toState: string }> }>;
-  };
-  assert.equal(persisted.tasks[0]?.state, "DONE");
-  assert.equal(persisted.tasks[0]?.transitions?.[0]?.fromState, "DONE");
-  assert.equal(persisted.tasks[0]?.transitions?.[0]?.toState, "DONE");
 });

@@ -171,7 +171,7 @@ export async function markWorkflowTimedOutSessions(
       !escalated && providerId === "minimax"
         ? await dumpSessionMessagesOnSoftTimeout({
             workspacePath: run.workspacePath,
-            sessionDir: settings.minimaxSessionDir || buildOrchestratorMinimaxSessionDir(run.workspacePath),
+            sessionDir: settings.providers.minimax.sessionDir || buildOrchestratorMinimaxSessionDir(run.workspacePath),
             sessionId: activeSession.sessionId,
             providerSessionId: activeSession.providerSessionId,
             runId: run.runId,

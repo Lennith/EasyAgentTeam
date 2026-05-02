@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Plus, Trash2 } from "lucide-react";
-import { workflowApi } from "@/services/api";
-import type { WorkflowRunMode, WorkflowTemplateRecord } from "@/types";
+import { workflowApi } from "@/services/api/workflow";
+import type { WorkflowRunMode, WorkflowTemplateRecord } from "@/types/workflow";
 
 interface KeyValueRow {
   key: string;

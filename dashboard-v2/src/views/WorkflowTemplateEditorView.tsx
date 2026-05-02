@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight, Plus, Save, Trash2 } from "lucide-react";
-import { agentApi, teamApi, workflowApi } from "@/services/api";
-import type { WorkflowTemplateTaskRecord } from "@/types";
+import { agentApi } from "@/services/api/catalog";
+import { teamApi } from "@/services/api/team";
+import { workflowApi } from "@/services/api/workflow";
+import type { WorkflowTemplateTaskRecord } from "@/types/workflow";
 
 interface WorkflowTemplateEditorViewProps {
   templateId?: string;

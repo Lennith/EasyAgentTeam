@@ -1,15 +1,35 @@
-import type { ModelInfo, RuntimeSettings } from "@/types/settings";
+import type { MCPServerConfig, ModelInfo, RuntimeSettings, Theme } from "@/types/settings";
 import { API_BASE, fetchJSON } from "./shared/http";
+
+export interface UpdateRuntimeSettingsRequest {
+  theme?: Theme;
+  providers?: {
+    codex?: {
+      cliCommand?: string;
+      model?: string;
+      reasoningEffort?: "low" | "medium" | "high";
+    };
+    minimax?: {
+      apiKey?: string | null;
+      apiBase?: string | null;
+      model?: string;
+      sessionDir?: string;
+      mcpServers?: MCPServerConfig[];
+      maxSteps?: number;
+      tokenLimit?: number;
+      maxOutputTokens?: number;
+      shellTimeout?: number;
+      shellOutputIdleTimeout?: number;
+      shellMaxRunTime?: number;
+      shellMaxOutputSize?: number;
+    };
+  };
+}
 
 export const settingsApi = {
   get: () => fetchJSON<RuntimeSettings>(`${API_BASE}/settings`),
 
-  update: (
-    data: Omit<Partial<RuntimeSettings>, "minimaxApiKey" | "minimaxApiBase"> & {
-      minimaxApiKey?: string | null;
-      minimaxApiBase?: string | null;
-    }
-  ) =>
+  update: (data: UpdateRuntimeSettingsRequest) =>
     fetchJSON<RuntimeSettings>(`${API_BASE}/settings`, {
       method: "PATCH",
       body: JSON.stringify(data)

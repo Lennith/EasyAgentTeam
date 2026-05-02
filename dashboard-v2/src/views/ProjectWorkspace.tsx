@@ -1,6 +1,6 @@
 import { useProjectWorkspace } from "@/hooks/useData";
 import { useTranslation } from "@/hooks/i18n";
-import type { ProjectView } from "@/types";
+import type { ProjectView } from "@/types/project";
 import { EventTimelineView } from "./EventTimelineView";
 import { ChatTimelineView } from "./ChatTimelineView";
 import { SessionManagerView } from "./SessionManagerView";

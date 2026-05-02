@@ -3,37 +3,40 @@ import fs from "node:fs";
 import path from "node:path";
 
 const repoRoot = process.cwd();
-const checks = [
+let failed = false;
+
+const forbiddenFiles = [
   {
     path: "dashboard-v2/src/services/api.ts",
-    forbidden: [/\bfetchJSON\b/, /\bfetchText\b/, /\bfetchStream\b/, /\bmap[A-Z]/],
-    message: "dashboard API root must stay a compatibility barrel"
+    message: "services API root barrel must be removed"
   },
   {
     path: "dashboard-v2/src/types/index.ts",
-    forbidden: [/\binterface\s+\w+/, /\btype\s+\w+\s*=/],
-    message: "dashboard types root must stay a compatibility barrel"
+    message: "types root barrel must be removed"
+  },
+  {
+    path: "dashboard-v2/src/services/api/legacy.ts",
+    message: "legacy API file must be removed"
+  },
+  {
+    path: "dashboard-v2/src/types/legacy.ts",
+    message: "legacy types file must be removed"
+  },
+  {
+    path: "dashboard-v2/src/services/api/shared/mappers.ts",
+    message: "shared mapper bucket must be removed"
+  },
+  {
+    path: "server/src/data/repository/shared/legacy-task-state.ts",
+    message: "legacy task-state migration must be removed"
   }
 ];
 
-let failed = false;
-for (const check of checks) {
-  const fullPath = path.join(repoRoot, check.path);
-  const content = fs.readFileSync(fullPath, "utf8");
-  const matched = check.forbidden.filter((pattern) => pattern.test(content));
-  if (matched.length > 0) {
-    failed = true;
-    console.error(`[dashboard-api-boundaries] ${check.message}: ${check.path}`);
-  }
-}
-
-const forbiddenLegacyFiles = ["dashboard-v2/src/services/api/legacy.ts", "dashboard-v2/src/types/legacy.ts"];
-
-for (const relativePath of forbiddenLegacyFiles) {
-  const fullPath = path.join(repoRoot, relativePath);
+for (const file of forbiddenFiles) {
+  const fullPath = path.join(repoRoot, file.path);
   if (fs.existsSync(fullPath)) {
     failed = true;
-    console.error(`[dashboard-api-boundaries] legacy file must be removed: ${relativePath}`);
+    console.error(`[dashboard-api-boundaries] ${file.message}: ${file.path}`);
   }
 }
 
@@ -58,14 +61,54 @@ const legacyImportPatterns = [
   /from\s+["']@\/types\/legacy["']/,
   /from\s+["']@\/services\/api\/legacy["']/
 ];
+const rootBarrelImportPatterns = [
+  { pattern: /from\s+["']@\/types["']/, label: "types root barrel import" },
+  { pattern: /from\s+["']@\/services\/api["']/, label: "services API root barrel import" }
+];
+const retiredRoutePatterns = [
+  { pattern: /#\/templates\b/, label: "retired #/templates route alias" },
+  { pattern: /\bl1\s*===\s*["']templates["']/, label: "retired templates L1 route parser" }
+];
 
 for (const file of walkFiles(path.join(repoRoot, "dashboard-v2", "src"))) {
   const content = fs.readFileSync(file, "utf8");
-  const matched = legacyImportPatterns.find((pattern) => pattern.test(content));
-  if (!matched) continue;
-  failed = true;
   const relative = path.relative(repoRoot, file).replaceAll("\\", "/");
-  console.error(`[dashboard-api-boundaries] legacy import is forbidden: ${relative}`);
+  const matched = legacyImportPatterns.find((pattern) => pattern.test(content));
+  if (matched) {
+    failed = true;
+    console.error(`[dashboard-api-boundaries] legacy import is forbidden: ${relative}`);
+  }
+  const rootBarrelMatch = rootBarrelImportPatterns.find((item) => item.pattern.test(content));
+  if (rootBarrelMatch) {
+    failed = true;
+    console.error(
+      `[dashboard-api-boundaries] ${rootBarrelMatch.label} is reserved for compatibility only: ${relative}`
+    );
+  }
+  const retiredRouteMatch = retiredRoutePatterns.find((item) => item.pattern.test(content));
+  if (retiredRouteMatch) {
+    failed = true;
+    console.error(`[dashboard-api-boundaries] ${retiredRouteMatch.label} is forbidden: ${relative}`);
+  }
+}
+
+const serverForbiddenPatterns = [
+  { pattern: /legacy-task-state/, label: "legacy task-state import" },
+  {
+    pattern: /isLegacyTraeProviderId|hasLegacyTraeAgentModelConfigs|normalizeProviderId/,
+    label: "legacy provider alias helper"
+  },
+  { pattern: /===\s*["']trae["']|["']trae["']\s*\?/, label: "trae provider compatibility branch" }
+];
+
+for (const file of walkFiles(path.join(repoRoot, "server", "src"))) {
+  const content = fs.readFileSync(file, "utf8");
+  const relative = path.relative(repoRoot, file).replaceAll("\\", "/");
+  const forbiddenMatch = serverForbiddenPatterns.find((item) => item.pattern.test(content));
+  if (forbiddenMatch) {
+    failed = true;
+    console.error(`[dashboard-api-boundaries] ${forbiddenMatch.label} is forbidden: ${relative}`);
+  }
 }
 
 if (failed) {

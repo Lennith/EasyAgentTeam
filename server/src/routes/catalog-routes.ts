@@ -25,8 +25,8 @@ import {
 } from "../services/catalog-admin-service.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import {
-  hasLegacyTraeAgentModelConfigs,
-  isLegacyTraeProviderId,
+  hasUnsupportedAgentModelConfigs,
+  isUnsupportedProviderId,
   parseBoolean,
   readAgentModelConfigsField,
   readNullableStringPatch,
@@ -144,8 +144,8 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.post("/api/teams", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      if (hasLegacyTraeAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+      if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
         return;
       }
       const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
@@ -177,8 +177,8 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.put("/api/teams/:teamId", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      if (hasLegacyTraeAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+      if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
         return;
       }
       const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
@@ -227,8 +227,8 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
       const prompt = body.prompt as string | undefined;
       const summary = readStringField(body, ["summary"]);
       const defaultProviderId = body.provider_id as string | undefined;
-      if (isLegacyTraeProviderId(defaultProviderId)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+      if (isUnsupportedProviderId(defaultProviderId)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
         return;
       }
       const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as
@@ -297,8 +297,8 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
     try {
       const agentId = req.params.agent_id;
       const body = req.body as Record<string, unknown>;
-      if (Object.prototype.hasOwnProperty.call(body, "provider_id") && isLegacyTraeProviderId(body.provider_id)) {
-        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id 'trae' is no longer supported");
+      if (Object.prototype.hasOwnProperty.call(body, "provider_id") && isUnsupportedProviderId(body.provider_id)) {
+        sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex or minimax");
         return;
       }
       let skillListPatch: string[] | undefined;

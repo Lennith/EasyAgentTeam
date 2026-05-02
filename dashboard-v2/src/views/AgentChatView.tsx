@@ -1,7 +1,8 @@
 ﻿import { useState, useRef, useEffect, useMemo } from "react";
 import { useTranslation } from "@/hooks/i18n";
-import { agentChatApi } from "@/services/api";
-import type { SessionRecord, WorkflowSessionRecord } from "@/types";
+import { agentChatApi } from "@/services/api/recovery";
+import type { SessionRecord } from "@/types/project";
+import type { WorkflowSessionRecord } from "@/types/workflow";
 import { Send, XCircle, Loader, MessageCircle, Clock, Bot } from "lucide-react";
 
 interface AgentChatViewProps {

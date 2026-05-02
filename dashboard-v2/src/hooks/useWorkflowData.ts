@@ -4,8 +4,8 @@ import type {
   WorkflowRunRecord,
   WorkflowRunRuntimeStatus,
   WorkflowOrchestratorStatus
-} from "@/types";
-import { workflowApi } from "@/services/api";
+} from "@/types/workflow";
+import { workflowApi } from "@/services/api/workflow";
 
 export function useWorkflowTemplates() {
   const [items, setItems] = useState<WorkflowTemplateRecord[]>([]);

@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
 import * as mockData from "@/mock/data";
-import type { AgentTemplateDefinition } from "@/types";
-import { templateApi } from "@/services/api";
+import type { AgentTemplateDefinition } from "@/types/catalog";
+import { templateApi } from "@/services/api/catalog";
 import { Plus, Save, Trash2, Loader, Edit, Copy } from "lucide-react";
 
 export function AgentTemplatesView() {

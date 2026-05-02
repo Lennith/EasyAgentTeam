@@ -13,8 +13,29 @@ export interface MCPServerConfig {
 
 export type Theme = "dark" | "vibrant" | "lively";
 
+export interface RuntimeProviderSettings {
+  codex?: {
+    cliCommand?: string;
+    model?: string;
+    reasoningEffort?: "low" | "medium" | "high";
+  };
+  minimax?: {
+    apiKey?: string;
+    apiBase?: string;
+    model?: string;
+    sessionDir?: string;
+    mcpServers?: MCPServerConfig[];
+    maxSteps?: number;
+    tokenLimit?: number;
+    maxOutputTokens?: number;
+    shellTimeout?: number;
+    shellOutputIdleTimeout?: number;
+    shellMaxRunTime?: number;
+    shellMaxOutputSize?: number;
+  };
+}
+
 export interface RuntimeSettings {
-  codexCliCommand?: string;
   theme?: Theme;
   hostPlatform?: "win32" | "linux" | "darwin";
   hostPlatformLabel?: string;
@@ -22,40 +43,8 @@ export interface RuntimeSettings {
   defaultShellType?: "powershell" | "cmd" | "bash" | "sh";
   codexCliCommandDefault?: string;
   macosUntested?: boolean;
-  minimaxApiKey?: string;
-  minimaxApiBase?: string;
-  minimaxModel?: string;
-  minimaxSessionDir?: string;
-  minimaxMcpServers?: MCPServerConfig[];
-  minimaxMaxSteps?: number;
-  minimaxTokenLimit?: number;
-  minimaxMaxOutputTokens?: number;
-  minimaxShellTimeout?: number;
-  minimaxShellOutputIdleTimeout?: number;
-  minimaxShellMaxRunTime?: number;
-  minimaxShellMaxOutputSize?: number;
   updatedAt?: string;
-  providers?: {
-    codex?: {
-      cliCommand?: string;
-      model?: string;
-      reasoningEffort?: "low" | "medium" | "high";
-    };
-    minimax?: {
-      apiKey?: string;
-      apiBase?: string;
-      model?: string;
-      sessionDir?: string;
-      mcpServers?: MCPServerConfig[];
-      maxSteps?: number;
-      tokenLimit?: number;
-      maxOutputTokens?: number;
-      shellTimeout?: number;
-      shellOutputIdleTimeout?: number;
-      shellMaxRunTime?: number;
-      shellMaxOutputSize?: number;
-    };
-  };
+  providers?: RuntimeProviderSettings;
 }
 
 export interface ModelInfo {

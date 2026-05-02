@@ -8,7 +8,6 @@ import type {
   TaskboardState
 } from "../../../domain/models.js";
 import { readJsonFile, writeJsonFile } from "../../internal/persistence/store/store-runtime.js";
-import { isLegacyAmbiguousDoneState } from "../shared/legacy-task-state.js";
 
 const VALID_TASK_STATES = new Set<TaskState>([
   "PLANNED",
@@ -126,24 +125,6 @@ function normalizeTaskState(state: string | undefined): TaskState {
     throw new TaskboardStoreError(`Invalid task state: ${state}`, "INVALID_TASK_STATE");
   }
   return normalizedState;
-}
-
-function migrateLegacyTaskboard(state: TaskboardState): { state: TaskboardState; changed: boolean } {
-  let changed = false;
-  const nextTasks = state.tasks.map((task) => {
-    if (!isLegacyAmbiguousDoneState(task.state)) {
-      return task;
-    }
-    changed = true;
-    return {
-      ...task,
-      state: "DONE" as TaskState
-    };
-  });
-  return {
-    state: changed ? { ...state, updatedAt: new Date().toISOString(), tasks: nextTasks } : state,
-    changed
-  };
 }
 
 function normalizeLoadedTaskboard(state: TaskboardState): TaskboardState {
@@ -476,11 +457,7 @@ function recomputeParentStates(tasks: TaskRecord[]): boolean {
 
 export async function readTaskboard(paths: ProjectPaths, projectId: string): Promise<TaskboardState> {
   const rawState = await readJsonFile<TaskboardState>(paths.taskboardFile, defaultTaskboard(projectId));
-  const migrated = migrateLegacyTaskboard(rawState);
-  if (migrated.changed) {
-    await writeJsonFile(paths.taskboardFile, migrated.state);
-  }
-  return normalizeLoadedTaskboard(migrated.state);
+  return normalizeLoadedTaskboard(rawState);
 }
 
 export async function writeTaskboard(paths: ProjectPaths, state: TaskboardState): Promise<void> {

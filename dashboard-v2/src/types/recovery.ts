@@ -52,7 +52,6 @@ export interface RuntimeRecoveryItem {
   disabled_reason: string | null;
   risk: string | null;
   requires_confirmation: boolean;
-  latest_events: RuntimeRecoveryEventSummary[];
   recovery_attempts: RuntimeRecoveryAttemptPreview[];
 }
 

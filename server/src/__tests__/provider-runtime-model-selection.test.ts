@@ -7,8 +7,6 @@ function settingsWithProfile(model: string | undefined): RuntimeSettings {
   return {
     schemaVersion: "1.0",
     updatedAt: new Date().toISOString(),
-    codexCliCommand: "codex",
-    minimaxModel: model,
     providers: {
       codex: {
         cliCommand: "codex"

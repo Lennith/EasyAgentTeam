@@ -108,6 +108,12 @@ function stringifyResult(payload) {
       lines.push(`- ${item.refs.join(", ")} (required by ${item.method} ${item.pathRef})`);
     }
   }
+  if (payload.unmanaged_active_routes.length > 0) {
+    lines.push("unmanaged_active_routes:");
+    for (const item of payload.unmanaged_active_routes) {
+      lines.push(`- ${item.method} ${item.path}`);
+    }
+  }
   return lines.join("\n");
 }
 
@@ -120,6 +126,20 @@ async function main() {
   ]);
   const contract = JSON.parse(contractRaw);
   const endpoints = Array.isArray(contract.endpoints) ? contract.endpoints : [];
+  const managedRoutePrefixes = Array.isArray(contract.managedRoutePrefixes)
+    ? contract.managedRoutePrefixes.map((item) => String(item)).filter((item) => item.length > 0)
+    : [];
+  const ignoredManagedRoutes = new Set(
+    Array.isArray(contract.ignoredManagedRoutes)
+      ? contract.ignoredManagedRoutes
+          .map((item) => {
+            const method = String(item.method ?? "").toUpperCase();
+            const routePath = String(item.path ?? "");
+            return method && routePath ? `${method} ${routePath}` : null;
+          })
+          .filter(Boolean)
+      : []
+  );
   const routeSources = await Promise.all(routeFiles.map(async (filePath) => await fs.readFile(filePath, "utf8")));
   const routes = new Set(parseRoutes(appRaw));
   for (const routeSource of routeSources) {
@@ -131,7 +151,9 @@ async function main() {
   const missingRoutes = [];
   const docMissingRefs = [];
   const docMissingPaths = [];
+  const unmanagedActiveRoutes = [];
   const checks = [];
+  const managedEndpointKeys = new Set();
 
   for (const endpoint of endpoints) {
     const method = String(endpoint.method ?? "").toUpperCase();
@@ -140,6 +162,7 @@ async function main() {
       continue;
     }
     const key = `${method} ${routePath}`;
+    managedEndpointKeys.add(key);
     if (!routes.has(key)) {
       missingRoutes.push({ method, path: routePath, status: endpoint.status ?? "active" });
     }
@@ -171,6 +194,21 @@ async function main() {
     }
   }
 
+  if (managedRoutePrefixes.length > 0) {
+    for (const route of routes) {
+      const firstSpace = route.indexOf(" ");
+      const method = route.slice(0, firstSpace);
+      const routePath = route.slice(firstSpace + 1);
+      const inManagedScope = managedRoutePrefixes.some(
+        (prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`)
+      );
+      if (!inManagedScope || managedEndpointKeys.has(route) || ignoredManagedRoutes.has(route)) {
+        continue;
+      }
+      unmanagedActiveRoutes.push({ method, path: routePath });
+    }
+  }
+
   checks.push({
     id: "routes_exist_in_app",
     status: missingRoutes.length === 0 ? "PASS" : "FAIL",
@@ -192,6 +230,14 @@ async function main() {
         ? "all managed endpoint paths are documented"
         : `${docMissingPaths.length} endpoint path mention(s) missing in docs`
   });
+  checks.push({
+    id: "managed_routes_declared",
+    status: unmanagedActiveRoutes.length === 0 ? "PASS" : "FAIL",
+    reason:
+      unmanagedActiveRoutes.length === 0
+        ? "all active managed routes are declared in contract scope"
+        : `${unmanagedActiveRoutes.length} active managed route(s) missing from contract scope`
+  });
 
   const status = checks.every((item) => item.status === "PASS") ? "PASS" : "FAIL";
   const result = {
@@ -201,7 +247,8 @@ async function main() {
     checks,
     missing_routes: missingRoutes,
     doc_missing_refs: docMissingRefs,
-    doc_missing_paths: docMissingPaths
+    doc_missing_paths: docMissingPaths,
+    unmanaged_active_routes: unmanagedActiveRoutes
   };
 
   console.log(stringifyResult(result));
@@ -224,7 +271,8 @@ main().catch((error) => {
     ],
     missing_routes: [],
     doc_missing_refs: [],
-    doc_missing_paths: []
+    doc_missing_paths: [],
+    unmanaged_active_routes: []
   };
   console.log(stringifyResult(payload));
   process.exitCode = 1;

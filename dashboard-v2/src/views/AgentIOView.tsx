@@ -8,8 +8,8 @@ import type {
   EventRecord,
   AgentIOTimelineItem,
   SendMessageRequest
-} from "@/types";
-import { projectApi } from "@/services/api";
+} from "@/types/project";
+import { projectApi } from "@/services/api/project";
 import { ChevronDown, ChevronRight, Send, Loader } from "lucide-react";
 
 interface AgentIOViewProps {

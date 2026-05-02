@@ -1,7 +1,9 @@
 {
   "scope": "server-workflow",
   "version": "1.0",
-  "description": "Managed API scope for docs/code consistency checks (workflow + task/session/chat core).",
+  "description": "Managed API scope for docs/code consistency checks. Workflow entries must match the active server workflow route surface; project task/session/chat entries are kept as the shared task protocol peer surface.",
+  "managedRoutePrefixes": ["/api/workflow-orchestrator", "/api/workflow-templates", "/api/workflow-runs"],
+  "ignoredManagedRoutes": [],
   "endpoints": [
     {
       "method": "GET",
@@ -58,6 +60,12 @@
       "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
+      "method": "DELETE",
+      "path": "/api/workflow-runs/:run_id",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md"]
+    },
+    {
       "method": "POST",
       "path": "/api/workflow-runs/:run_id/start",
       "status": "active",
@@ -77,7 +85,85 @@
     },
     {
       "method": "GET",
+      "path": "/api/workflow-runs/:run_id/task-runtime",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/task-actions",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md"]
+    },
+    {
+      "method": "GET",
       "path": "/api/workflow-runs/:run_id/task-tree-runtime",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/workflow-runs/:run_id/task-tree",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/workflow-runs/:run_id/tasks/:task_id/detail",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/workflow-runs/:run_id/sessions",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/sessions",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/messages/send",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/workflow-runs/:run_id/agent-io/timeline",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/workflow-runs/:run_id/orchestrator/settings",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/workflow-runs/:run_id/orchestrator/settings",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/orchestrator/dispatch",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/agent-chat",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt",
       "status": "active",
       "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
@@ -88,16 +174,36 @@
       "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
+      "method": "GET",
+      "path": "/api/workflow-runs/:run_id/sessions/:session_id/recovery-attempts",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md"]
+    },
+    {
       "method": "POST",
       "path": "/api/workflow-runs/:run_id/sessions/:session_id/dismiss",
       "status": "active",
-      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
+      "docRefs": [
+        "docs/spec/server/workflow-runtime.api-spec.md",
+        "docs/spec/dashboard/workflow-ui.api-spec.md",
+        "docs/prd/server/orchestration-runtime.prd.md"
+      ]
     },
     {
       "method": "POST",
       "path": "/api/workflow-runs/:run_id/sessions/:session_id/repair",
       "status": "active",
-      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/prd/server/orchestration-runtime.prd.md"]
+      "docRefs": [
+        "docs/spec/server/workflow-runtime.api-spec.md",
+        "docs/spec/dashboard/workflow-ui.api-spec.md",
+        "docs/prd/server/orchestration-runtime.prd.md"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/workflow-runs/:run_id/sessions/:session_id/retry-dispatch",
+      "status": "active",
+      "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "POST",
