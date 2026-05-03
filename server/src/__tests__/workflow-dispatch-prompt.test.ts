@@ -19,6 +19,7 @@ test("workflow dispatch prompt includes team/shared workspace contract", async (
       taskState: "READY" | null;
       runtimeTasks: Array<{ taskId: string; state: string; blockedBy?: string[] }>;
       rolePrompt?: string;
+      providerId?: "codex" | "minimax" | "dpagent";
     }): string;
   };
 
@@ -51,7 +52,8 @@ test("workflow dispatch prompt includes team/shared workspace contract", async (
       { taskId: "task_a", state: "READY", blockedBy: [] },
       { taskId: "task_blocked", state: "BLOCKED_DEP", blockedBy: ["task_a"] }
     ],
-    rolePrompt: "Role: dev_agent"
+    rolePrompt: "Role: dev_agent",
+    providerId: "codex"
   });
 
   assert.match(prompt, /TeamWorkSpace=D:\\AgentWorkSpace\\DemoWorkflow/);
@@ -79,6 +81,7 @@ test("workflow dispatch prompt requires execution subtask before decomposition p
       taskState: "READY" | null;
       runtimeTasks: Array<{ taskId: string; state: string; blockedBy?: string[] }>;
       rolePrompt?: string;
+      providerId?: "codex" | "minimax" | "dpagent";
     }): string;
   };
 
@@ -112,7 +115,8 @@ test("workflow dispatch prompt requires execution subtask before decomposition p
     message: null,
     taskState: "READY",
     runtimeTasks: [{ taskId: "wf_engineering_decomposition", state: "READY", blockedBy: [] }],
-    rolePrompt: "Role: e2e_mgr_rd_lead"
+    rolePrompt: "Role: e2e_mgr_rd_lead",
+    providerId: "codex"
   });
 
   assert.match(prompt, /no execution subtask exists yet/i);
@@ -131,4 +135,57 @@ test("workflow dispatch prompt requires execution subtask before decomposition p
     prompt,
     /If the focus task is already a delegated execution subtask that you own, treat it as the execution unit/i
   );
+});
+
+test("workflow dispatch prompt is compact for MiniMax because system prompt carries stable contract", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-dispatch-prompt-"));
+  const service = createWorkflowOrchestratorService(tempRoot, createProviderRegistry()) as unknown as {
+    buildDispatchPrompt(input: {
+      run: WorkflowRunRecord;
+      role: string;
+      taskId: string | null;
+      dispatchKind: "task" | "message";
+      message: null;
+      taskState: "READY" | null;
+      runtimeTasks: Array<{ taskId: string; state: string; blockedBy?: string[] }>;
+      rolePrompt?: string;
+      providerId?: "codex" | "minimax" | "dpagent";
+    }): string;
+  };
+
+  const run = {
+    runId: "wf_prompt_run_03",
+    name: "Workflow Prompt Run",
+    description: "verify minimax compact prompt",
+    workspacePath: "D:\\AgentWorkSpace\\DemoWorkflow",
+    tasks: [
+      {
+        taskId: "task_a",
+        ownerRole: "dev_agent",
+        resolvedTitle: "Implement feature A",
+        parentTaskId: null,
+        dependencies: [],
+        acceptance: ["all tests pass"],
+        artifacts: ["src/featureA.ts"]
+      }
+    ]
+  } as unknown as WorkflowRunRecord;
+
+  const prompt = service.buildDispatchPrompt({
+    run,
+    role: "dev_agent",
+    taskId: "task_a",
+    dispatchKind: "task",
+    message: null,
+    taskState: "READY",
+    runtimeTasks: [{ taskId: "task_a", state: "READY", blockedBy: [] }],
+    rolePrompt: "Role: dev_agent",
+    providerId: "minimax"
+  });
+
+  assert.match(prompt, /stable TeamTool\/report\/focus rules are in the system prompt/i);
+  assert.match(prompt, /Focus task id \(this turn\): task_a/);
+  assert.doesNotMatch(prompt, /mcp__teamtool__task_report_done/);
+  assert.doesNotMatch(prompt, /Task report tool calls are/);
+  assert.doesNotMatch(prompt, /If a TeamTool call fails, quote error_code and next_action/i);
 });

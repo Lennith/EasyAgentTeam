@@ -3,8 +3,9 @@ import test from "node:test";
 import type { ProjectRecord, SessionRecord, TaskRecord } from "../domain/models.js";
 import { buildProjectDispatchPromptContext } from "../services/orchestrator/project/project-dispatch-prompt-context.js";
 import { buildProjectDispatchPrompt } from "../services/orchestrator/project/project-dispatch-prompt.js";
+import type { ProviderId } from "@autodev/agent-library";
 
-test("project dispatch prompt keeps routing snapshot, focus task, and discuss guide contract", () => {
+function buildProjectPrompt(provider: ProviderId): string {
   const project = {
     schemaVersion: "1.0",
     projectId: "project_alpha",
@@ -18,7 +19,7 @@ test("project dispatch prompt keeps routing snapshot, focus task, and discuss gu
     sessionId: "session_dev",
     projectId: "project_alpha",
     role: "dev",
-    provider: "minimax",
+    provider,
     status: "idle",
     createdAt: "2026-03-28T10:00:00.000Z",
     updatedAt: "2026-03-28T10:00:00.000Z",
@@ -89,12 +90,38 @@ test("project dispatch prompt keeps routing snapshot, focus task, and discuss gu
     allTasks: [task, dep]
   });
 
-  const prompt = buildProjectDispatchPrompt(promptContext);
+  return buildProjectDispatchPrompt(promptContext);
+}
+
+test("project dispatch prompt keeps routing snapshot, focus task, and discuss guide contract for Codex", () => {
+  const prompt = buildProjectPrompt("codex");
 
   assert.match(prompt, /## Routing Snapshot/);
   assert.match(prompt, /focus_task_id: task_focus/);
   assert.match(prompt, /focus_task_unresolved_dependencies: task_dep/);
   assert.match(prompt, /## Discuss Tool Usage Guide/);
+  assert.match(prompt, /mcp__teamtool__task_report_done/);
+  assert.match(prompt, /Shell output is never evidence that TeamTool is unavailable/);
   assert.match(prompt, /non-focus task reporting is allowed only when dependencies are already ready/i);
   assert.match(prompt, /never report IN_PROGRESS\/DONE for dependency-blocked tasks/i);
+});
+
+test("project dispatch prompt keeps minimum hard contract for DPAgent", () => {
+  const prompt = buildProjectPrompt("dpagent");
+
+  assert.match(prompt, /Provider prompt policy: dpagent/i);
+  assert.match(prompt, /mcp__teamtool__task_report_done/);
+  assert.match(prompt, /call the exact tool name directly/i);
+  assert.match(prompt, /focus task first/i);
+  assert.match(prompt, /never report IN_PROGRESS\/DONE/i);
+});
+
+test("project dispatch prompt is compact for MiniMax because system prompt carries stable contract", () => {
+  const prompt = buildProjectPrompt("minimax");
+
+  assert.match(prompt, /stable TeamTool\/report\/focus rules are in the system prompt/i);
+  assert.match(prompt, /focus task first/i);
+  assert.doesNotMatch(prompt, /TeamTool names below are already present in your runtime tool registry/i);
+  assert.doesNotMatch(prompt, /Do not probe TeamTool availability via Get-Command/i);
+  assert.doesNotMatch(prompt, /mcp__teamtool__task_report_done/);
 });

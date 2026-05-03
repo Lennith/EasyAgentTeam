@@ -182,6 +182,7 @@ export async function runWorkflowDispatchProviderLaunch(
     message: context.input.message,
     taskState: runtimeTask?.state ?? null,
     runtimeTasks: runtime.tasks,
+    providerId: context.prepared.providerId,
     rolePrompt: context.prepared.rolePrompt
   });
   const prompt = buildWorkflowDispatchPrompt(promptContext);

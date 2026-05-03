@@ -575,7 +575,7 @@ export class CodexSessionRuntime {
     let taskCompleteLastAgentMessage: string | null = null;
     let taskCompleteTerminationResult: ProcessTreeTerminationResult | null = null;
     let taskCompleteWatchdog: NodeJS.Timeout | null = null;
-    let providerErrorMessage: string | null = null;
+    let providerErrorMessage = "";
 
     const emitObservation = (kind: string, details?: Record<string, unknown>) => {
       const callback = input.callback?.onProviderObservation;

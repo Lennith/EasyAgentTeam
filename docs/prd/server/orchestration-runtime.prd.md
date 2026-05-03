@@ -54,6 +54,7 @@
 - timeout scanner 自身只负责加载数据、执行 close / terminate、关闭 dispatch / run、释放 in-flight gate 与写审计；是否应当关闭由 `project-session-timeout-evidence` / `workflow-session-timeout-evidence` 纯函数模块决策，并返回 `should_close`、protection 标记、`evidence_event_id` 与稳定 `decision_reason`
 - project / workflow 的 timeout soft-close、dismiss 与 repair 在把 dispatch 收口到非运行态后，必须同步释放对应 session 的内存态 in-flight dispatch gate；一旦 dispatch 已被事件流判定 closed，就不允许残留 gate 继续把后续 reminder redispatch 或手动 retry 错误挡成 `session_busy`
 - project discuss 消息在路由到目标角色前必须做 task 绑定归一：如果回复消息误绑到发送方已完成任务，但目标角色存在依赖该任务的非终态焦点任务，则消息必须重绑到目标角色的那个焦点任务，确保后续 redispatch 能按 active focus task 选中该 discuss reply
+- 编排 dispatch prompt 必须按 provider 注入能力分层：MiniMax 可依赖真实 `systemPrompt` 承载完整稳定契约；Codex 与 DPAgent 不依赖可改 system prompt，dispatch/user prompt 必须保留 TeamTool、task report、focus task 与 dependency-ready 的最小强约束。重复的 TeamTool alias、上报、失败恢复与依赖约束必须由共享 prompt contract 片段生成，避免在 AGENTS.md、system prompt 与 dispatch message 中手写多份近似规则。
 - 工程分解阶段在首次收敛前必须先产出至少一个非 manager 执行子任务；只有分解结果已经落成可执行任务树时，父阶段才能报告完成
 - 工程分解阶段生成的子任务只允许覆盖当前阶段可立即推进的执行工作，不允许把依赖未来 phase 的 QA / release 工作提前挂到当前阶段子树里
 

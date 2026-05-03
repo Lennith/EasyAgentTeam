@@ -1,9 +1,34 @@
 import type { WorkflowDispatchPromptContext } from "./workflow-dispatch-prompt-context.js";
 import {
-  buildTeamToolAliasGuidance,
-  formatTeamToolNameWithCodexAlias,
-  formatTeamToolNamesWithCodexAliases
-} from "../../teamtool-contract.js";
+  buildFocusTaskExecutionContractLines,
+  buildProviderDispatchContractLines,
+  buildTaskSubtreeContractLines
+} from "../../prompt-contract.js";
+
+function buildWorkflowExecutionContract(context: WorkflowDispatchPromptContext): string[] {
+  const decompositionContract = context.isDecompositionPhase
+    ? context.requiresExecutionSubtaskBeforeDone
+      ? "This focus task is a decomposition phase and no execution subtask exists yet. Before reporting DONE, create at least one concrete non-manager execution subtask under this focus task."
+      : "This focus task is a decomposition phase. Only create a new subtask if there is still an immediate execution gap that must be delegated from this phase."
+    : "This focus task is not a decomposition phase. Do not call task_create_assign in this turn.";
+  const contractLines = [
+    "Execute immediately and produce concrete progress/artifacts.",
+    "Shared deliverables must be written under TeamWorkSpace/docs/** or TeamWorkSpace/src/** (not only inside YourWorkspace).",
+    "Use TeamTool task actions from the runtime tool registry only (task_create_assign / task_report_* / discuss_*).",
+    ...buildFocusTaskExecutionContractLines(),
+    "If blocked, report BLOCKED_DEP with concrete blockers.",
+    "On completion, report DONE for the phase task, not only subtasks.",
+    ...buildTaskSubtreeContractLines(),
+    ...buildProviderDispatchContractLines(context.providerId),
+    decompositionContract,
+    "The required execution subtask must use the focus task as parent_task_id and include explicit owner_role, dependencies, acceptance, and artifacts.",
+    "For decomposition phases, only create immediate execution subtasks that can advance from the current phase inputs. Do not create QA/release subtasks that depend on future phase tasks.",
+    "If the focus task is not explicitly a planning/decomposition task, execute directly on the focus task and report progress there. Do not delegate through new subtasks.",
+    "Non-decomposition design/specification phases must hand off downstream work through shared artifacts and discuss messages, not by creating execution subtasks for later-phase owners.",
+    "If the focus task is already a delegated execution subtask that you own, treat it as the execution unit. Do not create another self-owned child subtask underneath it."
+  ];
+  return contractLines.map((line, index) => `${index + 1}) ${line}`);
+}
 
 export function buildWorkflowDispatchPrompt(context: WorkflowDispatchPromptContext): string {
   const rolePrompt = context.rolePrompt?.trim() ?? "";
@@ -30,34 +55,7 @@ export function buildWorkflowDispatchPrompt(context: WorkflowDispatchPromptConte
       : "Task context: (none)",
     rolePrompt ? `Role system prompt:\n${rolePrompt}` : "",
     "Execution contract:",
-    "1) Execute immediately and produce concrete progress/artifacts.",
-    "2) Shared deliverables must be written under TeamWorkSpace/docs/** or TeamWorkSpace/src/** (not only inside YourWorkspace).",
-    "3) Use TeamTool task actions from the runtime tool registry only (task_create_assign / task_report_* / discuss_*).",
-    "4) Focus task first: prioritize this-turn focus task over other visible tasks.",
-    "5) Non-focus task report is allowed only when dependencies are already satisfied; treat it as non-preferred side work.",
-    "6) Never report IN_PROGRESS/DONE for tasks whose dependencies are not ready.",
-    "7) If report fails due to dependencies, wait for dependency completion signal/reminder and then retry; retract or downgrade conflicting premature completion claims to draft.",
-    "8) If blocked, report BLOCKED_DEP with concrete blockers.",
-    "9) On completion, report DONE for the phase task, not only subtasks.",
-    "10) If task_subtree is present, treat it as the latest descendant convergence snapshot for the focus task.",
-    "11) Use task_subtree to decide whether to wait on descendants or report new parent progress.",
-    `12) Provider alias rule: ${buildTeamToolAliasGuidance()}`,
-    `13) Task report tool calls are ${formatTeamToolNamesWithCodexAliases(["task_report_in_progress", "task_report_done", "task_report_block"])}.`,
-    `14) Discuss tool calls are ${formatTeamToolNamesWithCodexAliases(["discuss_request", "discuss_reply", "discuss_close"])}.`,
-    `15) Route discovery tool is ${formatTeamToolNameWithCodexAlias("route_targets_get")}.`,
-    "16) Only call task_report_* for tasks owned by your role or created by your role.",
-    "17) If task_create_assign returns TASK_EXISTS, do not retry the same create call. Inspect the existing task first and recover via next_action.",
-    "18) If a TeamTool call fails, quote error_code and next_action, then recover from next_action. Do not describe the tool as unavailable.",
-    context.isDecompositionPhase
-      ? context.requiresExecutionSubtaskBeforeDone
-        ? "19) This focus task is a decomposition phase and no execution subtask exists yet. Before reporting DONE, create at least one concrete non-manager execution subtask under this focus task."
-        : "19) This focus task is a decomposition phase. Only create a new subtask if there is still an immediate execution gap that must be delegated from this phase."
-      : "19) This focus task is not a decomposition phase. Do not call task_create_assign in this turn.",
-    "20) The required execution subtask must use the focus task as parent_task_id and include explicit owner_role, dependencies, acceptance, and artifacts.",
-    "21) For decomposition phases, only create immediate execution subtasks that can advance from the current phase inputs. Do not create QA/release subtasks that depend on future phase tasks.",
-    "22) If the focus task is not explicitly a planning/decomposition task, execute directly on the focus task and report progress there. Do not delegate through new subtasks.",
-    "23) Non-decomposition design/specification phases must hand off downstream work through shared artifacts and discuss messages, not by creating execution subtasks for later-phase owners.",
-    "24) If the focus task is already a delegated execution subtask that you own, treat it as the execution unit. Do not create another self-owned child subtask underneath it."
+    ...buildWorkflowExecutionContract(context)
   ]
     .filter((line) => line.length > 0)
     .join("\n\n");

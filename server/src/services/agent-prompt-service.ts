@@ -1,5 +1,5 @@
 import { getDiscussPromptPolicyText } from "./discuss-policy-service.js";
-import { TEAM_TOOL_NAMES, buildTeamToolAliasGuidance, formatTeamToolNameWithCodexAlias } from "./teamtool-contract.js";
+import { buildSystemRuntimeContractLines } from "./prompt-contract.js";
 
 export const BASE_PROMPT_VERSION = "3.1";
 const discussPolicy = getDiscussPromptPolicyText();
@@ -8,29 +8,7 @@ export const BASE_PROMPT_TEXT = [
   "You are an agent in AutoDevelopFramework.",
   "",
   "Runtime contract:",
-  "1) Read `./AGENTS.md` first for runtime rules and team coordination.",
-  "2) Deliverables must be file-based, not chat-only:",
-  "   - TeamWorkSpace/docs/** for requirements/plans/reports",
-  "   - TeamWorkSpace/src/** for implementation",
-  "3) Team communication is manager-routed only; do not bypass with direct teammate chat.",
-  "4) Team collaboration must use TeamTool tool calls from the runtime tool registry (not custom scripts):",
-  ...TEAM_TOOL_NAMES.map((name) => `   - ${formatTeamToolNameWithCodexAlias(name)}`),
-  `5) ${buildTeamToolAliasGuidance()}`,
-  "6) TeamTool entries are model-callable tools, not shell commands, not local CLI commands, and not workspace files.",
-  "7) Do not use Get-Command, which, file search, or MCP resource browsing to discover TeamTool. If the task needs TeamTool, call the exact exposed tool name directly.",
-  "8) Shell output is never evidence that TeamTool is unavailable. Only an actual failed ToolCall result counts as unavailability evidence.",
-  "9) A natural-language completion/blocker message without the corresponding task_report_* ToolCall is invalid and will be treated as unfinished work.",
-  "10) If the task is complete, call the exact task_report_done tool before writing any final summary. If that ToolCall fails, quote its returned error_code and next_action.",
-  "11) Only call task_report_* for tasks owned by your role or created by your role.",
-  "12) If task_create_assign returns TASK_EXISTS, do not retry the same create call. Inspect the existing task first and recover via next_action.",
-  "13) If a TeamTool call fails, recover using next_action. Do not claim the tool is unavailable unless an actual ToolCall failed.",
-  '14) If your session has an active task, write an initial ./progress.md entry and call task_report_in_progress({"content":"Started <task>","progress_file":"./progress.md"}) before long-running shell work, dependency downloads, full builds, or broad validation loops.',
-  "15) Bound long-running external validation. If a build/test depends on missing SDKs, network downloads, or environment repair, record the blocker/risk in progress.md and report the task outcome instead of repeatedly changing environment/toolchain settings.",
-  '16) Exact progress examples: task_report_in_progress({"content":"Started <task>","progress_file":"./progress.md"}) and task_report_done({"task_report_path":"./progress.md"}). If your runtime exposes Codex MCP aliases instead, use the matching mcp__teamtool__* exposed name.',
-  "17) Discuss policy:",
-  `   - ${discussPolicy.oneRequestPerDialogue}`,
-  `   - ${discussPolicy.roundLimit}`,
-  `   - ${discussPolicy.roundEscalation}`
+  ...buildSystemRuntimeContractLines(discussPolicy)
 ].join("\n");
 
 export interface BuiltInAgentSeed {

@@ -1,3 +1,4 @@
+import type { ProviderId } from "@autodev/agent-library";
 import { listAgents } from "../../../data/repository/catalog/agent-repository.js";
 import {
   getRuntimeSettings,
@@ -21,7 +22,7 @@ export interface PreparedWorkflowDispatchLaunch {
   requestedSkillIds: string[];
   importedSkillPrompt: { segments: string[] };
   settings: RuntimeSettings;
-  providerId: string;
+  providerId: ProviderId;
   model?: string;
   reasoningEffort?: string;
   tokenLimit: number;

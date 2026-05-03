@@ -105,6 +105,10 @@ test("runtime prompt and workspace guide switch by host platform", () => {
     providerId: "codex",
     hostPlatform: "darwin"
   }).systemPrompt;
+  const minimaxPrompt = composeSystemPrompt({
+    providerId: "minimax",
+    hostPlatform: "win32"
+  }).systemPrompt;
 
   assert.equal(windowsPrompt.includes("Use PowerShell/CMD syntax only."), true);
   assert.equal(windowsPrompt.includes("Do not use bash/sh/zsh syntax."), true);
@@ -118,6 +122,9 @@ test("runtime prompt and workspace guide switch by host platform", () => {
   assert.equal(linuxPrompt.includes("Do not use PowerShell/CMD syntax."), true);
   assert.equal(linuxPrompt.includes("mcp__teamtool__route_targets_get"), true);
   assert.equal(macPrompt.includes("macOS support is design-compatible"), true);
+  assert.equal(minimaxPrompt.includes("Provider policy: MiniMax runtime."), true);
+  assert.equal(minimaxPrompt.includes("mcp__teamtool__task_report_done"), true);
+  assert.equal(minimaxPrompt.includes("before long-running shell work"), true);
 
   const windowsGuide = buildAgentWorkspaceAgentsMd("win32");
   const linuxGuide = buildAgentWorkspaceAgentsMd("linux");

@@ -1,3 +1,4 @@
+import type { ProviderId } from "@autodev/agent-library";
 import type {
   TaskSubtreePayload,
   WorkflowManagerToAgentMessage,
@@ -28,6 +29,7 @@ export interface WorkflowDispatchPromptContext {
   dependencyStatus: string;
   isDecompositionPhase: boolean;
   requiresExecutionSubtaskBeforeDone: boolean;
+  providerId: ProviderId;
   rolePrompt?: string;
 }
 
@@ -39,6 +41,7 @@ export interface BuildWorkflowDispatchPromptContextInput {
   message: WorkflowManagerToAgentMessage | null;
   taskState: WorkflowTaskState | null;
   runtimeTasks: WorkflowTaskRuntimeRecord[];
+  providerId?: ProviderId;
   rolePrompt?: string;
 }
 
@@ -157,6 +160,7 @@ export function buildWorkflowDispatchPromptContext(
     dependencyStatus,
     isDecompositionPhase,
     requiresExecutionSubtaskBeforeDone: isDecompositionPhase && descendantTaskIds.length === 0,
+    providerId: input.providerId ?? "minimax",
     rolePrompt: input.rolePrompt
   };
 }

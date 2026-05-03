@@ -108,6 +108,7 @@ export class WorkflowOrchestratorService {
     message: WorkflowManagerToAgentMessage | null;
     taskState: WorkflowTaskState | null;
     runtimeTasks: WorkflowTaskRuntimeRecord[];
+    providerId?: "codex" | "minimax" | "dpagent";
     rolePrompt?: string;
   }): string {
     return buildWorkflowDispatchPrompt(buildWorkflowDispatchPromptContext(input));

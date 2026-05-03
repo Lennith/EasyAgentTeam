@@ -4,7 +4,7 @@ import type { ProjectRecord } from "../domain/models.js";
 import { ensureDirectory } from "../utils/file-utils.js";
 import type { HostPlatform } from "../runtime-platform.js";
 import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
-import { TEAM_TOOL_NAMES, buildTeamToolAliasGuidance, formatTeamToolNameWithCodexAlias } from "./teamtool-contract.js";
+import { buildAgentWorkspaceStartupChecklistLines, buildAgentWorkspaceTaskProgressLines } from "./prompt-contract.js";
 
 const AGENTS_DIR = "Agents";
 const WORKSPACE_TEMPLATE_DIR = path.join("TeamTools", "templates", "agent-workspace");
@@ -49,29 +49,9 @@ export function buildAgentWorkspaceAgentsMd(hostPlatform?: HostPlatform): string
   return [
     "# AGENTS Runtime Guide",
     "",
-    "## Startup Checklist",
-    runtimeGuide,
-    "1. Read `./role.md` for your role-specific objective and output contract.",
-    "2. Read `../TEAM.md` to understand current team members.",
-    "3. Use TeamTool built-in ToolCalls directly from the runtime tool registry:",
-    ...TEAM_TOOL_NAMES.map((name) => `   - ${formatTeamToolNameWithCodexAlias(name)}`),
-    `4. ${buildTeamToolAliasGuidance()}`,
-    "5. These TeamTool entries are model-callable tools, not shell commands, not local CLI commands, and not workspace files.",
-    "6. Do not use Get-Command, which, file search, or MCP resource browsing to check whether TeamTool exists. If you need one, call the exact tool name directly.",
-    "7. All $env values are set in your runtime.",
+    ...buildAgentWorkspaceStartupChecklistLines(runtimeGuide),
     "",
-    "## Task Progress Discipline (CRITICAL)",
-    "- If you have an assigned task (taskId in your session), you MUST report progress via built-in ToolCalls: task_report_in_progress, task_report_done, task_report_block.",
-    "- discuss_request/discuss_reply/discuss_close are for discuss flow only; they do NOT count as task progress.",
-    "- Failure to report task progress will cause task to remain in 'granted' state indefinitely.",
-    "- A natural-language completion/blocker message without the corresponding ToolCall is invalid and will be treated as unfinished work.",
-    "- Shell output is never evidence that TeamTool is unavailable. Only an actual failed ToolCall result counts as unavailability evidence.",
-    "- Before writing any final completion/blocker summary, call the required TeamTool first. If the ToolCall fails, quote its returned error_code and next_action instead of inventing a missing-tool explanation.",
-    "- Only call task_report_* for tasks owned by your role or created by your role.",
-    "- If task_create_assign returns TASK_EXISTS, do not retry the same create call. Inspect the existing task first and recover via next_action.",
-    "- If your session has an active task, write an initial `./progress.md` entry and call `task_report_in_progress` before long-running shell work, dependency downloads, full builds, or broad validation loops.",
-    "- Bound long-running external validation. If a build/test depends on missing SDKs, network downloads, or environment repair, record the blocker/risk in `progress.md` and report the task outcome instead of repeatedly changing environment/toolchain settings.",
-    '- Exact progress examples: `task_report_in_progress({"content":"Started <task>","progress_file":"./progress.md"})` and `task_report_done({"task_report_path":"./progress.md"})`. If your runtime exposes Codex MCP aliases instead, use the matching `mcp__teamtool__*` exposed name.',
+    ...buildAgentWorkspaceTaskProgressLines(),
     "",
     "## Error Handling (CRITICAL)",
     "- When a ToolCall fails, ALWAYS check the `error_code` field in the JSON output.",
