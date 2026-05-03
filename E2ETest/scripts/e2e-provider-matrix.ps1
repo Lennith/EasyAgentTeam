@@ -301,7 +301,8 @@ function Resolve-E2ERoleModelMatrix {
 function Assert-E2EMixedProviderBaseline {
   param(
     [Parameter(Mandatory = $true)][object]$ResolvedMatrix,
-    [string]$CaseId = "e2e-case"
+    [string]$CaseId = "e2e-case",
+    [object[]]$ExpectedProviders = @("codex", "minimax")
   )
 
   if ([string]$ResolvedMatrix.mode -eq "forced_provider") {
@@ -309,9 +310,17 @@ function Assert-E2EMixedProviderBaseline {
   }
 
   $providers = @($ResolvedMatrix.providers | ForEach-Object { Normalize-E2EProviderId -Raw $_ } | Sort-Object -Unique)
-  $expected = @("codex", "minimax")
+  $expected = @(
+    $ExpectedProviders |
+      Where-Object { $null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_) } |
+      ForEach-Object { Normalize-E2EProviderId -Raw $_ } |
+      Sort-Object -Unique
+  )
+  if ($expected.Count -eq 0) {
+    $expected = @("codex", "minimax")
+  }
   if (($providers.Count -ne $expected.Count) -or (@($providers | Where-Object { $expected -notcontains $_ }).Count -gt 0)) {
-    throw ("{0} must resolve to the mixed baseline providers codex,minimax. actual={1}" -f $CaseId, ($providers -join ","))
+    throw ("{0} must resolve to the mixed baseline providers {1}. actual={2}" -f $CaseId, ($expected -join ","), ($providers -join ","))
   }
 }
 

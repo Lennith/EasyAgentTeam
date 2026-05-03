@@ -105,11 +105,20 @@ export function registerWorkflowAgentChatRoutes(app: express.Application, contex
   });
 
   app.post("/api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt", async (req, res, next) => {
+    const runId = req.params.run_id;
     const sessionId = req.params.sessionId;
     try {
       const body = req.body as Record<string, unknown>;
       const preferredProviderId = readProviderIdField(body, "provider_id", "minimax");
-      const providerCandidates: ProviderId[] = Array.from(new Set([preferredProviderId, "minimax", "codex"]));
+      const sessions = await workflowOrchestrator.listRunSessions(runId);
+      const existingSession = sessions.items.find((item) => item.sessionId === sessionId);
+      const providerCandidates: ProviderId[] = Array.from(
+        new Set(
+          [existingSession?.provider, preferredProviderId, "dpagent", "minimax", "codex"].filter(
+            (item): item is ProviderId => Boolean(item)
+          )
+        )
+      );
       let cancelled = false;
       for (const providerId of providerCandidates) {
         if (providerRegistry.cancelSession(providerId, sessionId)) {

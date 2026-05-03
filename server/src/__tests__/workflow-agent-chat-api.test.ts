@@ -3,7 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
+import express from "express";
 import { createApp } from "../app.js";
+import { registerWorkflowAgentChatRoutes } from "../routes/workflow/agent-chat-routes.js";
 import { startTestHttpServer } from "./helpers/http-test-server.js";
 
 test("workflow agent-chat SSE endpoint emits stream events and interrupt endpoint is available", async () => {
@@ -89,6 +91,53 @@ test("workflow agent-chat SSE endpoint emits stream events and interrupt endpoin
     const interruptPayload = (await interruptResp.json()) as { success?: boolean; cancelled?: boolean };
     assert.equal(interruptPayload.success, true);
     assert.equal(typeof interruptPayload.cancelled, "boolean");
+  } finally {
+    await server.close();
+  }
+});
+
+test("workflow agent-chat interrupt uses stored DPAgent provider when provider_id is omitted", async () => {
+  const app = express();
+  app.use(express.json());
+
+  const cancelCalls: Array<{ providerId: string | undefined; sessionId: string }> = [];
+  registerWorkflowAgentChatRoutes(app, {
+    dataRoot: "C:\\memory",
+    providerRegistry: {
+      cancelSession: (providerId: string | undefined, targetSessionId: string) => {
+        cancelCalls.push({ providerId, sessionId: targetSessionId });
+        return providerId === "dpagent" && targetSessionId === "wfchat-session-dpagent";
+      }
+    },
+    workflowOrchestrator: {
+      listRunSessions: async () => ({
+        runId: "run-dpagent",
+        items: [
+          {
+            sessionId: "wfchat-session-dpagent",
+            role: "lead",
+            status: "running",
+            provider: "dpagent"
+          }
+        ]
+      })
+    }
+  } as any);
+
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+  const fetch = globalThis.fetch;
+
+  try {
+    const interruptResp = await fetch(
+      `${baseUrl}/api/workflow-runs/run-dpagent/agent-chat/wfchat-session-dpagent/interrupt`,
+      { method: "POST" }
+    );
+    assert.equal(interruptResp.status, 200);
+    const interruptPayload = (await interruptResp.json()) as { success?: boolean; cancelled?: boolean };
+    assert.equal(interruptPayload.success, true);
+    assert.equal(interruptPayload.cancelled, true);
+    assert.deepEqual(cancelCalls, [{ providerId: "dpagent", sessionId: "wfchat-session-dpagent" }]);
   } finally {
     await server.close();
   }

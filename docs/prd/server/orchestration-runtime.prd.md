@@ -22,6 +22,7 @@
 - project / workflow 都提供 scope 内 recovery 视图所需的会话恢复读模型，围绕 session、当前任务、最近失败、cooldown 与最近恢复审计片段聚合恢复信息
 - Recovery Center 的可操作性由后端统一 action policy 决定，不允许前端仅凭 session.status 自行推导 `dismiss` / `repair`
 - project / workflow 都支持手动 dismiss、repair 与 retry-dispatch，并且对齐到同一套恢复语义：dismiss 终止当前运行并清空当前任务，repair 只允许恢复到受 policy 允许的 `idle` 或 `blocked`，retry-dispatch 只允许在 `idle`、非 cooldown、具备 authoritative failure anchor、authoritative role mapping 仍匹配且本地进程状态已确认不再运行的 session 上触发
+- workflow `agent-chat/:sessionId/interrupt` 在请求未显式携带 `provider_id` 时，必须优先使用已登记 session 的 provider 取消运行；只有查不到 session provider 时，才允许回退到 provider 候选扫描，避免 `dpagent` 会话因默认按 `minimax/codex` 取消而无法被 UI 中断
 - 所有 `requires_confirmation=true` 的 recovery command 都必须显式携带确认字段；缺少确认时返回稳定错误，而不是隐式执行高风险操作
 - dismiss / repair / retry-dispatch 的 command contract 由后端统一定义；route 只做请求解析与调用，不再各自拼装恢复规则
 - retry-dispatch command 采用 mandatory optimistic guard：公开 route 继续兼容 snake_case / camelCase 字段别名，但 command service 必须要求 `expected_status='idle'`、`expected_role_mapping='authoritative'`，并且至少携带 `expected_last_failure_event_id` 或 `expected_last_failure_dispatch_id`；fresh session 仍有 `currentTaskId` 时还必须携带 `expected_current_task_id`

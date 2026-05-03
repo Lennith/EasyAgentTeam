@@ -31,6 +31,7 @@
 - `POST /api/workflow-runs/:run_id/orchestrator/dispatch`
 - `POST /api/workflow-runs/:run_id/agent-chat`
 - `POST /api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt`
+  - 当请求未携带 `provider_id` 时，后端必须优先读取已登记 session 的 `provider` 执行取消；若 session 不存在或 provider 缺失，才允许回退到 provider 候选扫描，避免 `dpagent` 会话被遗漏
 - `GET /api/workflow-runs/:run_id/sessions`
 - `POST /api/workflow-runs/:run_id/sessions`
 - `POST /api/workflow-runs/:run_id/sessions/:session_id/dismiss`

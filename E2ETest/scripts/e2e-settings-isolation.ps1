@@ -130,6 +130,60 @@ function New-E2ESettingsIsolationPlan {
     -ClearMiniMaxSettings:$ClearMiniMaxSettings.IsPresent
 }
 
+function Test-E2ESettingsIsolationSensitiveAuditKey {
+  param([string]$Name = "")
+
+  return $Name -match "(?i)(api.*key|apikey|token|secret|password|credential)"
+}
+
+function Redact-E2ESettingsIsolationAuditValue {
+  param([object]$Value)
+
+  if ($null -eq $Value) {
+    return $null
+  }
+  if ($Value -is [string] -and [string]::IsNullOrWhiteSpace($Value)) {
+    return ""
+  }
+  return "***redacted***"
+}
+
+function Copy-E2ESettingsIsolationAuditValue {
+  param(
+    [object]$Value,
+    [string]$Key = ""
+  )
+
+  if ($null -eq $Value) {
+    return $null
+  }
+  if (Test-E2ESettingsIsolationSensitiveAuditKey -Name $Key) {
+    return Redact-E2ESettingsIsolationAuditValue -Value $Value
+  }
+  if ($Value -is [System.Collections.IDictionary]) {
+    $copy = [ordered]@{}
+    foreach ($entry in $Value.GetEnumerator()) {
+      $copy[[string]$entry.Key] = Copy-E2ESettingsIsolationAuditValue -Value $entry.Value -Key ([string]$entry.Key)
+    }
+    return $copy
+  }
+  if ($Value -is [pscustomobject]) {
+    $copy = [ordered]@{}
+    foreach ($property in $Value.PSObject.Properties) {
+      $copy[$property.Name] = Copy-E2ESettingsIsolationAuditValue -Value $property.Value -Key $property.Name
+    }
+    return $copy
+  }
+  if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+    $items = @()
+    foreach ($item in $Value) {
+      $items += ,(Copy-E2ESettingsIsolationAuditValue -Value $item -Key $Key)
+    }
+    return $items
+  }
+  return $Value
+}
+
 function Get-E2ESettingsIsolationAuditPayload {
   param(
     [object]$Plan,
@@ -150,12 +204,12 @@ function Get-E2ESettingsIsolationAuditPayload {
     effective_minimax_runtime_model = $State.effective_minimax_runtime_model
     changed_keys = @($State.changed_keys)
     reasons = @($State.reasons)
-    patch = $State.patch
-    restore_patch = $State.restore_patch
+    patch = Copy-E2ESettingsIsolationAuditValue -Value $State.patch
+    restore_patch = Copy-E2ESettingsIsolationAuditValue -Value $State.restore_patch
     restore_fallback_keys = @($State.restore_fallback_keys)
-    before = $State.before
-    after_apply = $State.after_apply
-    after_restore = $State.after_restore
+    before = Copy-E2ESettingsIsolationAuditValue -Value $State.before
+    after_apply = Copy-E2ESettingsIsolationAuditValue -Value $State.after_apply
+    after_restore = Copy-E2ESettingsIsolationAuditValue -Value $State.after_restore
     applied = [bool]$State.applied
     applied_at = $State.applied_at
     apply_verified = [bool]$State.apply_verified

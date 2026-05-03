@@ -36,3 +36,12 @@ test("readJsonFile retries transient truncated content", async () => {
   const result = await readJsonFile<{ ok: boolean }>(target, { ok: false });
   assert.equal(result.ok, true);
 });
+
+test("readJsonFile accepts files with a leading UTF-8 BOM", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-file-utils-json-bom-"));
+  const target = path.join(tempRoot, "state.json");
+  await writeFile(target, '\ufeff{"ok":true}\n', "utf8");
+
+  const result = await readJsonFile<{ ok: boolean }>(target, { ok: false });
+  assert.equal(result.ok, true);
+});

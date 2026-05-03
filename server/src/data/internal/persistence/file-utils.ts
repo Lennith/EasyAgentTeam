@@ -56,6 +56,10 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function stripLeadingBom(raw: string): string {
+  return raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+}
+
 export async function ensureDirectory(targetDir: string): Promise<void> {
   await ensureStorageRecoveryForPaths([targetDir]);
   const active = getActiveStorageTransaction();
@@ -87,7 +91,7 @@ export async function readJsonFile<T>(targetFile: string, fallback: T): Promise<
   const pending = getActiveTransactionPendingFileContent(targetFile);
   if (pending !== undefined) {
     try {
-      return JSON.parse(pending) as T;
+      return JSON.parse(stripLeadingBom(pending)) as T;
     } catch {
       return fallback;
     }
@@ -95,7 +99,7 @@ export async function readJsonFile<T>(targetFile: string, fallback: T): Promise<
   for (let attempt = 0; attempt < JSON_READ_RETRY_ATTEMPTS; attempt += 1) {
     try {
       const raw = await withFileAccessLock(targetFile, () => fs.readFile(targetFile, "utf8"));
-      return JSON.parse(raw) as T;
+      return JSON.parse(stripLeadingBom(raw)) as T;
     } catch (error) {
       const known = error as NodeJS.ErrnoException;
       if (known.code === "ENOENT") {
@@ -154,7 +158,8 @@ export async function readJsonlLines<T>(targetFile: string): Promise<T[]> {
   for (let attempt = 0; attempt < JSON_READ_RETRY_ATTEMPTS; attempt += 1) {
     try {
       const raw = await withFileAccessLock(targetFile, () => fs.readFile(targetFile, "utf8"));
-      const rawLines = raw.split("\n");
+      const normalizedRaw = stripLeadingBom(raw);
+      const rawLines = normalizedRaw.split("\n");
       const parsed: T[] = [];
       let parseError: unknown = null;
       let recoverablePartialTail = false;
@@ -169,7 +174,7 @@ export async function readJsonlLines<T>(targetFile: string): Promise<T[]> {
         } catch (error) {
           const isLastLine =
             i === rawLines.length - 1 || (i === rawLines.length - 2 && rawLines[rawLines.length - 1] === "");
-          recoverablePartialTail = isLastLine && !raw.endsWith("\n") && isJsonSyntaxError(error);
+          recoverablePartialTail = isLastLine && !normalizedRaw.endsWith("\n") && isJsonSyntaxError(error);
           parseError = error;
           break;
         }
@@ -203,7 +208,7 @@ export async function readJsonlLines<T>(targetFile: string): Promise<T[]> {
 }
 
 function parseJsonlLinesFromRaw<T>(raw: string): T[] {
-  const rawLines = raw.split("\n");
+  const rawLines = stripLeadingBom(raw).split("\n");
   const parsed: T[] = [];
   for (const rawLine of rawLines) {
     const line = rawLine.trim();

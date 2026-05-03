@@ -4,6 +4,7 @@ import {
   buildCodexSessionArgs,
   isCodexTaskCompleteSignal,
   normalizeCodexToolResultItem,
+  readCodexProviderErrorMessage,
   resolveCodexToolName
 } from "../services/codex-session-runtime.js";
 
@@ -106,4 +107,15 @@ test("codex session runtime detects task_complete signal from nested payload/ite
 
   assert.equal(nestedPayloadSignal, true);
   assert.equal(nestedItemSignal, true);
+});
+
+test("codex session runtime reads provider error JSONL messages", () => {
+  const message = readCodexProviderErrorMessage({
+    type: "error",
+    message:
+      "DPAgent backend connection closed before completion: code=1006; thread_id=session-1; messages=12; last_message_type=step"
+  });
+
+  assert.match(String(message), /DPAgent backend connection closed/);
+  assert.match(String(message), /thread_id=session-1/);
 });

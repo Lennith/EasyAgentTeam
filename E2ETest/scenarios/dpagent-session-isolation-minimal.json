@@ -1,0 +1,108 @@
+{
+  "scenario_id": "dpagent_session_isolation_minimal_v1",
+  "template_id": "e2e_dpagent_session_isolation_minimal_template_v1",
+  "workflow_name": "E2E DPAgent Session Isolation Minimal",
+  "primary_goal": "Run five simple DPAgent-owned workflow tasks and verify each role gets a distinct provider session with no role-prompt marker leakage.",
+  "roles": {
+    "planner": "dpagent_iso_planner",
+    "writer": "dpagent_iso_writer",
+    "reviewer": "dpagent_iso_reviewer",
+    "builder": "dpagent_iso_builder",
+    "release": "dpagent_iso_release"
+  },
+  "agent_model_matrix": {
+    "planner": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "writer": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "reviewer": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "builder": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" },
+    "release": { "provider_id": "dpagent", "model": "dpagent-backend-default", "effort": "medium" }
+  },
+  "route_table": {
+    "dpagent_iso_planner": [],
+    "dpagent_iso_writer": [],
+    "dpagent_iso_reviewer": [],
+    "dpagent_iso_builder": [],
+    "dpagent_iso_release": []
+  },
+  "task_assign_route_table": {
+    "dpagent_iso_planner": [],
+    "dpagent_iso_writer": [],
+    "dpagent_iso_reviewer": [],
+    "dpagent_iso_builder": [],
+    "dpagent_iso_release": []
+  },
+  "route_discuss_rounds": {
+    "dpagent_iso_planner": {},
+    "dpagent_iso_writer": {},
+    "dpagent_iso_reviewer": {},
+    "dpagent_iso_builder": {},
+    "dpagent_iso_release": {}
+  },
+  "phase_tasks": [
+    {
+      "task_id": "wf_iso_planner_note",
+      "title": "Planner isolation note",
+      "owner_role": "dpagent_iso_planner",
+      "dependencies": [],
+      "artifacts": ["docs/session-isolation/planner.md"],
+      "marker": "DPAGENT_ISO_PLANNER_DONE",
+      "acceptance": [
+        "Create docs/session-isolation/planner.md containing DPAGENT_ISO_PLANNER_DONE.",
+        "Call task_report_done for wf_iso_planner_note after the artifact is written.",
+        "Do not create subtasks or discuss messages."
+      ]
+    },
+    {
+      "task_id": "wf_iso_writer_note",
+      "title": "Writer isolation note",
+      "owner_role": "dpagent_iso_writer",
+      "dependencies": [],
+      "artifacts": ["docs/session-isolation/writer.md"],
+      "marker": "DPAGENT_ISO_WRITER_DONE",
+      "acceptance": [
+        "Create docs/session-isolation/writer.md containing DPAGENT_ISO_WRITER_DONE.",
+        "Call task_report_done for wf_iso_writer_note after the artifact is written.",
+        "Do not create subtasks or discuss messages."
+      ]
+    },
+    {
+      "task_id": "wf_iso_reviewer_note",
+      "title": "Reviewer isolation note",
+      "owner_role": "dpagent_iso_reviewer",
+      "dependencies": [],
+      "artifacts": ["docs/session-isolation/reviewer.md"],
+      "marker": "DPAGENT_ISO_REVIEWER_DONE",
+      "acceptance": [
+        "Create docs/session-isolation/reviewer.md containing DPAGENT_ISO_REVIEWER_DONE.",
+        "Call task_report_done for wf_iso_reviewer_note after the artifact is written.",
+        "Do not create subtasks or discuss messages."
+      ]
+    },
+    {
+      "task_id": "wf_iso_builder_note",
+      "title": "Builder isolation note",
+      "owner_role": "dpagent_iso_builder",
+      "dependencies": [],
+      "artifacts": ["docs/session-isolation/builder.md"],
+      "marker": "DPAGENT_ISO_BUILDER_DONE",
+      "acceptance": [
+        "Create docs/session-isolation/builder.md containing DPAGENT_ISO_BUILDER_DONE.",
+        "Call task_report_done for wf_iso_builder_note after the artifact is written.",
+        "Do not create subtasks or discuss messages."
+      ]
+    },
+    {
+      "task_id": "wf_iso_release_note",
+      "title": "Release isolation note",
+      "owner_role": "dpagent_iso_release",
+      "dependencies": [],
+      "artifacts": ["docs/session-isolation/release.md"],
+      "marker": "DPAGENT_ISO_RELEASE_DONE",
+      "acceptance": [
+        "Create docs/session-isolation/release.md containing DPAGENT_ISO_RELEASE_DONE.",
+        "Call task_report_done for wf_iso_release_note after the artifact is written.",
+        "Do not create subtasks or discuss messages."
+      ]
+    }
+  ]
+}

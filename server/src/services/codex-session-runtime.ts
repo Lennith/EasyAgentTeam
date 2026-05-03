@@ -29,6 +29,11 @@ interface CodexTaskCompleteSignal {
   lastAgentMessage: string | null;
 }
 
+interface CodexProviderErrorSignal {
+  providerError: boolean;
+  message: string | null;
+}
+
 function parseArguments(raw: unknown): Record<string, unknown> {
   if (!raw) {
     return {};
@@ -233,6 +238,27 @@ function resolveCodexTaskCompleteSignal(event: Record<string, unknown>): CodexTa
 
 export function isCodexTaskCompleteSignal(event: Record<string, unknown>): boolean {
   return resolveCodexTaskCompleteSignal(event).taskComplete;
+}
+
+function resolveCodexProviderErrorSignal(event: Record<string, unknown>): CodexProviderErrorSignal {
+  const eventType = typeof event.type === "string" ? event.type : "";
+  if (eventType !== "error" && eventType !== "server_error") {
+    return { providerError: false, message: null };
+  }
+  const message =
+    extractText(event.message) ??
+    extractText(event.error) ??
+    extractText(event.reason) ??
+    extractText(event.details) ??
+    eventType;
+  return {
+    providerError: true,
+    message: message?.trim() || eventType
+  };
+}
+
+export function readCodexProviderErrorMessage(event: Record<string, unknown>): string | null {
+  return resolveCodexProviderErrorSignal(event).message;
 }
 
 async function terminateProcessTreeByPid(pid: number | null, timeoutMs: number): Promise<ProcessTreeTerminationResult> {
@@ -549,6 +575,7 @@ export class CodexSessionRuntime {
     let taskCompleteLastAgentMessage: string | null = null;
     let taskCompleteTerminationResult: ProcessTreeTerminationResult | null = null;
     let taskCompleteWatchdog: NodeJS.Timeout | null = null;
+    let providerErrorMessage: string | null = null;
 
     const emitObservation = (kind: string, details?: Record<string, unknown>) => {
       const callback = input.callback?.onProviderObservation;
@@ -661,6 +688,17 @@ export class CodexSessionRuntime {
           pid: child.pid ?? null
         });
         scheduleTaskCompleteWatchdog();
+        return;
+      }
+
+      const providerErrorSignal = resolveCodexProviderErrorSignal(event);
+      if (providerErrorSignal.providerError) {
+        providerErrorMessage = providerErrorSignal.message ?? providerErrorMessage;
+        emitObservation("provider_error", {
+          stream,
+          message: providerErrorMessage,
+          pid: child.pid ?? null
+        });
         return;
       }
 
@@ -830,18 +868,20 @@ export class CodexSessionRuntime {
       taskCompleteObserved && (terminationResult?.result === "killed" || terminationResult?.result === "not_found");
     if (exitCode !== 0 && !taskCompleteRecoveredByTermination) {
       const error =
-        normalizeCodexLaunchFailure({
-          model: input.model,
-          stdout: `${rawStdout}\n${stdoutBuffer}`,
-          stderr: `${rawStderr}\n${stderrBuffer}`,
-          command: configuredCommand
-        }) ??
-        new Error(
-          stderrBuffer.trim() ||
-            (exitSignal
-              ? `codex session exited with signal ${exitSignal}`
-              : `codex session exited with code ${String(exitCode)}`)
-        );
+        providerErrorMessage && providerErrorMessage.trim().length > 0
+          ? new Error(providerErrorMessage)
+          : (normalizeCodexLaunchFailure({
+              model: input.model,
+              stdout: `${rawStdout}\n${stdoutBuffer}`,
+              stderr: `${rawStderr}\n${stderrBuffer}`,
+              command: configuredCommand
+            }) ??
+            new Error(
+              stderrBuffer.trim() ||
+                (exitSignal
+                  ? `codex session exited with signal ${exitSignal}`
+                  : `codex session exited with code ${String(exitCode)}`)
+            ));
       emitObservation("launch_error", {
         message: error.message,
         error_name: error.name,

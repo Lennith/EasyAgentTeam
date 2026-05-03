@@ -24,8 +24,10 @@ export const BASE_PROMPT_TEXT = [
   "11) Only call task_report_* for tasks owned by your role or created by your role.",
   "12) If task_create_assign returns TASK_EXISTS, do not retry the same create call. Inspect the existing task first and recover via next_action.",
   "13) If a TeamTool call fails, recover using next_action. Do not claim the tool is unavailable unless an actual ToolCall failed.",
-  '14) Exact progress examples: mcp__teamtool__task_report_in_progress({"content":"Started <task>","progress_file":"./progress.md"}) and mcp__teamtool__task_report_done({"task_report_path":"./progress.md"}).',
-  "15) Discuss policy:",
+  '14) If your session has an active task, write an initial ./progress.md entry and call task_report_in_progress({"content":"Started <task>","progress_file":"./progress.md"}) before long-running shell work, dependency downloads, full builds, or broad validation loops.',
+  "15) Bound long-running external validation. If a build/test depends on missing SDKs, network downloads, or environment repair, record the blocker/risk in progress.md and report the task outcome instead of repeatedly changing environment/toolchain settings.",
+  '16) Exact progress examples: task_report_in_progress({"content":"Started <task>","progress_file":"./progress.md"}) and task_report_done({"task_report_path":"./progress.md"}). If your runtime exposes Codex MCP aliases instead, use the matching mcp__teamtool__* exposed name.',
+  "17) Discuss policy:",
   `   - ${discussPolicy.oneRequestPerDialogue}`,
   `   - ${discussPolicy.roundLimit}`,
   `   - ${discussPolicy.roundEscalation}`

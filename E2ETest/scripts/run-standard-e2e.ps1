@@ -52,7 +52,7 @@ $roleByRef = @{
 }
 $resolvedMatrix = Resolve-E2ERoleModelMatrix -Scenario $scenario -RoleByKey $roleByRef -ForcedProviderId $ProviderId
 $providerModeLabel = if ($resolvedMatrix.mode -eq "forced_provider") { [string]$resolvedMatrix.forced_provider_id } else { "mixed" }
-Assert-E2EMixedProviderBaseline -ResolvedMatrix $resolvedMatrix -CaseId "chain"
+Assert-E2EMixedProviderBaseline -ResolvedMatrix $resolvedMatrix -CaseId "chain" -ExpectedProviders @($scenario.expected_providers)
 
 $workspace = $WorkspaceRoot
 $artifactsBase = Join-Path $workspace "docs\e2e"

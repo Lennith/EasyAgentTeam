@@ -74,10 +74,9 @@ test("agent-visible prompts/doc index use registered TeamTools names consistentl
   const generatedAgentsMd = await fs.readFile(path.join(workspacePath, "Agents", "dev_impl", "AGENTS.md"), "utf8");
   assert.equal(generatedAgentsMd.includes("mcp__teamtool__task_report_done"), true);
   assert.equal(generatedAgentsMd.includes("mcp__teamtool__route_targets_get"), true);
-  assert.equal(
-    generatedAgentsMd.includes('mcp__teamtool__task_report_done({"task_report_path":"./progress.md"})'),
-    true
-  );
+  assert.equal(generatedAgentsMd.includes('task_report_done({"task_report_path":"./progress.md"})'), true);
+  assert.equal(generatedAgentsMd.includes("before long-running shell work"), true);
+  assert.equal(generatedAgentsMd.includes("Bound long-running external validation"), true);
   assert.equal(generatedAgentsMd.includes("discuss_*.ps1"), false);
   assert.equal(generatedAgentsMd.includes("report_task_*"), false);
 
@@ -110,9 +109,11 @@ test("runtime prompt and workspace guide switch by host platform", () => {
   assert.equal(windowsPrompt.includes("Use PowerShell/CMD syntax only."), true);
   assert.equal(windowsPrompt.includes("Do not use bash/sh/zsh syntax."), true);
   assert.equal(windowsPrompt.includes("mcp__teamtool__task_report_done"), true);
-  assert.equal(windowsPrompt.includes('mcp__teamtool__task_report_done({"task_report_path":"./progress.md"})'), true);
+  assert.equal(windowsPrompt.includes('task_report_done({"task_report_path":"./progress.md"})'), true);
   assert.equal(windowsPrompt.includes("call the exact exposed tool name directly"), true);
   assert.equal(windowsPrompt.includes("Shell output is never evidence"), true);
+  assert.equal(windowsPrompt.includes("before long-running shell work"), true);
+  assert.equal(BASE_PROMPT_TEXT.includes("Bound long-running external validation"), true);
   assert.equal(linuxPrompt.includes("Use bash/sh syntax only."), true);
   assert.equal(linuxPrompt.includes("Do not use PowerShell/CMD syntax."), true);
   assert.equal(linuxPrompt.includes("mcp__teamtool__route_targets_get"), true);
@@ -127,7 +128,7 @@ test("runtime prompt and workspace guide switch by host platform", () => {
   assert.equal(windowsGuide.includes("Read `../TEAM.md`"), true);
   assert.equal(windowsGuide.includes("Do not use Get-Command"), true);
   assert.equal(windowsGuide.includes("corresponding ToolCall is invalid"), true);
-  assert.equal(windowsGuide.includes('mcp__teamtool__task_report_done({"task_report_path":"./progress.md"})'), true);
+  assert.equal(windowsGuide.includes('task_report_done({"task_report_path":"./progress.md"})'), true);
   assert.equal(linuxGuide.includes("YOUR RUNTIME IS LINUX"), true);
   assert.equal(linuxGuide.includes("Use POSIX shell commands"), true);
   assert.equal(macGuide.includes("YOUR RUNTIME IS MACOS"), true);

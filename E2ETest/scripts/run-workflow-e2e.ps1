@@ -50,7 +50,7 @@ foreach ($prop in $scenario.roles.PSObject.Properties) {
 }
 $resolvedMatrix = Resolve-E2ERoleModelMatrix -Scenario $scenario -RoleByKey $roleByKey -ForcedProviderId $ProviderId
 $providerModeLabel = if ($resolvedMatrix.mode -eq "forced_provider") { [string]$resolvedMatrix.forced_provider_id } else { "mixed" }
-Assert-E2EMixedProviderBaseline -ResolvedMatrix $resolvedMatrix -CaseId "workflow"
+Assert-E2EMixedProviderBaseline -ResolvedMatrix $resolvedMatrix -CaseId "workflow" -ExpectedProviders @($scenario.expected_providers)
 $roleList = @($roleEntries | ForEach-Object { $_.id })
 $phaseTasks = @($scenario.phase_tasks)
 $phaseTaskIds = @($phaseTasks | ForEach-Object { [string]$_.task_id })
@@ -643,6 +643,7 @@ function Build-WorkflowProviderActivitySummary {
     }
     $activeRoleItems = @($roleItems | Where-Object { $_.has_runtime_activity })
     $dispatchedRoleItems = @($roleItems | Where-Object { $_.was_dispatched })
+    $providerActivityCoveragePass = ($dispatchedRoleItems.Count -gt 0 -and $activeRoleItems.Count -gt 0)
     $providerItems += [ordered]@{
       provider_id = $providerIdValue
       role_count = $auditRoles.Count
@@ -653,6 +654,7 @@ function Build-WorkflowProviderActivitySummary {
       session_match_pass = (@($roleItems | Where-Object { -not $_.provider_matches }).Count -eq 0)
       duplicate_session_conflict_pass = (@($roleItems | Where-Object { $_.provider_conflict }).Count -eq 0)
       activity_coverage_pass = (@($roleItems | Where-Object { $_.was_dispatched -and -not $_.has_runtime_activity }).Count -eq 0)
+      provider_activity_coverage_pass = $providerActivityCoveragePass
       model_evidence_pass = (@($roleItems | Where-Object { -not $_.model_evidence_pass }).Count -eq 0)
       provider_session_observation_pass = (@($roleItems | Where-Object { -not $_.provider_session_observation_pass }).Count -eq 0)
       heartbeat_pass = (@($roleItems | Where-Object { -not $_.heartbeat_health_pass }).Count -eq 0)
@@ -671,6 +673,7 @@ function Build-WorkflowProviderActivitySummary {
             -not $_.session_match_pass -or
             -not $_.duplicate_session_conflict_pass -or
             -not $_.activity_coverage_pass -or
+            -not $_.provider_activity_coverage_pass -or
             -not $_.model_evidence_pass -or
             -not $_.provider_session_observation_pass -or
             -not $_.heartbeat_pass -or
