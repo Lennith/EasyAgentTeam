@@ -16,6 +16,7 @@ import {
 import { collectOrchestratorRoleSet, sortOrchestratorRoles } from "../shared/role-candidates.js";
 import type { WorkflowDispatchRow } from "./workflow-dispatch-types.js";
 import { resolveWorkflowDispatchRoleSelection } from "./workflow-dispatch-selection-task.js";
+import { findBlockingDispatchLease, tryGetWorkflowDispatchLeaseFile } from "../shared/dispatch-lease-store.js";
 
 export interface WorkflowDispatchSelectionScope {
   run: WorkflowRunRecord;
@@ -142,6 +143,31 @@ export class WorkflowDispatchSelectionAdapter implements OrchestratorDispatchSel
       });
       if (!chosen) {
         continue;
+      }
+
+      const leaseFile = tryGetWorkflowDispatchLeaseFile(this.context.repositories.dataRoot, scope.run.runId);
+      const blockingLease = leaseFile
+        ? await findBlockingDispatchLease(this.context.repositories.repository, leaseFile, {
+            scopeKind: "workflow",
+            scopeId: scope.run.runId,
+            sessionId: session.sessionId,
+            taskId: chosen.taskId,
+            messageId: chosen.message?.envelope.message_id ?? null
+          })
+        : null;
+      if (blockingLease) {
+        return {
+          status: "skipped",
+          result: {
+            role: roleCandidate,
+            sessionId: session.sessionId,
+            taskId: chosen.taskId,
+            dispatchKind: chosen.dispatchKind,
+            requestId: input.requestId,
+            outcome: "session_busy",
+            reason: "durable_dispatch_lease_active"
+          }
+        };
       }
 
       if (

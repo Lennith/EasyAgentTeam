@@ -2,8 +2,8 @@
 setlocal
 
 set "DPAGENT_ROOT=D:\work\MiniMaxAgentNodeJs"
-set "DPAGENT_ENTRY=%DPAGENT_ROOT%\dist\cli\minimax-agent.js"
-set "DPAGENT_SRC=%DPAGENT_ROOT%\src\cli\minimax-agent.ts"
+set "DPAGENT_ENTRY=%DPAGENT_ROOT%\dist\cli\dpagent.js"
+set "DPAGENT_SRC=%DPAGENT_ROOT%\src\cli\dpagent.ts"
 set "DPAGENT_TSX=%DPAGENT_ROOT%\node_modules\tsx\dist\cli.mjs"
 
 pushd "%DPAGENT_ROOT%" >nul

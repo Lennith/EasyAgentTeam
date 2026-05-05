@@ -14,6 +14,11 @@ import {
   syncOrchestratorHoldState,
   type OrchestratorTickPipeline
 } from "../shared/tick-pipeline.js";
+import {
+  reconcileDispatchLeasesFromEvents,
+  recoverExpiredDispatchLeases,
+  tryGetProjectDispatchLeaseFile
+} from "../shared/dispatch-lease-store.js";
 
 interface ProjectTickServiceOptions {
   dataRoot: string;
@@ -36,6 +41,7 @@ export class ProjectTickService {
       scopeIsOnHold: (scope) => Boolean(scope.project.holdEnabled ?? false),
       sessionRuntime: {
         markTimedOut: async (scope) => {
+          await this.recoverDispatchLeases(scope);
           await this.options.sessionRuntimeService.markTimedOutSessions(scope.project, scope.paths);
         }
       },
@@ -67,6 +73,35 @@ export class ProjectTickService {
       },
       tickPipeline: this.tickPipeline
     });
+  }
+
+  private async recoverDispatchLeases(scope: ResolvedProjectRepositoryScope): Promise<void> {
+    const leaseFile = tryGetProjectDispatchLeaseFile(scope.paths);
+    if (!leaseFile) return;
+    const events = await this.options.repositories.events.listEvents(scope.paths);
+    await reconcileDispatchLeasesFromEvents(this.options.repositories.repository, leaseFile, {
+      scopeKind: "project",
+      scopeId: scope.project.projectId,
+      events
+    });
+    const recovered = await recoverExpiredDispatchLeases(this.options.repositories.repository, leaseFile);
+    for (const lease of recovered) {
+      await this.options.repositories.events.appendEvent(scope.paths, {
+        projectId: scope.project.projectId,
+        eventType: "ORCHESTRATOR_DISPATCH_LEASE_RECOVERED",
+        source: "manager",
+        sessionId: lease.session_id,
+        taskId: lease.task_id ?? undefined,
+        payload: {
+          dispatchId: lease.dispatch_id,
+          dispatchKind: lease.dispatch_kind,
+          status: lease.status,
+          messageId: lease.message_id ?? null,
+          recovery_attempt_id: lease.recovery_attempt_id ?? null,
+          reason: "dispatch_lease_expired"
+        }
+      });
+    }
   }
 
   private async handleProjectHoldState(

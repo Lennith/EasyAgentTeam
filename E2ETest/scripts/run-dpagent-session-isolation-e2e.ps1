@@ -42,7 +42,7 @@ function Resolve-DpAgentBackendLaunch {
       Arguments = @($tsxEntry, $serverEntry)
     }
   }
-  $distEntry = Join-Path $Root "dist\cli\minimax-agent.js"
+  $distEntry = Join-Path $Root "dist\cli\dpagent.js"
   if (Test-Path -LiteralPath $distEntry) {
     return [pscustomobject]@{
       Mode = "dist-cli"
@@ -71,11 +71,11 @@ function Start-DpAgentBackendIfNeeded {
   $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
   $stdoutPath = Join-Path $logDir "dpagent_stdout_$stamp.log"
   $stderrPath = Join-Path $logDir "dpagent_stderr_$stamp.log"
-  $previousAllowMissingKey = $env:MINIMAX_ALLOW_MISSING_API_KEY_AT_BOOT
-  $previousPort = $env:MINIMAX_PORT
+  $previousAllowMissingKey = $env:DPAGENT_ALLOW_MISSING_API_KEY_AT_BOOT
+  $previousPort = $env:DPAGENT_PORT
   try {
-    $env:MINIMAX_ALLOW_MISSING_API_KEY_AT_BOOT = "1"
-    $env:MINIMAX_PORT = "53721"
+    $env:DPAGENT_ALLOW_MISSING_API_KEY_AT_BOOT = "1"
+    $env:DPAGENT_PORT = "53721"
     $proc = Start-Process `
       -FilePath $launch.FilePath `
       -ArgumentList $launch.Arguments `
@@ -85,8 +85,8 @@ function Start-DpAgentBackendIfNeeded {
       -RedirectStandardOutput $stdoutPath `
       -RedirectStandardError $stderrPath
   } finally {
-    if ($null -eq $previousAllowMissingKey) { Remove-Item Env:\MINIMAX_ALLOW_MISSING_API_KEY_AT_BOOT -ErrorAction SilentlyContinue } else { $env:MINIMAX_ALLOW_MISSING_API_KEY_AT_BOOT = $previousAllowMissingKey }
-    if ($null -eq $previousPort) { Remove-Item Env:\MINIMAX_PORT -ErrorAction SilentlyContinue } else { $env:MINIMAX_PORT = $previousPort }
+    if ($null -eq $previousAllowMissingKey) { Remove-Item Env:\DPAGENT_ALLOW_MISSING_API_KEY_AT_BOOT -ErrorAction SilentlyContinue } else { $env:DPAGENT_ALLOW_MISSING_API_KEY_AT_BOOT = $previousAllowMissingKey }
+    if ($null -eq $previousPort) { Remove-Item Env:\DPAGENT_PORT -ErrorAction SilentlyContinue } else { $env:DPAGENT_PORT = $previousPort }
   }
 
   $deadline = (Get-Date).AddSeconds(90)

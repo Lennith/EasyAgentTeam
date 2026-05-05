@@ -11,6 +11,7 @@ Workflow Runtime 负责模板定义、运行实例、角色会话、任务运行
 ## 当前有效能力
 
 - workflow template 的增删改查
+- workflow template、message send/route 与 task action public payload 由 `agent_library` Zod schema 统一定义，dashboard API 类型从 schema 导出类型推导
 - workflow run 的创建、启动、停止、状态查询
 - runtime task tree / task runtime 查询
 - run 级 sessions、messages、timeline、agent chat
@@ -19,6 +20,7 @@ Workflow Runtime 负责模板定义、运行实例、角色会话、任务运行
 - workflow task runtime 的 run-scoped mutation 当前依赖单 backend / 单进程内存锁串行化，不声明支持多个 backend 进程共享同一个 `dataRoot`
 - `clearRunScopedState()` 会提升 run scoped mutation generation；已经开始执行的 mutation 不被强杀，尚在等待旧 tail 的 pending mutation 会被拒绝，避免旧 generation 写入 clear 之后的新状态
 - workflow dispatch pre-dispatch session touch 失败必须留下结构化日志，不允许静默吞掉
+- workflow dispatch 使用独立 durable dispatch lease index；进程内 single-flight 只作为 launch gate，重启/周期恢复扫描 running session、open dispatch event 与 lease 后进入关闭、重试或 cooldown 收口
 
 ## 当前公开路径
 

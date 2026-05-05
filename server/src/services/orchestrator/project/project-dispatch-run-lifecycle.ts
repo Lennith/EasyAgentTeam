@@ -19,6 +19,7 @@ import type {
   ProjectDispatchLaunchOperations
 } from "./project-dispatch-launch-adapter.js";
 import { applyOrchestratorDispatchTerminalState, resolveOrchestratorDispatchTerminalState } from "../shared/index.js";
+import { closeDispatchLease, tryGetProjectDispatchLeaseFile } from "../shared/dispatch-lease-store.js";
 
 type ProjectDispatchEventWriter = {
   appendFinished(scope: ProjectDispatchEventScope, details: ProjectDispatchFinishedDetails): Promise<void>;
@@ -267,7 +268,7 @@ export function buildProjectDispatchRunnerScopePayload(
 
 export async function appendProjectDispatchTerminalEventForContext(
   eventAdapter: ProjectDispatchEventAdapter,
-  repositories: Pick<ProjectRepositoryBundle, "events">,
+  repositories: Pick<ProjectRepositoryBundle, "events" | "repository">,
   context: ProjectDispatchLaunchContext,
   sessionId: string,
   details: {
@@ -303,6 +304,10 @@ export async function appendProjectDispatchTerminalEventForContext(
       );
     }
   );
+  const leaseFile = tryGetProjectDispatchLeaseFile(context.input.paths);
+  if (leaseFile) {
+    await closeDispatchLease(repositories.repository, leaseFile, context.dispatchId).catch(() => {});
+  }
 }
 
 export async function markProjectTaskDispatchedForContextIfNeeded(

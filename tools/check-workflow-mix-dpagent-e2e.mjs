@@ -107,7 +107,7 @@ assert(
   runnerText.includes("Resolve-DpAgentBackendLaunch"),
   "Runner must resolve DPAgent backend dev-server or dist launch mode"
 );
-assert(runnerText.includes("src\\cli\\minimax-agent.ts"), "Runner must support DPAgent dev source launch");
+assert(runnerText.includes("src\\cli\\dpagent.ts"), "Runner must support DPAgent dev source launch");
 assert(runnerText.includes("src\\web\\server\\index.ts"), "Runner must support DPAgent dev server launch");
 assert(runnerText.includes("Invoke-DpAgentCredentialSmoke"), "Runner must fail fast on invalid DPAgent credentials");
 assert(!/sk-cp-|sk-[A-Za-z0-9_-]{20,}/.test(runnerText), "Runner must not contain hardcoded provider keys");
@@ -123,6 +123,6 @@ assert(
   !/minimax-agent\.js"\s+exec\s+%[*]/i.test(wrapperText),
   "DPAgent wrapper must not duplicate the exec argument supplied by EAT"
 );
-assert(wrapperText.includes("src\\cli\\minimax-agent.ts"), "DPAgent wrapper must support dev source launch");
+assert(wrapperText.includes("src\\cli\\dpagent.ts"), "DPAgent wrapper must support dev source launch");
 
 console.log("[workflow-mix-dpagent-e2e] ok");

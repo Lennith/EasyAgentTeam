@@ -11,6 +11,11 @@ import {
   syncOrchestratorHoldState,
   type OrchestratorTickPipeline
 } from "../shared/tick-pipeline.js";
+import {
+  reconcileDispatchLeasesFromEvents,
+  recoverExpiredDispatchLeases,
+  tryGetWorkflowDispatchLeaseFile
+} from "../shared/dispatch-lease-store.js";
 
 interface WorkflowTickServiceOptions {
   repositories: WorkflowRepositoryBundle;
@@ -40,6 +45,7 @@ export class WorkflowTickService {
       scopeIsOnHold: (scope) => Boolean(scope.run.holdEnabled),
       sessionRuntime: {
         markTimedOut: async (scope) => {
+          await this.recoverDispatchLeases(scope.run);
           await this.options.sessionRuntimeService.markTimedOutSessions(scope.run, scope.sessions);
         }
       },
@@ -96,6 +102,34 @@ export class WorkflowTickService {
       },
       tickPipeline: this.tickPipeline
     });
+  }
+
+  private async recoverDispatchLeases(run: WorkflowRunRecord): Promise<void> {
+    const leaseFile = tryGetWorkflowDispatchLeaseFile(this.options.repositories.dataRoot, run.runId);
+    if (!leaseFile) return;
+    const events = await this.options.repositories.events.listEvents(run.runId);
+    await reconcileDispatchLeasesFromEvents(this.options.repositories.repository, leaseFile, {
+      scopeKind: "workflow",
+      scopeId: run.runId,
+      events
+    });
+    const recovered = await recoverExpiredDispatchLeases(this.options.repositories.repository, leaseFile);
+    for (const lease of recovered) {
+      await this.options.repositories.events.appendEvent(run.runId, {
+        eventType: "ORCHESTRATOR_DISPATCH_LEASE_RECOVERED",
+        source: "system",
+        sessionId: lease.session_id,
+        taskId: lease.task_id ?? undefined,
+        payload: {
+          dispatchId: lease.dispatch_id,
+          dispatchKind: lease.dispatch_kind,
+          status: lease.status,
+          messageId: lease.message_id ?? null,
+          recovery_attempt_id: lease.recovery_attempt_id ?? null,
+          reason: "dispatch_lease_expired"
+        }
+      });
+    }
   }
 
   private async handleRunHoldState(run: WorkflowRunRecord): Promise<void> {

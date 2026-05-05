@@ -29,6 +29,11 @@ import type {
   WorkflowDispatchLaunchInput
 } from "./workflow-dispatch-launch-adapter.js";
 import { resolveOrchestratorProviderSessionId, type OrchestratorLaunchExecutionAdapter } from "../shared/index.js";
+import {
+  closeDispatchLease,
+  tryGetWorkflowDispatchLeaseFile,
+  upsertDispatchLease
+} from "../shared/dispatch-lease-store.js";
 
 export {
   appendWorkflowMaxTokensRecoveryEvent,
@@ -101,6 +106,20 @@ export function createWorkflowDispatchLaunchExecutionAdapter(
       };
     },
     appendStarted: async (launchContext: WorkflowDispatchLaunchContext) => {
+      const leaseFile = tryGetWorkflowDispatchLeaseFile(context.repositories.dataRoot, launchContext.input.run.runId);
+      if (leaseFile) {
+        await upsertDispatchLease(context.repositories.repository, leaseFile, {
+          dispatchId: launchContext.lifecycleContext.dispatchId,
+          scopeKind: "workflow",
+          scopeId: launchContext.input.run.runId,
+          sessionId: launchContext.input.session.sessionId,
+          role: launchContext.input.role,
+          dispatchKind: launchContext.input.dispatchKind,
+          taskId: launchContext.input.taskId,
+          messageId: launchContext.input.messageId ?? null,
+          recoveryAttemptId: launchContext.lifecycleContext.recovery_attempt_id ?? null
+        });
+      }
       await eventAdapter.appendStarted(
         buildWorkflowDispatchEventScope(launchContext.lifecycleContext),
         buildWorkflowDispatchStartedDetails(launchContext.lifecycleContext)
@@ -143,6 +162,14 @@ export function createWorkflowDispatchLaunchExecutionAdapter(
         launchContext.lifecycleContext,
         error
       );
+      const leaseFile = tryGetWorkflowDispatchLeaseFile(context.repositories.dataRoot, launchContext.input.run.runId);
+      if (leaseFile) {
+        await closeDispatchLease(
+          context.repositories.repository,
+          leaseFile,
+          launchContext.lifecycleContext.dispatchId
+        ).catch(() => {});
+      }
     },
     onFailure: async () => {
       return;

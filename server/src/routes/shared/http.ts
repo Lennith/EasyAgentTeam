@@ -1,6 +1,10 @@
 ﻿import express from "express";
 import { getBuiltInAgents } from "../../services/agent-prompt-service.js";
-import type { ProviderId } from "@autodev/agent-library";
+import {
+  WorkflowTaskActionRequestSchema,
+  type ProviderId,
+  type WorkflowTaskActionRequestContract
+} from "@autodev/agent-library";
 import type { WorkflowRunMode } from "../../domain/models.js";
 import { buildRoleScopedSessionId } from "../../services/orchestrator/shared/orchestrator-identifiers.js";
 import { buildTaskExistsNextAction } from "../../services/teamtool-contract.js";
@@ -290,117 +294,9 @@ export function readWorkflowTasks(raw: unknown):
     });
 }
 
-export function readWorkflowTaskActionRequest(raw: unknown): {
-  actionType: "TASK_REPORT" | "TASK_CREATE" | "TASK_DISCUSS_REQUEST" | "TASK_DISCUSS_REPLY" | "TASK_DISCUSS_CLOSED";
-  fromAgent?: string;
-  fromSessionId?: string;
-  toRole?: string;
-  toSessionId?: string;
-  taskId?: string;
-  content?: string;
-  task?: {
-    taskId: string;
-    title: string;
-    ownerRole: string;
-    parentTaskId?: string;
-    dependencies?: string[];
-    acceptance?: string[];
-    artifacts?: string[];
-  };
-  discuss?: {
-    threadId?: string;
-    requestId?: string;
-  };
-  results?: Array<{
-    taskId: string;
-    outcome: "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
-    summary?: string;
-    blockers?: string[];
-  }>;
-} | null {
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-  const body = raw as Record<string, unknown>;
-  const actionTypeRaw = readStringField(body, ["action_type", "actionType"]);
-  if (
-    actionTypeRaw !== "TASK_REPORT" &&
-    actionTypeRaw !== "TASK_CREATE" &&
-    actionTypeRaw !== "TASK_DISCUSS_REQUEST" &&
-    actionTypeRaw !== "TASK_DISCUSS_REPLY" &&
-    actionTypeRaw !== "TASK_DISCUSS_CLOSED"
-  ) {
-    return null;
-  }
-  const fromAgent = readStringField(body, ["from_agent", "fromAgent"]);
-  const fromSessionId = readStringField(body, ["from_session_id", "fromSessionId"]);
-  const toRole = readStringField(body, ["to_role", "toRole"]);
-  const toSessionId = readStringField(body, ["to_session_id", "toSessionId"]);
-  const taskId = readStringField(body, ["task_id", "taskId"]);
-  const content = readStringField(body, ["content"]);
-  const discussRaw =
-    typeof body.discuss === "object" && body.discuss !== null ? (body.discuss as Record<string, unknown>) : null;
-  const discuss = discussRaw
-    ? {
-        threadId: readStringField(discussRaw, ["thread_id", "threadId"]),
-        requestId: readStringField(discussRaw, ["request_id", "requestId"])
-      }
-    : undefined;
-  const taskRaw = typeof body.task === "object" && body.task !== null ? (body.task as Record<string, unknown>) : null;
-  const task = taskRaw
-    ? {
-        taskId: readStringField(taskRaw, ["task_id", "taskId"]) ?? "",
-        title: readStringField(taskRaw, ["title"]) ?? "",
-        ownerRole: readStringField(taskRaw, ["owner_role", "ownerRole"]) ?? "",
-        parentTaskId: readStringField(taskRaw, ["parent_task_id", "parentTaskId"]),
-        dependencies: readStringArray(taskRaw.dependencies),
-        acceptance: readStringArray(taskRaw.acceptance),
-        artifacts: readStringArray(taskRaw.artifacts)
-      }
-    : undefined;
-  const results = Array.isArray(body.results)
-    ? body.results
-        .filter((item) => item && typeof item === "object")
-        .map((item) => {
-          const row = item as Record<string, unknown>;
-          const taskId = readStringField(row, ["task_id", "taskId"]) ?? "";
-          const outcomeRaw = readStringField(row, ["outcome"]) ?? "";
-          const outcome =
-            outcomeRaw === "IN_PROGRESS" ||
-            outcomeRaw === "BLOCKED_DEP" ||
-            outcomeRaw === "DONE" ||
-            outcomeRaw === "CANCELED"
-              ? outcomeRaw
-              : null;
-          return {
-            taskId,
-            outcome,
-            summary: readStringField(row, ["summary"]),
-            blockers: readStringArray(row.blockers)
-          };
-        })
-        .filter((item) => item.taskId.length > 0 && item.outcome !== null)
-        .map((item) => ({
-          taskId: item.taskId,
-          outcome: item.outcome as "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED",
-          summary: item.summary,
-          blockers: item.blockers
-        }))
-    : undefined;
-  if (actionTypeRaw === "TASK_REPORT" && (!results || results.length === 0)) return null;
-  if (actionTypeRaw === "TASK_CREATE" && (!task || !task.taskId || !task.title || !task.ownerRole)) return null;
-  return {
-    actionType: actionTypeRaw,
-    fromAgent,
-    fromSessionId,
-    toRole,
-    toSessionId,
-    taskId,
-    content,
-    task,
-    discuss,
-    results
-  };
+export function readWorkflowTaskActionRequest(raw: unknown): WorkflowTaskActionRequestContract | null {
+  const parsed = WorkflowTaskActionRequestSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
 }
 
 export function applyTemplateVariables(text: string, variables: Record<string, string>): string {

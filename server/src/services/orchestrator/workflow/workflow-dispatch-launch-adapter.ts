@@ -29,6 +29,7 @@ export interface WorkflowDispatchLaunchContext {
     dispatchId: string;
     dispatchKind: "task" | "message";
     messageId?: string | null;
+    recovery_attempt_id?: string;
     requestedSkillIds: string[];
     tokenLimit: number;
     maxOutputTokens: number;

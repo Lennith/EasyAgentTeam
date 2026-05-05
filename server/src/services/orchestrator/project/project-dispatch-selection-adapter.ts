@@ -25,6 +25,7 @@ import {
 } from "../shared/dispatch-selection-support.js";
 import { resolveProjectTaskSelection } from "./project-dispatch-selection-task.js";
 import { resolveProjectDispatchMessageSelection } from "./project-dispatch-selection-message.js";
+import { findBlockingDispatchLease, tryGetProjectDispatchLeaseFile } from "../shared/dispatch-lease-store.js";
 
 export interface ProjectDispatchSelectionScope {
   project: ProjectRecord;
@@ -222,6 +223,34 @@ export class ProjectDispatchSelectionAdapter implements OrchestratorDispatchSele
     }
 
     const firstMessage = selectedMessages[0];
+    const leaseFile = tryGetProjectDispatchLeaseFile(paths);
+    const repository = this.repositories.repository;
+    const blockingLease =
+      leaseFile && repository
+        ? await findBlockingDispatchLease(repository, leaseFile, {
+            scopeKind: "project",
+            scopeId: project.projectId,
+            sessionId: session.sessionId,
+            taskId: selectedTaskId || null,
+            messageId: firstMessage.envelope.message_id
+          })
+        : null;
+    if (blockingLease) {
+      return {
+        status: "skipped",
+        result: {
+          sessionId: session.sessionId,
+          role: session.role,
+          outcome: "session_busy",
+          dispatchKind,
+          messageId: firstMessage.envelope.message_id,
+          requestId: firstMessage.envelope.correlation.request_id,
+          taskId: selectedTaskId || undefined,
+          reason: "durable_dispatch_lease_active"
+        }
+      };
+    }
+
     const retryingFailedMessage = shouldRetryPreviouslyFailedMessageDispatch(
       session,
       dispatchKind,

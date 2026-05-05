@@ -16,6 +16,7 @@ import {
 } from "../shared/index.js";
 import { createProviderCliUnavailableError } from "../../provider-launch-error.js";
 import type { ProviderObservationEvent } from "../../provider-session-types.js";
+import { heartbeatDispatchLease, tryGetWorkflowDispatchLeaseFile } from "../shared/dispatch-lease-store.js";
 
 export class WorkflowDispatchConfigurationError extends Error {
   constructor(message: string) {
@@ -74,6 +75,19 @@ async function appendWorkflowProviderObservationEvent(
       details: event.details ?? {}
     }
   });
+}
+
+async function heartbeatWorkflowDispatchLease(
+  adapterContext: WorkflowDispatchLaunchAdapterContext,
+  context: WorkflowDispatchLaunchContext
+): Promise<void> {
+  const leaseFile = tryGetWorkflowDispatchLeaseFile(adapterContext.repositories.dataRoot, context.input.run.runId);
+  if (!leaseFile) return;
+  await heartbeatDispatchLease(
+    adapterContext.repositories.repository,
+    leaseFile,
+    context.lifecycleContext.dispatchId
+  ).catch(() => {});
 }
 
 async function runWorkflowDispatchProviderSession(
@@ -139,17 +153,29 @@ async function runWorkflowDispatchProviderSession(
         teamToolBridge: toolInjection.teamToolBridge,
         codexTeamToolContext: toolInjection.codexTeamToolContext,
         callback: {
-          onThinking: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
-          onToolCall: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
-          onToolResult: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
-          onMessage: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
-          onError: () => void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId),
+          onThinking: () => {
+            void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
+          },
+          onToolCall: () => {
+            void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
+          },
+          onToolResult: () => {
+            void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
+          },
+          onMessage: () => {
+            void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
+          },
+          onError: () => {
+            void adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
+          },
           onProviderObservation: async (event) => {
             await adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
+            await heartbeatWorkflowDispatchLease(adapterContext, context);
             await appendWorkflowProviderObservationEvent(adapterContext, context, event);
           },
           onMaxTokensRecovery: async (event) => {
             await adapterContext.touchSessionHeartbeat(runId, context.input.session.sessionId);
+            await heartbeatWorkflowDispatchLease(adapterContext, context);
             await appendWorkflowMaxTokensRecoveryEvent(adapterContext.repositories, context.lifecycleContext, event);
           }
         }

@@ -9,6 +9,10 @@ const minNodeMajor = 20;
 const minPnpmMajor = 9;
 const repoRoot = process.cwd();
 
+function resolveDoctorDataRoot() {
+  return path.resolve(process.env.FRAMEWORK_DATA_ROOT || path.join(repoRoot, "data"));
+}
+
 function compareMajor(version, minimum) {
   const major = Number(String(version).split(".")[0] ?? "0");
   return Number.isFinite(major) && major >= minimum;
@@ -155,7 +159,15 @@ async function main() {
   const portChecks = await Promise.all([checkPort(43123), checkPort(54174)]);
   checks.push(...portChecks);
 
-  const status = checks.every((item) => item.status === "PASS") ? "PASS" : "FAIL";
+  checks.push({
+    id: "data_root_single_owner",
+    status: "WARN",
+    reason: "file-backed dataRoot is single-owner only; multiple server processes sharing this path are unsupported",
+    actual: resolveDoctorDataRoot(),
+    expected: "one server process per dataRoot"
+  });
+
+  const status = checks.some((item) => item.status === "FAIL") ? "FAIL" : "PASS";
   const result = {
     status,
     duration_ms: Date.now() - startedAt,

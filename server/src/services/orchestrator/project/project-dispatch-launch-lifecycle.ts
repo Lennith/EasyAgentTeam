@@ -18,6 +18,11 @@ import {
 } from "./project-dispatch-provider-launch.js";
 import { resolveOrchestratorErrorMessage, type OrchestratorLaunchExecutionAdapter } from "../shared/index.js";
 import { isProviderLaunchError } from "../../provider-launch-error.js";
+import {
+  closeDispatchLease,
+  tryGetProjectDispatchLeaseFile,
+  upsertDispatchLease
+} from "../shared/dispatch-lease-store.js";
 
 export {
   appendProjectDispatchTerminalEventForContext,
@@ -64,6 +69,20 @@ export function createProjectDispatchLaunchExecutionAdapter(
     },
     appendStarted: async (launchContext: ProjectDispatchLaunchContext) => {
       const { input } = launchContext;
+      const leaseFile = tryGetProjectDispatchLeaseFile(input.paths);
+      if (leaseFile) {
+        await upsertDispatchLease(context.repositories.repository, leaseFile, {
+          dispatchId: launchContext.dispatchId,
+          scopeKind: "project",
+          scopeId: input.project.projectId,
+          sessionId: input.session.sessionId,
+          role: input.session.role,
+          dispatchKind: input.dispatchKind,
+          taskId: input.taskId || null,
+          messageId: input.firstMessage.envelope.message_id,
+          recoveryAttemptId: input.input.recovery_attempt_id ?? null
+        });
+      }
       await eventAdapter.appendStarted(
         buildProjectDispatchEventScope(input.project, input.paths, input.session.sessionId, input.taskId || undefined),
         buildProjectDispatchStartedScopeDetails(launchContext)
@@ -119,6 +138,10 @@ export function createProjectDispatchLaunchExecutionAdapter(
           }
         )
         .catch(() => {});
+      const leaseFile = tryGetProjectDispatchLeaseFile(launchContext.input.paths);
+      if (leaseFile) {
+        await closeDispatchLease(context.repositories.repository, leaseFile, launchContext.dispatchId).catch(() => {});
+      }
     },
     onFailure: async (launchContext: ProjectDispatchLaunchContext, error: unknown) => {
       const reason = resolveOrchestratorErrorMessage(error);

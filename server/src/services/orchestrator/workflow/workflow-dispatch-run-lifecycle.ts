@@ -12,6 +12,7 @@ import {
 } from "../shared/index.js";
 import { isProviderLaunchError } from "../../provider-launch-error.js";
 import { getTransientErrorCooldownMs } from "../../session-lifecycle-authority.js";
+import { closeDispatchLease, tryGetWorkflowDispatchLeaseFile } from "../shared/dispatch-lease-store.js";
 
 type WorkflowDispatchEventWriter = {
   appendStarted(scope: WorkflowDispatchEventScope, details: WorkflowDispatchStartedDetails): Promise<void>;
@@ -70,6 +71,15 @@ export interface WorkflowMaxTokensRecoveryEvent {
 interface WorkflowDispatchLifecycleDependencies {
   repositories: WorkflowRepositoryBundle;
   eventAdapter: WorkflowDispatchEventWriter;
+}
+
+async function closeWorkflowDispatchLeaseIfAvailable(
+  dependencies: WorkflowDispatchLifecycleDependencies,
+  context: WorkflowDispatchLifecycleContext
+): Promise<void> {
+  const leaseFile = tryGetWorkflowDispatchLeaseFile(dependencies.repositories.dataRoot, context.runId);
+  if (!leaseFile) return;
+  await closeDispatchLease(dependencies.repositories.repository, leaseFile, context.dispatchId).catch(() => {});
 }
 
 export function buildWorkflowDispatchEventScope(context: WorkflowDispatchLifecycleContext): WorkflowDispatchEventScope {
@@ -147,6 +157,7 @@ export async function handleMissingWorkflowMiniMaxConfiguration(
   await dependencies.repositories.sessions.touchSession(context.runId, context.sessionId, {
     lastFailureEventId: failureEvent.eventId
   });
+  await closeWorkflowDispatchLeaseIfAvailable(dependencies, context);
 }
 
 export async function appendWorkflowMaxTokensRecoveryEvent(
@@ -209,6 +220,7 @@ export async function handleWorkflowDispatchLaunchResult(
     }
   );
   if (dispatchTerminalState.timedOut || dispatchTerminalState.closed) {
+    await closeWorkflowDispatchLeaseIfAvailable(dependencies, context);
     return;
   }
 
@@ -242,6 +254,7 @@ export async function handleWorkflowDispatchLaunchResult(
     maxTokensSnapshotPath: dispatchRunResult.maxTokensSnapshotPath ?? null,
     recoveredFromMaxTokens: dispatchRunResult.recoveredFromMaxTokens ?? false
   });
+  await closeWorkflowDispatchLeaseIfAvailable(dependencies, context);
 }
 
 export async function handleWorkflowDispatchLaunchError(
@@ -273,6 +286,7 @@ export async function handleWorkflowDispatchLaunchError(
   );
 
   if (dispatchTerminalState.timedOut) {
+    await closeWorkflowDispatchLeaseIfAvailable(dependencies, context);
     return;
   }
 
@@ -367,4 +381,5 @@ export async function handleWorkflowDispatchLaunchError(
       })
       .catch(() => {});
   }
+  await closeWorkflowDispatchLeaseIfAvailable(dependencies, context);
 }

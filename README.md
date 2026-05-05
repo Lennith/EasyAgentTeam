@@ -20,6 +20,10 @@ pnpm docs:check
 pnpm e2e:first-run
 ```
 
+## Runtime Boundary
+
+The file-backed `dataRoot` is single-owner. Run only one server process for a given `FRAMEWORK_DATA_ROOT`/`data` directory; multiple server instances sharing the same `dataRoot` are unsupported until a storage driver with cross-process transactions is introduced.
+
 ## Project Builder Agent
 
 首次体验默认使用一等 CLI 入口 `@autodev/agent-workspace`：

@@ -1,5 +1,6 @@
 import type { WorkflowRunState } from "./workflow-run";
 import type { WorkflowRunTaskRecord } from "./workflow-run";
+import type { WorkflowTaskActionPublicRequest, WorkflowTaskActionResultContract } from "@autodev/agent-library";
 
 export type WorkflowTaskState =
   | "PLANNED"
@@ -94,47 +95,14 @@ export type WorkflowTaskActionType =
   | "TASK_DISCUSS_CLOSED"
   | "TASK_REPORT";
 
-export interface WorkflowTaskActionRequest {
-  action_type: WorkflowTaskActionType;
-  from_agent?: string;
-  from_session_id?: string;
-  to_role?: string;
-  to_session_id?: string;
-  task_id?: string;
-  content?: string;
-  task?: {
-    task_id: string;
-    title: string;
-    owner_role: string;
-    parent_task_id?: string;
-    dependencies?: string[];
-    acceptance?: string[];
-    artifacts?: string[];
-  };
-  discuss?: {
-    thread_id?: string;
-    request_id?: string;
-  };
-  results?: Array<{
-    task_id: string;
-    outcome: WorkflowTaskOutcome;
-    summary?: string;
-    blockers?: string[];
-  }>;
-}
+export type WorkflowTaskActionRequest = WorkflowTaskActionPublicRequest;
+export type WorkflowTaskActionApiResult = WorkflowTaskActionResultContract;
 
-export interface WorkflowTaskActionResult {
-  success: boolean;
-  requestId: string;
-  actionType: WorkflowTaskActionType;
-  createdTaskId?: string;
-  messageId?: string;
-  partialApplied: boolean;
-  appliedTaskIds: string[];
+export type WorkflowTaskActionResult = Omit<WorkflowTaskActionApiResult, "snapshot" | "rejectedResults"> & {
   rejectedResults: Array<{
     taskId: string;
     reasonCode: WorkflowBlockReasonCode;
     reason: string;
   }>;
   snapshot: WorkflowRunRuntimeSnapshot;
-}
+};

@@ -1,24 +1,10 @@
 import type { AgentIOTimelineItem } from "@/types/project";
+import type { WorkflowMessageSendPublicRequest } from "@autodev/agent-library";
 import { API_BASE, fetchJSON } from "./shared/http";
 import { mapWorkflowAgentIOTimelineItem } from "./workflow-mappers";
 
 export const workflowMessageApi = {
-  sendMessage: (
-    runId: string,
-    data: {
-      from_agent?: string;
-      from_session_id?: string;
-      to?: { agent?: string; role?: string; session_id?: string };
-      to_role?: string;
-      to_session_id?: string;
-      message_type?: "MANAGER_MESSAGE" | "TASK_DISCUSS_REQUEST" | "TASK_DISCUSS_REPLY" | "TASK_DISCUSS_CLOSED";
-      task_id?: string;
-      content: string;
-      request_id?: string;
-      parent_request_id?: string;
-      discuss?: { thread_id?: string; request_id?: string };
-    }
-  ) =>
+  sendMessage: (runId: string, data: WorkflowMessageSendPublicRequest) =>
     fetchJSON<{
       requestId: string;
       messageId: string;
