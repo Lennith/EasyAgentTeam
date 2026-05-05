@@ -17,6 +17,7 @@ import {
 import { createProviderCliUnavailableError } from "../../provider-launch-error.js";
 import type { ProviderObservationEvent } from "../../provider-session-types.js";
 import { heartbeatDispatchLease, tryGetWorkflowDispatchLeaseFile } from "../shared/dispatch-lease-store.js";
+import { issueRemoteAuthToken } from "../../remote-auth-service.js";
 
 export class WorkflowDispatchConfigurationError extends Error {
   constructor(message: string) {
@@ -102,6 +103,7 @@ async function runWorkflowDispatchProviderSession(
     context.input.session.sessionId,
     context.input.session.providerSessionId
   );
+  const autoDevAuthToken = issueRemoteAuthToken(context.prepared.settings);
   const toolInjection = DefaultToolInjector.build(
     createWorkflowToolExecutionAdapter({
       dataRoot: adapterContext.dataRoot,
@@ -145,7 +147,8 @@ async function runWorkflowDispatchProviderSession(
           AUTO_DEV_AGENT_ROLE: context.input.role,
           AUTO_DEV_WORKFLOW_ROOT: context.input.run.workspacePath,
           AUTO_DEV_AGENT_WORKSPACE: agentWorkspaceDir,
-          AUTO_DEV_MANAGER_URL: resolveOrchestratorManagerUrl()
+          AUTO_DEV_MANAGER_URL: resolveOrchestratorManagerUrl(),
+          ...(autoDevAuthToken ? { AUTO_DEV_AUTH_TOKEN: autoDevAuthToken } : {})
         }
       },
       {

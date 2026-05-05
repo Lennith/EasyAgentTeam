@@ -9,6 +9,13 @@ import {
 } from "../services/runtime-settings-service.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import { readNullableStringPatch, readStringField, sendApiError } from "./shared/http.js";
+import {
+  extractRemoteAuthToken,
+  issueRemoteAuthToken,
+  isRemotePasswordEnabled,
+  validateRemoteAuthToken,
+  verifyRemotePassword
+} from "../services/remote-auth-service.js";
 
 const RETIRED_SETTINGS_FIELDS = [
   "codex_cli_command",
@@ -95,6 +102,45 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
     }
   });
 
+  app.get("/api/auth/status", async (req, res, next) => {
+    try {
+      const settings = await readRuntimeSettings(dataRoot);
+      const enabled = isRemotePasswordEnabled(settings);
+      res.status(200).json({
+        remote_password_enabled: enabled,
+        authenticated: !enabled || validateRemoteAuthToken(settings, extractRemoteAuthToken(req))
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res, next) => {
+    try {
+      const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
+      const password = readStringField(body, ["password", "remote_password", "remotePassword"]);
+      const settings = await readRuntimeSettings(dataRoot);
+      if (!isRemotePasswordEnabled(settings)) {
+        res.status(200).json({
+          token: null,
+          remote_password_enabled: false
+        });
+        return;
+      }
+      if (!password || !verifyRemotePassword(settings, password)) {
+        sendApiError(res, 401, "AUTH_INVALID_PASSWORD", "Remote login password is invalid.");
+        return;
+      }
+      const token = issueRemoteAuthToken(settings);
+      res.status(200).json({
+        token,
+        remote_password_enabled: true
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.patch("/api/settings", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
@@ -111,6 +157,10 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
       const themeRaw = readStringField(body, ["theme"]);
       const theme = themeRaw === "dark" || themeRaw === "vibrant" || themeRaw === "lively" ? themeRaw : undefined;
       const providersRaw = readObjectField(body, "providers");
+      const securityRaw = readObjectField(body, "security");
+      const remotePasswordPatch = securityRaw
+        ? readNullableStringPatch(securityRaw, ["remote_password", "remotePassword"])
+        : undefined;
       const codexProviderRaw = providersRaw ? readObjectField(providersRaw, "codex") : undefined;
       const dpagentProviderRaw = providersRaw ? readObjectField(providersRaw, "dpagent") : undefined;
       const minimaxProviderRaw = providersRaw ? readObjectField(providersRaw, "minimax") : undefined;
@@ -122,6 +172,12 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
         : undefined;
       const updated = await patchRuntimeSettingsForApi(dataRoot, {
         theme,
+        security:
+          remotePasswordPatch !== undefined
+            ? {
+                remotePassword: remotePasswordPatch
+              }
+            : undefined,
         providers: providersRaw
           ? {
               ...(codexProviderRaw

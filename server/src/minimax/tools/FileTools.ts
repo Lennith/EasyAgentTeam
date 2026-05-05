@@ -1,5 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as dns from "node:dns/promises";
+import * as net from "node:net";
 import { Tool, successResult, errorResult } from "./Tool.js";
 import type { ToolResult, PermissionCheckResult } from "../types.js";
 
@@ -7,6 +9,122 @@ export interface FileToolsOptions {
   workspaceDir: string;
   additionalWritableDirs?: string[];
   checkPermission?: (filePath: string, operation: "read" | "write") => PermissionCheckResult;
+}
+
+function parseIPv4(address: string): number[] | null {
+  const parts = address.split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+  const bytes = parts.map((part) => Number(part));
+  return bytes.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) ? bytes : null;
+}
+
+function isBlockedIPv4(address: string): boolean {
+  const bytes = parseIPv4(address);
+  if (!bytes) {
+    return false;
+  }
+  const [a, b] = bytes;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    a >= 224
+  );
+}
+
+function normalizeIpHost(hostname: string): string {
+  return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+}
+
+function isBlockedIPv6(address: string): boolean {
+  const normalized = normalizeIpHost(address).toLowerCase();
+  return (
+    normalized === "::1" ||
+    normalized === "::" ||
+    normalized.startsWith("fe80:") ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("::ffff:127.") ||
+    normalized.startsWith("::ffff:10.") ||
+    normalized.startsWith("::ffff:169.254.") ||
+    normalized.startsWith("::ffff:192.168.")
+  );
+}
+
+function isBlockedIpAddress(address: string): boolean {
+  const normalized = normalizeIpHost(address);
+  const family = net.isIP(normalized);
+  if (family === 4) {
+    return isBlockedIPv4(normalized);
+  }
+  if (family === 6) {
+    return isBlockedIPv6(normalized);
+  }
+  return false;
+}
+
+async function validateWebFetchUrl(rawUrl: string): Promise<URL | string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return "Invalid URL";
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return "Unsupported URL protocol";
+  }
+  const hostname = parsed.hostname.trim().toLowerCase();
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost")) {
+    return "URL is not allowed: private or local network host";
+  }
+  if (hostname === "metadata.google.internal") {
+    return "URL is not allowed: metadata endpoint";
+  }
+  if (net.isIP(normalizeIpHost(hostname)) && isBlockedIpAddress(hostname)) {
+    return "URL is not allowed: private or local network host";
+  }
+  try {
+    const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+    if (addresses.some((item) => isBlockedIpAddress(item.address))) {
+      return "URL is not allowed: resolves to a private or local network address";
+    }
+  } catch {
+    // DNS failure is left to fetch so public hosts used in tests with mocked fetch remain usable.
+  }
+  return parsed;
+}
+
+async function fetchWithValidatedRedirects(
+  rawUrl: string,
+  init: RequestInit,
+  maxRedirects = 5
+): Promise<Response | string> {
+  let current = rawUrl;
+  for (let index = 0; index <= maxRedirects; index += 1) {
+    const validated = await validateWebFetchUrl(current);
+    if (typeof validated === "string") {
+      return validated;
+    }
+    const response = await fetch(validated.toString(), {
+      ...init,
+      redirect: "manual"
+    });
+    if (response.status < 300 || response.status >= 400) {
+      return response;
+    }
+    const location = response.headers.get("location");
+    if (!location) {
+      return response;
+    }
+    current = new URL(location, validated).toString();
+  }
+  return "Too many redirects";
 }
 
 export class ReadFileTool extends Tool {
@@ -655,7 +773,11 @@ export class WebFetchTool extends Tool {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(url, { signal: controller.signal });
+      const responseOrError = await fetchWithValidatedRedirects(url, { signal: controller.signal });
+      if (typeof responseOrError === "string") {
+        return errorResult(responseOrError);
+      }
+      const response = responseOrError;
       const contentType = String(response.headers.get("content-type") ?? "").toLowerCase();
       if (!response.ok) {
         return errorResult(`HTTP ${response.status}: ${response.statusText}`);

@@ -729,7 +729,7 @@ function Invoke-WorkflowAgentChatTrigger {
 
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   try {
-    $resp = Invoke-WebRequest -UseBasicParsing -Uri $uri -Method POST -ContentType "application/json; charset=utf-8" -Body $payload -TimeoutSec $TimeoutSec
+    $resp = Invoke-WebRequest -UseBasicParsing -Uri $uri -Method POST -Headers (New-ApiHeaders) -ContentType "application/json; charset=utf-8" -Body $payload -TimeoutSec $TimeoutSec
     $sw.Stop()
     $elapsed = [int]$sw.ElapsedMilliseconds
     $status = [int]$resp.StatusCode

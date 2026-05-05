@@ -16,6 +16,7 @@ import { resolveTaskDiscuss } from "./project-dispatch-policy.js";
 import type { DispatchProjectInput, OrchestratorOptions, ProjectDispatchResult } from "./project-orchestrator-types.js";
 import type { ProviderRegistry } from "../../provider-runtime.js";
 import { resolveOrchestratorErrorMessage } from "../shared/index.js";
+import { countActiveDispatchLeases, tryGetProjectDispatchLeaseFile } from "../shared/dispatch-lease-store.js";
 
 /*
  * Source-contract compatibility markers for prompt consistency tests.
@@ -58,8 +59,18 @@ export class OrchestratorService {
       dataRoot: this.options.dataRoot,
       providerRegistry: this.options.providerRegistry,
       repositories: this.repositories,
+      maxConcurrentDispatches: this.options.maxConcurrentDispatches,
       inFlightDispatchSessionKeys: this.inFlightDispatchSessionKeys,
       buildSessionDispatchKey: (projectId, sessionId) => buildOrchestratorContextSessionKey(projectId, sessionId),
+      countActiveDispatchLeases: async (paths, projectId) => {
+        const leaseFile = tryGetProjectDispatchLeaseFile(paths);
+        return leaseFile
+          ? await countActiveDispatchLeases(this.repositories.repository, leaseFile, {
+              scopeKind: "project",
+              scopeId: projectId
+            })
+          : 0;
+      },
       completionCleanup: (paths, projectId, role) =>
         this.completionService.cleanupCompletedTaskMessages(paths, projectId, role)
     });

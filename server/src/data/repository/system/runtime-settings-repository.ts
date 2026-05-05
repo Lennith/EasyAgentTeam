@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { ensureDirectory } from "../../internal/persistence/file-utils.js";
 import { readJsonFile, writeJsonFile } from "../../internal/persistence/store/store-runtime.js";
 import { getRuntimePlatformCapabilities } from "../../../runtime-platform.js";
+import { hashRemotePassword } from "../../../services/remote-auth-crypto.js";
 
 export interface MCPServerConfig {
   name: string;
@@ -49,14 +50,21 @@ export interface ProviderProfiles {
   dpagent: DpAgentProviderProfile;
 }
 
+export interface RuntimeSecuritySettings {
+  remote_password_hash?: string;
+  remote_password_salt?: string;
+  remote_password_updated_at?: string;
+}
+
 export interface RuntimeSettings {
   schemaVersion: "1.0";
   updatedAt: string;
   theme?: "dark" | "vibrant" | "lively";
   providers: ProviderProfiles;
+  security?: RuntimeSecuritySettings;
 }
 
-interface PatchRuntimeSettingsInput {
+export interface PatchRuntimeSettingsInput {
   theme?: "dark" | "vibrant" | "lively";
   providers?: Partial<{
     codex: Partial<CodexProviderProfile>;
@@ -66,6 +74,9 @@ interface PatchRuntimeSettingsInput {
       apiBase?: string | null;
     };
   }>;
+  security?: {
+    remotePassword?: string | null;
+  };
 }
 
 function settingsPath(dataRoot: string): string {
@@ -92,6 +103,7 @@ function defaultRuntimeSettings(): RuntimeSettings {
     schemaVersion: "1.0",
     updatedAt: new Date().toISOString(),
     theme: "dark",
+    security: {},
     providers: {
       codex: {
         cliCommand: codexCliCommand
@@ -168,6 +180,23 @@ function normalizeTheme(raw: unknown): "dark" | "vibrant" | "lively" | undefined
     return raw;
   }
   return undefined;
+}
+
+function normalizeSecuritySettings(state: Partial<RuntimeSettings>): RuntimeSecuritySettings {
+  const raw = state.security && typeof state.security === "object" ? (state.security as Record<string, unknown>) : {};
+  const hash =
+    normalizeOptionalString(raw.remote_password_hash) ?? normalizeOptionalString(raw.remotePasswordHash);
+  const salt =
+    normalizeOptionalString(raw.remote_password_salt) ?? normalizeOptionalString(raw.remotePasswordSalt);
+  const updatedAt =
+    normalizeOptionalString(raw.remote_password_updated_at) ?? normalizeOptionalString(raw.remotePasswordUpdatedAt);
+  return hash && salt
+    ? {
+        remote_password_hash: hash,
+        remote_password_salt: salt,
+        remote_password_updated_at: updatedAt
+      }
+    : {};
 }
 
 function withoutUndefined<T extends object>(value: T | undefined): Partial<T> {
@@ -252,7 +281,8 @@ export async function getRuntimeSettings(dataRoot: string): Promise<RuntimeSetti
     schemaVersion: "1.0",
     updatedAt: state.updatedAt ?? fallback.updatedAt,
     theme: normalizeTheme(state.theme) ?? fallback.theme,
-    providers
+    providers,
+    security: normalizeSecuritySettings(state)
   };
 }
 
@@ -283,10 +313,28 @@ export async function patchRuntimeSettings(
     shellMaxRunTime: normalizeOptionalNumber(providerPatch.minimax?.shellMaxRunTime ?? current.providers.minimax.shellMaxRunTime),
     shellMaxOutputSize: normalizeOptionalNumber(providerPatch.minimax?.shellMaxOutputSize ?? current.providers.minimax.shellMaxOutputSize)
   };
+  let security = current.security ?? {};
+  if (patch.security && hasOwnField(patch.security, "remotePassword")) {
+    const remotePassword = patch.security.remotePassword;
+    if (remotePassword === null) {
+      security = {};
+    } else {
+      const normalizedPassword = normalizeOptionalString(remotePassword);
+      if (normalizedPassword) {
+        const hashed = hashRemotePassword(normalizedPassword);
+        security = {
+          remote_password_hash: hashed.hash,
+          remote_password_salt: hashed.salt,
+          remote_password_updated_at: new Date().toISOString()
+        };
+      }
+    }
+  }
   const next: RuntimeSettings = {
     schemaVersion: "1.0",
     updatedAt: new Date().toISOString(),
     theme: normalizeTheme(patch.theme ?? current.theme) ?? "dark",
+    security,
     providers: {
       codex: {
         ...current.providers.codex,

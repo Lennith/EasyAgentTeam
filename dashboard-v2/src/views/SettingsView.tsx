@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
 import type { ModelInfo, RuntimeSettings, Theme } from "@/types/settings";
-import { modelsApi, settingsApi } from "@/services/api/settings";
-import { Save, Loader, Database, Wifi, Palette } from "lucide-react";
+import { authApi, modelsApi, settingsApi } from "@/services/api/settings";
+import { setAuthToken } from "@/services/api/shared/http";
+import { Save, Loader, Database, Wifi, Palette, KeyRound } from "lucide-react";
 
 const DEFAULT_MINIMAX_MODEL = "MiniMax-M2.5-High-speed";
 
@@ -53,6 +54,8 @@ export function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [themeSaving, setThemeSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [remotePassword, setRemotePassword] = useState("");
+  const [remotePasswordSaving, setRemotePasswordSaving] = useState(false);
 
   const [codexCliCommand, setCodexCliCommand] = useState("");
   const [dpagentCliCommand, setDpAgentCliCommand] = useState("dpagent");
@@ -159,6 +162,37 @@ export function SettingsView() {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onSaveRemotePassword(clear = false) {
+    const nextPassword = remotePassword.trim();
+    if (!clear && nextPassword.length === 0) {
+      setError("Remote login password cannot be empty.");
+      return;
+    }
+    try {
+      setRemotePasswordSaving(true);
+      setError(null);
+      setSuccess(null);
+      const updated = await settingsApi.update({
+        security: {
+          remote_password: clear ? null : nextPassword
+        }
+      });
+      setSettings(updated);
+      if (clear) {
+        setAuthToken(null);
+      } else {
+        const login = await authApi.login(nextPassword);
+        setAuthToken(login.token);
+      }
+      setRemotePassword("");
+      setSuccess(clear ? "Remote login password cleared." : "Remote login password saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update remote password");
+    } finally {
+      setRemotePasswordSaving(false);
     }
   }
 
@@ -334,6 +368,63 @@ export function SettingsView() {
             DPAgent backend.
           </p>
         </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <h3>Remote Access</h3>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+            marginBottom: "16px"
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <KeyRound size={20} style={{ color: "var(--accent-primary)" }} />
+            <div>
+              <div style={{ fontWeight: 500 }}>
+                {runtimeSettings?.security?.remote_password_enabled ? "Password enabled" : "Password not set"}
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                Remote requests use the same tools as local requests after login.
+              </div>
+            </div>
+          </div>
+          {runtimeSettings?.security?.remote_password_enabled && (
+            <button
+              className="btn btn-secondary"
+              disabled={remotePasswordSaving}
+              onClick={() => {
+                void onSaveRemotePassword(true);
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="form-group">
+          <label>{runtimeSettings?.security?.remote_password_enabled ? "New Password" : "Password"}</label>
+          <input
+            type="password"
+            value={remotePassword}
+            onChange={(e) => setRemotePassword(e.target.value)}
+            placeholder="Set remote login password"
+          />
+        </div>
+        <button
+          className="btn btn-primary"
+          disabled={remotePasswordSaving || remotePassword.trim().length === 0}
+          onClick={() => {
+            void onSaveRemotePassword(false);
+          }}
+        >
+          {remotePasswordSaving ? <Loader size={14} className="loading-spinner" /> : <Save size={14} />}
+          Save Password
+        </button>
       </div>
 
       <div className="card">

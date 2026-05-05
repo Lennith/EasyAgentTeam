@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Dirent } from "node:fs";
-import { createApp, resolveDataRoot } from "./app.js";
+import type { Server } from "node:http";
+import { createApp, resolveDataRoot, stopAppRuntime } from "./app.js";
 import {
   cleanupCommittedWalRecordsForPaths,
   ensureStorageRecoveryForPaths
@@ -11,6 +12,9 @@ import { logger } from "./utils/logger.js";
 const port = Number(process.env.PORT ?? 43123);
 const host = process.env.HOST ?? "127.0.0.1";
 const dataRoot = resolveDataRoot();
+let appInstance: ReturnType<typeof createApp> | null = null;
+let httpServer: Server | null = null;
+let fatalShutdownStarted = false;
 
 async function discoverWalRoots(basePath: string): Promise<string[]> {
   const normalizedRoot = path.resolve(basePath);
@@ -59,19 +63,36 @@ async function recoverAndCleanupWalRoots(basePath: string): Promise<void> {
   );
 }
 
+async function shutdownAfterFatal(reason: string, error: unknown): Promise<void> {
+  logger.error(`[server] ${reason}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+  process.exitCode = 1;
+  if (fatalShutdownStarted) {
+    return;
+  }
+  fatalShutdownStarted = true;
+  if (appInstance) {
+    await stopAppRuntime(appInstance, httpServer ?? undefined).catch((shutdownError) => {
+      logger.error(`[server] fatal shutdown cleanup failed: ${shutdownError}`);
+    });
+  }
+}
+
 process.on("uncaughtException", (error) => {
   logger.error(`[server] Uncaught Exception: ${error}`);
+  void shutdownAfterFatal("Uncaught Exception", error);
 });
 
 process.on("unhandledRejection", (reason, promise) => {
   logger.error(`[server] Unhandled Rejection at: ${promise}, reason: ${reason}`);
+  void shutdownAfterFatal("Unhandled Rejection", reason);
 });
 
 async function main(): Promise<void> {
   await recoverAndCleanupWalRoots(dataRoot);
 
   const app = createApp({ dataRoot });
-  app.listen(port, host, () => {
+  appInstance = app;
+  httpServer = app.listen(port, host, () => {
     logger.info(`[server] listening on http://${host}:${port}`);
     logger.info(`[server] data root: ${dataRoot}`);
   });

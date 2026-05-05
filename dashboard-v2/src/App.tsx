@@ -2,7 +2,7 @@ import { useRoute } from "@/hooks/useRoute";
 import { useProjects } from "@/hooks/useData";
 import { useOrchestratorStatus } from "@/hooks/useData";
 import { useTranslation } from "@/hooks/i18n";
-import { useEffect } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ProjectsHome } from "@/views/ProjectsHome";
 import { ProjectWorkspace } from "@/views/ProjectWorkspace";
 import { NewProjectView } from "@/views/NewProjectView";
@@ -23,7 +23,8 @@ import { WorkflowRunWorkspaceView } from "@/views/WorkflowRunWorkspaceView";
 import { SkillsLibraryView } from "@/views/SkillsLibraryView";
 import { SkillListsView } from "@/views/SkillListsView";
 import { projectApi } from "@/services/api/project";
-import { settingsApi } from "@/services/api/settings";
+import { authApi, settingsApi } from "@/services/api/settings";
+import { setAuthToken } from "@/services/api/shared/http";
 import {
   Home,
   FolderKanban,
@@ -39,7 +40,7 @@ import {
   Package
 } from "lucide-react";
 
-export default function App() {
+function AuthenticatedApp() {
   const { route } = useRoute();
   const t = useTranslation();
   const { projects, loading: projectsLoading, error: projectsError, reload: reloadProjects } = useProjects();
@@ -419,4 +420,92 @@ export default function App() {
       <main className="main-content">{renderMain()}</main>
     </div>
   );
+}
+
+export default function App() {
+  const [authState, setAuthState] = useState<"checking" | "ready" | "login">("checking");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let closed = false;
+    async function checkAuth() {
+      try {
+        const status = await authApi.status();
+        if (closed) return;
+        setAuthState(!status.remote_password_enabled || status.authenticated ? "ready" : "login");
+      } catch {
+        if (!closed) setAuthState("login");
+      }
+    }
+    void checkAuth();
+    const listener = () => setAuthState("login");
+    window.addEventListener("autodev-auth-required", listener);
+    return () => {
+      closed = true;
+      window.removeEventListener("autodev-auth-required", listener);
+    };
+  }, []);
+
+  async function onLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setLoginError(null);
+    try {
+      const result = await authApi.login(password);
+      setAuthToken(result.token);
+      setPassword("");
+      setAuthState("ready");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Login failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (authState === "checking") {
+    return (
+      <div className="app">
+        <main className="main-content">
+          <div className="empty-state">
+            <div className="loading-spinner" style={{ margin: "0 auto" }} />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (authState === "login") {
+    return (
+      <div className="app">
+        <main className="main-content" style={{ maxWidth: "420px", margin: "0 auto", width: "100%" }}>
+          <section style={{ paddingTop: "20vh" }}>
+            <div className="card">
+              <div className="card-header">
+                <h3>Remote Login</h3>
+              </div>
+              {loginError && <div className="error-message">{loginError}</div>}
+              <form onSubmit={onLogin}>
+                <div className="form-group">
+                  <label>Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <button className="btn btn-primary" disabled={submitting || password.trim().length === 0}>
+                  {submitting ? "Signing in..." : "Sign in"}
+                </button>
+              </form>
+            </div>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  return <AuthenticatedApp />;
 }

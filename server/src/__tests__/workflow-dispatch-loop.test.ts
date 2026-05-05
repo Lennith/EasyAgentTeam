@@ -47,7 +47,9 @@ function buildState(): WorkflowDispatchLoopState {
     onlyIdle: true,
     requestId: "req-1",
     source: "manual",
-    remaining: 3
+    remaining: 3,
+    activeDispatchesAtLoopStart: 0,
+    dispatchedThisLoop: 0
   };
 }
 
@@ -84,7 +86,8 @@ test("workflow dispatch loop aborts before launch when pre-dispatch session touc
             buildRunSessionKey: (runId: string, sessionId: string) => `${runId}:${sessionId}`,
             runWorkflowTransaction: async <T>(_runId: string, operation: () => Promise<T>) => await operation(),
             ensureRuntime: async () => state.runtime,
-            readConvergedRuntime: async () => state.runtime
+            readConvergedRuntime: async () => state.runtime,
+            countActiveDispatchLeases: async () => 0
           },
           launchAdapter: {
             launch: async (...args: unknown[]) => {
@@ -164,7 +167,8 @@ test("workflow dispatch loop still throws touch failure when audit append also f
               buildRunSessionKey: (runId: string, sessionId: string) => `${runId}:${sessionId}`,
               runWorkflowTransaction: async <T>(_runId: string, operation: () => Promise<T>) => await operation(),
               ensureRuntime: async () => state.runtime,
-              readConvergedRuntime: async () => state.runtime
+              readConvergedRuntime: async () => state.runtime,
+              countActiveDispatchLeases: async () => 0
             },
             launchAdapter: {
               launch: async () => {
@@ -205,4 +209,50 @@ test("workflow dispatch loop still throws touch failure when audit append also f
 
   assert.equal(warnings.length, 1);
   assert.match(String(warnings[0]?.[0] ?? ""), /pre-dispatch session touch failed/i);
+});
+
+test("workflow dispatch loop blocks when durable active lease count reaches concurrency cap", async () => {
+  const state = buildState();
+  let selectionCalls = 0;
+  const result = await runWorkflowDispatchLoop(
+    {
+      context: {
+        repositories: {
+          sessions: { touchSession: async () => {} },
+          events: { appendEvent: async () => {} },
+          inbox: { removeInboxMessages: async () => {} }
+        } as any,
+        maxConcurrentDispatches: 1,
+        inFlightDispatchSessionKeys: new OrchestratorSingleFlightGate(),
+        buildRunSessionKey: (runId: string, sessionId: string) => `${runId}:${sessionId}`,
+        runWorkflowTransaction: async <T>(_runId: string, operation: () => Promise<T>) => await operation(),
+        ensureRuntime: async () => state.runtime,
+        readConvergedRuntime: async () => state.runtime,
+        countActiveDispatchLeases: async () => 1
+      } as any,
+      launchAdapter: {
+        launch: async () => {
+          throw new Error("launch should not be called");
+        }
+      },
+      selectionAdapter: {
+        select: async () => {
+          selectionCalls += 1;
+          return {
+            status: "none" as const,
+            busyFound: false
+          };
+        }
+      },
+      loadRunOrThrow: async () => state.run,
+      handleLaunchError: () => {}
+    },
+    state,
+    1
+  );
+
+  assert.equal(selectionCalls, 0);
+  assert.equal(result.dispatchedCount, 0);
+  assert.equal(result.results[0]?.outcome, "session_busy");
+  assert.equal(result.results[0]?.reason, "max concurrent dispatches reached");
 });

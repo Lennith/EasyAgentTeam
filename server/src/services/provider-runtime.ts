@@ -18,8 +18,22 @@ import { resolveSkillPromptSegments } from "./skill-catalog.js";
 import { getDefaultShellType } from "../runtime-platform.js";
 import { normalizeMiniMaxRuntimeFailure } from "./provider-launch-error.js";
 import { DEFAULT_MINIMAX_MODEL } from "./provider-model-compat.js";
+import { issueRemoteAuthToken } from "./remote-auth-service.js";
 
 type ProjectSyncRunResult = ModelRunResult | MiniMaxRunResultInternal;
+
+function withProviderAuthEnv(settings: RuntimeSettings, input: MiniMaxSessionRunInput): MiniMaxSessionRunInput {
+  const token = issueRemoteAuthToken(settings);
+  return token
+    ? {
+        ...input,
+        env: {
+          ...(input.env ?? {}),
+          AUTO_DEV_AUTH_TOKEN: token
+        }
+      }
+    : input;
+}
 
 export interface ProjectDispatchInput {
   sessionId: string;
@@ -121,7 +135,7 @@ class CodexProviderRuntime implements ProviderRuntime {
   }
 
   async runSessionWithTools(settings: RuntimeSettings, input: MiniMaxSessionRunInput): Promise<MiniMaxRunResult> {
-    return await this.sessionRuntime.runSessionWithTools(settings, input);
+    return await this.sessionRuntime.runSessionWithTools(settings, withProviderAuthEnv(settings, input));
   }
 
   cancelSession(sessionId: string): boolean {
@@ -202,7 +216,7 @@ class DpAgentProviderRuntime implements ProviderRuntime {
   }
 
   async runSessionWithTools(settings: RuntimeSettings, input: MiniMaxSessionRunInput): Promise<MiniMaxRunResult> {
-    return await this.sessionRuntime.runSessionWithTools(settings, input);
+    return await this.sessionRuntime.runSessionWithTools(settings, withProviderAuthEnv(settings, input));
   }
 
   cancelSession(sessionId: string): boolean {
@@ -311,7 +325,10 @@ class MiniMaxProviderRuntime implements ProviderRuntime {
         additionalWritableDirs: [input.workspaceRoot],
         teamToolContext: input.teamToolContext,
         teamToolBridge: input.teamToolBridge,
-        env: input.env
+        env: {
+          ...(input.env ?? {}),
+          ...(issueRemoteAuthToken(settings) ? { AUTO_DEV_AUTH_TOKEN: issueRemoteAuthToken(settings) as string } : {})
+        }
       }
     });
 

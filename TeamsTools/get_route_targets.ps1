@@ -23,13 +23,14 @@ if (-not $resolvedProjectId) { Write-ToolError 'LOCAL_PROJECT_CONTEXT_MISSING' '
 if (-not $resolvedFromAgent) { Write-ToolError 'LOCAL_AGENT_CONTEXT_MISSING' 'AUTO_DEV_AGENT_ROLE is missing.' 'Set AUTO_DEV_AGENT_ROLE or pass -from_agent.' }
 
 $uri = "$resolvedManagerUrl/api/projects/$resolvedProjectId/route-targets?from_agent=$([System.Uri]::EscapeDataString($resolvedFromAgent))"
+$authHeaderArg = if ($env:AUTO_DEV_AUTH_TOKEN -and $env:AUTO_DEV_AUTH_TOKEN.Trim()) { " -H `"X-Auto-Dev-Auth-Token: $($env:AUTO_DEV_AUTH_TOKEN.Trim())`"" } else { "" }
 
 $timeoutSec = 5
 
 # Use curl.exe via Process to avoid PowerShell hanging issues
 $processInfo = New-Object System.Diagnostics.ProcessStartInfo
 $processInfo.FileName = "curl.exe"
-$processInfo.Arguments = "-s -X GET `"$uri`" --max-time $timeoutSec"
+$processInfo.Arguments = "-s -X GET `"$uri`"$authHeaderArg --max-time $timeoutSec"
 $processInfo.RedirectStandardOutput = $true
 $processInfo.RedirectStandardError = $true
 $processInfo.UseShellExecute = $false

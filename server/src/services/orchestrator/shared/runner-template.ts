@@ -6,9 +6,8 @@ export async function executeOrchestratorRunner<TInput, TContext, TExecutionResu
   lifecycle: OrchestratorRunnerLifecycleAdapter<TContext, TExecutionResult>
 ): Promise<TOutput> {
   const context = await execution.createContext(input);
-  await lifecycle.appendStarted(context);
-
   try {
+    await lifecycle.appendStarted(context);
     const result = await execution.execute(context);
     await lifecycle.appendSuccess?.(context, result);
     return await execution.onSuccess(context, result);

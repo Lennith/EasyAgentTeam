@@ -147,9 +147,16 @@ async function runCommand(command, args, options = {}) {
 }
 
 async function requestJsonWithStatus(baseUrl, method, routePath, body, expectedStatus = [200]) {
+  const headers = {};
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (process.env.AUTO_DEV_AUTH_TOKEN) {
+    headers["X-Auto-Dev-Auth-Token"] = process.env.AUTO_DEV_AUTH_TOKEN;
+  }
   const response = await fetch(`${baseUrl}${routePath}`, {
     method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   let payload = {};

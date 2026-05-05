@@ -16,6 +16,14 @@ function Format-ApiErrorMessage {
   return "HTTP $Status on $Method $Path response=$normalized"
 }
 
+function New-ApiHeaders {
+  $headers = @{}
+  if (-not [string]::IsNullOrWhiteSpace($env:AUTO_DEV_AUTH_TOKEN)) {
+    $headers["X-Auto-Dev-Auth-Token"] = $env:AUTO_DEV_AUTH_TOKEN
+  }
+  return $headers
+}
+
 function Invoke-ApiJson {
   param(
     [Parameter(Mandatory = $true)][string]$BaseUrl,
@@ -32,10 +40,11 @@ function Invoke-ApiJson {
   }
 
   try {
+    $headers = New-ApiHeaders
     if ($null -ne $json) {
-      $resp = Invoke-WebRequest -UseBasicParsing -Uri $uri -Method $Method -ContentType "application/json; charset=utf-8" -Body $json
+      $resp = Invoke-WebRequest -UseBasicParsing -Uri $uri -Method $Method -Headers $headers -ContentType "application/json; charset=utf-8" -Body $json
     } else {
-      $resp = Invoke-WebRequest -UseBasicParsing -Uri $uri -Method $Method
+      $resp = Invoke-WebRequest -UseBasicParsing -Uri $uri -Method $Method -Headers $headers
     }
     $status = [int]$resp.StatusCode
     if ($AllowStatus -notcontains $status) {
@@ -117,7 +126,7 @@ function Get-EventsNdjson {
     [Parameter(Mandatory = $true)][string]$BaseUrl,
     [Parameter(Mandatory = $true)][string]$ProjectId
   )
-  $resp = Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/api/projects/$ProjectId/events" -Method Get
+  $resp = Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/api/projects/$ProjectId/events" -Method Get -Headers (New-ApiHeaders)
   $raw = if ($resp.Content -is [byte[]]) {
     [System.Text.Encoding]::UTF8.GetString($resp.Content)
   } else {

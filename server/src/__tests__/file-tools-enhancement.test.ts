@@ -189,6 +189,35 @@ test("WebFetchTool returns fetched text and handles HTTP failures", async () => 
   }
 });
 
+test("WebFetchTool rejects private and metadata URLs before fetch", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = (async () => {
+    fetchCalled = true;
+    throw new Error("fetch should not be called");
+  }) as typeof fetch;
+
+  try {
+    const tool = new WebFetchTool();
+    for (const url of [
+      "http://127.0.0.1:43123/healthz",
+      "http://localhost:43123/healthz",
+      "http://10.0.0.1/",
+      "http://172.16.0.1/",
+      "http://192.168.1.1/",
+      "http://169.254.169.254/latest/meta-data",
+      "file:///etc/passwd"
+    ]) {
+      const result = await tool.execute({ url, format: "text" });
+      assert.equal(result.success, false, url);
+      assert.match(result.error ?? "", /not allowed|Unsupported/i);
+    }
+    assert.equal(fetchCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("WebSearchTool parses search payload into list output", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => {

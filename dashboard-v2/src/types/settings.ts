@@ -47,6 +47,9 @@ export interface RuntimeSettings {
   codexCliCommandDefault?: string;
   macosUntested?: boolean;
   updatedAt?: string;
+  security?: {
+    remote_password_enabled?: boolean;
+  };
   providers?: RuntimeProviderSettings;
 }
 

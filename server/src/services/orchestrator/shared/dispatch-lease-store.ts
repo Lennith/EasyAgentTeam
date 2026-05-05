@@ -93,6 +93,33 @@ export function createDispatchLeaseIndex(now = new Date()): DispatchLeaseIndex {
   };
 }
 
+const leaseMutationQueues = new Map<string, Promise<void>>();
+
+function normalizeLeaseFileKey(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+async function withDispatchLeaseMutation<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+  const key = normalizeLeaseFileKey(filePath);
+  const previous = leaseMutationQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chained = previous.catch(() => {}).then(() => next);
+  leaseMutationQueues.set(key, chained);
+  await previous.catch(() => {});
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (leaseMutationQueues.get(key) === chained) {
+      leaseMutationQueues.delete(key);
+    }
+  }
+}
+
 function normalizeStatus(status: unknown): DispatchLeaseStatus {
   return status === "open" ||
     status === "closing" ||
@@ -169,6 +196,13 @@ function isLeaseExpired(lease: Pick<DispatchLeaseRecord, "expires_at">, now = ne
   return !Number.isFinite(expiresMs) || expiresMs <= now.getTime();
 }
 
+function isActiveDispatchLease(lease: DispatchLeaseRecord, now = new Date()): boolean {
+  return (
+    (lease.status === "open" || lease.status === "closing" || lease.status === "retrying") &&
+    !isLeaseExpired(lease, now)
+  );
+}
+
 export async function findBlockingDispatchLease(
   repository: Repository,
   filePath: string,
@@ -176,12 +210,20 @@ export async function findBlockingDispatchLease(
 ): Promise<DispatchLeaseRecord | null> {
   const now = input.now ?? new Date();
   const index = await readDispatchLeaseIndex(repository, filePath);
-  const blockingStatuses = new Set<DispatchLeaseStatus>(["open", "closing", "retrying"]);
-  return (
-    index.leases.find(
-      (lease) => leaseMatchesTarget(lease, input) && blockingStatuses.has(lease.status) && !isLeaseExpired(lease, now)
-    ) ?? null
-  );
+  return index.leases.find((lease) => leaseMatchesTarget(lease, input) && isActiveDispatchLease(lease, now)) ?? null;
+}
+
+export async function countActiveDispatchLeases(
+  repository: Repository,
+  filePath: string,
+  input: { scopeKind: DispatchLeaseScopeKind; scopeId: string; now?: Date }
+): Promise<number> {
+  const now = input.now ?? new Date();
+  const index = await readDispatchLeaseIndex(repository, filePath);
+  return index.leases.filter(
+    (lease) =>
+      lease.scope_kind === input.scopeKind && lease.scope_id === input.scopeId && isActiveDispatchLease(lease, now)
+  ).length;
 }
 
 export async function upsertDispatchLease(
@@ -190,35 +232,37 @@ export async function upsertDispatchLease(
   input: UpsertDispatchLeaseInput,
   options: { now?: Date; ttlMs?: number } = {}
 ): Promise<DispatchLeaseRecord> {
-  const now = options.now ?? new Date();
-  const nowIso = now.toISOString();
-  const expiresAt = new Date(now.getTime() + (options.ttlMs ?? DEFAULT_DISPATCH_LEASE_TTL_MS)).toISOString();
-  const index = await readDispatchLeaseIndex(repository, filePath);
-  const existingIndex = index.leases.findIndex((lease) => lease.dispatch_id === input.dispatchId);
-  const previous = existingIndex >= 0 ? index.leases[existingIndex] : null;
-  const lease: DispatchLeaseRecord = {
-    dispatch_id: input.dispatchId,
-    scope_kind: input.scopeKind,
-    scope_id: input.scopeId,
-    session_id: input.sessionId,
-    role: input.role,
-    dispatch_kind: input.dispatchKind,
-    task_id: input.taskId ?? null,
-    message_id: input.messageId ?? null,
-    status: input.status ?? previous?.status ?? "open",
-    created_at: previous?.created_at ?? nowIso,
-    updated_at: nowIso,
-    expires_at: expiresAt,
-    heartbeat_at: nowIso,
-    recovery_attempt_id: input.recoveryAttemptId ?? previous?.recovery_attempt_id ?? null
-  };
-  if (existingIndex >= 0) {
-    index.leases[existingIndex] = lease;
-  } else {
-    index.leases.push(lease);
-  }
-  await writeDispatchLeaseIndex(repository, filePath, index, now);
-  return lease;
+  return await withDispatchLeaseMutation(filePath, async () => {
+    const now = options.now ?? new Date();
+    const nowIso = now.toISOString();
+    const expiresAt = new Date(now.getTime() + (options.ttlMs ?? DEFAULT_DISPATCH_LEASE_TTL_MS)).toISOString();
+    const index = await readDispatchLeaseIndex(repository, filePath);
+    const existingIndex = index.leases.findIndex((lease) => lease.dispatch_id === input.dispatchId);
+    const previous = existingIndex >= 0 ? index.leases[existingIndex] : null;
+    const lease: DispatchLeaseRecord = {
+      dispatch_id: input.dispatchId,
+      scope_kind: input.scopeKind,
+      scope_id: input.scopeId,
+      session_id: input.sessionId,
+      role: input.role,
+      dispatch_kind: input.dispatchKind,
+      task_id: input.taskId ?? null,
+      message_id: input.messageId ?? null,
+      status: input.status ?? previous?.status ?? "open",
+      created_at: previous?.created_at ?? nowIso,
+      updated_at: nowIso,
+      expires_at: expiresAt,
+      heartbeat_at: nowIso,
+      recovery_attempt_id: input.recoveryAttemptId ?? previous?.recovery_attempt_id ?? null
+    };
+    if (existingIndex >= 0) {
+      index.leases[existingIndex] = lease;
+    } else {
+      index.leases.push(lease);
+    }
+    await writeDispatchLeaseIndex(repository, filePath, index, now);
+    return lease;
+  });
 }
 
 export async function heartbeatDispatchLease(
@@ -227,15 +271,17 @@ export async function heartbeatDispatchLease(
   dispatchId: string,
   options: { now?: Date; ttlMs?: number } = {}
 ): Promise<DispatchLeaseRecord | null> {
-  const now = options.now ?? new Date();
-  const index = await readDispatchLeaseIndex(repository, filePath);
-  const lease = index.leases.find((item) => item.dispatch_id === dispatchId);
-  if (!lease || lease.status === "closed") return null;
-  lease.heartbeat_at = now.toISOString();
-  lease.updated_at = lease.heartbeat_at;
-  lease.expires_at = new Date(now.getTime() + (options.ttlMs ?? DEFAULT_DISPATCH_LEASE_TTL_MS)).toISOString();
-  await writeDispatchLeaseIndex(repository, filePath, index, now);
-  return lease;
+  return await withDispatchLeaseMutation(filePath, async () => {
+    const now = options.now ?? new Date();
+    const index = await readDispatchLeaseIndex(repository, filePath);
+    const lease = index.leases.find((item) => item.dispatch_id === dispatchId);
+    if (!lease || lease.status === "closed") return null;
+    lease.heartbeat_at = now.toISOString();
+    lease.updated_at = lease.heartbeat_at;
+    lease.expires_at = new Date(now.getTime() + (options.ttlMs ?? DEFAULT_DISPATCH_LEASE_TTL_MS)).toISOString();
+    await writeDispatchLeaseIndex(repository, filePath, index, now);
+    return { ...lease };
+  });
 }
 
 export async function closeDispatchLease(
@@ -244,15 +290,17 @@ export async function closeDispatchLease(
   dispatchId: string,
   options: { now?: Date; status?: DispatchLeaseStatus } = {}
 ): Promise<DispatchLeaseRecord | null> {
-  const now = options.now ?? new Date();
-  const index = await readDispatchLeaseIndex(repository, filePath);
-  const lease = index.leases.find((item) => item.dispatch_id === dispatchId);
-  if (!lease) return null;
-  lease.status = options.status ?? "closed";
-  lease.updated_at = now.toISOString();
-  lease.expires_at = lease.updated_at;
-  await writeDispatchLeaseIndex(repository, filePath, index, now);
-  return lease;
+  return await withDispatchLeaseMutation(filePath, async () => {
+    const now = options.now ?? new Date();
+    const index = await readDispatchLeaseIndex(repository, filePath);
+    const lease = index.leases.find((item) => item.dispatch_id === dispatchId);
+    if (!lease) return null;
+    lease.status = options.status ?? "closed";
+    lease.updated_at = now.toISOString();
+    lease.expires_at = lease.updated_at;
+    await writeDispatchLeaseIndex(repository, filePath, index, now);
+    return { ...lease };
+  });
 }
 
 export async function recoverExpiredDispatchLeases(
@@ -260,25 +308,27 @@ export async function recoverExpiredDispatchLeases(
   filePath: string,
   options: { now?: Date; createRecoveryAttemptId?: () => string } = {}
 ): Promise<DispatchLeaseRecord[]> {
-  const now = options.now ?? new Date();
-  const createRecoveryAttemptId = options.createRecoveryAttemptId ?? (() => randomUUID());
-  const index = await readDispatchLeaseIndex(repository, filePath);
-  const recovered: DispatchLeaseRecord[] = [];
-  for (const lease of index.leases) {
-    if (
-      (lease.status === "open" || lease.status === "closing" || lease.status === "retrying") &&
-      isLeaseExpired(lease, now)
-    ) {
-      lease.status = "cooldown";
-      lease.updated_at = now.toISOString();
-      lease.recovery_attempt_id = lease.recovery_attempt_id ?? createRecoveryAttemptId();
-      recovered.push({ ...lease });
+  return await withDispatchLeaseMutation(filePath, async () => {
+    const now = options.now ?? new Date();
+    const createRecoveryAttemptId = options.createRecoveryAttemptId ?? (() => randomUUID());
+    const index = await readDispatchLeaseIndex(repository, filePath);
+    const recovered: DispatchLeaseRecord[] = [];
+    for (const lease of index.leases) {
+      if (
+        (lease.status === "open" || lease.status === "closing" || lease.status === "retrying") &&
+        isLeaseExpired(lease, now)
+      ) {
+        lease.status = "cooldown";
+        lease.updated_at = now.toISOString();
+        lease.recovery_attempt_id = lease.recovery_attempt_id ?? createRecoveryAttemptId();
+        recovered.push({ ...lease });
+      }
     }
-  }
-  if (recovered.length > 0) {
-    await writeDispatchLeaseIndex(repository, filePath, index, now);
-  }
-  return recovered;
+    if (recovered.length > 0) {
+      await writeDispatchLeaseIndex(repository, filePath, index, now);
+    }
+    return recovered;
+  });
 }
 
 export async function reconcileDispatchLeasesFromEvents(
@@ -307,33 +357,58 @@ export async function reconcileDispatchLeasesFromEvents(
     if (event.eventType === "ORCHESTRATOR_DISPATCH_FINISHED" || event.eventType === "ORCHESTRATOR_DISPATCH_FAILED") {
       terminalDispatchIds.add(dispatchId);
       started.delete(dispatchId);
-      await closeDispatchLease(repository, filePath, dispatchId, { now: input.now });
     }
   }
-  const leases: DispatchLeaseRecord[] = [];
-  for (const [dispatchId, event] of started) {
-    if (terminalDispatchIds.has(dispatchId) || !event.sessionId) continue;
-    const payload =
-      event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
-    leases.push(
-      await upsertDispatchLease(
-        repository,
-        filePath,
-        {
-          dispatchId,
-          scopeKind: input.scopeKind,
-          scopeId: input.scopeId,
-          sessionId: event.sessionId,
-          role: readPayloadString(payload, "role") ?? input.defaultRole ?? "",
-          dispatchKind: readPayloadString(payload, "dispatchKind") === "message" ? "message" : "task",
-          taskId: event.taskId ?? readPayloadString(payload, "taskId") ?? null,
-          messageId: readPayloadString(payload, "messageId") ?? null,
-          recoveryAttemptId:
-            readPayloadString(payload, "recovery_attempt_id") ?? readPayloadString(payload, "recoveryAttemptId") ?? null
-        },
-        { now: input.now, ttlMs: input.ttlMs }
-      )
-    );
-  }
-  return leases;
+  return await withDispatchLeaseMutation(filePath, async () => {
+    const now = input.now ?? new Date();
+    const nowIso = now.toISOString();
+    const expiresAt = new Date(now.getTime() + (input.ttlMs ?? DEFAULT_DISPATCH_LEASE_TTL_MS)).toISOString();
+    const index = await readDispatchLeaseIndex(repository, filePath);
+    for (const dispatchId of terminalDispatchIds) {
+      const lease = index.leases.find((item) => item.dispatch_id === dispatchId);
+      if (lease) {
+        lease.status = "closed";
+        lease.updated_at = nowIso;
+        lease.expires_at = nowIso;
+      }
+    }
+    const leases: DispatchLeaseRecord[] = [];
+    for (const [dispatchId, event] of started) {
+      if (terminalDispatchIds.has(dispatchId) || !event.sessionId) continue;
+      const payload =
+        event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
+      const existingIndex = index.leases.findIndex((lease) => lease.dispatch_id === dispatchId);
+      const previous = existingIndex >= 0 ? index.leases[existingIndex] : null;
+      const lease: DispatchLeaseRecord = {
+        dispatch_id: dispatchId,
+        scope_kind: input.scopeKind,
+        scope_id: input.scopeId,
+        session_id: event.sessionId,
+        role: readPayloadString(payload, "role") ?? input.defaultRole ?? "",
+        dispatch_kind: readPayloadString(payload, "dispatchKind") === "message" ? "message" : "task",
+        task_id: event.taskId ?? readPayloadString(payload, "taskId") ?? null,
+        message_id: readPayloadString(payload, "messageId") ?? null,
+        status: previous?.status === "closed" ? "closed" : "open",
+        created_at: previous?.created_at ?? nowIso,
+        updated_at: nowIso,
+        expires_at: expiresAt,
+        heartbeat_at: nowIso,
+        recovery_attempt_id:
+          readPayloadString(payload, "recovery_attempt_id") ??
+          readPayloadString(payload, "recoveryAttemptId") ??
+          previous?.recovery_attempt_id ??
+          null
+      };
+      if (existingIndex >= 0) {
+        index.leases[existingIndex] = lease;
+      } else {
+        index.leases.push(lease);
+      }
+      leases.push({ ...lease });
+    }
+    if (terminalDispatchIds.size > 0 || leases.length > 0) {
+      await writeDispatchLeaseIndex(repository, filePath, index, now);
+    }
+    return leases;
+  });
 }

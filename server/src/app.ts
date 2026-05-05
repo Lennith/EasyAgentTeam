@@ -1,7 +1,10 @@
 ﻿import express from "express";
+import type { Server } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getRuntimeSettings } from "./data/repository/system/runtime-settings-repository.js";
 import { registerRoutes } from "./routes/index.js";
+import { extractRemoteAuthToken, validateRemoteAuthToken } from "./services/remote-auth-service.js";
 import { createProviderRegistry } from "./services/provider-runtime.js";
 import {
   createOrchestratorService,
@@ -11,6 +14,15 @@ import {
 
 export interface AppOptions {
   dataRoot?: string;
+  autoStartLoops?: boolean;
+}
+
+export interface AppRuntimeControls {
+  start(): void;
+  stop(): void;
+  orchestrator: ReturnType<typeof createOrchestratorService>;
+  workflowOrchestrator: ReturnType<typeof createWorkflowOrchestratorService>;
+  workflowRecurringDispatcher: ReturnType<typeof createWorkflowRecurringDispatcherService>;
 }
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -33,10 +45,35 @@ export function createApp(options: AppOptions = {}) {
   const orchestrator = createOrchestratorService(dataRoot, providerRegistry);
   const workflowOrchestrator = createWorkflowOrchestratorService(dataRoot, providerRegistry);
   const workflowRecurringDispatcher = createWorkflowRecurringDispatcherService(dataRoot, workflowOrchestrator);
+  let loopsStarted = false;
+  const runtimeControls: AppRuntimeControls = {
+    orchestrator,
+    workflowOrchestrator,
+    workflowRecurringDispatcher,
+    start: () => {
+      if (loopsStarted) {
+        return;
+      }
+      orchestrator.start();
+      workflowOrchestrator.start();
+      workflowRecurringDispatcher.start();
+      loopsStarted = true;
+    },
+    stop: () => {
+      if (!loopsStarted) {
+        return;
+      }
+      workflowRecurringDispatcher.stop();
+      workflowOrchestrator.stop();
+      orchestrator.stop();
+      loopsStarted = false;
+    }
+  };
 
-  orchestrator.start();
-  workflowOrchestrator.start();
-  workflowRecurringDispatcher.start();
+  if (options.autoStartLoops !== false) {
+    runtimeControls.start();
+  }
+  app.locals.runtimeControls = runtimeControls;
 
   const corsAllowList = (
     process.env.AUTO_DEV_CORS_ORIGINS ??
@@ -53,7 +90,7 @@ export function createApp(options: AppOptions = {}) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Auto-Dev-Auth-Token");
     }
     if (req.method === "OPTIONS") {
       res.status(204).end();
@@ -64,6 +101,32 @@ export function createApp(options: AppOptions = {}) {
 
   app.use(express.json({ limit: "10mb" }));
 
+  app.use(async (req, res, next) => {
+    if (
+      req.method === "OPTIONS" ||
+      !req.path.startsWith("/api/") ||
+      req.path === "/api/auth/login" ||
+      req.path === "/api/auth/status"
+    ) {
+      next();
+      return;
+    }
+    try {
+      const settings = await getRuntimeSettings(dataRoot);
+      if (validateRemoteAuthToken(settings, extractRemoteAuthToken(req))) {
+        next();
+        return;
+      }
+      res.status(401).json({
+        error_code: "AUTH_REQUIRED",
+        error: "AUTH_REQUIRED",
+        message: "Remote login password is required."
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   registerRoutes(app, {
     dataRoot,
     orchestrator,
@@ -72,4 +135,18 @@ export function createApp(options: AppOptions = {}) {
   });
 
   return app;
+}
+
+export function getAppRuntimeControls(app: express.Application): AppRuntimeControls | undefined {
+  return app.locals.runtimeControls as AppRuntimeControls | undefined;
+}
+
+export async function stopAppRuntime(app: express.Application, server?: Server): Promise<void> {
+  getAppRuntimeControls(app)?.stop();
+  if (!server || !server.listening) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  });
 }

@@ -20,6 +20,7 @@ import {
   toProviderLaunchErrorPayload,
   type ProviderLaunchErrorPayload
 } from "./provider-launch-error.js";
+import { issueRemoteAuthToken } from "./remote-auth-service.js";
 
 const activeRunners = new Map<string, MiniMaxRunner>();
 
@@ -347,6 +348,7 @@ export class MiniMaxRunner {
           parentRequestId: this.request.parentRequestId
         })
       );
+      const autoDevAuthToken = issueRemoteAuthToken(this.settings);
 
       this.agent = createMiniMaxAgent({
         config: {
@@ -386,7 +388,8 @@ export class MiniMaxRunner {
             AUTO_DEV_ACTIVE_TASK_TITLE: this.request.activeTaskTitle ?? "",
             AUTO_DEV_ACTIVE_PARENT_TASK_ID: this.request.activeParentTaskId ?? "",
             AUTO_DEV_ACTIVE_ROOT_TASK_ID: this.request.activeRootTaskId ?? "",
-            AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? ""
+            AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? "",
+            ...(autoDevAuthToken ? { AUTO_DEV_AUTH_TOKEN: autoDevAuthToken } : {})
           }
         }
       });

@@ -24,6 +24,8 @@ pnpm e2e:first-run
 
 The file-backed `dataRoot` is single-owner. Run only one server process for a given `FRAMEWORK_DATA_ROOT`/`data` directory; multiple server instances sharing the same `dataRoot` are unsupported until a storage driver with cross-process transactions is introduced.
 
+Remote access uses a single optional password gate. If no remote password is set, local dev and E2E requests remain unauthenticated. Once a password is set, `/api/**` requires a bearer token from `/api/auth/login`; authenticated remote calls have the same tool capability as local calls. There is no user/RBAC or separate remote tool permission model.
+
 ## Project Builder Agent
 
 首次体验默认使用一等 CLI 入口 `@autodev/agent-workspace`：

@@ -78,8 +78,10 @@ export interface ProjectDispatchContext {
   dataRoot: string;
   providerRegistry: ProviderRegistry;
   repositories: ProjectRepositoryBundle;
+  maxConcurrentDispatches: number;
   inFlightDispatchSessionKeys: OrchestratorSingleFlightGate;
   buildSessionDispatchKey(projectId: string, sessionId: string): string;
+  countActiveDispatchLeases(paths: ProjectPaths, projectId: string): Promise<number>;
   completionCleanup(paths: ProjectPaths, projectId: string, role: string): Promise<number>;
 }
 

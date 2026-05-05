@@ -13,6 +13,7 @@ import { buildCodexTeamToolConfigArgs, type CodexTeamToolContext } from "./codex
 import { spawnCodexProcess } from "./codex-cli-spawn.js";
 import { buildProjectCodexRuntimeHome, ensureCodexRuntimeHome } from "./codex-runtime-home.js";
 import { assertProviderModelLaunchable, normalizeCodexLaunchFailure } from "./provider-launch-error.js";
+import { issueRemoteAuthToken } from "./remote-auth-service.js";
 
 export interface ModelRunRequest {
   sessionId: string;
@@ -74,6 +75,7 @@ export abstract class BaseModelRunner {
   protected readonly project: ProjectRecord;
   protected readonly paths: ProjectPaths;
   protected readonly request: ModelRunRequest;
+  protected readonly runtimeSettings?: RuntimeSettings;
   protected readonly runId: string;
   protected readonly startedAt: string;
   private lastHeartbeatTime = 0;
@@ -81,10 +83,16 @@ export abstract class BaseModelRunner {
   private static readonly HEARTBEAT_INTERVAL_MS = 1000;
   private static readonly HEARTBEAT_RETRY_DELAYS_MS = [0, 50, 150] as const;
 
-  constructor(project: ProjectRecord, paths: ProjectPaths, request: ModelRunRequest) {
+  constructor(
+    project: ProjectRecord,
+    paths: ProjectPaths,
+    request: ModelRunRequest,
+    runtimeSettings?: RuntimeSettings
+  ) {
     this.project = project;
     this.paths = paths;
     this.request = request;
+    this.runtimeSettings = runtimeSettings;
     this.runId = randomUUID();
     this.startedAt = new Date().toISOString();
   }
@@ -444,6 +452,7 @@ export abstract class BaseModelRunner {
 
   protected withModelEnv(workingDirectory: string, codexHome?: string): NodeJS.ProcessEnv {
     const baseEnv: NodeJS.ProcessEnv = process.env;
+    const autoDevAuthToken = this.runtimeSettings ? issueRemoteAuthToken(this.runtimeSettings) : null;
     const env: NodeJS.ProcessEnv = {
       ...baseEnv,
       AUTO_DEV_PROJECT_ID: this.project.projectId,
@@ -458,6 +467,7 @@ export abstract class BaseModelRunner {
       AUTO_DEV_ACTIVE_PARENT_TASK_ID: this.request.activeParentTaskId ?? "",
       AUTO_DEV_ACTIVE_ROOT_TASK_ID: this.request.activeRootTaskId ?? "",
       AUTO_DEV_ACTIVE_REQUEST_ID: this.request.activeRequestId ?? "",
+      ...(autoDevAuthToken ? { AUTO_DEV_AUTH_TOKEN: autoDevAuthToken } : {}),
       ...(codexHome ? { CODEX_HOME: codexHome } : {})
     };
 
@@ -727,6 +737,6 @@ export async function runModelForProject(
     );
   }
 
-  const runner: BaseModelRunner = new CodexModelRunner(project, paths, req);
+  const runner: BaseModelRunner = new CodexModelRunner(project, paths, req, runtimeSettings);
   return await runner.run();
 }

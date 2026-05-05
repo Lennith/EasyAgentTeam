@@ -13,6 +13,16 @@ function resolveDoctorDataRoot() {
   return path.resolve(process.env.FRAMEWORK_DATA_ROOT || path.join(repoRoot, "data"));
 }
 
+function readRemotePasswordEnabled(dataRoot) {
+  const settingsFile = path.join(dataRoot, "settings", "runtime.json");
+  try {
+    const raw = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+    return Boolean(raw?.security?.remote_password_hash && raw?.security?.remote_password_salt);
+  } catch {
+    return false;
+  }
+}
+
 function compareMajor(version, minimum) {
   const major = Number(String(version).split(".")[0] ?? "0");
   return Number.isFinite(major) && major >= minimum;
@@ -165,6 +175,16 @@ async function main() {
     reason: "file-backed dataRoot is single-owner only; multiple server processes sharing this path are unsupported",
     actual: resolveDoctorDataRoot(),
     expected: "one server process per dataRoot"
+  });
+
+  const doctorDataRoot = resolveDoctorDataRoot();
+  checks.push({
+    id: "remote_access_model",
+    status: "PASS",
+    reason:
+      "remote access is a single password gate only; authenticated remote requests have local-equivalent tool capability",
+    actual: readRemotePasswordEnabled(doctorDataRoot) ? "remote password enabled" : "remote password not set",
+    expected: "no users/RBAC and no remote/local tool split"
   });
 
   const status = checks.some((item) => item.status === "FAIL") ? "FAIL" : "PASS";

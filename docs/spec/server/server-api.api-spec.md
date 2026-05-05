@@ -3,7 +3,7 @@
 本页只覆盖系统、catalog、project 相关公开 API。  
 workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 
-文档状态：`验证中`
+文档状态：`实装`
 
 ## 系统入口
 
@@ -12,6 +12,8 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
 - `GET /api/prompts/base`
 - `GET /api/settings`
 - `PATCH /api/settings`
+- `GET /api/auth/status`
+- `POST /api/auth/login`
 - `GET /api/orchestrator/status`
 - `GET /api/models`
 
@@ -21,6 +23,7 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `providers.codex.cliCommand`
   - `providers.codex.model`
   - `providers.codex.reasoningEffort`
+  - `providers.dpagent.cliCommand`
   - `providers.minimax.apiKey`
   - `providers.minimax.apiBase`
   - `providers.minimax.model`
@@ -29,7 +32,10 @@ workflow 专属接口单独定义在 `workflow-runtime.api-spec.md`。
   - `providers.minimax.maxSteps`
   - `providers.minimax.tokenLimit`
   - `providers.minimax.maxOutputTokens`
-- `PATCH /api/settings` 只接受 `providers.codex` 与 `providers.minimax` patch。
+- `GET /api/settings` 返回 `security.remote_password_enabled`，不返回 password hash、salt 或明文密码。
+- `PATCH /api/settings` 接受 `providers.codex`、`providers.minimax`、`providers.dpagent` 与 `security.remote_password` patch。
+- `POST /api/auth/login` 校验远程登录密码并返回 bearer token；密码变更会使旧 token 失效。
+- 远程密码未设置时 `/api/**` 保持无认证；远程密码设置后，除 `/api/auth/*` 和 `/healthz` 外的 `/api/**` 需要 `Authorization: Bearer <token>` 或 `X-Auto-Dev-Auth-Token`。
 - 旧 settings 顶层字段已经退役；请求携带时返回 `SETTINGS_FIELD_RETIRED`，不会映射到 provider profile。
 
 ## Catalog 入口

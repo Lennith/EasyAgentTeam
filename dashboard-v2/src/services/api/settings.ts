@@ -1,8 +1,22 @@
 import type { MCPServerConfig, ModelInfo, RuntimeSettings, Theme } from "@/types/settings";
 import { API_BASE, fetchJSON } from "./shared/http";
 
+export interface AuthStatusResponse {
+  remote_password_enabled: boolean;
+  authenticated: boolean;
+}
+
+export interface AuthLoginResponse {
+  token: string | null;
+  remote_password_enabled: boolean;
+}
+
 export interface UpdateRuntimeSettingsRequest {
   theme?: Theme;
+  security?: {
+    remote_password?: string | null;
+    remotePassword?: string | null;
+  };
   providers?: {
     codex?: {
       cliCommand?: string;
@@ -36,6 +50,16 @@ export const settingsApi = {
     fetchJSON<RuntimeSettings>(`${API_BASE}/settings`, {
       method: "PATCH",
       body: JSON.stringify(data)
+    })
+};
+
+export const authApi = {
+  status: () => fetchJSON<AuthStatusResponse>(`${API_BASE}/auth/status`),
+
+  login: (password: string) =>
+    fetchJSON<AuthLoginResponse>(`${API_BASE}/auth/login`, {
+      method: "POST",
+      body: JSON.stringify({ password })
     })
 };
 

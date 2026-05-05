@@ -30,6 +30,8 @@ export interface WorkflowDispatchLoopState {
   source: "manual" | "loop";
   recovery_attempt_id?: string;
   remaining: number;
+  activeDispatchesAtLoopStart: number;
+  dispatchedThisLoop: number;
 }
 
 export interface WorkflowDispatchLoopInput {
@@ -51,6 +53,7 @@ export interface WorkflowDispatchLoopContext {
   runWorkflowTransaction<T>(runId: string, operation: () => Promise<T>): Promise<T>;
   ensureRuntime(run: WorkflowRunRecord): Promise<WorkflowRunRuntimeState>;
   readConvergedRuntime(run: WorkflowRunRecord): Promise<WorkflowRunRuntimeState>;
+  countActiveDispatchLeases(runId: string): Promise<number>;
 }
 
 export interface WorkflowDispatchRuntimeErrorFactory {
@@ -103,6 +106,7 @@ export async function createWorkflowDispatchLoopState(
   const requestId = createTimestampedIdentifier("", 6);
   const maxDispatchesRaw = Number(input.maxDispatches ?? 1);
   const maxDispatches = Number.isFinite(maxDispatchesRaw) && maxDispatchesRaw > 0 ? Math.floor(maxDispatchesRaw) : 1;
+  const activeDispatchesAtLoopStart = await context.countActiveDispatchLeases(runId);
   return {
     state: {
       runId,
@@ -117,7 +121,9 @@ export async function createWorkflowDispatchLoopState(
       requestId,
       source: input.source ?? "manual",
       recovery_attempt_id: input.recovery_attempt_id?.trim() || undefined,
-      remaining: Math.max(0, Math.floor(run.autoDispatchRemaining ?? 5))
+      remaining: Math.max(0, Math.floor(run.autoDispatchRemaining ?? 5)),
+      activeDispatchesAtLoopStart,
+      dispatchedThisLoop: 0
     },
     maxDispatches
   };
@@ -128,6 +134,7 @@ export async function runWorkflowDispatchLoop(
   state: WorkflowDispatchLoopState,
   maxDispatches: number
 ): Promise<{ results: WorkflowDispatchRow[]; dispatchedCount: number }> {
+  state.activeDispatchesAtLoopStart = await dependencies.context.countActiveDispatchLeases(state.runId);
   return await runOrchestratorDispatchTemplate<
     WorkflowDispatchLoopState,
     WorkflowDispatchSelection,
@@ -169,8 +176,8 @@ export async function runWorkflowDispatchLoop(
       },
       beforeIteration: async (loopState) => {
         if (
-          !loopState.force &&
-          dependencies.context.inFlightDispatchSessionKeys.size >= dependencies.context.maxConcurrentDispatches
+          loopState.activeDispatchesAtLoopStart + loopState.dispatchedThisLoop >=
+          dependencies.context.maxConcurrentDispatches
         ) {
           return {
             role: loopState.role ?? "any",
@@ -327,12 +334,20 @@ export async function runWorkflowDispatchLoop(
       shouldContinue: (result) => result.outcome === "dispatched"
     },
     finalize: {
+      afterDispatch: async (result, loopState) => {
+        if (result.outcome === "dispatched") {
+          loopState.dispatchedThisLoop += 1;
+        }
+      },
       afterLoop: async (loopState, results) => {
         const dispatchedTaskIds = results
           .filter(
             (item) => item.outcome === "dispatched" && item.dispatchKind === "task" && typeof item.taskId === "string"
           )
           .map((item) => item.taskId as string);
+        if (dispatchedTaskIds.length === 0) {
+          return;
+        }
 
         await dependencies.context.runWorkflowTransaction(loopState.runId, async () => {
           const freshRun = await dependencies.loadRunOrThrow(loopState.runId);

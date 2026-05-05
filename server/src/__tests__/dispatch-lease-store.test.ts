@@ -6,6 +6,7 @@ import test from "node:test";
 import { createRepository } from "../data/repository/shared/runtime.js";
 import {
   closeDispatchLease,
+  countActiveDispatchLeases,
   findBlockingDispatchLease,
   heartbeatDispatchLease,
   readDispatchLeaseIndex,
@@ -139,4 +140,92 @@ test("dispatch lease index can be rebuilt from open dispatch events without repl
   index = await readDispatchLeaseIndex(repository, leaseFile);
   assert.equal(index.leases[0]?.status, "closed");
   assert.equal(index.leases[0]?.recovery_attempt_id, "recovery-existing");
+});
+
+test("dispatch lease active count ignores expired and closed leases", async () => {
+  const repository = createRepository("file");
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-lease-count-"));
+  const leaseFile = path.join(tempRoot, "dispatch-leases.json");
+  const now = new Date("2026-05-05T00:00:00.000Z");
+
+  await upsertDispatchLease(
+    repository,
+    leaseFile,
+    {
+      dispatchId: "open-1",
+      scopeKind: "workflow",
+      scopeId: "run-1",
+      sessionId: "session-1",
+      role: "lead",
+      dispatchKind: "task"
+    },
+    { now, ttlMs: 10_000 }
+  );
+  await upsertDispatchLease(
+    repository,
+    leaseFile,
+    {
+      dispatchId: "closed-1",
+      scopeKind: "workflow",
+      scopeId: "run-1",
+      sessionId: "session-2",
+      role: "qa",
+      dispatchKind: "task"
+    },
+    { now, ttlMs: 10_000 }
+  );
+  await closeDispatchLease(repository, leaseFile, "closed-1", { now });
+  await upsertDispatchLease(
+    repository,
+    leaseFile,
+    {
+      dispatchId: "expired-1",
+      scopeKind: "workflow",
+      scopeId: "run-1",
+      sessionId: "session-3",
+      role: "ux",
+      dispatchKind: "task"
+    },
+    { now, ttlMs: 1 }
+  );
+
+  const count = await countActiveDispatchLeases(repository, leaseFile, {
+    scopeKind: "workflow",
+    scopeId: "run-1",
+    now: new Date("2026-05-05T00:00:01.000Z")
+  });
+
+  assert.equal(count, 1);
+});
+
+test("dispatch lease concurrent read-modify-write preserves all records", async () => {
+  const repository = createRepository("file");
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-lease-concurrent-"));
+  const leaseFile = path.join(tempRoot, "dispatch-leases.json");
+  const now = new Date("2026-05-05T00:00:00.000Z");
+
+  await Promise.all(
+    Array.from({ length: 12 }, async (_item, index) =>
+      upsertDispatchLease(
+        repository,
+        leaseFile,
+        {
+          dispatchId: `dispatch-${index}`,
+          scopeKind: "project",
+          scopeId: "project-1",
+          sessionId: `session-${index}`,
+          role: `role-${index}`,
+          dispatchKind: "task"
+        },
+        { now, ttlMs: 10_000 }
+      )
+    )
+  );
+
+  const index = await readDispatchLeaseIndex(repository, leaseFile);
+  assert.equal(index.leases.length, 12);
+  assert.deepEqual(
+    new Set(index.leases.map((lease) => lease.dispatch_id)),
+    new Set(Array.from({ length: 12 }, (_item, index) => `dispatch-${index}`))
+  );
 });

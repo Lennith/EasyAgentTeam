@@ -33,6 +33,8 @@ export interface ProjectDispatchLoopState {
   registeredAgentIds: string[];
   forceBootstrappedSessionId: string | null;
   dispatchedRoles: Set<string>;
+  activeDispatchesAtLoopStart: number;
+  dispatchedThisLoop: number;
 }
 
 export interface CreateProjectDispatchLoopStateInput {
@@ -72,7 +74,9 @@ export async function createProjectDispatchLoopState(
       roleSummaryMap: agentCatalog.roleSummaryMap,
       registeredAgentIds: agentCatalog.agentIds,
       forceBootstrappedSessionId: input.forceBootstrappedSessionId,
-      dispatchedRoles: new Set<string>()
+      dispatchedRoles: new Set<string>(),
+      activeDispatchesAtLoopStart: 0,
+      dispatchedThisLoop: 0
     },
     maxDispatches
   };
@@ -86,6 +90,10 @@ export async function runProjectDispatchLoop(
   results: ProjectDispatchResult["results"];
   dispatchedCount: number;
 }> {
+  state.activeDispatchesAtLoopStart = await dependencies.context.countActiveDispatchLeases(
+    state.paths,
+    state.project.projectId
+  );
   return await runOrchestratorDispatchTemplate<
     ProjectDispatchLoopState,
     ProjectDispatchLoopSelection,
@@ -96,7 +104,22 @@ export async function runProjectDispatchLoop(
     gate: dependencies.context.inFlightDispatchSessionKeys,
     maxDispatches,
     preflight: {
-      beforeLoop: async () => null
+      beforeLoop: async () => null,
+      beforeIteration: async (loopState) => {
+        if (
+          loopState.activeDispatchesAtLoopStart + loopState.dispatchedThisLoop >=
+          dependencies.context.maxConcurrentDispatches
+        ) {
+          return {
+            sessionId: loopState.input.sessionId ?? "",
+            role: "any",
+            outcome: "session_busy" as const,
+            dispatchKind: null,
+            reason: "max concurrent dispatches reached"
+          };
+        }
+        return null;
+      }
     },
     mutation: {
       prepareDispatch: async ({ session, selection }, loopState) => ({
@@ -148,6 +171,9 @@ export async function runProjectDispatchLoop(
           if (result.outcome === "dispatched") {
             result.reason = `session_bootstrapped: ${loopState.forceBootstrappedSessionId}`;
           }
+        }
+        if (result.outcome === "dispatched") {
+          loopState.dispatchedThisLoop += 1;
         }
       }
     }

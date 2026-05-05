@@ -58,6 +58,7 @@ $body = @{
 }
 
 $uri = "$resolvedManagerUrl/api/projects/$resolvedProjectId/task-actions"
+$authHeaderArg = if ($env:AUTO_DEV_AUTH_TOKEN -and $env:AUTO_DEV_AUTH_TOKEN.Trim()) { " -H `"X-Auto-Dev-Auth-Token: $($env:AUTO_DEV_AUTH_TOKEN.Trim())`"" } else { "" }
 
 $maxRetries = 3
 $retryDelay = 2
@@ -74,7 +75,7 @@ for ($i = 0; $i -lt $maxRetries; $i++) {
   
   $processInfo = New-Object System.Diagnostics.ProcessStartInfo
   $processInfo.FileName = "curl.exe"
-  $processInfo.Arguments = "-s -X POST `"$uri`" -H `"Content-Type: application/json`" --data-binary @`"$tempFile`""
+  $processInfo.Arguments = "-s -X POST `"$uri`" -H `"Content-Type: application/json`"$authHeaderArg --data-binary @`"$tempFile`""
   $processInfo.RedirectStandardOutput = $true
   $processInfo.RedirectStandardError = $true
   $processInfo.UseShellExecute = $false

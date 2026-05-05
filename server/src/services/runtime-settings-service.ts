@@ -8,6 +8,9 @@ import { getRuntimePlatformCapabilities } from "../runtime-platform.js";
 export interface PatchRuntimeSettingsApiInput {
   theme?: "dark" | "vibrant" | "lively";
   providers?: PatchRuntimeSettingsApiProviders;
+  security?: {
+    remotePassword?: string | null;
+  };
 }
 
 export interface PatchRuntimeSettingsApiProviders {
@@ -44,6 +47,9 @@ export interface RuntimeSettingsApiResponse {
   codexCliCommandDefault: string;
   macosUntested: boolean;
   updatedAt: string;
+  security: {
+    remote_password_enabled: boolean;
+  };
   providers: {
     codex: {
       cliCommand?: string;
@@ -83,6 +89,11 @@ function toRuntimeSettingsApiResponse(
     codexCliCommandDefault: runtime.codexCliCommandDefault,
     macosUntested: runtime.macosUntested,
     updatedAt: settings.updatedAt,
+    security: {
+      remote_password_enabled: Boolean(
+        settings.security?.remote_password_hash && settings.security?.remote_password_salt
+      )
+    },
     providers: {
       codex: {
         cliCommand: settings.providers.codex.cliCommand,

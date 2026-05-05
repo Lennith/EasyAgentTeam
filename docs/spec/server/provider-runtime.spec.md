@@ -40,6 +40,9 @@
 - project / workflow 的 runner failure transition 使用共享决策规则输出 session 落态、cooldown 与 runtime event payload。
 - `agent-chat` SSE 的 `error` 事件必须直接透出结构化 provider error payload。
 - provider error 与 runtime failure 相关对外字段统一使用 snake_case，包括 `next_action`、`raw_status`、`cooldown_until`。
+- 后端启动的 provider 与 TeamTool 运行环境在远程密码启用时必须注入 `AUTO_DEV_AUTH_TOKEN`，确保 `TASK_REPORT`、消息路由与工具回调走同一个 `/api` 认证入口。
+- 认证只决定请求能否进入后端功能；进入后远程与本地使用同一套工具能力，不引入用户、RBAC 或远程/本地工具权限矩阵。
+- 全局工具安全基线不区分远程/本地：文件读写权限使用 realpath containment 防 symlink 逃逸；`web_fetch` 统一阻断 localhost、私网、link-local 与 metadata endpoint。
 
 ## Provider 边界
 

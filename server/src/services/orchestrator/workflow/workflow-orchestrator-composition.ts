@@ -20,6 +20,7 @@ import { WorkflowTaskActionService } from "./workflow-task-action-service.js";
 import { WorkflowTickService } from "./workflow-tick-service.js";
 import { createWorkflowOrchestratorTransientState } from "./workflow-orchestrator-state.js";
 import { resolveOrchestratorErrorMessage } from "../shared/index.js";
+import { countActiveDispatchLeases, tryGetWorkflowDispatchLeaseFile } from "../shared/dispatch-lease-store.js";
 
 export type WorkflowRuntimeErrorCode =
   | WorkflowBlockReasonCode
@@ -111,6 +112,15 @@ export function createWorkflowOrchestratorComposition(
     maxConcurrentDispatches: input.options.maxConcurrentDispatches,
     inFlightDispatchSessionKeys,
     buildRunSessionKey: transientState.buildRunSessionKey,
+    countActiveDispatchLeases: async (runId) => {
+      const leaseFile = tryGetWorkflowDispatchLeaseFile(input.dataRoot, runId);
+      return leaseFile
+        ? await countActiveDispatchLeases(repositories.repository, leaseFile, {
+            scopeKind: "workflow",
+            scopeId: runId
+          })
+        : 0;
+    },
     runWorkflowTransaction: (runId, operation) => runtimeSupportService.runWorkflowTransaction(runId, operation),
     resolveAuthoritativeSession: (runId, role, sessions, runRecord, reason) =>
       sessionRuntimeService.resolveAuthoritativeSession(runId, role, sessions, runRecord, reason),

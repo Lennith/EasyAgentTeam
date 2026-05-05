@@ -29,6 +29,7 @@ function Normalize-LockKey([string]$Raw) {
 
 function Invoke-CurlRequest([string]$method, [string]$uri, [string]$bodyJson) {
   $timeoutSec = 5
+  $authHeaderArg = if ($env:AUTO_DEV_AUTH_TOKEN -and $env:AUTO_DEV_AUTH_TOKEN.Trim()) { " -H `"X-Auto-Dev-Auth-Token: $($env:AUTO_DEV_AUTH_TOKEN.Trim())`"" } else { "" }
   
   if ($bodyJson) {
     $tempFile = [System.IO.Path]::GetTempFileName() + ".json"
@@ -36,11 +37,11 @@ function Invoke-CurlRequest([string]$method, [string]$uri, [string]$bodyJson) {
     
     $processInfo = New-Object System.Diagnostics.ProcessStartInfo
     $processInfo.FileName = "curl.exe"
-    $processInfo.Arguments = "-s -X $method `"$uri`" -H `"Content-Type: application/json`" --data-binary @`"$tempFile`" --max-time $timeoutSec"
+    $processInfo.Arguments = "-s -X $method `"$uri`" -H `"Content-Type: application/json`"$authHeaderArg --data-binary @`"$tempFile`" --max-time $timeoutSec"
   } else {
     $processInfo = New-Object System.Diagnostics.ProcessStartInfo
     $processInfo.FileName = "curl.exe"
-    $processInfo.Arguments = "-s -X $method `"$uri`" --max-time $timeoutSec"
+    $processInfo.Arguments = "-s -X $method `"$uri`"$authHeaderArg --max-time $timeoutSec"
   }
   
   $processInfo.RedirectStandardOutput = $true
