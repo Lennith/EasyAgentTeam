@@ -1,3 +1,5 @@
+import type { ProjectTaskActionPublicRequest, ProjectTaskPatchPublicRequest } from "@autodev/agent-library";
+
 export type TaskState = "PLANNED" | "READY" | "DISPATCHED" | "IN_PROGRESS" | "BLOCKED_DEP" | "DONE" | "CANCELED";
 
 export type TaskKind = "PROJECT_ROOT" | "USER_ROOT" | "EXECUTION";
@@ -86,38 +88,5 @@ export type TaskActionType =
   | "TASK_DISCUSS_CLOSED"
   | "TASK_REPORT";
 
-export interface TaskActionRequest {
-  action_type: TaskActionType;
-  from_agent: string;
-  from_session_id?: string | null;
-  to_role?: string;
-  to_session_id?: string | null;
-  payload: {
-    task_id?: string;
-    title?: string;
-    parent_task_id?: string;
-    owner_role?: string;
-    dependencies?: string[];
-    acceptance?: string[];
-    write_set?: string[];
-    state?: string;
-    content?: string;
-    thread_id?: string;
-    round?: number;
-    summary?: string;
-    artifacts?: string[];
-    alert?: string;
-  };
-}
-
-export interface TaskPatchRequest {
-  title?: string;
-  state?: TaskState;
-  owner_role?: string;
-  dependencies?: string[];
-  write_set?: string[];
-  acceptance?: string[];
-  artifacts?: string[];
-  priority?: number;
-  alert?: string | null;
-}
+export type TaskActionRequest = ProjectTaskActionPublicRequest;
+export type TaskPatchRequest = ProjectTaskPatchPublicRequest;

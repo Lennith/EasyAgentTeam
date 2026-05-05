@@ -60,6 +60,7 @@ export interface ProjectDispatchLaunchInput {
   rolePromptMap: Map<string, string>;
   roleSummaryMap: Map<string, string>;
   registeredAgentIds: string[];
+  dispatchId?: string;
 }
 
 export interface ProjectDispatchLaunchAdapterContext {

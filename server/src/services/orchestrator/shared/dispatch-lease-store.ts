@@ -56,6 +56,13 @@ export interface UpsertDispatchLeaseInput {
   recoveryAttemptId?: string | null;
 }
 
+export interface ReserveDispatchLeaseResult {
+  reserved: boolean;
+  activeCount: number;
+  maxActive: number;
+  lease?: DispatchLeaseRecord;
+}
+
 export interface DispatchLeaseMatchInput {
   scopeKind: DispatchLeaseScopeKind;
   scopeId: string;
@@ -262,6 +269,57 @@ export async function upsertDispatchLease(
     }
     await writeDispatchLeaseIndex(repository, filePath, index, now);
     return lease;
+  });
+}
+
+export async function reserveDispatchLease(
+  repository: Repository,
+  filePath: string,
+  input: UpsertDispatchLeaseInput,
+  options: { maxActive: number; now?: Date; ttlMs?: number }
+): Promise<ReserveDispatchLeaseResult> {
+  return await withDispatchLeaseMutation(filePath, async () => {
+    const now = options.now ?? new Date();
+    const maxActive = Math.max(0, Math.floor(options.maxActive));
+    const index = await readDispatchLeaseIndex(repository, filePath);
+    const activeCount = index.leases.filter(
+      (lease) =>
+        lease.dispatch_id !== input.dispatchId &&
+        lease.scope_kind === input.scopeKind &&
+        lease.scope_id === input.scopeId &&
+        isActiveDispatchLease(lease, now)
+    ).length;
+    if (activeCount >= maxActive) {
+      return { reserved: false, activeCount, maxActive };
+    }
+
+    const nowIso = now.toISOString();
+    const expiresAt = new Date(now.getTime() + (options.ttlMs ?? DEFAULT_DISPATCH_LEASE_TTL_MS)).toISOString();
+    const existingIndex = index.leases.findIndex((lease) => lease.dispatch_id === input.dispatchId);
+    const previous = existingIndex >= 0 ? index.leases[existingIndex] : null;
+    const lease: DispatchLeaseRecord = {
+      dispatch_id: input.dispatchId,
+      scope_kind: input.scopeKind,
+      scope_id: input.scopeId,
+      session_id: input.sessionId,
+      role: input.role,
+      dispatch_kind: input.dispatchKind,
+      task_id: input.taskId ?? null,
+      message_id: input.messageId ?? null,
+      status: input.status ?? previous?.status ?? "open",
+      created_at: previous?.created_at ?? nowIso,
+      updated_at: nowIso,
+      expires_at: expiresAt,
+      heartbeat_at: nowIso,
+      recovery_attempt_id: input.recoveryAttemptId ?? previous?.recovery_attempt_id ?? null
+    };
+    if (existingIndex >= 0) {
+      index.leases[existingIndex] = lease;
+    } else {
+      index.leases.push(lease);
+    }
+    await writeDispatchLeaseIndex(repository, filePath, index, now);
+    return { reserved: true, activeCount: activeCount + 1, maxActive, lease };
   });
 }
 

@@ -3,6 +3,7 @@ import { useTranslation } from "@/hooks/i18n";
 import { useSettings } from "@/hooks/useSettings";
 import type { ProjectSummary } from "@/types/project";
 import { projectApi } from "@/services/api/project";
+import { fetchText } from "@/services/api/shared/http";
 import * as mockData from "@/mock/data";
 import { Loader, Bug, Play, Pause, RotateCcw, ChevronDown, ChevronRight, FileCode } from "lucide-react";
 
@@ -336,19 +337,9 @@ export function AgentLogView() {
     if (!selectedProjectId || settings.useMockData) return;
 
     try {
-      const response = await fetch(
+      const text = await fetchText(
         `/api/projects/${encodeURIComponent(selectedProjectId)}/agent-output?t=${Date.now()}`
       );
-      if (!response.ok) {
-        if (response.status === 404) {
-          setSessionData({});
-          setTotalLines(0);
-          lastLineCount.current = 0;
-        }
-        return;
-      }
-
-      const text = await response.text();
       if (!text.trim()) {
         setTotalLines(0);
         return;
@@ -363,6 +354,12 @@ export function AgentLogView() {
         lastLineCount.current = lines.length;
       }
     } catch (err) {
+      if (err instanceof Error && err.message.includes("HTTP 404")) {
+        setSessionData({});
+        setTotalLines(0);
+        lastLineCount.current = 0;
+        return;
+      }
       console.error("Fetch error:", err);
     }
   }, [selectedProjectId, settings.useMockData]);

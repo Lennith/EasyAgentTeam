@@ -12,7 +12,7 @@
 
 - 任务树查询与 detail 查询
 - 统一 task-actions 写路径
-- workflow task action 请求契约由 `agent_library` Zod schema 统一定义，route 只负责 schema parse 后调用服务
+- project 与 workflow task action 请求契约由 `agent_library` Zod schema 统一定义，route/service 先做 schema parse 再调用任务协议服务
 - project 任务元数据补丁写路径
 - 讨论请求、回复、关闭
 - 进行中、完成、阻塞三类报告

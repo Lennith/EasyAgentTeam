@@ -1,4 +1,5 @@
 import { isManagerChatMessageType } from "../domain/models.js";
+import { ProjectMessageSendRequestSchema } from "@autodev/agent-library";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
 import { getProjectRepositoryBundle } from "../data/repository/project/repository-bundle.js";
 import { validateExplicitTargetSession } from "./routing-guard-service.js";
@@ -92,7 +93,17 @@ export async function handleManagerMessageSend(
     );
   }
 
-  const messageTypeRaw = readStringField(body, ["message_type", "messageType"], "MANAGER_MESSAGE");
+  const parsed = ProjectMessageSendRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new ManagerMessageServiceError(
+      400,
+      "MESSAGE_INPUT_INVALID",
+      "message payload is invalid",
+      "Provide content and to.agent or to.session_id."
+    );
+  }
+
+  const messageTypeRaw = parsed.data.messageType;
   if (!messageTypeRaw || !isManagerChatMessageType(messageTypeRaw)) {
     throw new ManagerMessageServiceError(
       400,
@@ -103,17 +114,14 @@ export async function handleManagerMessageSend(
   }
   const messageType: ProjectRouteMessageType = messageTypeRaw;
 
-  const to = (body.to ?? {}) as Record<string, unknown>;
-  const toRole = (to.agent ?? to.role ?? body.to_role ?? body.to_agent) as string | undefined;
-  const fromAgent = ((body.from_agent ?? body.fromAgent ?? "manager") as string).trim() || "manager";
-  const fromSessionId =
-    readStringField(body, ["from_session_id", "fromSessionId"]) ??
-    (fromAgent === "manager" ? "manager-system" : "agent-session-unknown");
-  const explicitSessionId = (to.session_id ?? body.session_id ?? body.to_session_id) as string | undefined;
-  const content = body.content as string | undefined;
-  const requestId = ((body.request_id ?? body.requestId) as string | undefined) ?? createTimestampRequestId();
-  const parentRequestId = readStringField(body, ["parent_request_id", "parentRequestId"]);
-  const taskId = readStringField(body, ["task_id", "taskId"]);
+  const toRole = parsed.data.toRole;
+  const fromAgent = parsed.data.fromAgent;
+  const fromSessionId = parsed.data.fromSessionId;
+  const explicitSessionId = parsed.data.toSessionId;
+  const content = parsed.data.content;
+  const requestId = parsed.data.requestId ?? createTimestampRequestId();
+  const parentRequestId = parsed.data.parentRequestId;
+  const taskId = parsed.data.taskId;
 
   if (!toRole && !explicitSessionId) {
     throw new ManagerMessageServiceError(

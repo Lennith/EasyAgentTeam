@@ -1,4 +1,15 @@
 import type express from "express";
+import {
+  CatalogAgentCreateRequestSchema,
+  CatalogAgentPatchRequestSchema,
+  CatalogAgentTemplateCreateRequestSchema,
+  CatalogAgentTemplatePatchRequestSchema,
+  CatalogSkillImportRequestSchema,
+  CatalogSkillListCreateRequestSchema,
+  CatalogSkillListPatchRequestSchema,
+  CatalogTeamCreateRequestSchema,
+  CatalogTeamUpdateRequestSchema
+} from "@autodev/agent-library";
 import { getBuiltInAgents } from "../services/agent-prompt-service.js";
 import {
   createCatalogAgent,
@@ -27,12 +38,7 @@ import type { AppRuntimeContext } from "./shared/context.js";
 import {
   hasUnsupportedAgentModelConfigs,
   isUnsupportedProviderId,
-  parseBoolean,
   readAgentModelConfigsField,
-  readNullableStringPatch,
-  readProviderIdField,
-  readStringArray,
-  readStringField,
   validateAgentModelConfigsForApi,
   validateAgentModelParamsForApi,
   sendApiError
@@ -79,12 +85,16 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
 
   app.post("/api/agent-templates", async (req, res, next) => {
     try {
-      const body = req.body as Record<string, unknown>;
+      const parsed = CatalogAgentTemplateCreateRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "AGENT_TEMPLATE_INPUT_INVALID", "template_id and prompt are required");
+        return;
+      }
       const created = await createCatalogAgentTemplate(dataRoot, {
-        templateId: (body.template_id ?? body.templateId) as string,
-        displayName: (body.display_name ?? body.displayName) as string | undefined,
-        prompt: body.prompt as string,
-        basedOnTemplateId: (body.based_on_template_id ?? body.basedOnTemplateId) as string | undefined
+        templateId: parsed.data.templateId,
+        displayName: parsed.data.displayName,
+        prompt: parsed.data.prompt,
+        basedOnTemplateId: parsed.data.basedOnTemplateId
       });
       res.status(201).json(created);
     } catch (error) {
@@ -95,14 +105,15 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.patch("/api/agent-templates/:template_id", async (req, res, next) => {
     try {
       const templateId = req.params.template_id;
-      const body = req.body as Record<string, unknown>;
+      const parsed = CatalogAgentTemplatePatchRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "AGENT_TEMPLATE_INPUT_INVALID", "template patch payload is invalid");
+        return;
+      }
       const updated = await patchCatalogAgentTemplate(dataRoot, templateId, {
-        displayName: (body.display_name ?? body.displayName) as string | undefined,
-        prompt: body.prompt as string | undefined,
-        basedOnTemplateId:
-          body.based_on_template_id === null || body.basedOnTemplateId === null
-            ? null
-            : ((body.based_on_template_id ?? body.basedOnTemplateId) as string | undefined)
+        displayName: parsed.data.displayName,
+        prompt: parsed.data.prompt,
+        basedOnTemplateId: parsed.data.basedOnTemplateId
       });
       res.status(200).json(updated);
     } catch (error) {
@@ -144,28 +155,35 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.post("/api/teams", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
+      const parsed = CatalogTeamCreateRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(
+          res,
+          400,
+          "TEAM_INPUT_INVALID",
+          "team_id is required and provider_id must be codex, minimax, or dpagent"
+        );
+        return;
+      }
       if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
         sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
-      const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
+      const agentModelConfigs =
+        parsed.data.agentModelConfigs ?? readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
       const modelValidation = validateAgentModelConfigsForApi(agentModelConfigs);
       if (modelValidation) {
         sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
         return;
       }
       const created = await createCatalogTeam(dataRoot, {
-        teamId: (body.team_id ?? body.teamId) as string,
-        name: (body.name ?? body.team_id ?? body.teamId) as string,
-        description: (body.description ?? body.description) as string | undefined,
-        agentIds: (body.agent_ids ?? body.agentIds) as string[] | undefined,
-        routeTable: (body.route_table ?? body.routeTable) as Record<string, string[]> | undefined,
-        taskAssignRouteTable: (body.task_assign_route_table ?? body.taskAssignRouteTable) as
-          | Record<string, string[]>
-          | undefined,
-        routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as
-          | Record<string, Record<string, number>>
-          | undefined,
+        teamId: parsed.data.teamId,
+        name: parsed.data.name,
+        description: parsed.data.description,
+        agentIds: parsed.data.agentIds,
+        routeTable: parsed.data.routeTable,
+        taskAssignRouteTable: parsed.data.taskAssignRouteTable,
+        routeDiscussRounds: parsed.data.routeDiscussRounds,
         agentModelConfigs
       });
       res.status(201).json(created);
@@ -177,27 +195,29 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.put("/api/teams/:teamId", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
+      const parsed = CatalogTeamUpdateRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "TEAM_INPUT_INVALID", "team payload is invalid");
+        return;
+      }
       if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
         sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
-      const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
+      const agentModelConfigs =
+        parsed.data.agentModelConfigs ?? readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
       const modelValidation = validateAgentModelConfigsForApi(agentModelConfigs);
       if (modelValidation) {
         sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
         return;
       }
       const updated = await updateCatalogTeam(dataRoot, req.params.teamId, {
-        name: (body.name ?? body.name) as string | undefined,
-        description: (body.description ?? body.description) as string | undefined,
-        agentIds: (body.agent_ids ?? body.agentIds) as string[] | undefined,
-        routeTable: (body.route_table ?? body.routeTable) as Record<string, string[]> | undefined,
-        taskAssignRouteTable: (body.task_assign_route_table ?? body.taskAssignRouteTable) as
-          | Record<string, string[]>
-          | undefined,
-        routeDiscussRounds: (body.route_discuss_rounds ?? body.routeDiscussRounds) as
-          | Record<string, Record<string, number>>
-          | undefined,
+        name: parsed.data.name,
+        description: parsed.data.description,
+        agentIds: parsed.data.agentIds,
+        routeTable: parsed.data.routeTable,
+        taskAssignRouteTable: parsed.data.taskAssignRouteTable,
+        routeDiscussRounds: parsed.data.routeDiscussRounds,
         agentModelConfigs
       });
       res.status(200).json(updated);
@@ -222,49 +242,35 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.post("/api/agents", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const agentId = (body.agent_id ?? body.agentId) as string | undefined;
-      const displayName = (body.display_name ?? body.displayName) as string | undefined;
-      const prompt = body.prompt as string | undefined;
-      const summary = readStringField(body, ["summary"]);
-      const defaultProviderId = body.provider_id as string | undefined;
+      const parsed = CatalogAgentCreateRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(
+          res,
+          400,
+          "AGENT_INPUT_INVALID",
+          "agent_id and prompt are required; provider_id must be codex, minimax, or dpagent"
+        );
+        return;
+      }
+      const agentId = parsed.data.agentId;
+      const displayName = parsed.data.displayName;
+      const prompt = parsed.data.prompt;
+      const summary = parsed.data.summary;
+      const defaultProviderId = parsed.data.providerId;
       if (isUnsupportedProviderId(defaultProviderId)) {
         sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
-      const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as
-        | Record<string, any>
-        | undefined;
+      const defaultModelParams = parsed.data.defaultModelParams as Record<string, any> | undefined;
       const normalizedProviderId =
-        defaultProviderId !== undefined || defaultModelParams
-          ? readProviderIdField(body, "provider_id", "minimax")
-          : undefined;
+        defaultProviderId !== undefined || defaultModelParams ? (defaultProviderId ?? "minimax") : undefined;
       const modelValidation = validateAgentModelParamsForApi(normalizedProviderId, defaultModelParams);
       if (modelValidation) {
         sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
         return;
       }
-      const modelSelectionEnabled = (body.model_selection_enabled ?? body.modelSelectionEnabled) as boolean | undefined;
-      let skillList: string[] | undefined;
-      if (
-        Object.prototype.hasOwnProperty.call(body, "skill_list") ||
-        Object.prototype.hasOwnProperty.call(body, "skillList")
-      ) {
-        const raw = body.skill_list ?? body.skillList;
-        if (raw === null) {
-          skillList = [];
-        } else if (Array.isArray(raw)) {
-          skillList = raw
-            .map((item) => (typeof item === "string" ? item.trim() : String(item).trim()))
-            .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
-        } else {
-          sendApiError(res, 400, "AGENT_INPUT_INVALID", "skill_list must be an array of list ids");
-          return;
-        }
-      }
-      if (!agentId || !prompt) {
-        res.status(400).json({ error: "agent_id and prompt are required" });
-        return;
-      }
+      const modelSelectionEnabled = parsed.data.modelSelectionEnabled;
+      const skillList = parsed.data.skillList;
       if (skillList && skillList.length > 0) {
         const missing = await validateCatalogSkillListIds(dataRoot, skillList);
         if (missing.length > 0) {
@@ -297,27 +303,16 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
     try {
       const agentId = req.params.agent_id;
       const body = req.body as Record<string, unknown>;
+      const parsed = CatalogAgentPatchRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "AGENT_INPUT_INVALID", "agent patch payload is invalid");
+        return;
+      }
       if (Object.prototype.hasOwnProperty.call(body, "provider_id") && isUnsupportedProviderId(body.provider_id)) {
         sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
-      let skillListPatch: string[] | undefined;
-      if (
-        Object.prototype.hasOwnProperty.call(body, "skill_list") ||
-        Object.prototype.hasOwnProperty.call(body, "skillList")
-      ) {
-        const raw = body.skill_list ?? body.skillList;
-        if (raw === null) {
-          skillListPatch = [];
-        } else if (Array.isArray(raw)) {
-          skillListPatch = raw
-            .map((item) => (typeof item === "string" ? item.trim() : String(item).trim()))
-            .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
-        } else {
-          sendApiError(res, 400, "AGENT_INPUT_INVALID", "skill_list must be an array of list ids");
-          return;
-        }
-      }
+      const skillListPatch = parsed.data.skillList;
       if (skillListPatch && skillListPatch.length > 0) {
         const missing = await validateCatalogSkillListIds(dataRoot, skillListPatch);
         if (missing.length > 0) {
@@ -327,12 +322,10 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
       }
       const existingAgents = await listCatalogAgents(dataRoot);
       const existingAgent = existingAgents.find((item) => item.agentId === agentId);
-      const defaultModelParams = (body.default_model_params ?? body.defaultModelParams) as
-        | Record<string, any>
-        | undefined;
+      const defaultModelParams = parsed.data.defaultModelParams as Record<string, any> | undefined;
       const normalizedProviderId =
-        body.provider_id !== undefined
-          ? readProviderIdField(body, "provider_id", "minimax")
+        parsed.data.providerId !== undefined
+          ? parsed.data.providerId
           : defaultModelParams
             ? (existingAgent?.defaultCliTool ?? "minimax")
             : existingAgent?.defaultCliTool;
@@ -342,13 +335,13 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
         return;
       }
       const updated = await patchCatalogAgent(dataRoot, agentId, {
-        displayName: (body.display_name ?? body.displayName) as string | undefined,
-        prompt: body.prompt as string | undefined,
-        summary: readNullableStringPatch(body, ["summary"]),
+        displayName: parsed.data.displayName,
+        prompt: parsed.data.prompt,
+        summary: parsed.data.summary,
         skillList: skillListPatch,
-        defaultCliTool: body.provider_id !== undefined ? normalizedProviderId : undefined,
+        defaultCliTool: parsed.data.providerId !== undefined ? normalizedProviderId : undefined,
         defaultModelParams,
-        modelSelectionEnabled: (body.model_selection_enabled ?? body.modelSelectionEnabled) as boolean | undefined
+        modelSelectionEnabled: parsed.data.modelSelectionEnabled
       });
       const { defaultCliTool, skillList, ...rest } = updated;
       res.status(200).json({
@@ -382,20 +375,12 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.post("/api/skills/import", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const sourceRaw = body.sources ?? body.paths ?? body.source;
-      const sources = Array.isArray(sourceRaw)
-        ? sourceRaw
-            .map((item) => (typeof item === "string" ? item.trim() : String(item).trim()))
-            .filter((item) => item.length > 0)
-        : typeof sourceRaw === "string" && sourceRaw.trim().length > 0
-          ? [sourceRaw.trim()]
-          : [];
-      if (sources.length === 0) {
+      const parsed = CatalogSkillImportRequestSchema.safeParse(body);
+      if (!parsed.success) {
         sendApiError(res, 400, "SKILL_IMPORT_INPUT_INVALID", "sources is required");
         return;
       }
-      const recursive = parseBoolean(body.recursive, true);
-      const result = await importCatalogSkills(dataRoot, { sources, recursive });
+      const result = await importCatalogSkills(dataRoot, parsed.data);
       res.status(200).json(result);
     } catch (error) {
       next(error);
@@ -423,17 +408,17 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.post("/api/skill-lists", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const listId = readStringField(body, ["list_id", "listId"]);
-      if (!listId) {
+      const parsed = CatalogSkillListCreateRequestSchema.safeParse(body);
+      if (!parsed.success) {
         sendApiError(res, 400, "SKILL_LIST_INPUT_INVALID", "list_id is required");
         return;
       }
       const created = await createCatalogSkillList(dataRoot, {
-        listId,
-        displayName: readStringField(body, ["display_name", "displayName"]),
-        description: readStringField(body, ["description"]),
-        includeAll: parseBoolean(body.include_all ?? body.includeAll, false),
-        skillIds: readStringArray(body.skill_ids ?? body.skillIds)
+        listId: parsed.data.listId,
+        displayName: parsed.data.displayName,
+        description: parsed.data.description,
+        includeAll: parsed.data.includeAll,
+        skillIds: parsed.data.skillIds
       });
       res.status(201).json(created);
     } catch (error) {
@@ -444,17 +429,16 @@ export function registerCatalogRoutes(app: express.Application, context: AppRunt
   app.patch("/api/skill-lists/:list_id", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const hasInclude =
-        Object.prototype.hasOwnProperty.call(body, "include_all") ||
-        Object.prototype.hasOwnProperty.call(body, "includeAll");
-      const hasSkillIds =
-        Object.prototype.hasOwnProperty.call(body, "skill_ids") ||
-        Object.prototype.hasOwnProperty.call(body, "skillIds");
+      const parsed = CatalogSkillListPatchRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "SKILL_LIST_INPUT_INVALID", "skill list patch payload is invalid");
+        return;
+      }
       const updated = await patchCatalogSkillList(dataRoot, req.params.list_id, {
-        displayName: (body.display_name ?? body.displayName) as string | undefined,
-        description: readNullableStringPatch(body, ["description"]),
-        includeAll: hasInclude ? parseBoolean(body.include_all ?? body.includeAll, false) : undefined,
-        skillIds: hasSkillIds ? (readStringArray(body.skill_ids ?? body.skillIds) ?? []) : undefined
+        displayName: parsed.data.displayName,
+        description: parsed.data.description,
+        includeAll: parsed.data.hasIncludeAll ? Boolean(parsed.data.includeAll) : undefined,
+        skillIds: parsed.data.hasSkillIds ? (parsed.data.skillIds ?? []) : undefined
       });
       res.status(200).json(updated);
     } catch (error) {

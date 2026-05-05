@@ -3,11 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { CodexModelRunner } from "../services/codex-runner.js";
+import { CodexModelRunner, normalizeModelRunRequest } from "../services/codex-runner.js";
 import type { ProjectPaths, ProjectRecord } from "../domain/models.js";
 import { buildProjectCodexRuntimeHome } from "../services/codex-runtime-home.js";
 import { addSession, getSession } from "../data/repository/project/session-repository.js";
 import { listEvents } from "../data/repository/project/event-repository.js";
+import { hashRemotePassword } from "../services/remote-auth-crypto.js";
 
 function buildProjectAndPaths(tempRoot: string): { project: ProjectRecord; paths: ProjectPaths } {
   const project: ProjectRecord = {
@@ -92,6 +93,18 @@ test("codex runner extracts thread id from json event lines", async () => {
   assert.equal(sessionId, "123e4567-e89b-12d3-a456-426614174000");
 });
 
+test("model run request preserves dpagent cli tool identity", () => {
+  const request = normalizeModelRunRequest({
+    session_id: "session-dpagent",
+    prompt: "ping",
+    cli_tool: "dpagent",
+    model_command: "dpagent"
+  });
+
+  assert.equal(request.cliTool, "dpagent");
+  assert.equal(request.modelCommand, "dpagent");
+});
+
 test("runner windows env keeps system command paths available", async () => {
   if (process.platform !== "win32") {
     return;
@@ -153,6 +166,42 @@ test("runner injects active task context env vars", async () => {
   assert.equal(modelEnv.AUTO_DEV_ACTIVE_ROOT_TASK_ID, "root-1");
   assert.equal(modelEnv.AUTO_DEV_ACTIVE_REQUEST_ID, "req-1");
   assert.equal(modelEnv.CODEX_HOME, codexHome);
+});
+
+test("runner injects AUTO_DEV_AUTH_TOKEN when remote password is enabled", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-codex-runner-auth-env-"));
+  const { project, paths } = buildProjectAndPaths(tempRoot);
+  const passwordHash = hashRemotePassword("secret", "stable-salt");
+  const runner = new CodexModelRunner(
+    project,
+    paths,
+    {
+      sessionId: "sess-auth-token",
+      prompt: "ping",
+      cliTool: "codex"
+    },
+    {
+      schemaVersion: "1.0",
+      updatedAt: "2026-05-05T00:00:00.000Z",
+      providers: {
+        codex: { cliCommand: "codex" },
+        dpagent: { cliCommand: "dpagent" },
+        minimax: {}
+      },
+      security: {
+        remote_password_hash: passwordHash.hash,
+        remote_password_salt: passwordHash.salt,
+        remote_password_updated_at: "2026-05-05T00:00:00.000Z"
+      }
+    }
+  );
+
+  const modelEnv = (runner as any).withModelEnv(
+    tempRoot,
+    buildProjectCodexRuntimeHome(paths, "sess-auth-token")
+  ) as NodeJS.ProcessEnv;
+  assert.equal(typeof modelEnv.AUTO_DEV_AUTH_TOKEN, "string");
+  assert.match(modelEnv.AUTO_DEV_AUTH_TOKEN ?? "", /\./);
 });
 
 test("codex runner meaningful json item refreshes session heartbeat", async () => {

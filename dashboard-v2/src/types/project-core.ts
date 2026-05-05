@@ -1,4 +1,5 @@
 import type { AgentModelConfig } from "./catalog";
+import type { ProjectCreatePublicRequest } from "@autodev/agent-library";
 
 export interface ProjectSummary {
   projectId: string;
@@ -21,16 +22,4 @@ export interface ProjectDetail extends ProjectSummary {
   roleSessionMap?: Record<string, string>;
 }
 
-export interface CreateProjectRequest {
-  project_id: string;
-  name: string;
-  workspace_path: string;
-  template_id?: string;
-  team_id?: string;
-  agent_ids?: string[];
-  route_table?: Record<string, string[]>;
-  route_discuss_rounds?: number;
-  role_session_map?: Record<string, string>;
-  auto_dispatch_enabled?: boolean;
-  auto_dispatch_remaining?: number;
-}
+export type CreateProjectRequest = ProjectCreatePublicRequest;

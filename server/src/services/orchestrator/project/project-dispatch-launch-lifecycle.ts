@@ -63,7 +63,7 @@ export function createProjectDispatchLaunchExecutionAdapter(
       return {
         input,
         providerId: providerFromSession ?? resolveSessionProviderId(input.project, input.session.role, "minimax"),
-        dispatchId: operations.createDispatchId(),
+        dispatchId: input.dispatchId ?? operations.createDispatchId(),
         startedAt: operations.now()
       };
     },

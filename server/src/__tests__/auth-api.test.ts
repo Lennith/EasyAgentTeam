@@ -68,6 +68,30 @@ test("remote password gate is disabled by default and enabled after setting pass
       headers: { Authorization: `Bearer ${loginPayload.token}` }
     });
     assert.equal(staleToken.status, 401);
+
+    const nextLogin = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "next-pass" })
+    });
+    assert.equal(nextLogin.status, 200);
+    const nextLoginPayload = (await nextLogin.json()) as { token?: string };
+    assert.equal(typeof nextLoginPayload.token, "string");
+
+    const clearPassword = await fetch(`${baseUrl}/api/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-Auto-Dev-Auth-Token": nextLoginPayload.token! },
+      body: JSON.stringify({ security: { remote_password: null } })
+    });
+    assert.equal(clearPassword.status, 200);
+    const clearPayload = (await clearPassword.json()) as { security?: { remote_password_enabled?: boolean } };
+    assert.equal(clearPayload.security?.remote_password_enabled, false);
+    assert.equal(JSON.stringify(clearPayload).includes("remote_password_hash"), false);
+
+    const settingsAfterClear = await fetch(`${baseUrl}/api/settings`);
+    assert.equal(settingsAfterClear.status, 200);
+    const statusAfterClear = await fetch(`${baseUrl}/api/auth/status`);
+    assert.deepEqual(await statusAfterClear.json(), { remote_password_enabled: false, authenticated: true });
   } finally {
     await serverHandle.close();
   }

@@ -1,4 +1,5 @@
 import type { AgentModelConfig } from "./catalog";
+import type { CatalogTeamCreatePublicRequest, CatalogTeamUpdatePublicRequest } from "@autodev/agent-library";
 
 export type TeamView = "list" | "edit" | "new";
 
@@ -25,23 +26,5 @@ export interface TeamSummary {
   updatedAt: string;
 }
 
-export interface CreateTeamRequest {
-  team_id: string;
-  name: string;
-  description?: string;
-  agent_ids?: string[];
-  route_table?: Record<string, string[]>;
-  task_assign_route_table?: Record<string, string[]>;
-  route_discuss_rounds?: Record<string, Record<string, number>>;
-  agent_model_configs?: Record<string, AgentModelConfig>;
-}
-
-export interface UpdateTeamRequest {
-  name?: string;
-  description?: string;
-  agent_ids?: string[];
-  route_table?: Record<string, string[]>;
-  task_assign_route_table?: Record<string, string[]>;
-  route_discuss_rounds?: Record<string, Record<string, number>>;
-  agent_model_configs?: Record<string, AgentModelConfig>;
-}
+export type CreateTeamRequest = CatalogTeamCreatePublicRequest;
+export type UpdateTeamRequest = CatalogTeamUpdatePublicRequest;

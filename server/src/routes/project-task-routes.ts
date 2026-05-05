@@ -1,4 +1,5 @@
 import type express from "express";
+import { ProjectTaskActionRequestSchema, ProjectTaskPatchRequestSchema } from "@autodev/agent-library";
 import { handleTaskAction, TaskActionError } from "../services/task-action-service.js";
 import { queryProjectTaskDetail, queryProjectTaskTree } from "../services/project-task-query-service.js";
 import { patchProjectTask } from "../services/project-task-use-cases.js";
@@ -19,6 +20,10 @@ export function registerProjectTaskRoutes(app: express.Application, context: App
     );
 
     try {
+      const parsed = ProjectTaskActionRequestSchema.safeParse(requestBody);
+      if (!parsed.success) {
+        throw new TaskActionError("task action payload is invalid", "TASK_ACTION_INVALID", 400);
+      }
       const { project, paths } = await getProjectRuntimeContext(dataRoot, req.params.id);
       const result = await handleTaskAction(dataRoot, project, paths, requestBody);
       const duration = Date.now() - startTime;
@@ -114,55 +119,22 @@ export function registerProjectTaskRoutes(app: express.Application, context: App
         res.status(400).json({ code: "TASK_ID_REQUIRED", error: "task_id is required" });
         return;
       }
-      const body = req.body as Record<string, unknown>;
-      const patch: ProjectTaskPatchInput = {};
-      if (Object.prototype.hasOwnProperty.call(body, "title")) {
-        patch.title = typeof body.title === "string" ? body.title.trim() || undefined : undefined;
+      const parsed = ProjectTaskPatchRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ code: "TASK_PATCH_INVALID", error: "task patch payload is invalid" });
+        return;
       }
-      if (Object.prototype.hasOwnProperty.call(body, "state")) {
-        patch.state =
-          typeof body.state === "string" ? (body.state as import("../domain/models.js").TaskState) : undefined;
-      }
-      if (
-        Object.prototype.hasOwnProperty.call(body, "owner_role") ||
-        Object.prototype.hasOwnProperty.call(body, "ownerRole")
-      ) {
-        patch.ownerRole =
-          typeof (body.owner_role ?? body.ownerRole) === "string"
-            ? ((body.owner_role ?? body.ownerRole) as string)
-            : undefined;
-      }
-      if (Object.prototype.hasOwnProperty.call(body, "dependencies")) {
-        patch.dependencies = Array.isArray(body.dependencies)
-          ? body.dependencies.map((d) => String(d).trim()).filter((d) => d)
-          : undefined;
-      }
-      if (
-        Object.prototype.hasOwnProperty.call(body, "write_set") ||
-        Object.prototype.hasOwnProperty.call(body, "writeSet")
-      ) {
-        const ws = body.write_set ?? body.writeSet;
-        patch.writeSet = Array.isArray(ws) ? ws.map((w) => String(w).trim()).filter((w) => w) : undefined;
-      }
-      if (Object.prototype.hasOwnProperty.call(body, "acceptance")) {
-        patch.acceptance = Array.isArray(body.acceptance)
-          ? body.acceptance.map((a) => String(a).trim()).filter((a) => a)
-          : undefined;
-      }
-      if (Object.prototype.hasOwnProperty.call(body, "artifacts")) {
-        patch.artifacts = Array.isArray(body.artifacts)
-          ? body.artifacts.map((a) => String(a).trim()).filter((a) => a)
-          : undefined;
-      }
-      if (Object.prototype.hasOwnProperty.call(body, "priority")) {
-        const priority = Number(body.priority);
-        if (Number.isFinite(priority)) {
-          patch.priority = Math.floor(priority);
-        }
-      }
-      if (Object.prototype.hasOwnProperty.call(body, "alert")) {
-        patch.alert = typeof body.alert === "string" ? body.alert.trim() || null : null;
-      }
+      const patch: ProjectTaskPatchInput = {
+        title: parsed.data.title,
+        state: parsed.data.state as import("../domain/models.js").TaskState | undefined,
+        ownerRole: parsed.data.ownerRole,
+        dependencies: parsed.data.dependencies,
+        writeSet: parsed.data.writeSet,
+        acceptance: parsed.data.acceptance,
+        artifacts: parsed.data.artifacts,
+        priority: parsed.data.priority,
+        alert: parsed.data.alert
+      };
       const patched = await patchProjectTask({
         dataRoot,
         projectId: project.projectId,

@@ -28,7 +28,7 @@ export interface ModelRunRequest {
   timeoutMs?: number;
   resumeSessionId?: string;
   parentRequestId?: string;
-  cliTool: "codex" | "minimax";
+  cliTool: "codex" | "minimax" | "dpagent";
   modelCommand?: string;
   modelParams?: Record<string, any>;
   codexTeamToolContext?: CodexTeamToolContext;
@@ -64,7 +64,7 @@ export interface AgentOutputLine {
   content: string;
   cliCommand?: string;
   prompt?: string;
-  provider?: "codex" | "minimax";
+  provider?: "codex" | "minimax" | "dpagent";
   config: {
     sandbox: "danger-full-access";
     approval: "never";
@@ -101,10 +101,12 @@ export abstract class BaseModelRunner {
   abstract extractSessionId(line: string): string | undefined;
 
   async run(): Promise<ModelRunResult> {
-    assertProviderModelLaunchable({
-      providerId: "codex",
-      model: typeof this.request.modelParams?.model === "string" ? this.request.modelParams.model : undefined
-    });
+    if (this.request.cliTool === "codex") {
+      assertProviderModelLaunchable({
+        providerId: "codex",
+        model: typeof this.request.modelParams?.model === "string" ? this.request.modelParams.model : undefined
+      });
+    }
     const { command, args, mode } = this.buildCommand();
     const cliCommand = [command, ...args].map((arg) => this.quoteCmdArg(arg)).join(" ");
     const workingDirectory = this.resolveWorkingDirectory();
@@ -676,7 +678,7 @@ export function normalizeModelRunRequest(body: unknown): ModelRunRequest {
       ? timeoutMsRaw
       : 10 * 60 * 1000;
 
-  const cliTool = cliToolRaw === "minimax" ? "minimax" : "codex";
+  const cliTool = cliToolRaw === "minimax" || cliToolRaw === "dpagent" ? cliToolRaw : "codex";
 
   return {
     sessionId,

@@ -68,3 +68,40 @@ test("agent-template API supports built-ins and custom template CRUD", async () 
     await serverHandle.close();
   }
 });
+
+test("agent API preserves camelCase dpagent provider identity", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-agent-provider-api-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const app = createApp({ dataRoot });
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
+
+  try {
+    const createRes = await fetch(`${baseUrl}/api/agents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agentId: "dpagent-dev",
+        displayName: "DPAgent Dev",
+        prompt: "Use DPAgent",
+        providerId: "dpagent"
+      })
+    });
+    assert.equal(createRes.status, 201);
+    const createPayload = (await createRes.json()) as { provider_id?: string };
+    assert.equal(createPayload.provider_id, "dpagent");
+
+    const patchRes = await fetch(`${baseUrl}/api/agents/dpagent-dev`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: "codex"
+      })
+    });
+    assert.equal(patchRes.status, 200);
+    const patchPayload = (await patchRes.json()) as { provider_id?: string };
+    assert.equal(patchPayload.provider_id, "codex");
+  } finally {
+    await serverHandle.close();
+  }
+});

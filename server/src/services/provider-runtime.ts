@@ -199,7 +199,7 @@ class DpAgentProviderRuntime implements ProviderRuntime {
         active_request_id: input.activeRequestId,
         parent_request_id: input.parentRequestId,
         agent_role: input.agentRole,
-        cli_tool: "codex",
+        cli_tool: "dpagent",
         model_command: settings.providers.dpagent.cliCommand?.trim() || "dpagent",
         model_params: {
           workspace: project.workspacePath

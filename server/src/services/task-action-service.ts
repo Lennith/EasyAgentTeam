@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ProjectTaskActionRequestSchema } from "@autodev/agent-library";
 import type { ProjectPaths, ProjectRecord, TaskActionType } from "../domain/models.js";
 import { appendEvent } from "../data/repository/project/event-repository.js";
 import { getSession } from "../data/repository/project/session-repository.js";
@@ -40,14 +41,17 @@ export async function handleTaskAction(
   paths: ProjectPaths,
   body: Record<string, unknown>
 ) {
-  const actionTypeRaw = readString(body.action_type) ?? readString(body.actionType);
-  const requestId = readString(body.request_id) ?? readString(body.requestId) ?? randomUUID();
-  const fromAgent = readString(body.from_agent) ?? readString(body.fromAgent) ?? "manager";
-  const fromSessionToken = readString(body.from_session_id) ?? readString(body.fromSessionId) ?? "manager-system";
-  const toRole = readString(body.to_role) ?? readString(body.toRole);
-  const toSessionId = readString(body.to_session_id) ?? readString(body.toSessionId);
-  const payload = (body.payload && typeof body.payload === "object" ? body.payload : {}) as Record<string, unknown>;
-  const actionInput = { ...body, ...payload } as Record<string, unknown>;
+  const parsed = ProjectTaskActionRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new TaskActionError("task action payload is invalid", "TASK_ACTION_INVALID", 400);
+  }
+  const actionTypeRaw = parsed.data.actionType;
+  const requestId = parsed.data.requestId ?? randomUUID();
+  const fromAgent = parsed.data.fromAgent;
+  const fromSessionToken = parsed.data.fromSessionId ?? "manager-system";
+  const toRole = parsed.data.toRole;
+  const toSessionId = parsed.data.toSessionId;
+  const actionInput = parsed.data.actionInput;
   const defaultTaskId = readDefaultTaskId(actionInput);
   const actionType = normalizeTaskActionType(actionTypeRaw);
   const normalizedActionType = actionTypeRaw?.toUpperCase();

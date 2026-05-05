@@ -1,4 +1,5 @@
 import { appendEvent } from "../../../data/repository/project/event-repository.js";
+import { TeamToolInputPayloadSchema } from "@autodev/agent-library";
 import { Tool, errorResult, successResult } from "../Tool.js";
 import type { TeamToolBridge, TeamToolErrorPayload, TeamToolExecutionContext } from "./types.js";
 import { TeamToolBridgeError } from "../../../services/minimax-teamtool-bridge.js";
@@ -34,6 +35,10 @@ export abstract class TeamTool extends Tool {
       args
     });
     try {
+      const parsed = TeamToolInputPayloadSchema.safeParse({ tool: this.name, input: args });
+      if (!parsed.success) {
+        throw new Error(`TeamTool input invalid: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`);
+      }
       const data = await this.executeWithContext(args);
       await this.emit("TEAM_TOOL_SUCCEEDED", {
         tool: this.name,

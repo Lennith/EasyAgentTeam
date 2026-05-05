@@ -1,4 +1,13 @@
 import type {
+  CatalogAgentCreatePublicRequest,
+  CatalogAgentPatchPublicRequest,
+  CatalogAgentTemplateCreatePublicRequest,
+  CatalogAgentTemplatePatchPublicRequest,
+  CatalogSkillImportPublicRequest,
+  CatalogSkillListCreatePublicRequest,
+  CatalogSkillListPatchPublicRequest
+} from "@autodev/agent-library";
+import type {
   AgentDefinition,
   AgentTemplateDefinition,
   SkillDefinition,
@@ -78,29 +87,13 @@ export const agentApi = {
     return { items: agents };
   },
 
-  create: (data: {
-    agent_id: string;
-    display_name: string;
-    prompt: string;
-    summary?: string;
-    skill_list?: string[];
-    provider_id?: "codex" | "minimax" | "dpagent";
-  }) =>
+  create: (data: CatalogAgentCreatePublicRequest) =>
     fetchJSON<{ agentId: string }>(`${API_BASE}/agents`, {
       method: "POST",
       body: JSON.stringify(data)
     }),
 
-  update: (
-    agentId: string,
-    data: {
-      display_name?: string;
-      prompt?: string;
-      summary?: string | null;
-      skill_list?: string[];
-      provider_id?: "codex" | "minimax" | "dpagent";
-    }
-  ) =>
+  update: (agentId: string, data: CatalogAgentPatchPublicRequest) =>
     fetchJSON<{ agentId: string }>(`${API_BASE}/agents/${encodeURIComponent(agentId)}`, {
       method: "PATCH",
       body: JSON.stringify(data)
@@ -119,7 +112,7 @@ export const skillApi = {
     return { items, total: data.total ?? items.length };
   },
 
-  import: async (data: { sources: string[]; recursive?: boolean }): Promise<SkillImportResult> => {
+  import: async (data: CatalogSkillImportPublicRequest): Promise<SkillImportResult> => {
     const payload = await fetchJSON<{
       imported?: Array<{ skill: Record<string, unknown>; action: "created" | "updated"; warnings?: string[] }>;
       warnings?: string[];
@@ -150,13 +143,7 @@ export const skillListApi = {
     return { items, total: data.total ?? items.length };
   },
 
-  create: async (data: {
-    list_id: string;
-    display_name?: string;
-    description?: string;
-    include_all?: boolean;
-    skill_ids?: string[];
-  }): Promise<SkillListDefinition> => {
+  create: async (data: CatalogSkillListCreatePublicRequest): Promise<SkillListDefinition> => {
     const payload = await fetchJSON<Record<string, unknown>>(`${API_BASE}/skill-lists`, {
       method: "POST",
       body: JSON.stringify(data)
@@ -164,15 +151,7 @@ export const skillListApi = {
     return mapSkillListDefinition(payload);
   },
 
-  update: async (
-    listId: string,
-    data: {
-      display_name?: string;
-      description?: string | null;
-      include_all?: boolean;
-      skill_ids?: string[];
-    }
-  ): Promise<SkillListDefinition> => {
+  update: async (listId: string, data: CatalogSkillListPatchPublicRequest): Promise<SkillListDefinition> => {
     const payload = await fetchJSON<Record<string, unknown>>(`${API_BASE}/skill-lists/${encodeURIComponent(listId)}`, {
       method: "PATCH",
       body: JSON.stringify(data)
@@ -192,13 +171,13 @@ export const templateApi = {
       `${API_BASE}/agent-templates`
     ),
 
-  create: (data: { template_id: string; display_name: string; prompt: string; based_on_template_id?: string | null }) =>
+  create: (data: CatalogAgentTemplateCreatePublicRequest) =>
     fetchJSON<{ templateId: string }>(`${API_BASE}/agent-templates`, {
       method: "POST",
       body: JSON.stringify(data)
     }),
 
-  update: (templateId: string, data: { display_name?: string; prompt?: string }) =>
+  update: (templateId: string, data: CatalogAgentTemplatePatchPublicRequest) =>
     fetchJSON<{ templateId: string }>(`${API_BASE}/agent-templates/${encodeURIComponent(templateId)}`, {
       method: "PATCH",
       body: JSON.stringify(data)

@@ -19,3 +19,4 @@
 
 - 不在前端做路由授权判断
 - 不在前端定义 provider/model 合法性规则
+- team 与 routing 写入请求类型从 `agent_library` Zod schema 推导，前端不维护重复 request interface。

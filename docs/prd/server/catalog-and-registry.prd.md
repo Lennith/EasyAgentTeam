@@ -20,3 +20,4 @@ Catalog 与 Registry 负责维护 Agent、Skill、Skill List、Team、Agent Temp
 
 - 已下线 provider 不再允许写入新的 registry 数据
 - 模型参数写入时必须通过 provider/model 组合校验
+- catalog agent、team、template、skill import 与 skill-list 写入请求必须通过 `agent_library` Zod schema 解析，provider id 只允许 `codex|minimax|dpagent`

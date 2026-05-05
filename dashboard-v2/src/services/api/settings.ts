@@ -1,47 +1,8 @@
-import type { MCPServerConfig, ModelInfo, RuntimeSettings, Theme } from "@/types/settings";
+import type { AuthLoginResponse, AuthStatusResponse, RuntimeSettingsPatchPublicRequest } from "@autodev/agent-library";
+import type { ModelInfo, RuntimeSettings } from "@/types/settings";
 import { API_BASE, fetchJSON } from "./shared/http";
 
-export interface AuthStatusResponse {
-  remote_password_enabled: boolean;
-  authenticated: boolean;
-}
-
-export interface AuthLoginResponse {
-  token: string | null;
-  remote_password_enabled: boolean;
-}
-
-export interface UpdateRuntimeSettingsRequest {
-  theme?: Theme;
-  security?: {
-    remote_password?: string | null;
-    remotePassword?: string | null;
-  };
-  providers?: {
-    codex?: {
-      cliCommand?: string;
-      model?: string;
-      reasoningEffort?: "low" | "medium" | "high";
-    };
-    dpagent?: {
-      cliCommand?: string;
-    };
-    minimax?: {
-      apiKey?: string | null;
-      apiBase?: string | null;
-      model?: string;
-      sessionDir?: string;
-      mcpServers?: MCPServerConfig[];
-      maxSteps?: number;
-      tokenLimit?: number;
-      maxOutputTokens?: number;
-      shellTimeout?: number;
-      shellOutputIdleTimeout?: number;
-      shellMaxRunTime?: number;
-      shellMaxOutputSize?: number;
-    };
-  };
-}
+export type UpdateRuntimeSettingsRequest = RuntimeSettingsPatchPublicRequest;
 
 export const settingsApi = {
   get: () => fetchJSON<RuntimeSettings>(`${API_BASE}/settings`),

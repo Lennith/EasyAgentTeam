@@ -12,6 +12,7 @@ import {
   readDispatchLeaseIndex,
   reconcileDispatchLeasesFromEvents,
   recoverExpiredDispatchLeases,
+  reserveDispatchLease,
   upsertDispatchLease
 } from "../services/orchestrator/shared/dispatch-lease-store.js";
 
@@ -228,4 +229,78 @@ test("dispatch lease concurrent read-modify-write preserves all records", async 
     new Set(index.leases.map((lease) => lease.dispatch_id)),
     new Set(Array.from({ length: 12 }, (_item, index) => `dispatch-${index}`))
   );
+});
+
+test("dispatch lease reservation atomically enforces active concurrency cap", async () => {
+  const repository = createRepository("file");
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-lease-reserve-"));
+  const leaseFile = path.join(tempRoot, "dispatch-leases.json");
+  const now = new Date("2026-05-05T00:00:00.000Z");
+
+  const results = await Promise.all(
+    Array.from({ length: 8 }, async (_item, index) =>
+      reserveDispatchLease(
+        repository,
+        leaseFile,
+        {
+          dispatchId: `reserve-${index}`,
+          scopeKind: "project",
+          scopeId: "project-1",
+          sessionId: `session-${index}`,
+          role: `role-${index}`,
+          dispatchKind: "task"
+        },
+        { maxActive: 2, now, ttlMs: 10_000 }
+      )
+    )
+  );
+
+  assert.equal(results.filter((item) => item.reserved).length, 2);
+  assert.equal(results.filter((item) => !item.reserved).length, 6);
+  assert.equal(
+    await countActiveDispatchLeases(repository, leaseFile, {
+      scopeKind: "project",
+      scopeId: "project-1",
+      now
+    }),
+    2
+  );
+});
+
+test("dispatch lease reservation ignores expired active rows", async () => {
+  const repository = createRepository("file");
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-dispatch-lease-reserve-expired-"));
+  const leaseFile = path.join(tempRoot, "dispatch-leases.json");
+  const now = new Date("2026-05-05T00:00:00.000Z");
+
+  await upsertDispatchLease(
+    repository,
+    leaseFile,
+    {
+      dispatchId: "expired",
+      scopeKind: "workflow",
+      scopeId: "run-1",
+      sessionId: "session-old",
+      role: "lead",
+      dispatchKind: "task"
+    },
+    { now, ttlMs: 1 }
+  );
+
+  const reserved = await reserveDispatchLease(
+    repository,
+    leaseFile,
+    {
+      dispatchId: "fresh",
+      scopeKind: "workflow",
+      scopeId: "run-1",
+      sessionId: "session-new",
+      role: "qa",
+      dispatchKind: "task"
+    },
+    { maxActive: 1, now: new Date("2026-05-05T00:00:01.000Z"), ttlMs: 10_000 }
+  );
+
+  assert.equal(reserved.reserved, true);
+  assert.equal(reserved.lease?.dispatch_id, "fresh");
 });

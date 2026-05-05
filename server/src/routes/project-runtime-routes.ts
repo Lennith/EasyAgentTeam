@@ -1,4 +1,9 @@
 import type express from "express";
+import {
+  ProjectDispatchMessageRequestSchema,
+  ProjectDispatchRequestSchema,
+  ProjectMessageSendRequestSchema
+} from "@autodev/agent-library";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -187,6 +192,17 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
     );
 
     try {
+      const parsed = ProjectMessageSendRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(
+          res,
+          400,
+          "MESSAGE_INPUT_INVALID",
+          "message payload is invalid",
+          "Provide content and to.agent or to.session_id."
+        );
+        return;
+      }
       const { project, paths } = await getProjectRuntimeContext(dataRoot, req.params.id);
       const result = await handleManagerMessageSend(dataRoot, project, paths, body);
       res.status(201).json(result);
@@ -221,9 +237,14 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
   app.post("/api/projects/:id/orchestrator/dispatch", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
+      const parsed = ProjectDispatchRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "DISPATCH_INPUT_INVALID", "dispatch payload is invalid");
+        return;
+      }
       const { project, paths } = await getProjectRuntimeContext(dataRoot, req.params.id);
-      const role = readStringField(body, ["role", "to_role", "toRole"]);
-      const requestedSessionId = (body.session_id ?? body.sessionId) as string | undefined;
+      const role = parsed.data.role;
+      const requestedSessionId = parsed.data.sessionId;
       let resolvedSessionId = requestedSessionId;
       if (role && requestedSessionId) {
         const requestedSession = await getProjectSessionById(dataRoot, project.projectId, requestedSessionId);
@@ -261,15 +282,14 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
       const result = await orchestrator.dispatchProject(req.params.id, {
         mode: "manual",
         sessionId: resolvedSessionId,
-        taskId: (body.task_id ?? body.taskId) as string | undefined,
-        force: Boolean(body.force ?? false),
-        onlyIdle:
-          body.only_idle === undefined && body.onlyIdle === undefined ? false : Boolean(body.only_idle ?? body.onlyIdle)
+        taskId: parsed.data.taskId,
+        force: parsed.data.force,
+        onlyIdle: parsed.data.onlyIdle
       });
       const dispatchedCount = result.results.filter(
         (item: (typeof result.results)[number]) => item.outcome === "dispatched"
       ).length;
-      if (Boolean(body.force ?? false) && dispatchedCount > 0) {
+      if (parsed.data.force && dispatchedCount > 0) {
         const rolesToReset = Array.from(
           new Set(
             result.results
@@ -295,8 +315,8 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
   app.post("/api/projects/:id/orchestrator/dispatch-message", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const messageId = (body.message_id ?? body.messageId) as string | undefined;
-      if (!messageId || !messageId.trim()) {
+      const parsed = ProjectDispatchMessageRequestSchema.safeParse(body);
+      if (!parsed.success) {
         sendApiError(
           res,
           400,
@@ -307,11 +327,10 @@ export function registerProjectRuntimeRoutes(app: express.Application, context: 
         return;
       }
       const result = await orchestrator.dispatchMessage(req.params.id, {
-        messageId: messageId.trim(),
-        sessionId: (body.session_id ?? body.sessionId) as string | undefined,
-        force: Boolean(body.force ?? false),
-        onlyIdle:
-          body.only_idle === undefined && body.onlyIdle === undefined ? false : Boolean(body.only_idle ?? body.onlyIdle)
+        messageId: parsed.data.messageId,
+        sessionId: parsed.data.sessionId,
+        force: parsed.data.force,
+        onlyIdle: parsed.data.onlyIdle
       });
       const dispatchedCount = result.results.filter(
         (item: (typeof result.results)[number]) => item.outcome === "dispatched"

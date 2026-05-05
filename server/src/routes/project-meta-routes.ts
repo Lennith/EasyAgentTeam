@@ -1,5 +1,10 @@
 import type express from "express";
-import type { ProviderId } from "@autodev/agent-library";
+import {
+  ProjectCreateRequestSchema,
+  ProjectOrchestratorSettingsPatchRequestSchema,
+  ProjectRoutingConfigRequestSchema,
+  ProjectTaskAssignRoutingRequestSchema
+} from "@autodev/agent-library";
 import { buildProjectRoutingSnapshot } from "../services/project-routing-snapshot-service.js";
 import {
   appendProjectAuditEvent,
@@ -18,9 +23,6 @@ import { logger } from "../utils/logger.js";
 import type { AppRuntimeContext } from "./shared/context.js";
 import {
   hasUnsupportedAgentModelConfigs,
-  parseBoolean,
-  parseInteger,
-  parseReminderMode,
   readAgentModelConfigsField,
   validateAgentModelConfigsForApi,
   sendApiError
@@ -39,19 +41,22 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         });
         return;
       }
-      const projectId = body.project_id as string | undefined;
-      const name = body.name as string | undefined;
-      const workspacePath = body.workspace_path as string | undefined;
-      const templateId = (body.template_id ?? body.templateId) as string | undefined;
-      const teamId = (body.team_id ?? body.teamId) as string | undefined;
+      const parsed = ProjectCreateRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "PROJECT_INPUT_INVALID", "project_id, name, workspace_path are required");
+        return;
+      }
+      const projectId = parsed.data.projectId;
+      const name = parsed.data.name;
+      const workspacePath = parsed.data.workspacePath;
+      const templateId = parsed.data.templateId;
+      const teamId = parsed.data.teamId;
 
       let teamAgentIds: string[] | undefined;
       let teamRouteTable: Record<string, string[]> | undefined;
       let teamTaskAssignRouteTable: Record<string, string[]> | undefined;
       let teamRouteDiscussRounds: Record<string, Record<string, number>> | undefined;
-      let teamAgentModelConfigs:
-        | Record<string, { provider_id: ProviderId; model: string; effort?: "low" | "medium" | "high" }>
-        | undefined;
+      let teamAgentModelConfigs: NonNullable<typeof parsed.data.agentModelConfigs> | undefined;
 
       if (teamId) {
         const team = await readTeamDefinition(dataRoot, teamId);
@@ -64,47 +69,25 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         }
       }
 
-      const agentIds = Array.isArray(body.agent_ids ?? body.agentIds)
-        ? ((body.agent_ids ?? body.agentIds) as string[])
-        : teamAgentIds;
-      const routeTable =
-        ((body.route_table ?? body.routeTable) as Record<string, string[]> | undefined) ?? teamRouteTable;
-      const taskAssignRouteTable =
-        ((body.task_assign_route_table ?? body.taskAssignRouteTable) as Record<string, string[]> | undefined) ??
-        teamTaskAssignRouteTable;
-      const routeDiscussRounds =
-        ((body.route_discuss_rounds ?? body.routeDiscussRounds) as
-          | Record<string, Record<string, number>>
-          | undefined) ?? teamRouteDiscussRounds;
-      const agentModelConfigs =
-        readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs) ?? teamAgentModelConfigs;
+      const agentIds = parsed.data.agentIds ?? teamAgentIds;
+      const routeTable = parsed.data.routeTable ?? teamRouteTable;
+      const taskAssignRouteTable = parsed.data.taskAssignRouteTable ?? teamTaskAssignRouteTable;
+      const routeDiscussRounds = parsed.data.routeDiscussRounds ?? teamRouteDiscussRounds;
+      const agentModelConfigs = parsed.data.agentModelConfigs ?? teamAgentModelConfigs;
       const modelValidation = validateAgentModelConfigsForApi(agentModelConfigs);
       if (modelValidation) {
         sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
         return;
       }
-      const autoDispatchEnabled = parseBoolean(body.auto_dispatch_enabled ?? body.autoDispatchEnabled, true);
-      const autoDispatchRemaining = parseInteger(body.auto_dispatch_remaining ?? body.autoDispatchRemaining) ?? 5;
-      const holdEnabled = parseBoolean(body.hold_enabled ?? body.holdEnabled, false);
-      const reminderModeRaw = body.reminder_mode ?? body.reminderMode;
-      const reminderMode = parseReminderMode(reminderModeRaw) ?? "backoff";
-      if (reminderModeRaw !== undefined && !parseReminderMode(reminderModeRaw)) {
-        res.status(400).json({
-          code: "ORCHESTRATOR_SETTINGS_INVALID",
-          error: "reminder_mode must be backoff|fixed_interval"
-        });
-        return;
-      }
+      const autoDispatchEnabled = parsed.data.autoDispatchEnabled;
+      const autoDispatchRemaining = parsed.data.autoDispatchRemaining;
+      const holdEnabled = parsed.data.holdEnabled;
+      const reminderMode = parsed.data.reminderMode;
       if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
         sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
-      const roleSessionMap = (body.role_session_map ?? body.roleSessionMap) as Record<string, string> | undefined;
-
-      if (!projectId || !name || !workspacePath) {
-        res.status(400).json({ error: "project_id, name, workspace_path are required" });
-        return;
-      }
+      const roleSessionMap = parsed.data.roleSessionMap;
 
       const normalizedAgentIds = Array.isArray(agentIds)
         ? Array.from(new Set(agentIds.map((item) => String(item).trim()).filter((item) => item.length > 0)))
@@ -228,30 +211,23 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         return;
       }
       const project = await readProject(dataRoot, req.params.id);
-      const agentIds = Array.isArray(body.agent_ids ?? body.agentIds)
-        ? ((body.agent_ids ?? body.agentIds) as string[])
-        : null;
-      const routeTable = (body.route_table ?? body.routeTable) as Record<string, string[]> | undefined;
-      const routeDiscussRounds = (body.route_discuss_rounds ?? body.routeDiscussRounds) as
-        | Record<string, Record<string, number>>
-        | undefined;
+      const parsed = ProjectRoutingConfigRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "PROJECT_ROUTING_INVALID", "agent_ids and route_table are required");
+        return;
+      }
       if (hasUnsupportedAgentModelConfigs(body.agent_model_configs ?? body.agentModelConfigs)) {
         sendApiError(res, 400, "PROVIDER_NOT_SUPPORTED", "provider_id must be codex, minimax, or dpagent");
         return;
       }
-      const agentModelConfigs = readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
+      const agentModelConfigs =
+        parsed.data.agentModelConfigs ?? readAgentModelConfigsField(body.agent_model_configs ?? body.agentModelConfigs);
       const modelValidation = validateAgentModelConfigsForApi(agentModelConfigs);
       if (modelValidation) {
         sendApiError(res, 400, "AGENT_MODEL_PROVIDER_MISMATCH", modelValidation.message, modelValidation.nextAction);
         return;
       }
-      if (!agentIds || !routeTable || typeof routeTable !== "object") {
-        res.status(400).json({ error: "agent_ids and route_table are required" });
-        return;
-      }
-      const normalizedAgentIds = Array.from(
-        new Set(agentIds.map((item) => String(item).trim()).filter((item) => item.length > 0))
-      );
+      const normalizedAgentIds = parsed.data.agentIds;
       const registry = await listRegisteredAgents(dataRoot);
       const known = new Set(registry.map((item) => item.agentId));
       const missing = normalizedAgentIds.filter((item) => !known.has(item));
@@ -262,8 +238,8 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
 
       const updated = await updateProjectRoutingConfig(dataRoot, project.projectId, {
         agentIds: normalizedAgentIds,
-        routeTable,
-        routeDiscussRounds,
+        routeTable: parsed.data.routeTable,
+        routeDiscussRounds: parsed.data.routeDiscussRounds,
         agentModelConfigs
       });
 
@@ -285,19 +261,15 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
   app.patch("/api/projects/:id/task-assign-routing", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const taskAssignRouteTable = body.task_assign_route_table ?? body.taskAssignRouteTable;
-      if (!taskAssignRouteTable || typeof taskAssignRouteTable !== "object") {
+      const parsed = ProjectTaskAssignRoutingRequestSchema.safeParse(body);
+      if (!parsed.success) {
         res.status(400).json({
           code: "TASK_ASSIGN_ROUTING_INVALID",
           error: "task_assign_route_table is required and must be an object"
         });
         return;
       }
-      const updated = await updateProjectTaskAssignRouting(
-        dataRoot,
-        req.params.id,
-        taskAssignRouteTable as Record<string, string[]>
-      );
+      const updated = await updateProjectTaskAssignRouting(dataRoot, req.params.id, parsed.data.taskAssignRouteTable);
       res.status(200).json({
         project_id: updated.projectId,
         task_assign_route_table: updated.taskAssignRouteTable ?? {},
@@ -334,24 +306,17 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
   app.patch("/api/projects/:id/orchestrator/settings", async (req, res, next) => {
     try {
       const body = req.body as Record<string, unknown>;
-      const enabledRaw = body.auto_dispatch_enabled ?? body.autoDispatchEnabled;
-      const remainingRaw = body.auto_dispatch_remaining ?? body.autoDispatchRemaining;
-      const holdRaw = body.hold_enabled ?? body.holdEnabled;
-      const reminderModeRaw = body.reminder_mode ?? body.reminderMode;
-      const hasEnabled = typeof enabledRaw === "boolean";
-      const remainingParsed = parseInteger(remainingRaw);
-      const hasRemaining = remainingRaw !== undefined;
-      const hasHold = typeof holdRaw === "boolean";
-      const parsedReminderMode = parseReminderMode(reminderModeRaw);
-      const hasReminderMode = reminderModeRaw !== undefined;
-      if (hasReminderMode && !parsedReminderMode) {
-        res.status(400).json({
-          code: "ORCHESTRATOR_SETTINGS_INVALID",
-          error: "reminder_mode must be backoff|fixed_interval"
-        });
+      const parsed = ProjectOrchestratorSettingsPatchRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "ORCHESTRATOR_SETTINGS_INVALID", "orchestrator settings payload is invalid");
         return;
       }
-      if (!hasEnabled && !hasRemaining && !hasHold && !hasReminderMode) {
+      if (
+        !parsed.data.hasAutoDispatchEnabled &&
+        !parsed.data.hasAutoDispatchRemaining &&
+        !parsed.data.hasHoldEnabled &&
+        !parsed.data.hasReminderMode
+      ) {
         res.status(400).json({
           code: "ORCHESTRATOR_SETTINGS_INVALID",
           error:
@@ -359,7 +324,12 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         });
         return;
       }
-      if (hasRemaining && (remainingParsed === undefined || remainingParsed < 0 || remainingParsed > 1000)) {
+      if (
+        parsed.data.hasAutoDispatchRemaining &&
+        (parsed.data.autoDispatchRemaining === undefined ||
+          parsed.data.autoDispatchRemaining < 0 ||
+          parsed.data.autoDispatchRemaining > 1000)
+      ) {
         res.status(400).json({
           code: "ORCHESTRATOR_SETTINGS_INVALID",
           error: "auto_dispatch_remaining must be integer in [0,1000]"
@@ -367,10 +337,10 @@ export function registerProjectMetaRoutes(app: express.Application, context: App
         return;
       }
       const updated = await updateProjectOrchestratorConfig(dataRoot, req.params.id, {
-        autoDispatchEnabled: hasEnabled ? Boolean(enabledRaw) : undefined,
-        autoDispatchRemaining: hasRemaining ? remainingParsed : undefined,
-        holdEnabled: hasHold ? Boolean(holdRaw) : undefined,
-        reminderMode: hasReminderMode ? parsedReminderMode : undefined
+        autoDispatchEnabled: parsed.data.hasAutoDispatchEnabled ? Boolean(parsed.data.autoDispatchEnabled) : undefined,
+        autoDispatchRemaining: parsed.data.hasAutoDispatchRemaining ? parsed.data.autoDispatchRemaining : undefined,
+        holdEnabled: parsed.data.hasHoldEnabled ? Boolean(parsed.data.holdEnabled) : undefined,
+        reminderMode: parsed.data.hasReminderMode ? parsed.data.reminderMode : undefined
       });
       res.status(200).json({
         project_id: updated.projectId,

@@ -22,3 +22,4 @@
 
 - 不在前端直接实现编排决策
 - 不在前端直接维护 provider 协议细节
+- project 创建、routing、message、task action 与 task patch 请求类型从 `agent_library` Zod schema 推导；所有 dashboard API 调用必须走共享 helper 以携带远程登录 token。

@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
+import { mkdtemp } from "node:fs/promises";
 import test from "node:test";
+import { createRepository } from "../data/repository/shared/runtime.js";
 import {
   WorkflowPreDispatchSessionTouchError,
   runWorkflowDispatchLoop,
   type WorkflowDispatchLoopState
 } from "../services/orchestrator/workflow/workflow-dispatch-loop.js";
 import { OrchestratorSingleFlightGate } from "../services/orchestrator/shared/kernel/single-flight.js";
+import {
+  getWorkflowDispatchLeaseFile,
+  readDispatchLeaseIndex
+} from "../services/orchestrator/shared/dispatch-lease-store.js";
 
 function buildState(): WorkflowDispatchLoopState {
   return {
@@ -220,7 +228,11 @@ test("workflow dispatch loop blocks when durable active lease count reaches conc
         repositories: {
           sessions: { touchSession: async () => {} },
           events: { appendEvent: async () => {} },
-          inbox: { removeInboxMessages: async () => {} }
+          inbox: { removeInboxMessages: async () => {} },
+          workflowRuns: {
+            writeRuntime: async () => {},
+            patchRun: async () => {}
+          }
         } as any,
         maxConcurrentDispatches: 1,
         inFlightDispatchSessionKeys: new OrchestratorSingleFlightGate(),
@@ -255,4 +267,74 @@ test("workflow dispatch loop blocks when durable active lease count reaches conc
   assert.equal(result.dispatchedCount, 0);
   assert.equal(result.results[0]?.outcome, "session_busy");
   assert.equal(result.results[0]?.reason, "max concurrent dispatches reached");
+});
+
+test("workflow dispatch loop closes reserved lease when launch fails before lifecycle", async () => {
+  const state = buildState();
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-dispatch-launch-fail-"));
+  const repository = createRepository("file");
+  const errors: string[] = [];
+
+  const result = await runWorkflowDispatchLoop(
+    {
+      context: {
+        repositories: {
+          dataRoot: tempRoot,
+          repository,
+          sessions: { touchSession: async () => {} },
+          events: { appendEvent: async () => {} },
+          inbox: { removeInboxMessages: async () => {} },
+          workflowRuns: {
+            writeRuntime: async () => {},
+            patchRun: async () => {}
+          }
+        } as any,
+        maxConcurrentDispatches: 1,
+        inFlightDispatchSessionKeys: new OrchestratorSingleFlightGate(),
+        buildRunSessionKey: (runId: string, sessionId: string) => `${runId}:${sessionId}`,
+        runWorkflowTransaction: async <T>(_runId: string, operation: () => Promise<T>) => await operation(),
+        ensureRuntime: async () => state.runtime,
+        readConvergedRuntime: async () => state.runtime,
+        countActiveDispatchLeases: async () => 0
+      } as any,
+      launchAdapter: {
+        launch: async () => {
+          throw new Error("prepare failed before started");
+        }
+      },
+      selectionAdapter: {
+        select: async () => ({
+          status: "selected" as const,
+          selection: {
+            role: "lead",
+            session: state.sessions[0],
+            dispatchKind: "task" as const,
+            taskId: "task-1",
+            message: null,
+            messageId: null,
+            requestId: "req-1",
+            selectedMessageIds: [],
+            runtimeTask: state.runtime.tasks[0]
+          }
+        })
+      },
+      loadRunOrThrow: async () => state.run,
+      handleLaunchError: (error: unknown) => {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    },
+    state,
+    1
+  );
+
+  assert.equal(result.results[0]?.outcome, "dispatched");
+  const leaseFile = getWorkflowDispatchLeaseFile(tempRoot, state.runId);
+  let index = await readDispatchLeaseIndex(repository, leaseFile);
+  for (let attempt = 0; attempt < 20 && index.leases[0]?.status !== "closed"; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    index = await readDispatchLeaseIndex(repository, leaseFile);
+  }
+  assert.equal(index.leases.length, 1);
+  assert.equal(index.leases[0]?.status, "closed");
+  assert.deepEqual(errors, ["prepare failed before started"]);
 });

@@ -1,4 +1,5 @@
 import type express from "express";
+import { AuthLoginRequestSchema, RuntimeSettingsPatchRequestSchema } from "@autodev/agent-library";
 import { BASE_PROMPT_TEXT, BASE_PROMPT_VERSION } from "../services/agent-prompt-service.js";
 import { createModelManagerService } from "../services/model-manager-service.js";
 import { getProjectPathsForId } from "../services/project-admin-service.js";
@@ -8,7 +9,7 @@ import {
   readRuntimeSettings
 } from "../services/runtime-settings-service.js";
 import type { AppRuntimeContext } from "./shared/context.js";
-import { readNullableStringPatch, readStringField, sendApiError } from "./shared/http.js";
+import { readStringField, sendApiError } from "./shared/http.js";
 import {
   extractRemoteAuthToken,
   issueRemoteAuthToken,
@@ -45,19 +46,6 @@ const RETIRED_SETTINGS_FIELDS = [
   "minimax_shell_max_output_size",
   "minimaxShellMaxOutputSize"
 ];
-
-function readObjectField(body: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
-  const value = body[key];
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
-
-function readNumberField(body: Record<string, unknown>, snakeKey: string, camelKey: string): number | undefined {
-  return typeof body[snakeKey] === "number"
-    ? (body[snakeKey] as number)
-    : typeof body[camelKey] === "number"
-      ? (body[camelKey] as number)
-      : undefined;
-}
 
 export function registerSystemRoutes(app: express.Application, context: AppRuntimeContext): void {
   const { dataRoot, orchestrator } = context;
@@ -118,7 +106,11 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
   app.post("/api/auth/login", async (req, res, next) => {
     try {
       const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
-      const password = readStringField(body, ["password", "remote_password", "remotePassword"]);
+      const parsed = AuthLoginRequestSchema.safeParse(body);
+      const password =
+        parsed.success && parsed.data.password
+          ? parsed.data.password
+          : readStringField(body, ["password", "remote_password", "remotePassword"]);
       const settings = await readRuntimeSettings(dataRoot);
       if (!isRemotePasswordEnabled(settings)) {
         res.status(200).json({
@@ -155,80 +147,16 @@ export function registerSystemRoutes(app: express.Application, context: AppRunti
         return;
       }
       const themeRaw = readStringField(body, ["theme"]);
-      const theme = themeRaw === "dark" || themeRaw === "vibrant" || themeRaw === "lively" ? themeRaw : undefined;
-      const providersRaw = readObjectField(body, "providers");
-      const securityRaw = readObjectField(body, "security");
-      const remotePasswordPatch = securityRaw
-        ? readNullableStringPatch(securityRaw, ["remote_password", "remotePassword"])
-        : undefined;
-      const codexProviderRaw = providersRaw ? readObjectField(providersRaw, "codex") : undefined;
-      const dpagentProviderRaw = providersRaw ? readObjectField(providersRaw, "dpagent") : undefined;
-      const minimaxProviderRaw = providersRaw ? readObjectField(providersRaw, "minimax") : undefined;
-      const providerMiniMaxApiKeyPatch = minimaxProviderRaw
-        ? readNullableStringPatch(minimaxProviderRaw, ["api_key", "apiKey"])
-        : undefined;
-      const providerMiniMaxApiBasePatch = minimaxProviderRaw
-        ? readNullableStringPatch(minimaxProviderRaw, ["api_base", "apiBase"])
-        : undefined;
-      const updated = await patchRuntimeSettingsForApi(dataRoot, {
-        theme,
-        security:
-          remotePasswordPatch !== undefined
-            ? {
-                remotePassword: remotePasswordPatch
-              }
-            : undefined,
-        providers: providersRaw
-          ? {
-              ...(codexProviderRaw
-                ? {
-                    codex: {
-                      cliCommand: readStringField(codexProviderRaw, ["cli_command", "cliCommand"]),
-                      model: readStringField(codexProviderRaw, ["model"]),
-                      reasoningEffort: readStringField(codexProviderRaw, ["reasoning_effort", "reasoningEffort"]) as
-                        | "low"
-                        | "medium"
-                        | "high"
-                        | undefined
-                    }
-                  }
-                : {}),
-              ...(dpagentProviderRaw
-                ? {
-                    dpagent: {
-                      cliCommand: readStringField(dpagentProviderRaw, ["cli_command", "cliCommand"])
-                    }
-                  }
-                : {}),
-              ...(minimaxProviderRaw
-                ? {
-                    minimax: {
-                      ...(providerMiniMaxApiKeyPatch !== undefined ? { apiKey: providerMiniMaxApiKeyPatch } : {}),
-                      ...(providerMiniMaxApiBasePatch !== undefined ? { apiBase: providerMiniMaxApiBasePatch } : {}),
-                      model: readStringField(minimaxProviderRaw, ["model"]),
-                      sessionDir: readStringField(minimaxProviderRaw, ["session_dir", "sessionDir"]),
-                      mcpServers: minimaxProviderRaw.mcp_servers ?? (minimaxProviderRaw.mcpServers as any),
-                      maxSteps: readNumberField(minimaxProviderRaw, "max_steps", "maxSteps"),
-                      tokenLimit: readNumberField(minimaxProviderRaw, "token_limit", "tokenLimit"),
-                      maxOutputTokens: readNumberField(minimaxProviderRaw, "max_output_tokens", "maxOutputTokens"),
-                      shellTimeout: readNumberField(minimaxProviderRaw, "shell_timeout", "shellTimeout"),
-                      shellOutputIdleTimeout: readNumberField(
-                        minimaxProviderRaw,
-                        "shell_output_idle_timeout",
-                        "shellOutputIdleTimeout"
-                      ),
-                      shellMaxRunTime: readNumberField(minimaxProviderRaw, "shell_max_run_time", "shellMaxRunTime"),
-                      shellMaxOutputSize: readNumberField(
-                        minimaxProviderRaw,
-                        "shell_max_output_size",
-                        "shellMaxOutputSize"
-                      )
-                    }
-                  }
-                : {})
-            }
-          : undefined
-      });
+      if (themeRaw !== undefined && themeRaw !== "dark" && themeRaw !== "vibrant" && themeRaw !== "lively") {
+        sendApiError(res, 400, "SETTINGS_INPUT_INVALID", "theme must be dark, vibrant, or lively");
+        return;
+      }
+      const parsed = RuntimeSettingsPatchRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        sendApiError(res, 400, "SETTINGS_INPUT_INVALID", "settings payload is invalid");
+        return;
+      }
+      const updated = await patchRuntimeSettingsForApi(dataRoot, parsed.data);
       res.status(200).json(updated);
     } catch (error) {
       next(error);

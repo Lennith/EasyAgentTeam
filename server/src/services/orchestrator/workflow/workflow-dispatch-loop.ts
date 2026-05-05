@@ -10,11 +10,22 @@ import type {
 } from "./workflow-dispatch-selection-adapter.js";
 import { createTimestampedIdentifier, runOrchestratorDispatchTemplate } from "../shared/index.js";
 import type { WorkflowDispatchResult, WorkflowDispatchRow } from "./workflow-dispatch-types.js";
+import {
+  closeDispatchLease,
+  reserveDispatchLease,
+  tryGetWorkflowDispatchLeaseFile
+} from "../shared/dispatch-lease-store.js";
 
-interface WorkflowDispatchPrepared {
-  dispatchId: string;
-  messageId?: string;
-}
+type WorkflowDispatchPrepared =
+  | {
+      reserved: true;
+      dispatchId: string;
+      messageId?: string;
+    }
+  | {
+      reserved: false;
+      result: WorkflowDispatchRow;
+    };
 
 export interface WorkflowDispatchLoopState {
   runId: string;
@@ -194,74 +205,119 @@ export async function runWorkflowDispatchLoop(
       prepareDispatch: async (selection, loopState) => {
         const dispatchId = randomUUID();
         const messageId = selection.messageId ?? selection.message?.envelope.message_id ?? undefined;
-        if (selection.dispatchKind === "task" && selection.runtimeTask) {
-          addWorkflowTaskTransition(loopState.runtime, selection.runtimeTask, "DISPATCHED", "dispatched");
-        }
-
-        const touchPatch = {
-          status: "running",
-          currentTaskId: selection.taskId,
-          lastDispatchedAt: new Date().toISOString(),
-          lastDispatchId: dispatchId,
-          lastDispatchedMessageId: messageId ?? null,
-          lastFailureAt: null,
-          lastFailureKind: null,
-          lastFailureEventId: null,
-          lastFailureDispatchId: null,
-          lastFailureMessageId: null,
-          lastFailureTaskId: null,
-          cooldownUntil: null
-        } as const;
-        await dependencies.context.repositories.sessions
-          .touchSession(loopState.runId, selection.session.sessionId, touchPatch)
-          .catch(async (error: unknown) => {
-            const message = formatErrorMessage(error);
-            const payload = {
-              runId: loopState.runId,
-              requestId: loopState.requestId,
+        const leaseFile = tryGetWorkflowDispatchLeaseFile(dependencies.context.repositories.dataRoot, loopState.runId);
+        if (leaseFile) {
+          const reservation = await reserveDispatchLease(
+            dependencies.context.repositories.repository,
+            leaseFile,
+            {
               dispatchId,
-              dispatchKind: selection.dispatchKind,
-              role: selection.role,
+              scopeKind: "workflow",
+              scopeId: loopState.runId,
               sessionId: selection.session.sessionId,
-              taskId: selection.taskId ?? null,
+              role: selection.role,
+              dispatchKind: selection.dispatchKind,
+              taskId: selection.taskId,
               messageId: messageId ?? null,
-              error: message,
-              patch_keys: Object.keys(touchPatch)
-            };
-            await dependencies.context.repositories.events
-              .appendEvent(loopState.runId, {
-                eventType: "WORKFLOW_PRE_DISPATCH_SESSION_TOUCH_FAILED",
-                source: "system",
-                sessionId: selection.session.sessionId,
-                taskId: selection.taskId ?? undefined,
-                payload
-              })
-              .catch((auditError: unknown) => {
-                console.warn("[workflow-dispatch] pre-dispatch session touch failed", {
-                  ...payload,
-                  audit_error: formatErrorMessage(auditError)
-                });
-              });
-            throw new WorkflowPreDispatchSessionTouchError(
-              `pre-dispatch session touch failed for session '${selection.session.sessionId}'`,
-              error
-            );
-          });
-
-        selection.session.status = "running";
-        selection.session.currentTaskId = selection.taskId ?? undefined;
-        selection.session.lastDispatchId = dispatchId;
-        if (selection.selectedMessageIds.length > 0) {
-          await dependencies.context.repositories.inbox.removeInboxMessages(
-            loopState.runId,
-            selection.role,
-            selection.selectedMessageIds
+              recoveryAttemptId: loopState.recovery_attempt_id ?? null
+            },
+            { maxActive: dependencies.context.maxConcurrentDispatches }
           );
+          if (!reservation.reserved) {
+            return {
+              reserved: false,
+              result: {
+                role: selection.role,
+                sessionId: selection.session.sessionId,
+                taskId: selection.taskId,
+                dispatchKind: selection.dispatchKind,
+                messageId,
+                requestId: loopState.requestId,
+                outcome: "session_busy" as const,
+                reason: "max concurrent dispatches reached"
+              }
+            };
+          }
         }
-        if (!loopState.force && (loopState.run.autoDispatchEnabled ?? true) && selection.dispatchKind === "task") {
-          loopState.remaining = Math.max(0, loopState.remaining - 1);
+
+        try {
+          if (selection.dispatchKind === "task" && selection.runtimeTask) {
+            addWorkflowTaskTransition(loopState.runtime, selection.runtimeTask, "DISPATCHED", "dispatched");
+          }
+
+          const touchPatch = {
+            status: "running",
+            currentTaskId: selection.taskId,
+            lastDispatchedAt: new Date().toISOString(),
+            lastDispatchId: dispatchId,
+            lastDispatchedMessageId: messageId ?? null,
+            lastFailureAt: null,
+            lastFailureKind: null,
+            lastFailureEventId: null,
+            lastFailureDispatchId: null,
+            lastFailureMessageId: null,
+            lastFailureTaskId: null,
+            cooldownUntil: null
+          } as const;
+          await dependencies.context.repositories.sessions
+            .touchSession(loopState.runId, selection.session.sessionId, touchPatch)
+            .catch(async (error: unknown) => {
+              const message = formatErrorMessage(error);
+              const payload = {
+                runId: loopState.runId,
+                requestId: loopState.requestId,
+                dispatchId,
+                dispatchKind: selection.dispatchKind,
+                role: selection.role,
+                sessionId: selection.session.sessionId,
+                taskId: selection.taskId ?? null,
+                messageId: messageId ?? null,
+                error: message,
+                patch_keys: Object.keys(touchPatch)
+              };
+              await dependencies.context.repositories.events
+                .appendEvent(loopState.runId, {
+                  eventType: "WORKFLOW_PRE_DISPATCH_SESSION_TOUCH_FAILED",
+                  source: "system",
+                  sessionId: selection.session.sessionId,
+                  taskId: selection.taskId ?? undefined,
+                  payload
+                })
+                .catch((auditError: unknown) => {
+                  console.warn("[workflow-dispatch] pre-dispatch session touch failed", {
+                    ...payload,
+                    audit_error: formatErrorMessage(auditError)
+                  });
+                });
+              throw new WorkflowPreDispatchSessionTouchError(
+                `pre-dispatch session touch failed for session '${selection.session.sessionId}'`,
+                error
+              );
+            });
+
+          selection.session.status = "running";
+          selection.session.currentTaskId = selection.taskId ?? undefined;
+          selection.session.lastDispatchId = dispatchId;
+          if (selection.selectedMessageIds.length > 0) {
+            await dependencies.context.repositories.inbox.removeInboxMessages(
+              loopState.runId,
+              selection.role,
+              selection.selectedMessageIds
+            );
+          }
+          if (!loopState.force && (loopState.run.autoDispatchEnabled ?? true) && selection.dispatchKind === "task") {
+            loopState.remaining = Math.max(0, loopState.remaining - 1);
+          }
+        } catch (error) {
+          if (leaseFile) {
+            await closeDispatchLease(dependencies.context.repositories.repository, leaseFile, dispatchId).catch(
+              () => {}
+            );
+          }
+          throw error;
         }
         return {
+          reserved: true,
           dispatchId,
           messageId
         };
@@ -296,33 +352,54 @@ export async function runWorkflowDispatchLoop(
         outcome: "session_busy" as const,
         reason: "session already dispatching"
       }),
-      dispatch: async (selection, prepared, loopState) => ({
-        mode: "background" as const,
-        result: {
-          role: selection.role,
-          sessionId: selection.session.sessionId,
-          taskId: selection.taskId,
-          dispatchKind: selection.dispatchKind,
-          messageId: prepared.messageId,
-          requestId: loopState.requestId,
-          outcome: "dispatched" as const
-        },
-        completion: dependencies.launchAdapter.launch({
-          run: loopState.run,
-          session: selection.session,
-          role: selection.role,
-          dispatchKind: selection.dispatchKind,
-          taskId: selection.taskId,
-          message: selection.message,
-          requestId: loopState.requestId,
-          messageId: prepared.messageId,
-          dispatchId: prepared.dispatchId,
-          recovery_attempt_id: loopState.recovery_attempt_id
-        }),
-        onError: async (error: unknown) => {
-          dependencies.handleLaunchError(error);
+      dispatch: async (selection, prepared, loopState) => {
+        if (!prepared.reserved) {
+          return prepared.result;
         }
-      }),
+        const completion = dependencies.launchAdapter
+          .launch({
+            run: loopState.run,
+            session: selection.session,
+            role: selection.role,
+            dispatchKind: selection.dispatchKind,
+            taskId: selection.taskId,
+            message: selection.message,
+            requestId: loopState.requestId,
+            messageId: prepared.messageId,
+            dispatchId: prepared.dispatchId,
+            recovery_attempt_id: loopState.recovery_attempt_id
+          })
+          .catch(async (error: unknown) => {
+            const leaseFile = tryGetWorkflowDispatchLeaseFile(
+              dependencies.context.repositories.dataRoot,
+              loopState.runId
+            );
+            if (leaseFile) {
+              await closeDispatchLease(
+                dependencies.context.repositories.repository,
+                leaseFile,
+                prepared.dispatchId
+              ).catch(() => {});
+            }
+            throw error;
+          });
+        return {
+          mode: "background" as const,
+          result: {
+            role: selection.role,
+            sessionId: selection.session.sessionId,
+            taskId: selection.taskId,
+            dispatchKind: selection.dispatchKind,
+            messageId: prepared.messageId,
+            requestId: loopState.requestId,
+            outcome: "dispatched" as const
+          },
+          completion,
+          onError: async (error: unknown) => {
+            dependencies.handleLaunchError(error);
+          }
+        };
+      },
       buildNoSelectionResult: (loopState, busyFound) => ({
         role: loopState.role ?? "any",
         sessionId: null,

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { listAgents } from "../../../data/repository/catalog/agent-repository.js";
 import type { ProjectPaths, ProjectRecord, SessionRecord } from "../../../domain/models.js";
 import { resolveActiveSessionForRole } from "../../session-lifecycle-authority.js";
@@ -16,11 +17,26 @@ import {
   evaluateOrchestratorDispatchSessionAvailability,
   runOrchestratorDispatchTemplate
 } from "../shared/index.js";
+import {
+  closeDispatchLease,
+  reserveDispatchLease,
+  tryGetProjectDispatchLeaseFile
+} from "../shared/dispatch-lease-store.js";
 
 interface ProjectDispatchLoopSelection {
   session: SessionRecord;
   selection: ProjectDispatchSelection;
 }
+
+type ProjectDispatchPrepared =
+  | {
+      reserved: true;
+      launchInput: Parameters<ProjectDispatchLaunchAdapter["launch"]>[0];
+    }
+  | {
+      reserved: false;
+      result: ProjectDispatchResult["results"][number];
+    };
 
 export interface ProjectDispatchLoopState {
   project: ProjectRecord;
@@ -97,7 +113,7 @@ export async function runProjectDispatchLoop(
   return await runOrchestratorDispatchTemplate<
     ProjectDispatchLoopState,
     ProjectDispatchLoopSelection,
-    Parameters<ProjectDispatchLaunchAdapter["launch"]>[0],
+    ProjectDispatchPrepared,
     ProjectDispatchResult["results"][number]
   >({
     state,
@@ -122,22 +138,60 @@ export async function runProjectDispatchLoop(
       }
     },
     mutation: {
-      prepareDispatch: async ({ session, selection }, loopState) => ({
-        project: loopState.project,
-        paths: loopState.paths,
-        session,
-        taskId: selection.taskId ?? "",
-        input: loopState.input,
-        dispatchKind: selection.dispatchKind,
-        selectedMessageIds: selection.selectedMessageIds,
-        messages: selection.messages,
-        allTasks: selection.allTasks,
-        firstMessage: selection.message!,
-        activeTask: selection.task,
-        rolePromptMap: loopState.rolePromptMap,
-        roleSummaryMap: loopState.roleSummaryMap,
-        registeredAgentIds: loopState.registeredAgentIds
-      })
+      prepareDispatch: async ({ session, selection }, loopState) => {
+        const dispatchId = randomUUID();
+        const leaseFile = tryGetProjectDispatchLeaseFile(loopState.paths);
+        if (leaseFile) {
+          const reservation = await reserveDispatchLease(
+            dependencies.context.repositories.repository,
+            leaseFile,
+            {
+              dispatchId,
+              scopeKind: "project",
+              scopeId: loopState.project.projectId,
+              sessionId: session.sessionId,
+              role: session.role,
+              dispatchKind: selection.dispatchKind,
+              taskId: selection.taskId ?? null,
+              messageId: selection.message?.envelope.message_id ?? null,
+              recoveryAttemptId: loopState.input.recovery_attempt_id ?? null
+            },
+            { maxActive: dependencies.context.maxConcurrentDispatches }
+          );
+          if (!reservation.reserved) {
+            return {
+              reserved: false,
+              result: {
+                sessionId: session.sessionId,
+                role: session.role,
+                outcome: "session_busy" as const,
+                dispatchKind: selection.dispatchKind,
+                reason: "max concurrent dispatches reached"
+              }
+            };
+          }
+        }
+        return {
+          reserved: true,
+          launchInput: {
+            project: loopState.project,
+            paths: loopState.paths,
+            session,
+            taskId: selection.taskId ?? "",
+            input: loopState.input,
+            dispatchKind: selection.dispatchKind,
+            selectedMessageIds: selection.selectedMessageIds,
+            messages: selection.messages,
+            allTasks: selection.allTasks,
+            firstMessage: selection.message!,
+            activeTask: selection.task,
+            rolePromptMap: loopState.rolePromptMap,
+            roleSummaryMap: loopState.roleSummaryMap,
+            registeredAgentIds: loopState.registeredAgentIds,
+            dispatchId
+          }
+        };
+      }
     },
     execution: {
       selectNext: async (loopState) =>
@@ -151,7 +205,24 @@ export async function runProjectDispatchLoop(
         dispatchKind: null,
         reason: "session already dispatching"
       }),
-      dispatch: async (_selection, preparedInput) => await dependencies.launchAdapter.launch(preparedInput),
+      dispatch: async (_selection, preparedInput) => {
+        if (!preparedInput.reserved) {
+          return preparedInput.result;
+        }
+        try {
+          return await dependencies.launchAdapter.launch(preparedInput.launchInput);
+        } catch (error) {
+          const leaseFile = tryGetProjectDispatchLeaseFile(preparedInput.launchInput.paths);
+          if (leaseFile) {
+            await closeDispatchLease(
+              dependencies.context.repositories.repository,
+              leaseFile,
+              preparedInput.launchInput.dispatchId ?? ""
+            ).catch(() => {});
+          }
+          throw error;
+        }
+      },
       buildNoSelectionResult: () => null,
       shouldCountAsDispatch: (result) => result.outcome === "dispatched",
       shouldContinue: () => true

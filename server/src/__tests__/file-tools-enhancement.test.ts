@@ -218,6 +218,35 @@ test("WebFetchTool rejects private and metadata URLs before fetch", async () => 
   }
 });
 
+test("WebFetchTool rejects redirects to private URLs", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: unknown) => {
+    const url = String(input);
+    calls.push(url);
+    return {
+      ok: false,
+      status: 302,
+      statusText: "Found",
+      headers: {
+        get: (name: string) => (name.toLowerCase() === "location" ? "http://127.0.0.1:43123/private" : null)
+      },
+      text: async () => "",
+      json: async () => ({})
+    } as unknown as Response;
+  }) as typeof fetch;
+
+  try {
+    const tool = new WebFetchTool();
+    const result = await tool.execute({ url: "https://public.example/redirect", format: "text" });
+    assert.equal(result.success, false);
+    assert.match(result.error ?? "", /private|local network|not allowed/i);
+    assert.deepEqual(calls, ["https://public.example/redirect"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("WebSearchTool parses search payload into list output", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => {
