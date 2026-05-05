@@ -68,3 +68,82 @@
 - `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss\docs\e2e\20260505_105541`
 - `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace\docs\e2e\20260505_113038-workflow-observer`
 - `C:\Users\spiri\Documents\GitHub\EasyAgentTeam\docs\e2e\multi\20260505_113039`
+
+## Run 2
+
+### Check Time
+
+- 2026-05-05 20:50:11 +08:00
+
+### Target Branch And Commit
+
+- Branch: `main`
+- Commit: `9e24946`
+- Full commit: `9e249465307b772a8cd017d7071f234bc8e309e1`
+- Subject: `Close dispatch lease and contract review gaps`
+
+### Unit Test
+
+- Command: `pnpm test`
+- Step 1 result: `PASS`
+- README command-check repeat result: `PASS`
+- Server unit summary: `499` tests passed, `0` failed
+
+### README Command Check
+
+- `pnpm i`: `PASS`
+- `pnpm dev`: `PASS` short-run runnability check; process stayed alive for 20 seconds and was stopped after the check
+- `pnpm build`: `PASS`
+- `pnpm test`: `PASS`
+- `pnpm e2e:first-run`: `PASS`
+
+### First-Run Stability
+
+- Command: `pnpm e2e:first-run`
+- Result: `PASS`
+- Artifacts: `D:\AgentWorkSpace\TestTeam\TestRound20\docs\e2e\20260505_153217`
+- `runtime_pass=True`
+- `analysis_pass=True`
+- `final_reason=setup_only`
+
+### Full E2E Baseline
+
+- Command: `pnpm e2e:baseline`
+- Run mode: detached independent process
+- Result: `PASS`
+- Chain artifacts: `D:\AgentWorkSpace\TestTeam\TestRound20\docs\e2e\20260505_154459`
+- Discuss artifacts: `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss\docs\e2e\20260505_155958`
+- Workflow artifacts: `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace\docs\e2e\20260505_163900-workflow-observer`
+- Multi-case metrics: `C:\Users\spiri\Documents\GitHub\EasyAgentTeam\docs\e2e\multi\20260505_163901`
+- Conclusions:
+  - `chain`: `pass_runtime=True`, `pass_analysis=True`, `final_reason=closed_loop`
+  - `discuss`: `pass_runtime=True`, `pass_analysis=True`, `final_reason=closed_loop`
+  - `workflow`: `runtime_pass=True`, `review_required=False`, `final_reason=workflow_runtime_ok`
+
+### Blocker Check
+
+- Conclusion: no unresolved blocking issue found during release gate
+- Manual Agent result check: completed after `e2e:baseline` exit
+- Manual check evidence:
+  - workflow `review_required=False`
+  - workflow `toolcall_failed_count=0`
+  - multi-case `total_toolcall_failed_count=0`
+  - provider session audit passed for all selected cases
+  - provider activity audit passed for all selected cases
+
+### Final Decision
+
+- `PASS`
+
+### Evidence Paths
+
+- `C:\Users\spiri\Documents\GitHub\EasyAgentTeam\.release-gate\pnpm-dev-20260505-152754.out.log`
+- `C:\Users\spiri\Documents\GitHub\EasyAgentTeam\.release-gate\pnpm-dev-20260505-152754.err.log`
+- `C:\Users\spiri\Documents\GitHub\EasyAgentTeam\.release-gate\e2e-baseline-20260505-153234.out.log`
+- `C:\Users\spiri\Documents\GitHub\EasyAgentTeam\.release-gate\e2e-baseline-20260505-153234.err.log`
+- `C:\Users\spiri\Documents\GitHub\EasyAgentTeam\docs\release_evidence\20260505_163901\step4_manual_agent_result_check.md`
+- `D:\AgentWorkSpace\TestTeam\TestRound20\docs\e2e\20260505_153217`
+- `D:\AgentWorkSpace\TestTeam\TestRound20\docs\e2e\20260505_154459`
+- `D:\AgentWorkSpace\TestTeam\TestTeamDiscuss\docs\e2e\20260505_155958`
+- `D:\AgentWorkSpace\TestTeam\TestWorkflowSpace\docs\e2e\20260505_163900-workflow-observer`
+- `C:\Users\spiri\Documents\GitHub\EasyAgentTeam\docs\e2e\multi\20260505_163901`
