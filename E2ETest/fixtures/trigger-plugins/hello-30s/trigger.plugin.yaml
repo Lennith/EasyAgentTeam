@@ -1,0 +1,5 @@
+schema_version: "1.0"
+plugin_id: e2e-hello-30s-trigger
+name: E2E Hello 30s Trigger
+description: Fires a DPAgent workflow every scheduler interval for Trigger Runtime stability validation.
+entry: index.mjs

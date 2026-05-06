@@ -3,7 +3,9 @@ import type {
   WorkflowTemplateRecord,
   WorkflowRunRecord,
   WorkflowRunRuntimeStatus,
-  WorkflowOrchestratorStatus
+  WorkflowOrchestratorStatus,
+  TriggerConfigRecord,
+  TriggerPluginRecord
 } from "@/types/workflow";
 import { workflowApi } from "@/services/api/workflow";
 
@@ -205,4 +207,34 @@ export function useWorkflowOrchestratorStatus(intervalMs = 8000) {
   }, [status]);
 
   return { status, loading, error, reload, activeRunLabel };
+}
+
+export function useWorkflowTriggers() {
+  const [triggers, setTriggers] = useState<TriggerConfigRecord[]>([]);
+  const [plugins, setPlugins] = useState<TriggerPluginRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [triggerPayload, pluginPayload] = await Promise.all([
+        workflowApi.listTriggers(),
+        workflowApi.listPlugins()
+      ]);
+      setTriggers(triggerPayload.items ?? []);
+      setPlugins(pluginPayload.items ?? []);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load triggers");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  return { triggers, plugins, loading, error, reload };
 }

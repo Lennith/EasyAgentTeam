@@ -22,6 +22,7 @@ import { WorkflowRunWizardView } from "@/views/WorkflowRunWizardView";
 import { WorkflowRunWorkspaceView } from "@/views/WorkflowRunWorkspaceView";
 import { SkillsLibraryView } from "@/views/SkillsLibraryView";
 import { SkillListsView } from "@/views/SkillListsView";
+import { WorkflowTriggersView } from "@/views/WorkflowTriggersView";
 import { projectApi } from "@/services/api/project";
 import { authApi, settingsApi } from "@/services/api/settings";
 import { setAuthToken } from "@/services/api/shared/http";
@@ -110,7 +111,8 @@ function AuthenticatedApp() {
     { id: "new-run", label: `+ ${t.newWorkflowRun}`, href: "#/workflow/runs/new" },
     { id: "new-template", label: `+ ${t.newWorkflowTemplate}`, href: "#/workflow/templates/new" },
     { id: "runs", label: t.workflowRuns, href: "#/workflow" },
-    { id: "templates", label: t.workflowTemplates, href: "#/workflow/templates" }
+    { id: "templates", label: t.workflowTemplates, href: "#/workflow/templates" },
+    { id: "triggers", label: "Triggers", href: "#/workflow/triggers" }
   ];
 
   const workflowWorkspaceViews = [
@@ -251,6 +253,7 @@ function AuthenticatedApp() {
       if (view === "new-template") return <WorkflowTemplateEditorView />;
       if (view === "edit-template" && route.templateId)
         return <WorkflowTemplateEditorView templateId={route.templateId} />;
+      if (view === "triggers") return <WorkflowTriggersView />;
       if (view === "run-workspace" && route.runId) {
         return <WorkflowRunWorkspaceView runId={route.runId} view={route.runView ?? "overview"} />;
       }

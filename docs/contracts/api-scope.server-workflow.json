@@ -2,7 +2,13 @@
   "scope": "server-workflow",
   "version": "1.0",
   "description": "Managed API scope for docs/code consistency checks. Workflow entries must match the active server workflow route surface; project task/session/chat entries are kept as the shared task protocol peer surface.",
-  "managedRoutePrefixes": ["/api/workflow-orchestrator", "/api/workflow-templates", "/api/workflow-runs"],
+  "managedRoutePrefixes": [
+    "/api/workflow-orchestrator",
+    "/api/workflow-templates",
+    "/api/workflow-runs",
+    "/api/trigger-plugins",
+    "/api/triggers"
+  ],
   "ignoredManagedRoutes": [],
   "endpoints": [
     {
@@ -204,6 +210,66 @@
       "path": "/api/workflow-runs/:run_id/sessions/:session_id/retry-dispatch",
       "status": "active",
       "docRefs": ["docs/spec/server/workflow-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/trigger-plugins",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/trigger-plugins/import",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/triggers",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/triggers",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/triggers/:trigger_id",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/triggers/:trigger_id",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/triggers/:trigger_id/test",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/triggers/:trigger_id/runs",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/triggers/:trigger_id/session-bindings",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/triggers/:trigger_id/session-bindings/reset",
+      "status": "active",
+      "docRefs": ["docs/spec/server/trigger-runtime.api-spec.md", "docs/spec/dashboard/workflow-ui.api-spec.md"]
     },
     {
       "method": "POST",

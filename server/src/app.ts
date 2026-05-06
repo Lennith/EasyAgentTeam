@@ -11,6 +11,7 @@ import {
   createWorkflowOrchestratorService,
   createWorkflowRecurringDispatcherService
 } from "./services/orchestrator/index.js";
+import { createTriggerRuntimeService } from "./services/trigger/index.js";
 
 export interface AppOptions {
   dataRoot?: string;
@@ -23,6 +24,7 @@ export interface AppRuntimeControls {
   orchestrator: ReturnType<typeof createOrchestratorService>;
   workflowOrchestrator: ReturnType<typeof createWorkflowOrchestratorService>;
   workflowRecurringDispatcher: ReturnType<typeof createWorkflowRecurringDispatcherService>;
+  triggerRuntime: ReturnType<typeof createTriggerRuntimeService>;
 }
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -45,11 +47,13 @@ export function createApp(options: AppOptions = {}) {
   const orchestrator = createOrchestratorService(dataRoot, providerRegistry);
   const workflowOrchestrator = createWorkflowOrchestratorService(dataRoot, providerRegistry);
   const workflowRecurringDispatcher = createWorkflowRecurringDispatcherService(dataRoot, workflowOrchestrator);
+  const triggerRuntime = createTriggerRuntimeService(dataRoot, workflowOrchestrator);
   let loopsStarted = false;
   const runtimeControls: AppRuntimeControls = {
     orchestrator,
     workflowOrchestrator,
     workflowRecurringDispatcher,
+    triggerRuntime,
     start: () => {
       if (loopsStarted) {
         return;
@@ -57,12 +61,14 @@ export function createApp(options: AppOptions = {}) {
       orchestrator.start();
       workflowOrchestrator.start();
       workflowRecurringDispatcher.start();
+      triggerRuntime.start();
       loopsStarted = true;
     },
     stop: () => {
       if (!loopsStarted) {
         return;
       }
+      triggerRuntime.stop();
       workflowRecurringDispatcher.stop();
       workflowOrchestrator.stop();
       orchestrator.stop();
@@ -131,6 +137,7 @@ export function createApp(options: AppOptions = {}) {
     dataRoot,
     orchestrator,
     workflowOrchestrator,
+    triggerRuntime,
     providerRegistry
   });
 

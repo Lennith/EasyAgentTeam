@@ -3,6 +3,7 @@ export * from "./contracts/catalog.js";
 export * from "./contracts/project.js";
 export * from "./contracts/runtime-settings.js";
 export * from "./contracts/teamtool.js";
+export * from "./contracts/trigger.js";
 
 const emptyToUndefined = (value: unknown): unknown => (typeof value === "string" ? value.trim() || undefined : value);
 

@@ -72,6 +72,9 @@ export function useRoute() {
         }
         return { l1: "workflow", view: "templates" };
       }
+      if (area === "triggers") {
+        return { l1: "workflow", view: "triggers" };
+      }
       return { l1: "workflow", view: "runs" };
     }
 

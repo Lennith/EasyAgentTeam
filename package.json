@@ -26,6 +26,7 @@
     "e2e:discuss": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-discuss-e2e.ps1",
     "e2e:workflow": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-workflow-e2e.ps1",
     "e2e:workflow:mix-dpagent": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-workflow-mix-dpagent-e2e.ps1",
+    "e2e:trigger:dpagent": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-trigger-dpagent-stability-e2e.ps1",
     "e2e:workflow:dpagent-session-isolation": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-dpagent-session-isolation-e2e.ps1",
     "e2e:workflow:loop30": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-workflow-loop-30-validation.ps1",
     "e2e:external-agent-3dof": "node tools/run-powershell-entry.mjs ./E2ETest/scripts/run-external-agent-3dof-e2e.ps1",

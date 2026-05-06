@@ -8,6 +8,7 @@
 - `#/workflow/templates`
 - `#/workflow/templates/new`
 - `#/workflow/templates/:template_id/edit`
+- `#/workflow/triggers`
 
 ## Template 列表与编辑器消费
 
@@ -43,6 +44,19 @@
 - `POST /api/workflow-runs/:run_id/agent-chat`
 - `POST /api/workflow-runs/:run_id/agent-chat/:sessionId/interrupt`
 
+## Trigger 页面消费
+
+- `GET /api/trigger-plugins`
+- `POST /api/trigger-plugins/import`
+- `GET /api/triggers`
+- `POST /api/triggers`
+- `PATCH /api/triggers/:trigger_id`
+- `DELETE /api/triggers/:trigger_id`
+- `POST /api/triggers/:trigger_id/test`
+- `GET /api/triggers/:trigger_id/runs`
+- `GET /api/triggers/:trigger_id/session-bindings`
+- `POST /api/triggers/:trigger_id/session-bindings/reset`
+
 ## 页面职责映射
 
 - templates：模板列表、搜索、删除、跳转到编辑器或新建 run
@@ -56,6 +70,7 @@
 - run workspace recovery：按当前 run 聚合需恢复 session、最近 failure、cooldown、dismiss/repair 动作与最近恢复审计片段；默认请求有限条 `recovery_attempts`，避免长历史无界渲染
 - run workspace recovery：高风险动作必须根据 `requires_confirmation` 显式提交 `confirm: true`，并直接展示 `disabled_reason / risk / recovery_attempts`
 - run workspace recovery：retry-dispatch 必须直接回填后端返回的 `expected_*` failure context guard 字段，不自行拼装 retry 条件
+- triggers：导入可信本地 trigger 插件、配置启停/间隔/workflow template/workspace/session mode、手动 test，展示 trigger fire 与 workflow run 链接，并支持查看/重置 provider session binding
 
 ## 明确不属于当前工作区主契约的能力
 

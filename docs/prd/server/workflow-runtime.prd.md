@@ -32,3 +32,10 @@ Workflow Runtime 负责模板定义、运行实例、角色会话、任务运行
 
 - workflow runtime 是正式产品面
 - step 旧接口已退役，不再作为主协议维护
+
+## Trigger Runtime 关系
+
+- Trigger Runtime 是 workflow 的上游触发入口，详见 `docs/prd/server/trigger-runtime.prd.md`。
+- Trigger Runtime 只通过现有 workflow lifecycle 创建和启动普通一次性 workflow run。
+- Workflow Runtime 仍然是 run 创建、workspace bootstrap、task runtime、dispatch、completion 和 recovery 的权威。
+- Trigger 插件不得直接修改 workflow runtime 状态。

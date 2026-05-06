@@ -85,7 +85,7 @@ function Ensure-E2EBackend {
   $serverStdout = Join-Path $bootstrapDir "server_stdout_$stamp.log"
   $serverStderr = Join-Path $bootstrapDir "server_stderr_$stamp.log"
   $pnpmCmd = Get-Command pnpm.cmd -ErrorAction Stop
-  $serverProcess = Start-Process -FilePath $pnpmCmd.Source -ArgumentList @("run", "dev:server") -WorkingDirectory $RepoRoot -PassThru -RedirectStandardOutput $serverStdout -RedirectStandardError $serverStderr
+  $serverProcess = Start-Process -FilePath $pnpmCmd.Source -ArgumentList @("run", "dev:server") -WorkingDirectory $RepoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $serverStdout -RedirectStandardError $serverStderr
 
   if (-not (Wait-BackendHealthy -HealthUrl $healthUrl -TimeoutSeconds $TimeoutSeconds)) {
     if ($serverProcess -and -not $serverProcess.HasExited) {
