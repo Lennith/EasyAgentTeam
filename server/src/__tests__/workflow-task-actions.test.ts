@@ -317,3 +317,155 @@ test("workflow task-actions support create/discuss/report with partial apply and
     await server.close();
   }
 });
+
+test("workflow TASK_CREATE uses task assign routes independently from message routes", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-workflow-task-assign-routes-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  await mkdir(workspaceRoot, { recursive: true });
+
+  const app = createApp({ dataRoot });
+  const server = await startTestHttpServer(app);
+  const baseUrl = server.baseUrl;
+  const fetch = globalThis.fetch;
+
+  try {
+    const createTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "task_assign_route_tpl",
+        name: "Task Assign Route Template",
+        route_table: {
+          android_dev: ["rd_lead"],
+          rd_lead: ["android_dev"]
+        },
+        task_assign_route_table: {
+          rd_lead: ["android_dev"],
+          android_dev: []
+        },
+        tasks: [
+          { task_id: "wf_phase", title: "Phase", owner_role: "rd_lead" },
+          { task_id: "wf_android", title: "Android", owner_role: "android_dev", dependencies: ["wf_phase"] }
+        ]
+      })
+    });
+    assert.equal(createTemplate.status, 201);
+
+    const createRun = await fetch(`${baseUrl}/api/workflow-runs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "task_assign_route_tpl",
+        run_id: "task_assign_route_run_01",
+        workspace_path: workspaceRoot
+      })
+    });
+    assert.equal(createRun.status, 201);
+
+    const startRun = await fetch(`${baseUrl}/api/workflow-runs/task_assign_route_run_01/start`, { method: "POST" });
+    assert.equal(startRun.status, 200);
+
+    const rdCreatesAndroidTask = await fetch(`${baseUrl}/api/workflow-runs/task_assign_route_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "rd_lead",
+        from_session_id: "session-rd-lead",
+        task: {
+          task_id: "task_android_from_rd",
+          title: "Android task from RD",
+          owner_role: "android_dev",
+          parent_task_id: "wf_phase"
+        }
+      })
+    });
+    assert.equal(rdCreatesAndroidTask.status, 200);
+
+    const androidSelfAssignDenied = await fetch(`${baseUrl}/api/workflow-runs/task_assign_route_run_01/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "android_dev",
+        from_session_id: "session-android",
+        task: {
+          task_id: "task_android_self_denied",
+          title: "Android self task denied",
+          owner_role: "android_dev",
+          parent_task_id: "task_android_from_rd"
+        }
+      })
+    });
+    assert.equal(androidSelfAssignDenied.status, 409);
+    const deniedPayload = (await androidSelfAssignDenied.json()) as {
+      error_code?: string;
+      next_action?: string | null;
+      error?: { details?: { from_agent?: string; owner_role?: string; allowed_owner_roles?: string[] } };
+    };
+    assert.equal(deniedPayload.error_code, "TASK_ASSIGN_ROUTE_DENIED");
+    assert.match(String(deniedPayload.next_action ?? ""), /task_assign_route_table/);
+    assert.equal(deniedPayload.error?.details?.from_agent, "android_dev");
+    assert.equal(deniedPayload.error?.details?.owner_role, "android_dev");
+    assert.deepEqual(deniedPayload.error?.details?.allowed_owner_roles ?? [], []);
+
+    const createSelfTemplate = await fetch(`${baseUrl}/api/workflow-templates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "task_assign_self_route_tpl",
+        name: "Task Assign Self Route Template",
+        route_table: {
+          android_dev: []
+        },
+        task_assign_route_table: {
+          android_dev: ["android_dev"]
+        },
+        tasks: [{ task_id: "wf_android_self", title: "Android Self", owner_role: "android_dev" }]
+      })
+    });
+    assert.equal(createSelfTemplate.status, 201);
+
+    const createSelfRun = await fetch(`${baseUrl}/api/workflow-runs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: "task_assign_self_route_tpl",
+        run_id: "task_assign_self_route_run_01",
+        workspace_path: workspaceRoot
+      })
+    });
+    assert.equal(createSelfRun.status, 201);
+
+    const startSelfRun = await fetch(`${baseUrl}/api/workflow-runs/task_assign_self_route_run_01/start`, {
+      method: "POST"
+    });
+    assert.equal(startSelfRun.status, 200);
+
+    const androidSelfAssignAllowed = await fetch(
+      `${baseUrl}/api/workflow-runs/task_assign_self_route_run_01/task-actions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action_type: "TASK_CREATE",
+          from_agent: "android_dev",
+          from_session_id: "session-android",
+          task: {
+            task_id: "task_android_self_allowed",
+            title: "Android self task allowed",
+            owner_role: "android_dev",
+            parent_task_id: "wf_android_self"
+          }
+        })
+      }
+    );
+    assert.equal(androidSelfAssignAllowed.status, 200);
+    const allowedPayload = (await androidSelfAssignAllowed.json()) as { success?: boolean; createdTaskId?: string };
+    assert.equal(allowedPayload.success, true);
+    assert.equal(allowedPayload.createdTaskId, "task_android_self_allowed");
+  } finally {
+    await server.close();
+  }
+});

@@ -52,6 +52,101 @@ test("legacy project task endpoints are not exposed", async () => {
   }
 });
 
+test("project task assign route is independent from message route", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-project-task-assign-route-"));
+  const dataRoot = path.join(tempRoot, "data");
+  const workspacePath = path.join(tempRoot, "workspace");
+  await fs.mkdir(workspacePath, { recursive: true });
+  const app = createApp({ dataRoot });
+  const serverHandle = await startTestHttpServer(app);
+  const baseUrl = serverHandle.baseUrl;
+
+  try {
+    for (const agentId of ["manager", "dev"]) {
+      await seedAgent(baseUrl, agentId);
+    }
+
+    const projectRes = await fetch(`${baseUrl}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: "taskassignroute",
+        name: "Task Assign Route",
+        workspace_path: workspacePath,
+        agent_ids: ["dev"],
+        route_table: {
+          dev: []
+        },
+        task_assign_route_table: {
+          dev: ["dev"]
+        }
+      })
+    });
+    assert.equal(projectRes.status, 201);
+
+    const sessionRes = await fetch(`${baseUrl}/api/projects/taskassignroute/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: "sess-dev", role: "dev" })
+    });
+    assert.equal([200, 201].includes(sessionRes.status), true);
+    const sessionPayload = (await sessionRes.json()) as { session: { sessionId: string } };
+
+    const createRoot = await fetch(`${baseUrl}/api/projects/taskassignroute/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "project-root-taskassignroute",
+        task_kind: "PROJECT_ROOT",
+        title: "Project Root",
+        owner_role: "manager"
+      })
+    });
+    assert.equal(createRoot.status, 201);
+
+    const createUserRoot = await fetch(`${baseUrl}/api/projects/taskassignroute/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "manager",
+        from_session_id: "manager-system",
+        task_id: "user-root-1",
+        task_kind: "USER_ROOT",
+        parent_task_id: "project-root-taskassignroute",
+        title: "User Root",
+        owner_role: "manager"
+      })
+    });
+    assert.equal(createUserRoot.status, 201);
+
+    const selfAssign = await fetch(`${baseUrl}/api/projects/taskassignroute/task-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_type: "TASK_CREATE",
+        from_agent: "dev",
+        from_session_id: sessionPayload.session.sessionId,
+        task_id: "dev-self-task",
+        task_kind: "EXECUTION",
+        parent_task_id: "user-root-1",
+        root_task_id: "user-root-1",
+        title: "Dev self task",
+        owner_role: "dev"
+      })
+    });
+    assert.equal(selfAssign.status, 201);
+    const selfAssignPayload = (await selfAssign.json()) as { success?: boolean; taskId?: string };
+    assert.equal(selfAssignPayload.success, true);
+    assert.equal(selfAssignPayload.taskId, "dev-self-task");
+  } finally {
+    await serverHandle.close();
+  }
+});
+
 test("task-actions create task tree and TASK_REPORT enforces progress validation", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "autodev-task-actions-"));
   const dataRoot = path.join(tempRoot, "data");

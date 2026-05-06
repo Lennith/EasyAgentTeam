@@ -15,6 +15,7 @@ function buildWorkflowExecutionContract(context: WorkflowDispatchPromptContext):
     "Execute immediately and produce concrete progress/artifacts.",
     "Shared deliverables must be written under TeamWorkSpace/docs/** or TeamWorkSpace/src/** (not only inside YourWorkspace).",
     "Use TeamTool task actions from the runtime tool registry only (task_create_assign / task_report_* / discuss_*).",
+    "When task_assign_route_table is configured, task_create_assign must target an allowed owner role; self-assignment also requires an explicit self edge.",
     ...buildFocusTaskExecutionContractLines(),
     "If blocked, report BLOCKED_DEP with concrete blockers.",
     "On completion, report DONE for the phase task, not only subtasks.",

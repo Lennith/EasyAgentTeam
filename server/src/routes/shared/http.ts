@@ -392,7 +392,9 @@ export function resolveTaskActionNextAction(code: string): string | null {
     case "TASK_BINDING_REQUIRED":
       return "Fill required task binding fields (task_id, owner_role, or discuss target).";
     case "TASK_ROUTE_DENIED":
-      return "Choose an allowed route target or request route-table update.";
+      return "For TASK_CREATE/TASK_ASSIGN, choose an owner_role allowed by task_assign_route_table. For discuss actions, choose a route target allowed by route_table.";
+    case "TASK_ASSIGN_ROUTE_DENIED":
+      return "Choose an owner_role allowed by task_assign_route_table, discuss with an authorized role, or execute and report on your current focus task.";
     case "TASK_EXISTS":
       return buildTaskExistsNextAction();
     case "TASK_REPORT_NO_STATE_CHANGE":

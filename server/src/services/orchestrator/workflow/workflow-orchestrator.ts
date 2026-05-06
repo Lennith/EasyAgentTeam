@@ -48,6 +48,7 @@ export class WorkflowRuntimeError extends Error {
       | "TASK_OWNER_ROLE_NOT_FOUND"
       | "TASK_DEPENDENCY_NOT_READY"
       | "TASK_EXISTS"
+      | "TASK_ASSIGN_ROUTE_DENIED"
       | "TASK_DEPENDENCY_ANCESTOR_FORBIDDEN",
     public readonly status: number = 400,
     public readonly nextAction?: string,

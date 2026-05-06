@@ -553,18 +553,21 @@ export function isTaskAssignRouteAllowed(
   fromAgentId: string,
   toAgentId: string
 ): boolean {
-  if (!isProjectRouteAllowed(project, fromAgentId, toAgentId)) {
-    return false;
-  }
-  if (!project.taskAssignRouteTable || Object.keys(project.taskAssignRouteTable).length === 0) {
-    return true;
-  }
   const fromAgent = normalizeAgentId(fromAgentId);
   const toAgent = normalizeAgentId(toAgentId);
+  if (!toAgent) {
+    return false;
+  }
+  if (toAgent === "manager" || toAgent === "dashboard" || toAgent === "user" || toAgent === "system") {
+    return true;
+  }
+  if (!isProjectAgentEnabled(project, toAgent)) {
+    return false;
+  }
   if (!fromAgent || fromAgent === "manager" || fromAgent === "dashboard" || fromAgent === "user" || fromAgent === "system") {
     return true;
   }
-  if (!toAgent || toAgent === "manager" || toAgent === "dashboard" || toAgent === "user" || toAgent === "system") {
+  if (!project.taskAssignRouteTable || Object.keys(project.taskAssignRouteTable).length === 0) {
     return true;
   }
   const allowedTargets = project.taskAssignRouteTable[fromAgent] ?? [];
@@ -577,9 +580,25 @@ export function validateTaskAssignRouteSubset(
 ): { valid: boolean; violations: string[] } {
   const violations: string[] = [];
   for (const [fromAgent, targets] of Object.entries(taskAssignRouteTable)) {
+    const normalizedFromAgent = normalizeAgentId(fromAgent);
+    if (!normalizedFromAgent) {
+      violations.push(`${fromAgent} is not a valid source role`);
+      continue;
+    }
     for (const toAgent of targets) {
-      if (!isProjectRouteAllowed(project, fromAgent, toAgent)) {
-        violations.push(`${fromAgent} -> ${toAgent} is not allowed by project route table`);
+      const normalizedToAgent = normalizeAgentId(toAgent);
+      if (!normalizedToAgent) {
+        violations.push(`${fromAgent} -> ${toAgent} has invalid target role`);
+        continue;
+      }
+      if (
+        normalizedToAgent !== "manager" &&
+        normalizedToAgent !== "dashboard" &&
+        normalizedToAgent !== "user" &&
+        normalizedToAgent !== "system" &&
+        !isProjectAgentEnabled(project, normalizedToAgent)
+      ) {
+        violations.push(`${fromAgent} -> ${toAgent} target role is not enabled in project`);
       }
     }
   }
@@ -679,7 +698,7 @@ export async function updateTaskAssignRouting(
   const validation = validateTaskAssignRouteSubset(project, taskAssignRouteTable);
   if (!validation.valid) {
     throw new ProjectStoreError(
-      `task assign route table must be subset of project route table: ${validation.violations.join("; ")}`,
+      `task assign route table contains roles outside this project: ${validation.violations.join("; ")}`,
       "INVALID_ROUTE_TABLE"
     );
   }

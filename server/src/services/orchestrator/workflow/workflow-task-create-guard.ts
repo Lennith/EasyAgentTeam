@@ -2,7 +2,11 @@ import type { WorkflowTaskActionResult } from "../../../domain/models.js";
 import type { WorkflowRepositoryBundle } from "../../../data/repository/workflow/repository-bundle.js";
 import { resolveWorkflowRunRoleScope } from "../../workflow-role-scope-service.js";
 import { buildRouteTargetsGuidance, buildTaskExistsNextAction } from "../../teamtool-contract.js";
-import { collectWorkflowAncestorTaskIds, mergeWorkflowDependencies } from "./workflow-dispatch-policy.js";
+import {
+  collectWorkflowAncestorTaskIds,
+  hasWorkflowTaskAssignPermission,
+  mergeWorkflowDependencies
+} from "./workflow-dispatch-policy.js";
 import type { WorkflowTaskActionPipelineState } from "./workflow-task-action-types.js";
 
 export type WorkflowTaskCreateMutableState = WorkflowTaskActionPipelineState & {
@@ -74,6 +78,24 @@ export async function authorizeWorkflowTaskCreateState<TState extends WorkflowTa
       {
         owner_role: state.ownerRole,
         available_roles: roleScope.enabledAgents
+      }
+    );
+  }
+
+  if (!hasWorkflowTaskAssignPermission(state.currentRun, state.input.fromAgent?.trim() || "manager", state.ownerRole)) {
+    throw createRuntimeError(
+      `task assign route denied: ${state.input.fromAgent?.trim() || "manager"} -> ${state.ownerRole}`,
+      "TASK_ASSIGN_ROUTE_DENIED",
+      409,
+      [
+        "TASK_CREATE is only allowed for owner roles listed in task_assign_route_table.",
+        "If you already own the focus task, execute and report on that task instead of creating a child task.",
+        "Otherwise discuss with an authorized role or choose an allowed owner_role."
+      ].join(" "),
+      {
+        from_agent: state.input.fromAgent?.trim() || "manager",
+        owner_role: state.ownerRole,
+        allowed_owner_roles: state.currentRun.taskAssignRouteTable?.[state.input.fromAgent?.trim() || "manager"] ?? []
       }
     );
   }

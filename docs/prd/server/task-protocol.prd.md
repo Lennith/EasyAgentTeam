@@ -1,4 +1,4 @@
-﻿# 任务协议 PRD（最后更新：2026-04-17）
+﻿# 任务协议 PRD（最后更新：2026-05-06）
 
 ## 状态
 
@@ -17,6 +17,9 @@
 - 讨论请求、回复、关闭
 - 进行中、完成、阻塞三类报告
 - 依赖未满足时拒绝不合法终态推进
+- task assign 路由独立于普通 message/discuss 路由；`TASK_CREATE` / `TASK_ASSIGN` 只按 `task_assign_route_table` 判断可指派 owner role
+- `task_assign_route_table` 缺失或为空时保持兼容允许；配置后普通 agent 只能给显式允许的目标角色指派任务，自指派也必须显式配置自身角色
+- 系统来源 `manager`、`dashboard`、`system`、`user` 保持任务指派特权
 
 ## 当前公开路径
 

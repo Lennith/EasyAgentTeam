@@ -8,6 +8,28 @@ export function hasWorkflowRoutePermission(run: WorkflowRunRecord, fromAgent: st
   return Array.isArray(table[fromAgent]) && table[fromAgent].includes(toRole);
 }
 
+export function hasWorkflowTaskAssignPermission(run: WorkflowRunRecord, fromAgent: string, ownerRole: string): boolean {
+  const normalizedFromAgent = fromAgent.trim();
+  const normalizedOwnerRole = ownerRole.trim();
+  if (!normalizedOwnerRole) {
+    return false;
+  }
+  if (
+    !normalizedFromAgent ||
+    normalizedFromAgent === "manager" ||
+    normalizedFromAgent === "dashboard" ||
+    normalizedFromAgent === "system" ||
+    normalizedFromAgent === "user"
+  ) {
+    return true;
+  }
+  const table = run.taskAssignRouteTable;
+  if (!table || Object.keys(table).length === 0) {
+    return true;
+  }
+  return Array.isArray(table[normalizedFromAgent]) && table[normalizedFromAgent].includes(normalizedOwnerRole);
+}
+
 export function mergeWorkflowDependencies(parentDependencies: string[], explicitDependencies: string[]): string[] {
   const merged: string[] = [];
   const seen = new Set<string>();

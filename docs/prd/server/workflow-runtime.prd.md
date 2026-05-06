@@ -1,4 +1,4 @@
-﻿# Workflow Runtime PRD（最后更新：2026-04-23）
+﻿# Workflow Runtime PRD（最后更新：2026-05-06）
 
 ## 状态
 
@@ -21,6 +21,9 @@ Workflow Runtime 负责模板定义、运行实例、角色会话、任务运行
 - `clearRunScopedState()` 会提升 run scoped mutation generation；已经开始执行的 mutation 不被强杀，尚在等待旧 tail 的 pending mutation 会被拒绝，避免旧 generation 写入 clear 之后的新状态
 - workflow dispatch pre-dispatch session touch 失败必须留下结构化日志，不允许静默吞掉
 - workflow dispatch 使用独立 durable dispatch lease index；未过期的 `open|closing|retrying` lease 作为活跃 dispatch 并发权威，launch 前必须原子预占 lease，进程内 single-flight 只作为 launch gate，重启/周期恢复扫描 running session、open dispatch event 与 lease 后进入关闭、重试或 cooldown 收口
+- workflow `TASK_CREATE` 的 owner role 授权由 `taskAssignRouteTable` 控制；普通 `routeTable` 只控制 message/discuss 路由，不参与任务指派授权
+- `taskAssignRouteTable` 缺失或为空时保持兼容，允许当前 run 角色之间创建任务；一旦配置该表，普通 agent 只能给表中显式列出的 owner role 创建任务，自指派也必须显式配置
+- `manager`、`dashboard`、`system`、`user` 作为系统来源保持任务创建特权，不受 `taskAssignRouteTable` 限制
 
 ## 当前公开路径
 
